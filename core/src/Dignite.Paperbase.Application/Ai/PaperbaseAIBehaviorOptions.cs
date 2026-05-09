@@ -69,4 +69,10 @@ public class PaperbaseAIBehaviorOptions
     /// 超出时截断尾部（文档开头通常已包含标题、摘要等关键信息）。
     /// </summary>
     public int MaxTitleGenerationMarkdownLength { get; set; } = 4000;
+
+    /// <summary>
+    /// Document-chat 会话上下文压缩策略。默认关闭，opt-in。详见
+    /// <see cref="ChatCompactionOptions"/>。
+    /// </summary>
+    public ChatCompactionOptions ChatCompaction { get; set; } = new();
 }

@@ -1,4 +1,5 @@
 using System;
+using Dignite.Paperbase.Ai;
 using Dignite.Paperbase.Documents;
 using Dignite.Paperbase.EntityFrameworkCore;
 using Dignite.Paperbase.KnowledgeIndex;
@@ -49,6 +50,13 @@ public class DocumentChatAppServiceTestModule : AbpModule
         context.Services.AddSingleton(Substitute.For<IDocumentKnowledgeIndex>());
         context.Services.AddSingleton(Substitute.For<IChatClient>());
         context.Services.AddSingleton(Substitute.For<IEmbeddingGenerator<string, Embedding<float>>>());
+
+        // Summarizer client for ChatCompactionStrategyFactory. ChatCompactionOptions
+        // defaults to disabled, so no test reaches the summarizer — registration just
+        // satisfies [FromKeyedServices] DI resolution at AppService activation.
+        context.Services.AddKeyedSingleton(
+            PaperbaseAIConsts.SummarizerChatClientKey,
+            Substitute.For<IChatClient>());
     }
 
     private static SqliteConnection CreateDatabaseAndGetConnection()

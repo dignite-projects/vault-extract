@@ -1,3 +1,4 @@
+using Dignite.Paperbase.Ai;
 using Dignite.Paperbase.Contracts;
 using Dignite.Paperbase.Contracts.EntityFrameworkCore;
 using Dignite.Paperbase.Host.Data;
@@ -414,6 +415,20 @@ public class PaperbaseHostModule : AbpModule
         // (turn.degraded counter, tool.result.size histogram, business audit log).
         chatBuilder.UseOpenTelemetry();
         chatBuilder.UseLogging();
+
+        // Summarizer chat client: separate keyed registration consumed by
+        // ChatCompactionStrategyFactory's SummarizationCompactionStrategy. Falls back to
+        // the primary ChatModelId when SummarizerModelId is unset so the factory always
+        // resolves a client even on hosts that don't configure compaction.
+        // No UseFunctionInvocation / UseDistributedCache (single-shot summary, no tools,
+        // negligible cache hit rate); OTel + Logging stay so summarizer cost is observable.
+        var summarizerModelId = configuration["PaperbaseAI:SummarizerModelId"]
+            ?? configuration["PaperbaseAI:ChatModelId"]!;
+        context.Services.AddKeyedChatClient(
+            PaperbaseAIConsts.SummarizerChatClientKey,
+            _ => openAIClient.GetChatClient(summarizerModelId).AsIChatClient())
+            .UseOpenTelemetry()
+            .UseLogging();
 
         context.Services
             .AddEmbeddingGenerator(_ => openAIClient
