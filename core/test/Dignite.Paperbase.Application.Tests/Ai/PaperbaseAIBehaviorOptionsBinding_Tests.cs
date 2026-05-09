@@ -30,6 +30,9 @@ public class PaperbaseAIBehaviorOptionsBindingTestModule : AbpModule
                 ["PaperbaseAIBehavior:EnableLlmRerank"] = "true",
                 ["PaperbaseAIBehavior:RecallExpandFactor"] = "7",
                 ["PaperbaseAIBehavior:DocumentChatMinScore"] = "0.44",
+                ["PaperbaseAIBehavior:ChatCompaction:Enabled"] = "true",
+                ["PaperbaseAIBehavior:ChatCompaction:SummarizeAtTokens"] = "2048",
+                ["PaperbaseAIBehavior:ChatCompaction:SlidingWindowTurns"] = "12",
             })
             .Build();
 
@@ -62,6 +65,9 @@ public class PaperbaseAIBehaviorOptionsBinding_Tests
         _options.EnableLlmRerank.ShouldBeTrue();                              // default false
         _options.RecallExpandFactor.ShouldBe(7);                              // default 4
         _options.DocumentChatMinScore.ShouldBe(0.44);                         // default 0.45
+        _options.ChatCompaction.Enabled.ShouldBeTrue();                       // default false
+        _options.ChatCompaction.SummarizeAtTokens.ShouldBe(2048);             // default 1280
+        _options.ChatCompaction.SlidingWindowTurns.ShouldBe(12);              // default 8
     }
 
     [Fact]
@@ -76,5 +82,9 @@ public class PaperbaseAIBehaviorOptionsBinding_Tests
         _options.ChunkOverlap.ShouldBe(100);
         _options.ChunkBoundaryTolerance.ShouldBe(120);
         _options.MaxTitleGenerationMarkdownLength.ShouldBe(4000);
+        // Compaction sub-options not set explicitly — class defaults must persist:
+        _options.ChatCompaction.CollapseToolResultsAtTokens.ShouldBe(0x200);
+        _options.ChatCompaction.TruncateAtTokens.ShouldBe(0x8000);
+        _options.ChatCompaction.MinimumPreservedGroups.ShouldBe(4);
     }
 }

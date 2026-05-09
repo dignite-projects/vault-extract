@@ -11,6 +11,7 @@ using System.Threading.Channels;
 using System.Threading.Tasks;
 using Dignite.Paperbase.Abstractions.Chat;
 using Dignite.Paperbase.Ai;
+using Dignite.Paperbase.Chat.Compaction;
 using Dignite.Paperbase.Chat.Search;
 using Dignite.Paperbase.Chat.Telemetry;
 using Dignite.Paperbase.Documents;
@@ -62,6 +63,7 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
     private readonly IEnumerable<IDocumentChatToolContributor> _toolContributors;
     private readonly IDocumentChatToolFactory _toolFactory;
     private readonly DocumentChatTelemetryRecorder _telemetryRecorder;
+    private readonly ChatCompactionStrategyFactory _compactionFactory;
 
     public DocumentChatAppService(
         IChatConversationRepository conversationRepository,
@@ -73,7 +75,8 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
         IOptions<PaperbaseAIBehaviorOptions> aiOptions,
         IEnumerable<IDocumentChatToolContributor> toolContributors,
         IDocumentChatToolFactory toolFactory,
-        DocumentChatTelemetryRecorder telemetryRecorder)
+        DocumentChatTelemetryRecorder telemetryRecorder,
+        ChatCompactionStrategyFactory compactionFactory)
     {
         _conversationRepository = conversationRepository;
         _documentRepository = documentRepository;
@@ -85,6 +88,7 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
         _toolContributors = toolContributors;
         _toolFactory = toolFactory;
         _telemetryRecorder = telemetryRecorder;
+        _compactionFactory = compactionFactory;
     }
 
     [Authorize(PaperbasePermissions.Documents.Chat.Create)]
@@ -406,6 +410,12 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
         {
             UseProvidedChatClientAsIs = true,
             ChatHistoryProvider = _historyProvider,
+            // CompactionProvider runs once per turn (after ChatHistoryProvider prepends
+            // history, before tool-calling starts) — bounded, predictable cost. Doc note
+            // about "summary leaks into stored history" is moot here because our
+            // StoreChatHistoryAsync is no-op (persistence owned by ChatConversation
+            // aggregate). Null when ChatCompaction.Enabled = false: zero overhead.
+            AIContextProviders = BuildContextProviders(),
             ChatOptions = new ChatOptions
             {
                 Instructions = instructions,
@@ -425,6 +435,21 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
             new DocumentChatSessionState(conversation.Id));
 
         return new AgentSetup(agent, session, capture);
+    }
+
+    /// <summary>
+    /// Builds the agent-level <see cref="AIContextProvider"/> list. Returns
+    /// <see langword="null"/> when no providers are active so MAF skips the pipeline
+    /// entirely — keeps the no-compaction path identical to pre-compaction wiring.
+    /// </summary>
+    protected virtual IList<AIContextProvider>? BuildContextProviders()
+    {
+        var compaction = _compactionFactory.CreateProvider();
+        if (compaction is null)
+        {
+            return null;
+        }
+        return new List<AIContextProvider> { compaction };
     }
 
     /// <summary>
