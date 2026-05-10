@@ -8,7 +8,6 @@ using Volo.Abp;
 using Volo.Abp.DependencyInjection;
 using Volo.Abp.Domain.Services;
 using Volo.Abp.Guids;
-using Volo.Abp.MultiTenancy;
 
 namespace Dignite.Paperbase.Documents.Pipelines.RelationDiscovery;
 
@@ -46,16 +45,20 @@ public class RelationDiscoveryService : DomainService
 
     private readonly IEnumerable<IDocumentIdentifierProvider> _providers;
     private readonly IDocumentRelationRepository _relationRepository;
-    private readonly ICurrentTenant _currentTenant;
+    private readonly IDocumentRepository _documentRepository;
 
+    // No ICurrentTenant injection (Issue #121): tenant flows through Document.TenantId
+    // (loaded from the source document at the start of DiscoverAsync). Background jobs may
+    // run without an ambient ICurrentTenant restored — explicit Document-derived tenant is
+    // Hangfire-safe and matches L3's strategy in SemanticRelationDiscoveryService.
     public RelationDiscoveryService(
         IEnumerable<IDocumentIdentifierProvider> providers,
         IDocumentRelationRepository relationRepository,
-        ICurrentTenant currentTenant)
+        IDocumentRepository documentRepository)
     {
         _providers = providers;
         _relationRepository = relationRepository;
-        _currentTenant = currentTenant;
+        _documentRepository = documentRepository;
     }
 
     /// <summary>
@@ -70,6 +73,18 @@ public class RelationDiscoveryService : DomainService
         {
             throw new ArgumentException("Source document id required.", nameof(sourceDocumentId));
         }
+
+        // Phase 0: load source to capture authoritative TenantId (Issue #121).
+        // Document hard-deleted between event publish and L2 execution → drop silently.
+        var source = await _documentRepository.FindAsync(sourceDocumentId, cancellationToken: cancellationToken);
+        if (source == null)
+        {
+            Logger.LogInformation(
+                "L2 RelationDiscovery: document {DocumentId} no longer exists; skipping",
+                sourceDocumentId);
+            return Array.Empty<DocumentRelation>();
+        }
+        var sourceTenantId = source.TenantId;
 
         // Phase 1: collect all identifiers held by source document across all providers.
         var sourceIdentifiers = await CollectSourceIdentifiersAsync(sourceDocumentId, cancellationToken);
@@ -102,9 +117,12 @@ public class RelationDiscoveryService : DomainService
             if (alreadyLinked.Contains(peer.PeerDocumentId)) continue;
 
             var description = $"Identifier match: {peer.IdentifierType} = {peer.IdentifierValue}";
+            // TenantId from source.TenantId (Hangfire-safe, Issue #121). Source and peers
+            // must be in the same tenant: providers query through ABP's IMultiTenant filter
+            // which scopes by ambient or by source — peers never cross tenant by design.
             var relation = new DocumentRelation(
                 GuidGenerator.Create(),
-                _currentTenant.Id,
+                sourceTenantId,
                 sourceDocumentId: sourceDocumentId,
                 targetDocumentId: peer.PeerDocumentId,
                 description: description,

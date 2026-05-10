@@ -30,10 +30,11 @@ public class RelationDiscoveryBackgroundJobTestModule : AbpModule
         // Replace RelationDiscoveryService entirely — this test only verifies the JOB's
         // PipelineRun lifecycle wiring, not the discovery logic (covered separately by
         // RelationDiscoveryService_Tests).
+        // Issue #121: L2 ctor now takes IDocumentRepository instead of ICurrentTenant.
         context.Services.AddSingleton(Substitute.For<RelationDiscoveryService>(
             Array.Empty<IDocumentIdentifierProvider>(),
             Substitute.For<IDocumentRelationRepository>(),
-            Substitute.For<ICurrentTenant>()));
+            Substitute.For<IDocumentRepository>()));
 
         // Same treatment for L3 — substitute so this test stays focused on the job's lifecycle
         // and L2 → L3 fallback chaining; L3's own logic is covered by SemanticRelationDiscoveryService_Tests.
