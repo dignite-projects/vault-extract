@@ -40,12 +40,23 @@ public class DocumentChatToolFactory : IDocumentChatToolFactory, ITransientDepen
         _recorder = recorder;
     }
 
+    // Issue #130: split into two overloads (mirroring the interface) so external
+    // implementers compiled against the pre-#129 interface still bind. The 4-arg
+    // is the original required member; the 5-arg is the opt-in describer-aware
+    // overload introduced for #116.
+    public virtual AIFunction Create(
+        DocumentChatToolContext ctx,
+        Delegate method,
+        string name,
+        string description)
+        => Create(ctx, method, name, description, progressDescriber: null);
+
     public virtual AIFunction Create(
         DocumentChatToolContext ctx,
         Delegate method,
         string name,
         string description,
-        Func<IReadOnlyDictionary<string, object?>, string?>? progressDescriber = null)
+        Func<IReadOnlyDictionary<string, object?>, string?>? progressDescriber)
     {
         var inner = AIFunctionFactory.Create(method, name, description);
         return new AuditedDocumentChatFunction(inner, ctx, _recorder, progressDescriber);

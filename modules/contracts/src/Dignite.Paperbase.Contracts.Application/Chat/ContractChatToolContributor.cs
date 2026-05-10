@@ -96,31 +96,37 @@ public class ContractChatToolContributor : IDocumentChatToolContributor, ITransi
             progressDescriber: DescribeAggregate);
     }
 
+    // Issue #130 (Codex review of #129): the previous implementations echoed raw
+    // model-controlled `partyName` / `contractNumber` values into user-facing SSE
+    // text. ToolCallStarted is emitted BEFORE the tool body's
+    // ContractsPermissions.Contracts.Default check runs, so a user without that
+    // permission could still observe contract-specific reflected text — and a
+    // prompt-injected / hallucinated value would round-trip back to the UI.
+    //
+    // Until we add a separate post-authorization event type that's safe to
+    // populate from real arguments, pre-execution descriptions stay generic and
+    // never reflect anything from `arguments`. Filter shape (which field the
+    // model chose) is also model-controlled but carries no value content.
     private static string DescribeSearch(IReadOnlyDictionary<string, object?> arguments)
     {
-        var party = TryGetString(arguments, "partyName");
-        var contractNumber = TryGetString(arguments, "contractNumber");
+        var hasParty = !string.IsNullOrEmpty(TryGetString(arguments, "partyName"));
+        var hasContractNumber = !string.IsNullOrEmpty(TryGetString(arguments, "contractNumber"));
 
-        if (!string.IsNullOrEmpty(party))
+        if (hasParty)
         {
-            return $"正在按甲方 \"{party}\" 查找合同…";
+            return "正在按甲方筛选合同…";
         }
 
-        if (!string.IsNullOrEmpty(contractNumber))
+        if (hasContractNumber)
         {
-            return $"正在按合同号 \"{contractNumber}\" 查找合同…";
+            return "正在按合同号查找合同…";
         }
 
         return "正在按条件筛选合同…";
     }
 
     private static string DescribeAggregate(IReadOnlyDictionary<string, object?> arguments)
-    {
-        var party = TryGetString(arguments, "partyName");
-        return string.IsNullOrEmpty(party)
-            ? "正在统计合同金额…"
-            : $"正在统计 \"{party}\" 的合同金额…";
-    }
+        => "正在统计合同金额…";
 
     private static string? TryGetString(IReadOnlyDictionary<string, object?> arguments, string key)
         => arguments.TryGetValue(key, out var value) ? value?.ToString() : null;
