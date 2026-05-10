@@ -133,8 +133,19 @@ public class RelationDiscoveryService : DomainService
         var entries = new List<DocumentIdentifierEntry>();
         foreach (var provider in _providers)
         {
-            var fromProvider = await provider.GetIdentifiersAsync(documentId, ct);
-            entries.AddRange(fromProvider);
+            // Provider isolation: one buggy module must not tank the whole L2 discovery.
+            // OperationCanceledException re-thrown so cancellation is honored.
+            try
+            {
+                var fromProvider = await provider.GetIdentifiersAsync(documentId, ct);
+                entries.AddRange(fromProvider);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Logger.LogError(ex,
+                    "L2 RelationDiscovery: provider {Provider} threw in GetIdentifiersAsync({DocumentId}); skipping its contribution",
+                    provider.GetType().FullName, documentId);
+            }
         }
 
         // De-duplicate (type, value) pairs — two providers could in principle report
@@ -157,7 +168,19 @@ public class RelationDiscoveryService : DomainService
 
             foreach (var provider in supportingProviders)
             {
-                var found = await provider.FindDocumentsAsync(identifier.Type, identifier.Value, ct);
+                IReadOnlyList<Guid> found;
+                try
+                {
+                    found = await provider.FindDocumentsAsync(identifier.Type, identifier.Value, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    Logger.LogError(ex,
+                        "L2 RelationDiscovery: provider {Provider} threw in FindDocumentsAsync({Type}, {Value}); skipping",
+                        provider.GetType().FullName, identifier.Type, identifier.Value);
+                    continue;
+                }
+
                 foreach (var peerId in found)
                 {
                     if (peerId == sourceDocumentId) continue;          // Self-match

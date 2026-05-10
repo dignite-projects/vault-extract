@@ -173,6 +173,80 @@ public class RelationDiscoveryService_Tests
     }
 
     [Fact]
+    public async Task DiscoverAsync_Should_Skip_Peers_Already_Linked_Via_AiSuggested()
+    {
+        // Symmetric to the Manual-skip test: AiSuggested relations are also "existing"
+        // and L2 must not duplicate them on re-runs (idempotency).
+        var sourceDocId = Guid.NewGuid();
+        var alreadyAiLinkedPeer = Guid.NewGuid();
+
+        _contractProvider.Identifiers[sourceDocId] = new[]
+        {
+            new DocumentIdentifierEntry(DocumentIdentifierTypes.ContractNumber, "HT-IDEMPOTENT")
+        };
+        _invoiceProvider.Lookup[(DocumentIdentifierTypes.ContractNumber, "HT-IDEMPOTENT")]
+            = new[] { alreadyAiLinkedPeer };
+
+        _relationRepository.GetListByDocumentIdAsync(sourceDocId, Arg.Any<CancellationToken>())
+            .Returns(new List<DocumentRelation>
+            {
+                CreateExistingRelation(sourceDocId, alreadyAiLinkedPeer, RelationSource.AiSuggested)
+            });
+
+        var created = await _service.DiscoverAsync(sourceDocId);
+
+        created.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_Should_Continue_When_One_Provider_Throws_In_GetIdentifiers()
+    {
+        // Provider isolation: a buggy module must not tank L2 for the whole document.
+        // Contract provider throws; invoice provider's contribution should still go through.
+        var sourceDocId = Guid.NewGuid();
+        var peerDocId = Guid.NewGuid();
+
+        _contractProvider.GetIdentifiersThrowsFor.Add(sourceDocId);
+        _invoiceProvider.Identifiers[sourceDocId] = new[]
+        {
+            new DocumentIdentifierEntry(DocumentIdentifierTypes.InvoiceNumber, "INV-RESILIENT")
+        };
+        _invoiceProvider.Lookup[(DocumentIdentifierTypes.InvoiceNumber, "INV-RESILIENT")] = new[] { peerDocId };
+
+        _relationRepository.GetListByDocumentIdAsync(sourceDocId, Arg.Any<CancellationToken>())
+            .Returns(new List<DocumentRelation>());
+
+        var created = await _service.DiscoverAsync(sourceDocId);
+
+        created.Count.ShouldBe(1);
+        created.Single().TargetDocumentId.ShouldBe(peerDocId);
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_Should_Continue_When_One_Provider_Throws_In_FindDocuments()
+    {
+        // Same isolation contract on the reverse-lookup side.
+        var sourceDocId = Guid.NewGuid();
+        var peerDocId = Guid.NewGuid();
+
+        _contractProvider.Identifiers[sourceDocId] = new[]
+        {
+            new DocumentIdentifierEntry(DocumentIdentifierTypes.ContractNumber, "HT-RESILIENT")
+        };
+        _contractProvider.FindDocumentsThrowsFor.Add((DocumentIdentifierTypes.ContractNumber, "HT-RESILIENT"));
+        // Invoice provider succeeds for the same identifier — peer should still surface.
+        _invoiceProvider.Lookup[(DocumentIdentifierTypes.ContractNumber, "HT-RESILIENT")] = new[] { peerDocId };
+
+        _relationRepository.GetListByDocumentIdAsync(sourceDocId, Arg.Any<CancellationToken>())
+            .Returns(new List<DocumentRelation>());
+
+        var created = await _service.DiscoverAsync(sourceDocId);
+
+        created.Count.ShouldBe(1);
+        created.Single().TargetDocumentId.ShouldBe(peerDocId);
+    }
+
+    [Fact]
     public async Task DiscoverAsync_Should_Skip_Providers_That_Do_Not_Support_Identifier_Type()
     {
         var sourceDocId = Guid.NewGuid();
@@ -223,13 +297,22 @@ internal sealed class FakeContractProvider : IDocumentIdentifierProvider
     public Dictionary<Guid, IReadOnlyList<DocumentIdentifierEntry>> Identifiers { get; } = new();
     public Dictionary<(string Type, string Value), IReadOnlyList<Guid>> Lookup { get; } = new();
     public List<(string Type, string Value)> FindCalls { get; } = new();
+    // Failure-injection knobs used by provider-isolation tests.
+    public HashSet<Guid> GetIdentifiersThrowsFor { get; } = new();
+    public HashSet<(string Type, string Value)> FindDocumentsThrowsFor { get; } = new();
 
     public Task<IReadOnlyList<DocumentIdentifierEntry>> GetIdentifiersAsync(Guid documentId, CancellationToken cancellationToken = default)
-        => Task.FromResult(Identifiers.TryGetValue(documentId, out var v) ? v : (IReadOnlyList<DocumentIdentifierEntry>)Array.Empty<DocumentIdentifierEntry>());
+    {
+        if (GetIdentifiersThrowsFor.Contains(documentId))
+            throw new InvalidOperationException("Simulated provider failure (GetIdentifiersAsync)");
+        return Task.FromResult(Identifiers.TryGetValue(documentId, out var v) ? v : (IReadOnlyList<DocumentIdentifierEntry>)Array.Empty<DocumentIdentifierEntry>());
+    }
 
     public Task<IReadOnlyList<Guid>> FindDocumentsAsync(string identifierType, string identifierValue, CancellationToken cancellationToken = default)
     {
         FindCalls.Add((identifierType, identifierValue));
+        if (FindDocumentsThrowsFor.Contains((identifierType, identifierValue)))
+            throw new InvalidOperationException("Simulated provider failure (FindDocumentsAsync)");
         return Task.FromResult(Lookup.TryGetValue((identifierType, identifierValue), out var v) ? v : (IReadOnlyList<Guid>)Array.Empty<Guid>());
     }
 }
