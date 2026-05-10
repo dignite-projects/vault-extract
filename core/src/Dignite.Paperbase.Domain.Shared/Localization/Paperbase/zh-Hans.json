@@ -30,6 +30,7 @@
     "Document:Pipeline:text-extraction": "文本提取",
     "Document:Pipeline:classification": "分类",
     "Document:Pipeline:embedding": "向量化",
+    "Document:Pipeline:relation-discovery": "关系发现",
     "Document:Pipeline:Attempt": "尝试",
     "Document:Pipeline:Status:Pending": "待执行",
     "Document:Pipeline:Status:Running": "执行中",

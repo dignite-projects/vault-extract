@@ -28,7 +28,16 @@ interface PipelineRow {
   run: DocumentPipelineRunDto | null;
 }
 
-const KNOWN_PIPELINE_CODES = ['text-extraction', 'classification', 'embedding'] as const;
+// Mirrors core/src/Dignite.Paperbase.Domain.Shared/Documents/PaperbasePipelines.cs.
+// 'relation-discovery' is the L2/L3 RelationDiscovery pipeline (Issue #115); not a key
+// pipeline (Document.LifecycleStatus is unaffected by its outcome) but operators want
+// to see whether L2 ran successfully and how many AiSuggested relations it produced.
+const KNOWN_PIPELINE_CODES = [
+  'text-extraction',
+  'classification',
+  'embedding',
+  'relation-discovery',
+] as const;
 
 @Component({
   selector: 'lib-document-detail',

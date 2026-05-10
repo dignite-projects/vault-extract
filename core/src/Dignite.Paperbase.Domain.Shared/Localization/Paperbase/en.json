@@ -60,6 +60,7 @@
     "Document:Pipeline:text-extraction": "Text Extraction",
     "Document:Pipeline:classification": "Classification",
     "Document:Pipeline:embedding": "Embedding",
+    "Document:Pipeline:relation-discovery": "Relation Discovery",
     "Document:Pipeline:Attempt": "Attempt",
     "Document:Pipeline:Status:Pending": "Pending",
     "Document:Pipeline:Status:Running": "Running",
