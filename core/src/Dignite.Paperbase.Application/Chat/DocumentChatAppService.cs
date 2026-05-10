@@ -94,10 +94,10 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
     [Authorize(PaperbasePermissions.Documents.Chat.Create)]
     public virtual async Task<ChatConversationDto> CreateConversationAsync(CreateChatConversationInput input)
     {
-        // Mutual-exclusion of DocumentId and DocumentTypeCode is enforced by
-        // CreateChatConversationInput.IValidatableObject.Validate via the
-        // ValidationInterceptor, which runs before this method body.
-
+        // Issue #100: DocumentTypeCode / TopK / MinScore are no longer pinned at
+        // creation; per-turn intent decides scope. DocumentId is retained as an
+        // anchor (UI grouping + per-turn system prompt hint), not a retrieval
+        // constraint.
         if (input.DocumentId.HasValue)
         {
             // Will throw EntityNotFoundException → 404 if missing or filtered out by tenant.
@@ -112,10 +112,7 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
             GuidGenerator.Create(),
             CurrentTenant.Id,
             title,
-            input.DocumentId,
-            string.IsNullOrWhiteSpace(input.DocumentTypeCode) ? null : input.DocumentTypeCode,
-            input.TopK,
-            input.MinScore);
+            input.DocumentId);
 
         await _conversationRepository.InsertAsync(conversation, autoSave: true);
         return ObjectMapper.Map<ChatConversation, ChatConversationDto>(conversation);
@@ -240,7 +237,8 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
             sw.Elapsed.TotalMilliseconds,
             isDegraded,
             citations.Count,
-            run.Capture.WasTruncated);
+            run.Capture.WasTruncated,
+            run.AnchorResolutionFailed);
 
         return new ChatTurnResultDto
         {
@@ -343,62 +341,62 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
     /// conversation. Shared by both the synchronous and streaming paths.
     ///
     /// <para>
-    /// Security invariant: <c>conversation.TenantId</c> and <c>conversation.DocumentTypeCode</c>
-    /// are read from the aggregate (loaded and authorized in <see cref="LoadAndAuthorizeAsync"/>),
-    /// never from <c>ICurrentTenant</c>. This preserves the fail-closed tenant assertion
-    /// in all code paths.
+    /// Security invariant: <c>conversation.TenantId</c> is read from the aggregate
+    /// (loaded and authorized in <see cref="LoadAndAuthorizeAsync"/>), never from
+    /// <c>ICurrentTenant</c>. The closure inside <see cref="DocumentTextSearchAdapter"/>
+    /// captures it and pins <see cref="VectorSearchRequest.TenantId"/> on every search —
+    /// the LLM cannot widen the tenant boundary via tool arguments.
+    /// </para>
+    /// <para>
+    /// Issue #100 removed the conversation-level <c>DocumentId / DocumentTypeCode /
+    /// TopK / MinScore</c> pinning. Per-turn defaults come from
+    /// <see cref="PaperbaseAIBehaviorOptions"/>; the model overrides them via the
+    /// <c>search_paperbase_documents</c> tool parameters when the question intent
+    /// calls for it (see <c>ChatInstructionsBuilder.MultiStepReasoningGuidance</c>).
     /// </para>
     /// </summary>
     protected virtual async Task<AgentSetup> PrepareAgentSetupAsync(
         ChatConversation conversation,
         CancellationToken cancellationToken = default)
     {
-        // Scope is built from the aggregate, not from ambient context — required so the
-        // search delegate closure captures the right tenant even on background threads.
-        //
-        // Document Chat uses a looser default than the provider-neutral knowledge-index
-        // default because cross-language queries and proper-noun lookups often score lower
-        // while still being valid hits. A per-conversation MinScore remains the strongest
-        // override; null falls through to the adapter's PaperbaseKnowledgeIndex fallback.
-        var effectiveMinScore = conversation.MinScore
-            ?? _aiOptions.DocumentChatMinScore;
-        var scope = new DocumentSearchScope
+        var defaultScope = new DocumentSearchScope
         {
-            DocumentId = conversation.DocumentId,
-            DocumentTypeCode = conversation.DocumentTypeCode,
-            TopK = conversation.TopK,
-            MinScore = effectiveMinScore
+            TopK = _aiOptions.DocumentChatTopK > 0 ? _aiOptions.DocumentChatTopK : null,
+            MinScore = _aiOptions.DocumentChatMinScore
         };
 
         var template = _promptProvider.GetQaPrompt(_aiOptions.DefaultLanguage);
-        var instructions = template.SystemInstructions + " " + PromptBoundary.BoundaryRule;
+        var anchorContext = await BuildAnchorContextAsync(conversation, cancellationToken);
+        var instructions = ChatInstructionsBuilder.Build(
+            baseInstructions: template.SystemInstructions,
+            boundaryRule: PromptBoundary.BoundaryRule,
+            anchorContext: anchorContext,
+            multiStepGuidance: ChatInstructionsBuilder.MultiStepReasoningGuidance);
 
-        // Single MAF tool-calling path: expose the RAG search function plus any business-module
-        // contributor tools, and let the model decide when (and with what query / documentIds)
-        // to invoke them. The previous always-inject mode produced "guaranteed" citations that
-        // the model often did not actually use; under tool calling, citations populate only when
-        // the model genuinely needed the context — the honest signal.
+        // Single MAF tool-calling path: expose the RAG search function plus EVERY
+        // business-module contributor's tools (Issue #100). Contributors are no longer
+        // filtered by the conversation's document type — cross-document reasoning
+        // requires that, e.g., search_contracts AND search_receipts are both available
+        // on a single turn. fail-closed safety remains enforced inside each tool body
+        // (see .claude/rules/doc-chat-anti-patterns.md reverse example C).
         //
         // Security note: function name and description are static string literals —
         // they MUST NOT contain user input or conversation metadata (prompt-injection risk).
-        // Bound the per-turn citation set so a pathological LLM retry loop or a
-        // very wide query cannot blow up the citations payload (or the Markdown
-        // assistant message it gets serialized into). Hits past the cap are dropped
-        // and surfaced via setup.Capture.WasTruncated → telemetry CitationsTrimmed.
         var capture = new DocumentSearchCapture(_aiOptions.MaxCapturedCitations);
         var toolContext = CreateToolContext(conversation);
         var searchFn = _textSearchAdapter.CreateSearchFunction(
             conversation.TenantId,
-            scope,
+            defaultScope,
             capture,
             toolContext,
             _toolFactory,
             functionName: ChatConsts.SearchPaperbaseDocumentsToolName,
             functionDescription:
-                "Search Paperbase documents within the conversation's scope. " +
-                "Returns relevant text chunks with source citations. " +
-                "Pass documentIds to restrict the search to specific documents " +
-                "whose IDs were returned by another tool.");
+                "Search Paperbase documents (vector). Returns top chunks with citations. " +
+                "Optional documentIds: restrict to specific document IDs returned by another tool — " +
+                "do not invent IDs from raw user input. " +
+                "Optional documentTypeCode: restrict to one type (e.g. 'contract.general', 'receipt.general'). " +
+                "Optional topK / minScore: override the configured defaults for this call (raise topK 10–15 for cross-document reconciliation).");
 
         var tools = new List<AITool> { searchFn };
         tools.AddRange(CollectContributorTools(conversation));
@@ -445,7 +443,12 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
             DocumentChatHistoryProvider.SessionStateKey,
             new DocumentChatSessionState(conversation.Id));
 
-        return new AgentSetup(agent, session, capture);
+        // Anchor resolution failed = caller asked for an anchor (DocumentId set on the
+        // conversation) but BuildAnchorContextAsync degraded for it. Surfaces to
+        // telemetry but does not block the turn — see reverse example E.
+        var anchorResolutionFailed = conversation.DocumentId.HasValue && string.IsNullOrEmpty(anchorContext);
+
+        return new AgentSetup(agent, session, capture, anchorResolutionFailed);
     }
 
     /// <summary>
@@ -464,10 +467,22 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
     }
 
     /// <summary>
-    /// Collects <see cref="AIFunction"/> tools from all <see cref="IDocumentChatToolContributor"/>
-    /// implementations whose <see cref="IDocumentChatToolContributor.DocumentTypeCode"/> matches
-    /// the conversation's document type.  Returns an empty list when no contributors match.
+    /// Collects <see cref="AIFunction"/> tools from <strong>every</strong> registered
+    /// <see cref="IDocumentChatToolContributor"/>. Issue #100 dropped the previous
+    /// per-conversation <c>DocumentTypeCode</c> filter: cross-document reasoning
+    /// requires that, e.g., search_contracts AND search_receipts are both available
+    /// on the same turn. <see cref="IDocumentChatToolContributor.DocumentTypeCode"/>
+    /// is now an informational hint, not a router. Contributors that need to scope
+    /// their behavior do so inside their tool bodies (with the standard fail-closed
+    /// permission/tenant assertions described in
+    /// <c>.claude/rules/doc-chat-anti-patterns.md</c> reverse example C).
     /// </summary>
+    /// <remarks>
+    /// <see cref="PaperbaseAIBehaviorOptions.MaxToolsPerTurn"/> is reserved for a
+    /// future trimming policy when the inventory grows past the LLM's routing sweet
+    /// spot (~15 tools); the current code intentionally does not enforce it so we
+    /// don't ship dead-code policy ahead of need.
+    /// </remarks>
     protected virtual List<AITool> CollectContributorTools(ChatConversation conversation)
     {
         if (!_toolContributors.Any())
@@ -476,7 +491,6 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
         var ctx = CreateToolContext(conversation);
 
         return _toolContributors
-            .Where(c => c.DocumentTypeCode == conversation.DocumentTypeCode)
             .SelectMany(c => c.ContributeTools(ctx, _toolFactory))
             .Cast<AITool>()
             .ToList();
@@ -485,12 +499,93 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
     protected virtual DocumentChatToolContext CreateToolContext(ChatConversation conversation)
         => new()
         {
-            DocumentTypeCode = conversation.DocumentTypeCode,
+            // Issue #100: scope is no longer pinned to the conversation. The hint
+            // remains nullable on DocumentChatToolContext for forward compatibility
+            // (e.g. when a future tool wants to log "anchor type" alongside its call),
+            // but the AppService no longer supplies one — anchor metadata is in the
+            // system prompt, not the tool context.
+            DocumentTypeCode = null,
             TenantId = conversation.TenantId,
             ConversationId = conversation.Id,
             DocumentId = conversation.DocumentId,
             UserId = CurrentUser.Id
         };
+
+    /// <summary>
+    /// Builds the per-turn anchor context block for the system prompt (Issue #100).
+    /// Re-asserts the caller's permission to read the anchor document on every turn —
+    /// users can lose <c>Documents.Default</c> between turns and the conversation
+    /// must keep working without leaking stale anchor metadata.
+    /// </summary>
+    /// <returns>
+    /// The wrapped anchor block ready to splice into the system prompt, or <c>null</c>
+    /// when there is no anchor or the lookup degraded. Callers MUST treat <c>null</c>
+    /// as "no anchor" and continue the turn — Issue #100 reverse example E forbids
+    /// throwing here (would break long-lived conversations after permission drift).
+    /// </returns>
+    /// <remarks>
+    /// SECURITY: the rendered block intentionally contains only the anchor's
+    /// <c>id</c> and <c>DocumentTypeCode</c> — NOT <c>Title</c>, <c>Markdown</c>, or
+    /// any other user-controlled field. <c>Title</c> is set by the uploader and would
+    /// re-introduce the prompt-injection vector that reverse example C #4 already
+    /// prohibits in tool descriptions.
+    /// </remarks>
+    protected virtual async Task<string?> BuildAnchorContextAsync(
+        ChatConversation conversation,
+        CancellationToken cancellationToken = default)
+    {
+        if (!conversation.DocumentId.HasValue)
+            return null;
+
+        Document? document = null;
+        try
+        {
+            document = await _documentRepository.FindAsync(
+                conversation.DocumentId.Value,
+                cancellationToken: cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Anchor lookup is best-effort — never fail the turn for it. Reverse
+            // example E covers this: the user might have just lost access between
+            // turns, or the document might have been hard-deleted.
+            Logger.LogWarning(ex,
+                "doc-chat anchor lookup threw; degrading. ConversationId={ConversationId} DocumentId={DocumentId}",
+                conversation.Id, conversation.DocumentId.Value);
+        }
+
+        // Defense-in-depth: even if ABP's IMultiTenant filter usually scopes FindAsync
+        // by CurrentTenant, a code path that disables the filter must not leak a
+        // cross-tenant anchor. Drop with the same "anchor unavailable" treatment.
+        if (document != null && document.TenantId != conversation.TenantId)
+        {
+            document = null;
+        }
+
+        var hasReadPermission = await AuthorizationService.IsGrantedAsync(PaperbasePermissions.Documents.Default);
+
+        if (document == null || !hasReadPermission)
+        {
+            Logger.LogInformation(
+                "doc-chat anchor unavailable; turn proceeds without anchor. ConversationId={ConversationId} DocumentId={DocumentId} Missing={Missing} Permitted={Permitted}",
+                conversation.Id,
+                conversation.DocumentId.Value,
+                document == null,
+                hasReadPermission);
+            return null;
+        }
+
+        var typeCode = string.IsNullOrEmpty(document.DocumentTypeCode)
+            ? "(unclassified)"
+            : document.DocumentTypeCode;
+
+        var anchor =
+            $"User opened this conversation from a document detail page. Anchor: id={document.Id}, type={typeCode}.\n" +
+            "Anchor is a soft hint, not a retrieval constraint — cross-document searches are encouraged whenever the question implies it. " +
+            "If you need the anchor's title, fields, or full content, call the structured business tool that matches its DocumentTypeCode (e.g. get_contract_detail when type starts with 'contract.').";
+
+        return PromptBoundary.WrapAnchor(anchor);
+    }
 
     protected virtual async Task<AgentRunOutcome> InvokeAgentAsync(
         ChatConversation conversation,
@@ -507,7 +602,7 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
             setup.Session,
             options: null,
             cancellationToken);
-        return new AgentRunOutcome(response.Text, setup.Capture);
+        return new AgentRunOutcome(response.Text, setup.Capture, setup.AnchorResolutionFailed);
     }
 
     protected virtual ChatTurnResultDto BuildTurnResultFromPersisted(
@@ -618,7 +713,8 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
         double elapsedMs,
         bool isDegraded,
         int citationCount,
-        bool citationsTrimmed = false)
+        bool citationsTrimmed = false,
+        bool anchorResolutionFailed = false)
     {
         _telemetryRecorder.RecordTurn(new DocumentChatTurnAuditEntry
         {
@@ -626,14 +722,18 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
             UserId = CurrentUser.Id,
             TenantId = conversation.TenantId,
             DocumentId = conversation.DocumentId,
-            DocumentTypeCode = conversation.DocumentTypeCode,
+            // DocumentTypeCode left null: Issue #100 dropped it from the conversation
+            // aggregate. Per-tool entries continue to record DocumentTypeCode when a
+            // future contributor populates DocumentChatToolContext.DocumentTypeCode.
+            DocumentTypeCode = null,
             TraceId = Activity.Current?.TraceId.ToString(),
             Streaming = streaming,
             CitationCount = citationCount,
             IsDegraded = isDegraded,
             ElapsedMs = elapsedMs,
             Outcome = DocumentChatTelemetryOutcome.Success,
-            CitationsTrimmed = citationsTrimmed
+            CitationsTrimmed = citationsTrimmed,
+            AnchorResolutionFailed = anchorResolutionFailed
         });
     }
 
@@ -649,7 +749,7 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
             UserId = CurrentUser.Id,
             TenantId = conversation.TenantId,
             DocumentId = conversation.DocumentId,
-            DocumentTypeCode = conversation.DocumentTypeCode,
+            DocumentTypeCode = null, // see RecordTurnSuccess
             TraceId = Activity.Current?.TraceId.ToString(),
             Streaming = streaming,
             ElapsedMs = elapsedMs,
@@ -717,7 +817,8 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
                 sw.Elapsed.TotalMilliseconds,
                 isDegraded,
                 citations.Count,
-                setup.Capture.WasTruncated);
+                setup.Capture.WasTruncated,
+                setup.AnchorResolutionFailed);
 
             await writer.WriteAsync(new ChatTurnDeltaDto
             {
@@ -849,12 +950,21 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
     /// <summary>
     /// Fully-prepared agent ready to run a turn. Shared between sync and streaming paths.
     /// </summary>
+    /// <remarks>
+    /// <see cref="AnchorResolutionFailed"/> is <c>true</c> when the conversation has an
+    /// anchor <see cref="ChatConversation.DocumentId"/> but
+    /// <see cref="DocumentChatAppService.BuildAnchorContextAsync"/> degraded for it
+    /// (deleted, tenant mismatch, or caller lost <c>Documents.Default</c>). Surfaces
+    /// to telemetry so operators can see permission drift at scale; never blocks the turn.
+    /// </remarks>
     protected record AgentSetup(
         ChatClientAgent Agent,
         AgentSession Session,
-        DocumentSearchCapture Capture);
+        DocumentSearchCapture Capture,
+        bool AnchorResolutionFailed);
 
     protected record AgentRunOutcome(
         string Text,
-        DocumentSearchCapture Capture);
+        DocumentSearchCapture Capture,
+        bool AnchorResolutionFailed);
 }

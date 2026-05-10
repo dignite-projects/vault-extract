@@ -181,29 +181,37 @@ public class DocumentTextSearchAdapter : ITransientDependency
         }
 
         public async Task<string> InvokeAsync(
-            [Description("Search query text — describe what information you are looking for")]
+            [Description("Search query text — describe what information you are looking for. Will be embedded for vector similarity search.")]
             string query,
-            [Description("Optional list of document IDs to restrict the search to. Pass IDs returned by other tools (e.g. search_contracts) to focus the RAG search on specific documents.")]
+            [Description("Optional document IDs to restrict the search. Pass IDs returned by other tools (e.g. search_contracts) to focus the RAG search on specific documents — do not invent IDs from raw user input.")]
             Guid[]? documentIds = null,
+            [Description("Optional document type code to restrict the search to a single type (e.g. 'contract.general', 'receipt.general'). Useful for cross-document reconciliation when narrowing to receipts/invoices/etc.")]
+            string? documentTypeCode = null,
+            [Description("Number of top chunks to return. Default 5; raise to 10–15 for cross-document reconciliation when broader recall helps.")]
+            int? topK = null,
+            [Description("Minimum cosine similarity in [0,1] for hits to be returned. Default 0.45; raise for strict-match queries, lower for cross-language / proper-noun lookups.")]
+            double? minScore = null,
             CancellationToken cancellationToken = default)
         {
             var sw = Stopwatch.StartNew();
 
-            // Model-supplied documentIds narrow a type-scoped conversation to specific
-            // documents (e.g. IDs returned by search_contracts → search_paperbase_documents).
-            // When the conversation is already pinned to a single document
-            // (_baseScope.DocumentId != null), the LLM cannot expand the authorized scope:
-            // ignore documentIds entirely so the search stays within the original boundary.
-            DocumentSearchScope? scope = documentIds?.Length > 0 && _baseScope?.DocumentId == null
-                ? new DocumentSearchScope
-                {
-                    DocumentId = null,
-                    DocumentIds = documentIds,
-                    DocumentTypeCode = _baseScope?.DocumentTypeCode,
-                    TopK = _baseScope?.TopK,
-                    MinScore = _baseScope?.MinScore
-                }
-                : _baseScope;
+            // Issue #100: the previous "single-document conversation" boundary that
+            // ignored model-supplied documentIds is gone. ChatConversation no longer
+            // pins a DocumentId / DocumentTypeCode at the scope level, so the model is
+            // free (and encouraged — see ChatInstructionsBuilder.MultiStepReasoningGuidance)
+            // to widen / focus the search per turn. The real safety boundary is _tenantId
+            // (closure-captured from the conversation aggregate, threaded into
+            // VectorSearchRequest.TenantId by SearchVectorAsync) — that the LLM cannot
+            // override via tool arguments.
+            var scope = new DocumentSearchScope
+            {
+                DocumentIds = documentIds is { Length: > 0 } ? documentIds : null,
+                DocumentTypeCode = string.IsNullOrWhiteSpace(documentTypeCode)
+                    ? _baseScope?.DocumentTypeCode
+                    : documentTypeCode,
+                TopK = topK ?? _baseScope?.TopK,
+                MinScore = minScore ?? _baseScope?.MinScore
+            };
 
             var vectorResults = await _adapter.SearchVectorAsync(_tenantId, scope, query, cancellationToken);
             _capture.Append(vectorResults);
@@ -213,9 +221,12 @@ public class DocumentTextSearchAdapter : ITransientDependency
             // log the raw `query` here — it usually contains the user's natural-language
             // input or LLM rephrasing thereof, which can include PII.
             _adapter._logger.LogInformation(
-                "doc-chat search_paperbase_documents queryLength={Length} documentIds={Ids} results={Count} latency={Latency}ms",
+                "doc-chat search_paperbase_documents queryLength={Length} documentIds={Ids} type={TypeCode} topK={TopK} minScore={MinScore} results={Count} latency={Latency}ms",
                 query?.Length ?? 0,
                 documentIds == null ? "(none)" : string.Join(",", documentIds),
+                scope.DocumentTypeCode ?? "(none)",
+                scope.TopK,
+                scope.MinScore,
                 vectorResults.Count,
                 sw.ElapsedMilliseconds);
 

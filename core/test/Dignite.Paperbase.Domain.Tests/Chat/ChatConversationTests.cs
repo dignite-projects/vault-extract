@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Dignite.Paperbase.Chat;
 using NSubstitute;
 using Shouldly;
@@ -17,55 +17,31 @@ public class ChatConversationTests
         return clock;
     }
 
-    private static ChatConversation CreateConversation(
-        Guid? documentId = null,
-        string? documentTypeCode = null)
-    {
-        return new ChatConversation(
+    private static ChatConversation CreateConversation(Guid? documentId = null)
+        => new(
             Guid.NewGuid(),
             tenantId: null,
             title: "Test Conversation",
-            documentId: documentId,
-            documentTypeCode: documentTypeCode,
-            topK: null,
-            minScore: null);
-    }
+            documentId: documentId);
 
     // ────────────────────────────────────────────────────────────────────────────
-    // 1. DocumentId + DocumentTypeCode 互斥校验
+    // 1. DocumentId is now an optional anchor only — Issue #100 dropped the old
+    //    DocumentTypeCode / TopK / MinScore fields, so there is no scope conflict
+    //    to test anymore. The "model is locked to a single document" path is gone;
+    //    DocumentSearchAdapter no longer enforces it.
     // ────────────────────────────────────────────────────────────────────────────
-
-    [Fact]
-    public void Constructor_Should_Throw_When_Both_DocumentId_And_TypeCode_Are_Set()
-    {
-        var ex = Should.Throw<BusinessException>(() =>
-        {
-            _ = new ChatConversation(
-                Guid.NewGuid(),
-                tenantId: null,
-                title: "Bad",
-                documentId: Guid.NewGuid(),
-                documentTypeCode: "contract.general",
-                topK: null,
-                minScore: null);
-        });
-
-        ex.Code.ShouldBe(PaperbaseErrorCodes.ChatConversationScopeConflict);
-    }
 
     [Fact]
     public void Constructor_Should_Accept_DocumentId_Only()
     {
         var conv = CreateConversation(documentId: Guid.NewGuid());
         conv.DocumentId.ShouldNotBeNull();
-        conv.DocumentTypeCode.ShouldBeNull();
     }
 
     [Fact]
-    public void Constructor_Should_Accept_TypeCode_Only()
+    public void Constructor_Should_Accept_No_DocumentId()
     {
-        var conv = CreateConversation(documentTypeCode: "contract.general");
-        conv.DocumentTypeCode.ShouldBe("contract.general");
+        var conv = CreateConversation();
         conv.DocumentId.ShouldBeNull();
     }
 
@@ -82,10 +58,7 @@ public class ChatConversationTests
                 Guid.NewGuid(),
                 tenantId: null,
                 title: new string('x', ChatConsts.MaxTitleLength + 1),
-                documentId: null,
-                documentTypeCode: null,
-                topK: null,
-                minScore: null);
+                documentId: null);
         });
     }
 
@@ -101,14 +74,10 @@ public class ChatConversationTests
             Guid.NewGuid(),
             tenantId: tenantId,
             title: "My Conversation",
-            documentId: null,
-            documentTypeCode: null,
-            topK: null,
-            minScore: null);
+            documentId: null);
 
         conv.TenantId.ShouldBe(tenantId);
 
-        // Assert TenantId is unchanged after mutations.
         var clock = CreateClock();
         conv.Rename("New Title");
         conv.AppendUserMessage(clock, Guid.NewGuid(), "Hello", Guid.NewGuid());
@@ -118,7 +87,6 @@ public class ChatConversationTests
 
     // ────────────────────────────────────────────────────────────────────────────
     // 4. ConcurrencyStamp 由 ABP AbpDbContext 在保存时自动轮换；domain 不再手动轮换。
-    //    见 AbpDbContext.UpdateConcurrencyStamp / ChangeTracker_Tracked。
     // ────────────────────────────────────────────────────────────────────────────
 
     // ────────────────────────────────────────────────────────────────────────────
@@ -164,7 +132,6 @@ public class ChatConversationTests
 
     // ────────────────────────────────────────────────────────────────────────────
     // 7. Rename 仅修改标题；ConcurrencyStamp 的轮换由 ABP 在 SaveChanges 阶段自动完成
-    //    （参考 AbpDbContext.UpdateConcurrencyStamp）。
     // ────────────────────────────────────────────────────────────────────────────
 
     [Fact]
@@ -174,5 +141,4 @@ public class ChatConversationTests
         conv.Rename("New Title");
         conv.Title.ShouldBe("New Title");
     }
-
 }

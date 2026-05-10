@@ -77,8 +77,7 @@ public class DocumentChat_E2E_Tests
             {
                 var dto = await _appService.CreateConversationAsync(new CreateChatConversationInput
                 {
-                    Title = "Lifecycle E2E",
-                    DocumentTypeCode = "contract.general"
+                    Title = "Lifecycle E2E"
                 });
                 conversationId = dto.Id;
                 dto.Title.ShouldBe("Lifecycle E2E");
@@ -481,26 +480,18 @@ public class DocumentChat_E2E_Tests
     // helpers
     // ─────────────────────────────────────────────────────────────────────────
 
-    private async Task<Guid> CreateConversationAsync(
-        string? documentTypeCode = "contract.general",
-        int?    topK             = null,
-        double? minScore         = null)
-    {
-        return await WithUnitOfWorkAsync(async () =>
+    private async Task<Guid> CreateConversationAsync()
+        => await WithUnitOfWorkAsync(async () =>
         {
             using (ChangeUser(OwnerUserId))
             {
                 var dto = await _appService.CreateConversationAsync(new CreateChatConversationInput
                 {
-                    Title            = "E2E Test Conversation",
-                    DocumentTypeCode = documentTypeCode,
-                    TopK             = topK,
-                    MinScore         = minScore
+                    Title = "E2E Test Conversation"
                 });
                 return dto.Id;
             }
         });
-    }
 
     private async Task<Guid> CreateDocumentScopedConversationAsync(Guid documentId, string title)
     {

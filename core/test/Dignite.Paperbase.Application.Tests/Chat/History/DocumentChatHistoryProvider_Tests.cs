@@ -66,10 +66,7 @@ public class DocumentChatHistoryProvider_Tests
             conversationId,
             tenantId: null,
             title: "Test",
-            documentId: null,
-            documentTypeCode: "contract.general",
-            topK: null,
-            minScore: null);
+            documentId: null);
 
         var repository = Substitute.For<IChatConversationRepository>();
         repository.FindByIdWithMessagesAsync(
@@ -192,10 +189,7 @@ public class DocumentChatHistoryProvider_Tests
                 Guid.NewGuid(),
                 tenantId: null,
                 title: "Test",
-                documentId: null,
-                documentTypeCode: "contract.general",
-                topK: null,
-                minScore: null);
+                documentId: null);
 
             conversation.AppendUserMessage(_clock, Guid.NewGuid(), "hello", Guid.NewGuid());
             conversation.AppendAssistantMessage(

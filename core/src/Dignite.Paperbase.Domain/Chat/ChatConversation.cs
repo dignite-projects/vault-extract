@@ -13,10 +13,15 @@ public class ChatConversation : FullAuditedAggregateRoot<Guid>, IMultiTenant
 {
     public virtual Guid? TenantId { get; private set; }
     public virtual string Title { get; private set; } = default!;
+
+    /// <summary>
+    /// The document the user was viewing when they started this conversation.
+    /// Pure UI/anchor metadata — used to (a) group conversations on a document detail
+    /// page and (b) feed a per-turn anchor hint into the system prompt. **Not** a hard
+    /// retrieval scope: the model is free to (and encouraged to) cross-document search
+    /// regardless of this value. See Issue #100 for the rationale.
+    /// </summary>
     public virtual Guid? DocumentId { get; private set; }
-    public virtual string? DocumentTypeCode { get; private set; }
-    public virtual int? TopK { get; private set; }
-    public virtual double? MinScore { get; private set; }
 
     public virtual ICollection<ChatMessage> Messages { get; protected set; }
 
@@ -29,21 +34,12 @@ public class ChatConversation : FullAuditedAggregateRoot<Guid>, IMultiTenant
         Guid id,
         Guid? tenantId,
         string title,
-        Guid? documentId,
-        string? documentTypeCode,
-        int? topK,
-        double? minScore)
+        Guid? documentId)
         : base(id)
     {
-        if (documentId.HasValue && !string.IsNullOrEmpty(documentTypeCode))
-            throw new BusinessException(PaperbaseErrorCodes.ChatConversationScopeConflict);
-
         TenantId = tenantId;
         Title = Check.NotNullOrWhiteSpace(title, nameof(title), maxLength: ChatConsts.MaxTitleLength);
         DocumentId = documentId;
-        DocumentTypeCode = documentTypeCode;
-        TopK = topK;
-        MinScore = minScore;
         Messages = new List<ChatMessage>();
         // ConcurrencyStamp is owned by ABP. Manually rotating it here would conflict
         // with AbpDbContext.UpdateConcurrencyStamp, which sets OriginalValue from the

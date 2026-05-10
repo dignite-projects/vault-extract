@@ -62,47 +62,27 @@ public class DocumentChatAppService_Tests
     [Fact]
     public async Task Should_Create_Conversation_When_Input_Is_Valid()
     {
+        // Issue #100: only Title + optional DocumentId remain on the input. Per-turn
+        // scope (TopK / MinScore / DocumentTypeCode) is decided by the model, not pinned.
         var dto = await WithUnitOfWorkAsync(async () =>
         {
             using (ChangeUser(OwnerUserId))
             {
                 return await _appService.CreateConversationAsync(new CreateChatConversationInput
                 {
-                    Title = "My contract",
-                    DocumentTypeCode = "contract.general",
-                    TopK = 5
+                    Title = "My contract"
                 });
             }
         });
 
         dto.ShouldNotBeNull();
         dto.Title.ShouldBe("My contract");
-        dto.DocumentTypeCode.ShouldBe("contract.general");
         dto.DocumentId.ShouldBeNull();
-        dto.TopK.ShouldBe(5);
     }
 
-    // ── 2. CreateConversation: scope conflict ────────────────────────────────
-
-    [Fact]
-    public async Task Should_Reject_When_Both_DocumentId_And_DocumentTypeCode_Provided()
-    {
-        await Should.ThrowAsync<AbpValidationException>(async () =>
-        {
-            await WithUnitOfWorkAsync(async () =>
-            {
-                using (ChangeUser(OwnerUserId))
-                {
-                    await _appService.CreateConversationAsync(new CreateChatConversationInput
-                    {
-                        Title = "Bad",
-                        DocumentId = Guid.NewGuid(),
-                        DocumentTypeCode = "contract.general"
-                    });
-                }
-            });
-        });
-    }
+    // Issue #100 retired the DocumentId-vs-DocumentTypeCode mutual-exclusion test —
+    // there is no DocumentTypeCode on CreateChatConversationInput anymore, so the
+    // conflict cannot be expressed.
 
     // ── 3. SendMessage: history is carried across turns ─────────────────────
 
@@ -270,10 +250,7 @@ public class DocumentChatAppService_Tests
         {
             using (ChangeUser(OwnerUserId))
             {
-                var dto = await _appService.CreateConversationAsync(new CreateChatConversationInput
-                {
-                    DocumentTypeCode = "contract.general"
-                });
+                var dto = await _appService.CreateConversationAsync(new CreateChatConversationInput());
                 return dto.Id;
             }
         });
@@ -350,24 +327,18 @@ public class DocumentChatAppService_Tests
     // helpers
     // ─────────────────────────────────────────────────────────────────────────
 
-    private async Task<Guid> CreateConversationAsync(
-        string? documentTypeCode = "contract.general",
-        int? topK = null)
-    {
-        return await WithUnitOfWorkAsync(async () =>
+    private async Task<Guid> CreateConversationAsync()
+        => await WithUnitOfWorkAsync(async () =>
         {
             using (ChangeUser(OwnerUserId))
             {
                 var dto = await _appService.CreateConversationAsync(new CreateChatConversationInput
                 {
-                    Title = "Test",
-                    DocumentTypeCode = documentTypeCode,
-                    TopK = topK
+                    Title = "Test"
                 });
                 return dto.Id;
             }
         });
-    }
 
     private IDisposable ChangeUser(Guid userId)
     {

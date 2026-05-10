@@ -190,7 +190,8 @@ public class DocumentChatTelemetryRecorder : ISingletonDependency
             ToolCallSummary = summary,
             ToolCallDepth = toolCalls.Count,
             GroundingSource = ClassifyGrounding(toolCalls),
-            CitationsTrimmed = entry.CitationsTrimmed
+            CitationsTrimmed = entry.CitationsTrimmed,
+            AnchorResolutionFailed = entry.AnchorResolutionFailed
         };
     }
 
@@ -389,4 +390,13 @@ public sealed class DocumentChatTurnAuditEntry
     /// retry loops or queries that fan out into very large recall sets — both worth alerting on.
     /// </summary>
     public bool CitationsTrimmed { get; init; }
+
+    /// <summary>
+    /// True when the conversation has an anchor <see cref="DocumentId"/> but the per-turn
+    /// anchor lookup degraded (document deleted, tenant mismatch, or caller lost the
+    /// <c>Documents.Default</c> permission). Issue #100 reverse example E mandates that
+    /// the turn proceeds **without** the anchor hint rather than throwing — this signal
+    /// is how operators see that "permission drift" is happening at scale.
+    /// </summary>
+    public bool AnchorResolutionFailed { get; init; }
 }

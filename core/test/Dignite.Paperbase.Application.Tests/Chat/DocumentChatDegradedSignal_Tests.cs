@@ -241,8 +241,7 @@ public class DocumentChatDegradedSignal_Tests
             {
                 var dto = await _appService.CreateConversationAsync(new CreateChatConversationInput
                 {
-                    Title            = "Degraded-Signal Test",
-                    DocumentTypeCode = "contract.general"
+                    Title = "Degraded-Signal Test"
                 });
                 return dto.Id;
             }

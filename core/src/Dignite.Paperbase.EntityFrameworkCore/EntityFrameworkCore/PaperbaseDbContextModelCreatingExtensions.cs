@@ -84,7 +84,9 @@ public static class PaperbaseDbContextModelCreatingExtensions
             b.ConfigureByConvention();
 
             b.Property(x => x.Title).IsRequired().HasMaxLength(ChatConsts.MaxTitleLength);
-            b.Property(x => x.DocumentTypeCode).HasMaxLength(DocumentConsts.MaxDocumentTypeCodeLength);
+            // Issue #100: DocumentTypeCode / TopK / MinScore moved off the aggregate
+            // (per-turn intent-driven scope replaces the old conversation-level pinning).
+            // Migration Drop_ChatConversation_Scope_Columns drops the underlying columns.
             b.HasMany(x => x.Messages)
                 .WithOne()
                 .HasForeignKey(m => m.ConversationId)

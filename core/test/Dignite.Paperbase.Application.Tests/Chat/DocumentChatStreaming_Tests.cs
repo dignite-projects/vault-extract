@@ -293,8 +293,7 @@ public class DocumentChatStreaming_Tests
             {
                 var dto = await _appService.CreateConversationAsync(new CreateChatConversationInput
                 {
-                    Title            = "Streaming Test",
-                    DocumentTypeCode = "contract.general"
+                    Title = "Streaming Test"
                 });
                 return dto.Id;
             }

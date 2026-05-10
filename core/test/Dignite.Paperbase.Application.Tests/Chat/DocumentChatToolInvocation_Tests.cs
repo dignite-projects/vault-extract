@@ -87,7 +87,7 @@ public class DocumentChatToolInvocation_Tests
                 }
             });
 
-        var conversationId = await CreateConversationAsync(topK: 7);
+        var conversationId = await CreateConversationAsync();
 
         ChatTurnResultDto result = null!;
         await WithUnitOfWorkAsync(async () =>
@@ -117,11 +117,15 @@ public class DocumentChatToolInvocation_Tests
         _innerChatClient.FirstOptions.Tools.ShouldNotBeNull();
         _innerChatClient.FirstOptions.Tools!.ShouldContain(t => t.Name == "search_paperbase_documents");
 
+        // Issue #100: defaults flow from PaperbaseAIBehaviorOptions (TopK = 5,
+        // MinScore = 0.45) — no DocumentTypeCode pinning on the request because the
+        // conversation no longer carries it. The model is free to override these via
+        // tool parameters when intent calls for it (covered by a separate test).
         await _knowledgeIndex.Received(1).SearchAsync(
             Arg.Is<VectorSearchRequest>(r =>
                 r.QueryText == "payment terms"
-                && r.DocumentTypeCode == "contract.general"
-                && r.TopK == 7
+                && r.DocumentTypeCode == null
+                && r.TopK == 5
                 && r.MinScore == 0.45),
             Arg.Any<CancellationToken>());
 
@@ -139,8 +143,12 @@ public class DocumentChatToolInvocation_Tests
     }
 
     [Fact]
-    public async Task SendMessageAsync_Uses_DocumentChatMinScore_For_Unscoped_Conversation()
+    public async Task SendMessageAsync_Uses_DocumentChatMinScore_From_Options()
     {
+        // Issue #100: every conversation is "unscoped" at the aggregate level —
+        // there is no longer a per-conversation MinScore to override the default.
+        // Defaults come from PaperbaseAIBehaviorOptions (the model can override per
+        // tool call when intent calls for it; see the override test below).
         _knowledgeIndex.SearchAsync(Arg.Any<VectorSearchRequest>(), Arg.Any<CancellationToken>())
             .Returns(new List<VectorSearchResult>
             {
@@ -153,7 +161,7 @@ public class DocumentChatToolInvocation_Tests
                 }
             });
 
-        var conversationId = await CreateConversationAsync(documentTypeCode: null);
+        var conversationId = await CreateConversationAsync();
 
         await WithUnitOfWorkAsync(async () =>
         {
@@ -171,41 +179,8 @@ public class DocumentChatToolInvocation_Tests
             Arg.Is<VectorSearchRequest>(r =>
                 r.DocumentTypeCode == null
                 && r.DocumentId == null
+                && r.TopK == 5
                 && r.MinScore == 0.45),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task SendMessageAsync_Uses_Conversation_MinScore_When_Explicitly_Set()
-    {
-        _knowledgeIndex.SearchAsync(Arg.Any<VectorSearchRequest>(), Arg.Any<CancellationToken>())
-            .Returns(new List<VectorSearchResult>
-            {
-                new()
-                {
-                    RecordId = Guid.NewGuid(),
-                    DocumentId = Guid.NewGuid(),
-                    ChunkIndex = 0,
-                    Text = "Explicit threshold context."
-                }
-            });
-
-        var conversationId = await CreateConversationAsync(documentTypeCode: null, minScore: 0.72);
-
-        await WithUnitOfWorkAsync(async () =>
-        {
-            using (ChangeUser(OwnerUserId))
-            {
-                await _appService.SendMessageAsync(conversationId, new SendChatMessageInput
-                {
-                    Message = "Use explicit min score",
-                    ClientTurnId = Guid.NewGuid()
-                });
-            }
-        });
-
-        await _knowledgeIndex.Received(1).SearchAsync(
-            Arg.Is<VectorSearchRequest>(r => r.MinScore == 0.72),
             Arg.Any<CancellationToken>());
     }
 
@@ -315,26 +290,18 @@ public class DocumentChatToolInvocation_Tests
         toolCalls[0].ExceptionType.ShouldNotBeNullOrEmpty();
     }
 
-    private async Task<Guid> CreateConversationAsync(
-        int? topK = null,
-        string? documentTypeCode = "contract.general",
-        double? minScore = null)
-    {
-        return await WithUnitOfWorkAsync(async () =>
+    private async Task<Guid> CreateConversationAsync()
+        => await WithUnitOfWorkAsync(async () =>
         {
             using (ChangeUser(OwnerUserId))
             {
                 var dto = await _appService.CreateConversationAsync(new CreateChatConversationInput
                 {
-                    Title = "Tool Invocation Test",
-                    DocumentTypeCode = documentTypeCode,
-                    TopK = topK,
-                    MinScore = minScore
+                    Title = "Tool Invocation Test"
                 });
                 return dto.Id;
             }
         });
-    }
 
     private IDisposable ChangeUser(Guid userId)
     {

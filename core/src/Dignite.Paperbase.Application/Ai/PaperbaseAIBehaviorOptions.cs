@@ -58,11 +58,30 @@ public class PaperbaseAIBehaviorOptions
     public int RecallExpandFactor { get; set; } = 4;
 
     /// <summary>
-    /// 文档 Chat RAG 搜索默认最小相关度阈值。显式设置在会话上的 MinScore 优先。
-    /// 低于底层知识库默认值是为了改善跨语言查询和专有名词查询的召回。
-    /// 设为 null 时回落到 <c>PaperbaseKnowledgeIndex:MinScore</c>。
+    /// 文档 Chat RAG 搜索默认最小相关度阈值。模型可在工具参数里显式覆盖（强对账场景拉高、
+    /// 跨语言/专有名词查询调低）。低于底层知识库默认值是为了改善跨语言查询和专有名词查询
+    /// 的召回。设为 null 时回落到 <c>PaperbaseKnowledgeIndex:MinScore</c>。
     /// </summary>
     public double? DocumentChatMinScore { get; set; } = 0.45;
+
+    /// <summary>
+    /// 文档 Chat RAG 搜索默认 TopK。模型可在 <c>search_paperbase_documents</c> 工具参数里
+    /// 显式覆盖（如跨文档对账场景拉到 10–15 提升召回宽度）。设为 0 时回落到底层知识库的
+    /// <c>DefaultTopK</c>。
+    /// </summary>
+    public int DocumentChatTopK { get; set; } = 5;
+
+    /// <summary>
+    /// Hard upper bound on the number of <see cref="AIFunction"/> tools (built-in
+    /// search + every <c>IDocumentChatToolContributor</c> tool) exposed to the LLM
+    /// in a single turn. <c>0</c> = unbounded (current default; the production tool
+    /// inventory is well below the OpenAI/Azure OpenAI sweet spot of ≤ 10–15 tools
+    /// where routing accuracy is high). Activate this cap when the inventory grows
+    /// past ~15 tools and routing accuracy degrades. Trimmed contributors are
+    /// surfaced via the <c>tools_trimmed</c> telemetry signal so dropouts are
+    /// observable, not silent.
+    /// </summary>
+    public int MaxToolsPerTurn { get; set; } = 0;
 
     /// <summary>
     /// Title 生成时送入 LLM 的 Markdown 最大字符数。
