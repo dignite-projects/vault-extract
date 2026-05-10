@@ -185,7 +185,7 @@ context.Services.AddOpenTelemetry()
 | Source / Meter | Emitted by | What it covers |
 | --- | --- | --- |
 | `Experimental.Microsoft.Extensions.AI` (Activity + Meter) | `OpenTelemetryChatClient` | OTel GenAI semantic conventions: `chat {model}` / `execute_tool {name}` spans, `gen_ai.client.operation.duration` (s), `gen_ai.client.token.usage`, streaming `time_to_first_chunk` / `time_per_output_chunk` |
-| `Dignite.Paperbase.DocumentChat` (Meter) | `DocumentChatTelemetryRecorder` | Project-specific deltas only: `paperbase.document_chat.turn.degraded` counter (the "honest signal" — model declined to invoke search OR retrieval failed) and `paperbase.document_chat.tool.result.size` histogram. **Does not duplicate** the gen_ai.* signals above. |
+| `Dignite.Paperbase.DocumentChat` (Meter) | `DocumentChatTelemetryRecorder` | Project-specific deltas only: `paperbase.document_chat.turn.degraded` counter (the "honest signal" — model invoked **no tool at all**, equivalent to `GroundingSource == None`) and `paperbase.document_chat.tool.result.size` histogram. The full per-turn / per-tool dimensions (`GroundingSource`, `ToolCallSummary`, `ToolCallDepth`, `CitationsTrimmed`, `AnchorResolutionFailed`) are attached to `AbpAuditLogs.ExtraProperties` rather than emitted as metric tags — see [document-chat.md → Observability](document-chat.md#observability). **Does not duplicate** the gen_ai.* signals above. |
 
 Business-domain audit (tenant / user / conversation / document) goes to
 `AbpAuditLogs.Comments` + `ExtraProperties` (`DocumentChatTelemetryRecorder`
