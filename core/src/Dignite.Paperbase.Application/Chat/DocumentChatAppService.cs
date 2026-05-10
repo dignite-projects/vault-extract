@@ -594,6 +594,8 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
         var anchor =
             $"User opened this conversation from a document detail page. Anchor: id={document.Id}, type={typeCode}.\n" +
             "Anchor is a soft hint, not a retrieval constraint — cross-document searches are encouraged whenever the question implies it. " +
+            "When the question implies related documents (payments, receipts, amendments, linked files), " +
+            "call get_document_relations with this anchor id before falling back to vector search. " +
             "If you need the anchor's title, fields, or full content, call the structured business tool that matches its DocumentTypeCode (e.g. get_contract_detail when type starts with 'contract.').";
 
         return PromptBoundary.WrapAnchor(anchor);

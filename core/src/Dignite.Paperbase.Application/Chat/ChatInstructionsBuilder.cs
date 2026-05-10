@@ -20,10 +20,19 @@ internal static class ChatInstructionsBuilder
     /// </summary>
     public const string MultiStepReasoningGuidance =
         "You can chain tools across one turn:\n" +
+        "  0) [Optional — when an anchor document id is present AND the question implies linked documents " +
+             "(payments, receipts, attachments, amendments, predecessors)] " +
+             "call get_document_relations(anchorDocumentId) first to discover related document ids. " +
+             "Pass those ids into search_paperbase_documents(documentIds=[...]) for precise retrieval.\n" +
         "  1) Pull structured fields with a business tool (e.g. get_contract_detail, search_contracts, get_contract_aggregate).\n" +
-        "  2) If reconciliation or cross-document evidence is needed, follow up with search_paperbase_documents — pass documentIds returned by step 1, and/or a documentTypeCode (e.g. 'receipt.general') to focus the vector search.\n" +
+        "  2) Follow up with search_paperbase_documents if cross-document evidence is needed — " +
+             "pass documentIds returned by step 0 or step 1, and/or a documentTypeCode (e.g. 'receipt.general') to focus the vector search.\n" +
         "  3) Compare structured values against retrieved chunks before answering.\n" +
-        "Reconciliation example: 'has this contract been paid?' → get_contract_detail → search_paperbase_documents(documentTypeCode='receipt.*', query=<party / amount>) → match → answer.\n" +
+        "get_document_relations vs search_paperbase_documents: use get_document_relations when you know " +
+             "a specific document id and want its explicit graph neighbors (manual or AI-suggested links); " +
+             "use search_paperbase_documents when the question is semantic with no known starting document.\n" +
+        "Reconciliation example: 'has this contract been paid?' → get_document_relations(anchorId) → " +
+             "search_paperbase_documents(documentIds=returned_ids, documentTypeCode='receipt.general') → match → answer.\n" +
         "If a question references multiple document types or implies cross-document evidence, do not stay inside the anchor document. The anchor is a hint, never a hard scope.";
 
     public static string Build(
