@@ -34,6 +34,12 @@ public interface IDocumentIdentifierIndex
 {
     /// <summary>
     /// 注册一条标识符。<strong>幂等</strong>：同一 (documentId, identifierType, identifierValue) 重复调用不会插入重复行也不抛异常。
+    ///
+    /// <para>
+    /// <strong>幂等键不含 TenantId</strong>：DocumentId 是全局唯一 GUID 已隐含租户归属，唯一索引设计上也不含
+    /// TenantId（避免单租户场景下 SQL Server NULL-distinct 语义 + EF Core <c>[TenantId] IS NOT NULL</c>
+    /// filter 双重作用让唯一约束失效）。详见 <c>PaperbaseDbContextModelCreatingExtensions</c> 中 DocumentIdentifier 索引注释。
+    /// </para>
     /// </summary>
     /// <param name="documentId">持有该标识符的文档 ID。</param>
     /// <param name="identifierType">标识符类型字符串（如 "ContractNumber"），由业务模块约定常量。</param>

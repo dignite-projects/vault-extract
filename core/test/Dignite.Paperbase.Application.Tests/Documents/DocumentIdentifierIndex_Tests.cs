@@ -164,6 +164,15 @@ public class DocumentIdentifierIndex_Tests
     }
 
     [Fact]
+    public async Task FindDocumentsAsync_Should_Reject_Blank_Value()
+    {
+        var exception = await Should.ThrowAsync<BusinessException>(async () =>
+            await _index.FindDocumentsAsync("ContractNumber", "  "));
+
+        exception.Code.ShouldBe(PaperbaseErrorCodes.DocumentIdentifierValueRequired);
+    }
+
+    [Fact]
     public async Task RemoveByDocumentIdAsync_Should_Delegate_To_Repository()
     {
         var documentId = Guid.NewGuid();
