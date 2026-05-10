@@ -10,6 +10,7 @@ using Dignite.Paperbase.Documents.Pipelines.RelationDiscovery;
 using Dignite.Paperbase.KnowledgeIndex;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 using Shouldly;
@@ -46,6 +47,7 @@ public class RelationDiscoveryBackgroundJobTestModule : AbpModule
             Substitute.For<RelationInferenceAgent>(
                 Substitute.For<IChatClient>(),
                 Options.Create(new PaperbaseAIBehaviorOptions())),
+            new RelationDiscoveryTelemetryRecorder(NullLogger<RelationDiscoveryTelemetryRecorder>.Instance),
             Options.Create(new PaperbaseAIBehaviorOptions())));
     }
 }
