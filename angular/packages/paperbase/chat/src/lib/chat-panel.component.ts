@@ -25,6 +25,8 @@ import {
   ChatConversationDto,
   ChatConversationListItemDto,
   ChatMessageDto,
+  ChatTurnDeltaDto,
+  ChatTurnDeltaKind,
   CreateChatConversationInput,
   DocumentDto,
   DocumentChatService,
@@ -40,6 +42,22 @@ interface ChatMessageView {
   isDegraded?: boolean;
   isPending?: boolean;
   isError?: boolean;
+  // Issue #116: per-message ordered list of tool-call events the agent fired
+  // while producing this assistant turn. Populated only on streaming send;
+  // sync replay (idempotent path) and historical message load leave it empty.
+  toolEvents?: ToolCallEventView[];
+}
+
+// Issue #116: UI projection of ToolCallStarted/Completed pairs. Started events
+// open the entry; the matching Completed flips state to success/failure and
+// fills elapsedMs. Order is the order events arrive on the SSE channel — that
+// matches the order the LLM invoked the tools, which is what users want to read.
+interface ToolCallEventView {
+  toolCallId: string;
+  toolName: string;
+  description: string;
+  status: 'pending' | 'success' | 'failure';
+  elapsedMs?: number;
 }
 
 interface SelectedCitation {
@@ -328,6 +346,21 @@ export class ChatPanelComponent implements OnInit, OnChanges, AfterViewChecked {
       });
   }
 
+  /**
+   * Issue #116: streams the turn so the user sees tool-call progress + text
+   * deltas in real time instead of staring at a `Thinking…` spinner during the
+   * 5–10s the multi-step tool reasoning takes. Internally consumes SSE via
+   * {@link DocumentChatService.sendMessageStream}.
+   *
+   * Lifecycle of the pending assistant message:
+   *  - On send: insert a row with `isPending=true`, empty content, empty toolEvents
+   *  - On `ToolCallStarted`: append an entry to that row's `toolEvents` (status=pending)
+   *  - On `ToolCallCompleted`: flip the matching entry's status (success/failure) +
+   *    fill elapsedMs (matched by toolCallId so out-of-order completions still bind)
+   *  - On `PartialText`: clear `isPending` (we have content now) + append text
+   *  - On `Done`: replace pending id with assistant id, set citations + isDegraded
+   *  - On `Error`: flip to error state
+   */
   private sendToConversation(conversation: ChatConversationDto, text: string): void {
     if (!conversation.id) return;
 
@@ -348,30 +381,16 @@ export class ChatPanelComponent implements OnInit, OnChanges, AfterViewChecked {
         content: '',
         citations: [],
         isPending: true,
+        toolEvents: [],
       },
     ]);
 
     this.isSending.set(true);
     this.chatService
-      .sendMessage(conversation.id, { message: text, clientTurnId })
+      .sendMessageStream(conversation.id, { message: text, clientTurnId })
       .pipe(finalize(() => this.isSending.set(false)))
       .subscribe({
-        next: result => {
-          this.messages.update(items =>
-            items.map(item =>
-              item.id === pendingAssistantId
-                ? {
-                    id: result.assistantMessageId ?? pendingAssistantId,
-                    role: ChatMessageRole.Assistant,
-                    content: result.answer ?? '',
-                    citations: result.citations ?? [],
-                    isDegraded: result.isDegraded,
-                  }
-                : item
-            )
-          );
-          this.loadConversations();
-        },
+        next: delta => this.applyDelta(pendingAssistantId, delta),
         error: () => {
           this.messages.update(items =>
             items.map(item =>
@@ -387,7 +406,80 @@ export class ChatPanelComponent implements OnInit, OnChanges, AfterViewChecked {
           );
           this.toaster.error('::DocumentChat:SendFailed', '::Error');
         },
+        complete: () => this.loadConversations(),
       });
+  }
+
+  /**
+   * Mutates the pending assistant row in place based on a single SSE delta.
+   * Kept alongside {@link sendToConversation} so the streaming wiring stays
+   * grokkable — the kind/branch table here is the spec for the FE half of
+   * `ChatTurnDeltaKind`.
+   */
+  private applyDelta(pendingAssistantId: string, delta: ChatTurnDeltaDto): void {
+    this.messages.update(items =>
+      items.map(item => {
+        if (item.id !== pendingAssistantId) return item;
+
+        switch (delta.kind) {
+          case ChatTurnDeltaKind.ToolCallStarted: {
+            // Defensive: ignore events with no callId — the matching Completed
+            // would be unbindable, leaving a hung "pending" card.
+            if (!delta.toolCallId || !delta.toolName) return item;
+            const events = [...(item.toolEvents ?? [])];
+            events.push({
+              toolCallId: delta.toolCallId,
+              toolName: delta.toolName,
+              description: delta.progressDescription ?? `正在执行 ${delta.toolName}…`,
+              status: 'pending',
+            });
+            return { ...item, toolEvents: events };
+          }
+          case ChatTurnDeltaKind.ToolCallCompleted: {
+            if (!delta.toolCallId) return item;
+            const events = (item.toolEvents ?? []).map(ev =>
+              ev.toolCallId === delta.toolCallId
+                ? {
+                    ...ev,
+                    status: delta.toolCallSucceeded === false ? 'failure' as const : 'success' as const,
+                    elapsedMs: delta.elapsedMs,
+                  }
+                : ev
+            );
+            return { ...item, toolEvents: events };
+          }
+          case ChatTurnDeltaKind.PartialText: {
+            return {
+              ...item,
+              // First text chunk implicitly clears the spinner. If the model
+              // answers without invoking any tool, this is the first thing the
+              // user sees on screen.
+              isPending: false,
+              content: item.content + (delta.text ?? ''),
+            };
+          }
+          case ChatTurnDeltaKind.Done: {
+            return {
+              ...item,
+              id: delta.assistantMessageId ?? item.id,
+              isPending: false,
+              citations: delta.citations ?? [],
+              isDegraded: delta.isDegraded,
+            };
+          }
+          case ChatTurnDeltaKind.Error: {
+            return {
+              ...item,
+              isPending: false,
+              isError: true,
+              content: delta.errorMessage ?? 'DocumentChat:SendFailed',
+            };
+          }
+          default:
+            return item;
+        }
+      })
+    );
   }
 
   private toMessageView(message: ChatMessageDto): ChatMessageView {

@@ -15,6 +15,16 @@ namespace Dignite.Paperbase.HttpApi.Chat;
 [Route("api/paperbase/document-chat")]
 public class DocumentChatController : PaperbaseController, IDocumentChatAppService
 {
+    // Issue #116 FE half: the SSE handler below bypasses ABP's MVC pipeline (it
+    // writes the response stream directly), so it never picks up ABP's per-request
+    // JSON options. Default System.Text.Json serializes PascalCase property names,
+    // which would force the Angular consumer to special-case Kind/ToolName/... vs
+    // the camelCase the rest of the proxy types use. JsonSerializerDefaults.Web
+    // gives camelCase + the same enum-as-number convention every other endpoint
+    // in this controller already speaks.
+    private static readonly JsonSerializerOptions SseSerializerOptions =
+        new(JsonSerializerDefaults.Web);
+
     private readonly IDocumentChatAppService _documentChatAppService;
 
     public DocumentChatController(IDocumentChatAppService documentChatAppService)
@@ -77,7 +87,7 @@ public class DocumentChatController : PaperbaseController, IDocumentChatAppServi
         await foreach (var delta in _documentChatAppService.SendMessageStreamingAsync(
             conversationId, input, cancellationToken))
         {
-            var json = JsonSerializer.Serialize(delta);
+            var json = JsonSerializer.Serialize(delta, SseSerializerOptions);
             await Response.WriteAsync($"data: {json}\n\n", cancellationToken);
             await Response.Body.FlushAsync(cancellationToken);
         }

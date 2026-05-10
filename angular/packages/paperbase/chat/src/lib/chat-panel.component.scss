@@ -151,6 +151,57 @@
   margin-top: 0.3rem;
 }
 
+// Issue #116: in-flight tool-call cards rendered above the assistant bubble.
+// Visually distinct from the answer text (subtle border + smaller font) so they
+// read as "system activity" rather than "the assistant said this".
+.tool-events {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.45rem;
+}
+
+.tool-event {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid #e9ecef;
+  border-left-width: 3px;
+  border-radius: 4px;
+  background: #fafbfc;
+  font-size: 0.82rem;
+  color: #495057;
+
+  .tool-event-description {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tool-event-elapsed {
+    font-variant-numeric: tabular-nums;
+    color: #868e96;
+    font-size: 0.75rem;
+    margin-left: auto;
+  }
+}
+
+.tool-event-pending {
+  border-left-color: #0d6efd;
+}
+
+.tool-event-success {
+  border-left-color: #198754;
+}
+
+.tool-event-failure {
+  border-left-color: #dc3545;
+  background: #fff5f5;
+  color: #842029;
+}
+
 .citation {
   border-left-width: 3px !important;
 }

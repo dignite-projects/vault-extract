@@ -171,6 +171,40 @@
 
         @for (item of messages(); track item.id) {
           <div class="message-row" [class.user]="item.role === ChatMessageRole.User">
+            <!--
+              Issue #116: render in-flight tool calls ABOVE the answer bubble so
+              users see "the agent is doing something" the moment a tool fires.
+              Pending entries show a spinner; success/failure entries collapse
+              to a check / cross + duration (sourced from the backend, not the
+              browser, because the backend already has a stopwatch). The
+              `description` text is whatever the tool's progressDescriber
+              returned — never raw model arguments (Issue #130 pre-authz leak).
+            -->
+            @if (item.toolEvents && item.toolEvents.length > 0) {
+              <div class="tool-events">
+                @for (ev of item.toolEvents; track ev.toolCallId) {
+                  <div
+                    class="tool-event"
+                    [class.tool-event-pending]="ev.status === 'pending'"
+                    [class.tool-event-success]="ev.status === 'success'"
+                    [class.tool-event-failure]="ev.status === 'failure'"
+                  >
+                    @if (ev.status === 'pending') {
+                      <span class="spinner-border spinner-border-sm me-2"></span>
+                    } @else if (ev.status === 'success') {
+                      <i class="fas fa-check-circle me-2 text-success"></i>
+                    } @else {
+                      <i class="fas fa-times-circle me-2 text-danger"></i>
+                    }
+                    <span class="tool-event-description">{{ ev.description }}</span>
+                    @if (ev.elapsedMs != null) {
+                      <span class="tool-event-elapsed">{{ ev.elapsedMs | number:'1.0-0' }}ms</span>
+                    }
+                  </div>
+                }
+              </div>
+            }
+
             <div
               class="message-bubble"
               [class.assistant]="item.role === ChatMessageRole.Assistant"
