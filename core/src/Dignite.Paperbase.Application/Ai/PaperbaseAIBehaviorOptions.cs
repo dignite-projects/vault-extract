@@ -105,6 +105,25 @@ public class PaperbaseAIBehaviorOptions
     public int MaxCapturedCitations { get; set; } = 50;
 
     /// <summary>
+    /// Codex review fix [high] "L2 can run before module extraction": delay before the
+    /// RelationDiscovery background job is picked up by a worker, in seconds.
+    ///
+    /// <para>
+    /// Both <c>RelationDiscoveryEventHandler</c> and business-module handlers (e.g.
+    /// <c>ContractDocumentHandler</c>) subscribe to <c>DocumentClassifiedEto</c>. The
+    /// business-module handler does an LLM extraction (5–30s typical) and saves the typed
+    /// record only at the end. If L2 runs before that save, providers see no identifiers
+    /// and L2 records 0 relations as Succeeded with no retry.
+    /// </para>
+    ///
+    /// <para>
+    /// Default 30s covers typical LLM extraction. Tune up for slow LLM links; set to 0
+    /// to disable the delay (only safe in test setups where extraction is synchronous and fast).
+    /// </para>
+    /// </summary>
+    public int RelationDiscoveryDelaySeconds { get; set; } = 30;
+
+    /// <summary>
     /// Issue #115 L3: 启用基于"向量召回 + LLM 评判"的语义关系发现作为 L2 兜底。
     /// 默认 <c>false</c>——LLM 调用按文档数线性增长，操作员需明确开启并自行控制成本。
     /// 关闭时 L2 找不到关系的文档保持无 AiSuggested 状态，等待用户手动建立。

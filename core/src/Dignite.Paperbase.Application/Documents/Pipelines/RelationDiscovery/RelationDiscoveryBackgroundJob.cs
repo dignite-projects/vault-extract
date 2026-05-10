@@ -5,6 +5,7 @@ using Dignite.Paperbase.Documents;
 using Microsoft.Extensions.Logging;
 using Volo.Abp.BackgroundJobs;
 using Volo.Abp.DependencyInjection;
+using Volo.Abp.MultiTenancy;
 using Volo.Abp.Uow;
 
 namespace Dignite.Paperbase.Documents.Pipelines.RelationDiscovery;
@@ -40,6 +41,7 @@ public class RelationDiscoveryBackgroundJob
     private readonly RelationDiscoveryService _discoveryService;
     private readonly SemanticRelationDiscoveryService _semanticDiscoveryService;
     private readonly RelationDiscoveryTelemetryRecorder _telemetry;
+    private readonly ICurrentTenant _currentTenant;
     private readonly IUnitOfWorkManager _unitOfWorkManager;
 
     public RelationDiscoveryBackgroundJob(
@@ -49,6 +51,7 @@ public class RelationDiscoveryBackgroundJob
         RelationDiscoveryService discoveryService,
         SemanticRelationDiscoveryService semanticDiscoveryService,
         RelationDiscoveryTelemetryRecorder telemetry,
+        ICurrentTenant currentTenant,
         IUnitOfWorkManager unitOfWorkManager)
     {
         _documentRepository = documentRepository;
@@ -57,10 +60,25 @@ public class RelationDiscoveryBackgroundJob
         _discoveryService = discoveryService;
         _semanticDiscoveryService = semanticDiscoveryService;
         _telemetry = telemetry;
+        _currentTenant = currentTenant;
         _unitOfWorkManager = unitOfWorkManager;
     }
 
     public override async Task ExecuteAsync(RelationDiscoveryJobArgs args)
+    {
+        // Codex review fix [high] "Tenant context dropped": providers depend on ABP's
+        // IMultiTenant ambient filter to scope queries by tenant. Background-job dispatchers
+        // don't always restore CurrentTenant from job args (depends on dispatcher config and
+        // distributed-event bus). Explicit Change(args.TenantId) makes this deterministic
+        // regardless of dispatch path — matches ContractDocumentHandler's pattern for the
+        // same DocumentClassifiedEto.
+        using (_currentTenant.Change(args.TenantId))
+        {
+            await ExecuteCoreAsync(args);
+        }
+    }
+
+    protected virtual async Task ExecuteCoreAsync(RelationDiscoveryJobArgs args)
     {
         var totalStopwatch = Stopwatch.StartNew();
 
@@ -227,4 +245,13 @@ public class RelationDiscoveryJobArgs
 {
     public Guid DocumentId { get; set; }
     public Guid? PipelineRunId { get; set; }
+
+    /// <summary>
+    /// Tenant id captured at enqueue time (from <c>DocumentClassifiedEto.TenantId</c> via
+    /// <c>RelationDiscoveryEventHandler</c>). The job restores this explicitly via
+    /// <c>CurrentTenant.Change</c> in <see cref="RelationDiscoveryBackgroundJob.ExecuteAsync"/>
+    /// so providers / repositories see the correct ambient tenant filter regardless of
+    /// dispatcher behavior. Codex review fix [high] "Tenant context dropped".
+    /// </summary>
+    public Guid? TenantId { get; set; }
 }

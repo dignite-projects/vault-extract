@@ -34,11 +34,14 @@ namespace Dignite.Paperbase.Contracts.Contracts;
 /// </summary>
 public class ContractIdentifierProvider : IDocumentIdentifierProvider, ITransientDependency
 {
-    /// <summary>合同模块支持的标识符类型。L2 fan-out 时按此集合筛选。</summary>
+    /// <summary>
+    /// 合同模块支持的标识符类型。仅 <see cref="DocumentIdentifierTypes.ContractNumber"/>——
+    /// PartyName 故意不暴露（codex review fix [high]：作为 L2 强标识符会形成
+    /// 高置信度假关系图，留给 L3 LLM 评判）。
+    /// </summary>
     public IReadOnlyCollection<string> SupportedIdentifierTypes { get; } = new[]
     {
         DocumentIdentifierTypes.ContractNumber,
-        DocumentIdentifierTypes.PartyName,
     };
 
     private readonly IContractRepository _contractRepository;
@@ -62,9 +65,9 @@ public class ContractIdentifierProvider : IDocumentIdentifierProvider, ITransien
 
         var entries = new List<DocumentIdentifierEntry>();
         AddIfPresent(entries, DocumentIdentifierTypes.ContractNumber, contract.ContractNumber);
-        AddIfPresent(entries, DocumentIdentifierTypes.PartyName, contract.PartyAName);
-        AddIfPresent(entries, DocumentIdentifierTypes.PartyName, contract.PartyBName);
-        AddIfPresent(entries, DocumentIdentifierTypes.PartyName, contract.CounterpartyName);
+        // PartyName intentionally NOT emitted (codex review fix [high]).
+        // 一家供应商可能有上百份合同；以 PartyName 为 L2 强标识符会形成高置信度假关系图，
+        // 污染 chat 路径的 cross-document 推理。Party 关系判断留给 L3 LLM。
         return entries;
     }
 
@@ -80,11 +83,12 @@ public class ContractIdentifierProvider : IDocumentIdentifierProvider, ITransien
 
         var trimmed = identifierValue.Trim();
 
+        // PartyName intentionally absent — defensive return-empty for any unsupported type
+        // (codex review fix [high]).
         return identifierType switch
         {
             DocumentIdentifierTypes.ContractNumber => await FindByContractNumberAsync(trimmed, cancellationToken),
-            DocumentIdentifierTypes.PartyName => await FindByPartyNameAsync(trimmed, cancellationToken),
-            _ => Array.Empty<Guid>()      // Unknown type — defensive; SupportedIdentifierTypes 已经在上游筛过
+            _ => Array.Empty<Guid>()
         };
     }
 
@@ -93,14 +97,6 @@ public class ContractIdentifierProvider : IDocumentIdentifierProvider, ITransien
         CancellationToken ct)
     {
         var contracts = await _contractRepository.FindByContractNumberAsync(contractNumber, ct);
-        return contracts.Select(c => c.DocumentId).Where(id => id != Guid.Empty).Distinct().ToList();
-    }
-
-    protected virtual async Task<IReadOnlyList<Guid>> FindByPartyNameAsync(
-        string partyName,
-        CancellationToken ct)
-    {
-        var contracts = await _contractRepository.GetListByPartyNameAsync(partyName, ct);
         return contracts.Select(c => c.DocumentId).Where(id => id != Guid.Empty).Distinct().ToList();
     }
 

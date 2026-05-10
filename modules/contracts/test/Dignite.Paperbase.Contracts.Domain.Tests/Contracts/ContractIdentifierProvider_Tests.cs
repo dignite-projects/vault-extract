@@ -38,13 +38,16 @@ public class ContractIdentifierProvider_Tests
     }
 
     [Fact]
-    public void SupportedIdentifierTypes_Should_Include_ContractNumber_And_PartyName()
+    public void SupportedIdentifierTypes_Should_Be_Only_ContractNumber()
     {
+        // Codex review fix [high]: PartyName is INTENTIONALLY excluded — using common
+        // counterparty / vendor names as L2 structural identifiers creates false high-confidence
+        // graphs. Party-based relations are L3's responsibility (LLM judgment with context).
         _provider.SupportedIdentifierTypes.ShouldContain(DocumentIdentifierTypes.ContractNumber);
-        _provider.SupportedIdentifierTypes.ShouldContain(DocumentIdentifierTypes.PartyName);
-        // Invoice number / PO number / project code are not the contract module's responsibility.
+        _provider.SupportedIdentifierTypes.ShouldNotContain(DocumentIdentifierTypes.PartyName);
         _provider.SupportedIdentifierTypes.ShouldNotContain(DocumentIdentifierTypes.InvoiceNumber);
         _provider.SupportedIdentifierTypes.ShouldNotContain(DocumentIdentifierTypes.PoNumber);
+        _provider.SupportedIdentifierTypes.Count.ShouldBe(1);
     }
 
     [Fact]
@@ -59,8 +62,10 @@ public class ContractIdentifierProvider_Tests
     }
 
     [Fact]
-    public async Task GetIdentifiersAsync_Should_Map_Contract_Fields_To_Identifier_Entries()
+    public async Task GetIdentifiersAsync_Should_Emit_Only_ContractNumber_When_Present()
     {
+        // Codex review fix [high]: PartyAName / PartyBName / CounterpartyName are
+        // INTENTIONALLY not emitted as L2 identifiers (graph blow-up risk).
         var documentId = Guid.NewGuid();
         var contract = CreateContract(
             documentId,
@@ -72,32 +77,33 @@ public class ContractIdentifierProvider_Tests
 
         var entries = (await _provider.GetIdentifiersAsync(documentId)).ToList();
 
-        entries.ShouldContain(new DocumentIdentifierEntry(DocumentIdentifierTypes.ContractNumber, "HT-2026-001"));
-        entries.ShouldContain(new DocumentIdentifierEntry(DocumentIdentifierTypes.PartyName, "甲方公司"));
-        entries.ShouldContain(new DocumentIdentifierEntry(DocumentIdentifierTypes.PartyName, "乙方公司"));
-        entries.ShouldContain(new DocumentIdentifierEntry(DocumentIdentifierTypes.PartyName, "对手方公司"));
+        entries.Count.ShouldBe(1);
+        entries.Single().ShouldBe(new DocumentIdentifierEntry(DocumentIdentifierTypes.ContractNumber, "HT-2026-001"));
+        // Explicitly assert PartyName values are NOT in the output, even though they're
+        // present on the Contract aggregate.
+        entries.ShouldNotContain(e => e.Type == DocumentIdentifierTypes.PartyName);
     }
 
     [Fact]
-    public async Task GetIdentifiersAsync_Should_Skip_Null_And_Whitespace_Fields()
+    public async Task GetIdentifiersAsync_Should_Return_Empty_When_ContractNumber_Is_Blank()
     {
+        // With PartyName dropped, a contract without a ContractNumber contributes nothing to L2.
         var documentId = Guid.NewGuid();
         var contract = CreateContract(
             documentId,
             contractNumber: null,
-            partyA: "  ",
+            partyA: "甲方公司",       // Has parties but no number → no L2 contribution.
             partyB: "乙方公司",
-            counterparty: null);
+            counterparty: "对手方公司");
         _contractRepository.FindByDocumentIdAsync(documentId).Returns(contract);
 
         var entries = (await _provider.GetIdentifiersAsync(documentId)).ToList();
 
-        entries.Count.ShouldBe(1);
-        entries.Single().ShouldBe(new DocumentIdentifierEntry(DocumentIdentifierTypes.PartyName, "乙方公司"));
+        entries.ShouldBeEmpty();
     }
 
     [Fact]
-    public async Task GetIdentifiersAsync_Should_Trim_Field_Values()
+    public async Task GetIdentifiersAsync_Should_Trim_ContractNumber()
     {
         var documentId = Guid.NewGuid();
         var contract = CreateContract(
@@ -110,8 +116,8 @@ public class ContractIdentifierProvider_Tests
 
         var entries = (await _provider.GetIdentifiersAsync(documentId)).ToList();
 
-        entries.ShouldContain(new DocumentIdentifierEntry(DocumentIdentifierTypes.ContractNumber, "HT-2026-002"));
-        entries.ShouldContain(new DocumentIdentifierEntry(DocumentIdentifierTypes.PartyName, "甲方"));
+        entries.Count.ShouldBe(1);
+        entries.Single().ShouldBe(new DocumentIdentifierEntry(DocumentIdentifierTypes.ContractNumber, "HT-2026-002"));
     }
 
     [Fact]
@@ -133,6 +139,19 @@ public class ContractIdentifierProvider_Tests
         // Defensive: unsupported types short-circuit before any repository call.
         await _contractRepository.DidNotReceive().FindByContractNumberAsync(
             Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task FindDocumentsAsync_Should_Return_Empty_For_PartyName()
+    {
+        // Codex review fix [high]: PartyName is no longer a supported L2 identifier.
+        // Even if a caller (defensively or from a test) passes it in, the provider must
+        // return empty without hitting the repository. Repository's GetListByPartyNameAsync
+        // is intentionally left intact (other code paths might still use it) but is no
+        // longer reachable from the L2 fan-out.
+        var result = await _provider.FindDocumentsAsync(DocumentIdentifierTypes.PartyName, "甲方公司");
+        result.ShouldBeEmpty();
+
         await _contractRepository.DidNotReceive().GetListByPartyNameAsync(
             Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
@@ -151,27 +170,6 @@ public class ContractIdentifierProvider_Tests
             "  HT-2026-003 ");
 
         result.ShouldContain(matchingDocId);
-    }
-
-    [Fact]
-    public async Task FindDocumentsAsync_PartyName_Should_Delegate_To_GetListByPartyName()
-    {
-        var docA = Guid.NewGuid();
-        var docB = Guid.NewGuid();
-        _contractRepository
-            .GetListByPartyNameAsync("甲方公司", Arg.Any<CancellationToken>())
-            .Returns(new List<Contract>
-            {
-                CreateContract(docA, partyA: "甲方公司"),
-                CreateContract(docB, partyB: "甲方公司")
-            });
-
-        var result = await _provider.FindDocumentsAsync(
-            DocumentIdentifierTypes.PartyName,
-            "甲方公司");
-
-        result.ShouldContain(docA);
-        result.ShouldContain(docB);
     }
 
     [Fact]

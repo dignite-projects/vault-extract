@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Volo.Abp;
 using Volo.Abp.BackgroundJobs;
 using Volo.Abp.DependencyInjection;
+using Volo.Abp.MultiTenancy;
 
 namespace Dignite.Paperbase.Documents.Pipelines;
 
@@ -20,29 +21,46 @@ public class DocumentPipelineJobScheduler : ITransientDependency
     private readonly IDocumentRepository _documentRepository;
     private readonly DocumentPipelineRunManager _pipelineRunManager;
     private readonly IBackgroundJobManager _backgroundJobManager;
+    private readonly ICurrentTenant _currentTenant;
 
     public DocumentPipelineJobScheduler(
         IDocumentRepository documentRepository,
         DocumentPipelineRunManager pipelineRunManager,
-        IBackgroundJobManager backgroundJobManager)
+        IBackgroundJobManager backgroundJobManager,
+        ICurrentTenant currentTenant)
     {
         _documentRepository = documentRepository;
         _pipelineRunManager = pipelineRunManager;
         _backgroundJobManager = backgroundJobManager;
+        _currentTenant = currentTenant;
     }
 
-    public virtual async Task<DocumentPipelineRun> QueueAsync(Document document, string pipelineCode)
+    /// <summary>
+    /// Queues a pipeline run for the document. Optional <paramref name="delay"/> controls
+    /// how long the background job waits before being picked up; used by RelationDiscovery
+    /// to give sibling DocumentClassifiedEto handlers time to write their typed records
+    /// before L2 fans out (codex review fix [high] "L2 can run before module extraction").
+    /// </summary>
+    public virtual async Task<DocumentPipelineRun> QueueAsync(
+        Document document,
+        string pipelineCode,
+        TimeSpan? delay = null)
     {
         var run = await _pipelineRunManager.QueueAsync(document, pipelineCode);
 
         await _documentRepository.UpdateAsync(document, autoSave: true);
-        await EnqueueAsync(document.Id, pipelineCode, run.Id);
+        await EnqueueAsync(document.Id, pipelineCode, run.Id, delay);
 
         return run;
     }
 
-    protected virtual Task EnqueueAsync(Guid documentId, string pipelineCode, Guid pipelineRunId)
+    protected virtual Task EnqueueAsync(
+        Guid documentId,
+        string pipelineCode,
+        Guid pipelineRunId,
+        TimeSpan? delay = null)
     {
+        var effectiveDelay = delay ?? default;
         return pipelineCode switch
         {
             PaperbasePipelines.TextExtraction => _backgroundJobManager.EnqueueAsync(
@@ -50,25 +68,34 @@ public class DocumentPipelineJobScheduler : ITransientDependency
                 {
                     DocumentId = documentId,
                     PipelineRunId = pipelineRunId
-                }),
+                },
+                delay: effectiveDelay),
             PaperbasePipelines.Classification => _backgroundJobManager.EnqueueAsync(
                 new DocumentClassificationJobArgs
                 {
                     DocumentId = documentId,
                     PipelineRunId = pipelineRunId
-                }),
+                },
+                delay: effectiveDelay),
             PaperbasePipelines.Embedding => _backgroundJobManager.EnqueueAsync(
                 new DocumentEmbeddingJobArgs
                 {
                     DocumentId = documentId,
                     PipelineRunId = pipelineRunId
-                }),
+                },
+                delay: effectiveDelay),
             PaperbasePipelines.RelationDiscovery => _backgroundJobManager.EnqueueAsync(
                 new RelationDiscoveryJobArgs
                 {
                     DocumentId = documentId,
-                    PipelineRunId = pipelineRunId
-                }),
+                    PipelineRunId = pipelineRunId,
+                    // Stamp tenant id from ambient context so the background job can restore it
+                    // explicitly (codex review fix [high] "Tenant context dropped"). Caller
+                    // (RelationDiscoveryEventHandler) wraps QueueAsync in
+                    // CurrentTenant.Change(eventData.TenantId) for this to be correct.
+                    TenantId = _currentTenant.Id
+                },
+                delay: effectiveDelay),
             _ => throw new BusinessException(PaperbaseErrorCodes.UnknownPipelineCode)
                 .WithData("PipelineCode", pipelineCode)
         };
