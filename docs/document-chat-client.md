@@ -24,17 +24,19 @@ Content-Type: application/json
 
 {
   "title": "Q4 Contract Review",
-  "documentTypeCode": "Contract"
+  "documentId": "d9e8f7a6-1234-5678-9abc-def012345678"
 }
 ```
 
-`documentId` and `documentTypeCode` are mutually exclusive. Omit both for a global (all-documents) conversation scope.
+Both `title` and `documentId` are optional. `documentId` is the **anchor** — the document the user opened when starting the chat. The server hints the anchor's `id` + `documentTypeCode` to the model each turn, but **does not constrain retrieval** to it. The model is free to search across other documents and types. Omit `documentId` for a chat that starts with no anchor.
+
+> Removed since 2026-05: `documentTypeCode`, `topK`, and `minScore` are no longer accepted on create. Per-turn retrieval defaults come from server-side `PaperbaseAIBehavior` (see [document-chat.md → Configuration](document-chat.md#configuration)) and the model decides per call whether to override them via the `search_paperbase_documents` tool parameters.
 
 ```bash
 curl -X POST https://localhost:44393/api/paperbase/document-chat/conversations \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"title":"Q4 Contract Review","documentTypeCode":"Contract"}'
+  -d '{"title":"Q4 Contract Review","documentId":"d9e8f7a6-1234-5678-9abc-def012345678"}'
 ```
 
 **Expected response — 200 OK**
@@ -44,10 +46,7 @@ curl -X POST https://localhost:44393/api/paperbase/document-chat/conversations \
   "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
   "tenantId": null,
   "title": "Q4 Contract Review",
-  "documentId": null,
-  "documentTypeCode": "Contract",
-  "topK": null,
-  "minScore": null,
+  "documentId": "d9e8f7a6-1234-5678-9abc-def012345678",
   "creationTime": "2026-04-30T09:12:00Z"
 }
 ```
@@ -55,9 +54,7 @@ curl -X POST https://localhost:44393/api/paperbase/document-chat/conversations \
 | Field | Meaning |
 |---|---|
 | `id` | Use as `conversationId` in subsequent calls |
-| `documentTypeCode` | RAG retrieval is scoped to documents of this type |
-| `documentId` | If set, retrieval is limited to a single document |
-| `topK` / `minScore` | `null` means "use server-side [`PaperbaseKnowledgeIndex`](knowledge-index.md#provider-neutral-defaults) defaults" |
+| `documentId` | Anchor document. Hinted to the model as soft context; **not** a retrieval scope. May be `null`. |
 
 ---
 
@@ -124,26 +121,118 @@ curl -X POST \
       "sourceName": "Document d9e8f7a6-... (chunk #12)"
     }
   ],
-  "isDegraded": false
+  "isDegraded": false,
+  "groundingSource": 1
 }
 ```
 
 | Field | Meaning |
 |---|---|
 | `answer` | The model's response for this turn |
-| `citations` | RAG retrieval results that grounded the answer; empty if none |
+| `citations` | RAG retrieval results that grounded the answer; empty if the model used only structured tools or no tools at all |
 | `citations[].documentId` | Source document to load before showing the Markdown source pane |
 | `citations[].pageNumber` | Compatibility/metadata field only. Do not use it to choose a PDF viewer or drive citation navigation |
 | `citations[].chunkIndex` | Knowledge-index chunk ordinal for display/debug context |
 | `citations[].snippet` | Truncated text chunk (≤ 200 graphemes). This is the primary client-side highlight key |
 | `citations[].sourceName` | Human-readable source label for display |
-| `isDegraded` | `true` if retrieval was unavailable and the answer used context-only fallback |
+| `isDegraded` | `true` when `groundingSource == None`, i.e. the model produced an answer without invoking any tool. **Not** an infrastructure-failure signal on its own. |
+| `groundingSource` | `0` = `None`, `1` = `Vector`, `2` = `Structured`, `3` = `Mixed`. See [document-chat.md → Grounding source and degraded answers](document-chat.md#grounding-source-and-degraded-answers) for the full classification rule. |
 
 For clickable citation behavior, see [document-chat.md → Citation-to-source navigation](document-chat.md#citation-to-source-navigation). In short: open `documentId`, render `Document.Markdown`, highlight `snippet` when possible, and treat `chunkIndex` as context only.
 
 ---
 
-## 3. Retry Logic (409 Conflict)
+## 3. Stream a Message (Server-Sent Events)
+
+**POST** `/conversations/{conversationId}/messages/stream`
+
+The streaming endpoint returns Server-Sent Events (`Content-Type: text/event-stream`) and emits incremental deltas as the model produces them: text tokens, tool-call start/finish events, and a terminal `Done` (or `Error`) event. Use it when you want a Claude-Code-style "live activity" UI rather than a single buffered answer.
+
+The request body, idempotency contract, and 409 retry semantics are identical to the buffered endpoint in section 2 — the same `clientTurnId` is honoured. The server persists at the same boundary; if the client drops mid-stream, the abort cancels the underlying request and **no partial answer is committed**.
+
+```http
+POST /api/paperbase/document-chat/conversations/3fa85f64-…/messages/stream
+Authorization: Bearer {token}
+Content-Type: application/json
+Accept: text/event-stream
+
+{
+  "message": "What are the payment terms in this contract?",
+  "clientTurnId": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+}
+```
+
+### Delta schema
+
+Each SSE event carries one JSON object on a single `data:` line. The discriminator is `kind`:
+
+| `kind` (numeric) | Name | Description |
+|---|---|---|
+| `0` | `PartialText` | Incremental text token. Concatenate `text` onto the assistant bubble. |
+| `1` | `Done` | Terminal success. Carries the final `citations`, `userMessageId`, `assistantMessageId`, `isDegraded`, `groundingSource`. |
+| `2` | `Error` | Terminal failure. Carries `errorMessage`. The stream closes after this event. |
+| `3` | `ToolCallStarted` | A tool invocation began. Carries `toolName`, `toolCallId`, `progressDescription`. |
+| `4` | `ToolCallCompleted` | The tool with this `toolCallId` finished. Carries `elapsedMs` and `toolCallSucceeded`. |
+
+```ts
+// Discriminated-union shape (see angular/packages/paperbase/src/lib/proxy/documents/chat/models.ts)
+interface ChatTurnDeltaDto {
+  kind: 0 | 1 | 2 | 3 | 4;
+  // PartialText
+  text?: string;
+  // Done
+  citations?: ChatCitationDto[];
+  userMessageId?: string;
+  assistantMessageId?: string;
+  isDegraded?: boolean;
+  groundingSource?: 0 | 1 | 2 | 3;
+  // Error
+  errorMessage?: string;
+  // ToolCallStarted / ToolCallCompleted
+  toolName?: string;
+  toolCallId?: string;
+  // ToolCallStarted only — sanitised, user-facing label produced by the tool's
+  // progress describer. Never raw model arguments.
+  progressDescription?: string;
+  // ToolCallCompleted only
+  elapsedMs?: number;
+  toolCallSucceeded?: boolean;
+}
+```
+
+### Example wire trace
+
+```
+data: {"kind":3,"toolName":"search_paperbase_documents","toolCallId":"call_01","progressDescription":"正在按问题语义检索文档…"}
+
+data: {"kind":4,"toolName":"search_paperbase_documents","toolCallId":"call_01","elapsedMs":342,"toolCallSucceeded":true}
+
+data: {"kind":0,"text":"Payment is due within 30"}
+
+data: {"kind":0,"text":" days of invoice date per clause 5.2."}
+
+data: {"kind":1,"userMessageId":"a1b2c3d4-…001","assistantMessageId":"a1b2c3d4-…002","citations":[…],"isDegraded":false,"groundingSource":1}
+```
+
+### Consumer guarantees
+
+- **Tool-call correlation** — `ToolCallStarted` and `ToolCallCompleted` are correlated by `toolCallId`. The server emits started events as the model fires them and completed events as each finishes; the model can fan out tools in parallel, so completed events do not necessarily arrive in started-event order.
+- **`progressDescription` is always sanitised** — every tool registered through `IDocumentChatToolFactory.Create(..., progressDescriber)` produces a static or structurally-derived label (e.g. `"正在按甲方筛选合同…"`). It **never echoes raw user input or raw model arguments**, so it is safe to render directly in the UI before any per-tool authorization check has fired.
+- **`Done` is the only signal that text is complete** — earlier `PartialText` events have no terminator. Wait for `kind == 1` before clearing any "thinking…" state.
+- **`Error` (`kind == 2`) is terminal** — the server closes the stream after emitting it. Treat as the stream-equivalent of a non-200 response on the buffered endpoint.
+- **JSON casing** — payloads are camelCase (`JsonSerializerDefaults.Web`), matching the rest of the proxy types.
+
+### Why not `EventSource`?
+
+`EventSource` is GET-only and cannot set `Authorization` headers without polyfills. Consume the stream with `fetch` + `ReadableStream` + `AbortController` (see `angular/packages/paperbase/src/lib/proxy/http-api/documents/document-chat.service.ts → sendMessageStream` for a reference Angular implementation that exposes the deltas as an RxJS `Observable<ChatTurnDeltaDto>`).
+
+### Cancellation
+
+Aborting the underlying `fetch` (e.g. user navigates away, switches conversation) cancels the server-side `OperationCanceledException` path, which discards the in-flight assistant message instead of persisting a half-formed answer. The user message is also **not** persisted in this case — re-sending with the same `clientTurnId` will re-run the model, not return a cached partial.
+
+---
+
+## 4. Retry Logic (409 Conflict)
 
 A 409 response means a concurrent turn is already being committed on the same
 conversation (optimistic-concurrency stamp mismatch). The correct response is:
@@ -215,9 +304,12 @@ called twice for the same turn.
   "assistantMessageId": "a1b2c3d4-0000-0000-0000-000000000002",
   "answer": "Payment is due within 30 days of invoice date per clause 5.2.",
   "citations": [],
-  "isDegraded": false
+  "isDegraded": false,
+  "groundingSource": 1
 }
 ```
 
 The `userMessageId` and `assistantMessageId` are the original persisted turn IDs.
 They do not change when the same `clientTurnId` is replayed.
+
+`groundingSource` on a replay is a **best-effort approximation** — the per-turn audit scope is gone by the time the replay runs, and `ChatMessage` does not persist the original classification. The replay reconstructs it from the persisted `IsDegraded` flag and citation count: degraded ⇒ `None`; otherwise citations ⇒ `Vector`, no citations ⇒ `Structured`. `Mixed` and `Vector` are indistinguishable on replay. Do not rely on `groundingSource` for branching logic on idempotent retries — use the live response instead.
