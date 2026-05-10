@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using Dignite.Paperbase.Documents;
 using Microsoft.Extensions.Logging;
@@ -38,6 +39,7 @@ public class RelationDiscoveryBackgroundJob
     private readonly DocumentPipelineRunAccessor _pipelineRunAccessor;
     private readonly RelationDiscoveryService _discoveryService;
     private readonly SemanticRelationDiscoveryService _semanticDiscoveryService;
+    private readonly RelationDiscoveryTelemetryRecorder _telemetry;
     private readonly IUnitOfWorkManager _unitOfWorkManager;
 
     public RelationDiscoveryBackgroundJob(
@@ -46,6 +48,7 @@ public class RelationDiscoveryBackgroundJob
         DocumentPipelineRunAccessor pipelineRunAccessor,
         RelationDiscoveryService discoveryService,
         SemanticRelationDiscoveryService semanticDiscoveryService,
+        RelationDiscoveryTelemetryRecorder telemetry,
         IUnitOfWorkManager unitOfWorkManager)
     {
         _documentRepository = documentRepository;
@@ -53,21 +56,32 @@ public class RelationDiscoveryBackgroundJob
         _pipelineRunAccessor = pipelineRunAccessor;
         _discoveryService = discoveryService;
         _semanticDiscoveryService = semanticDiscoveryService;
+        _telemetry = telemetry;
         _unitOfWorkManager = unitOfWorkManager;
     }
 
     public override async Task ExecuteAsync(RelationDiscoveryJobArgs args)
     {
+        var totalStopwatch = Stopwatch.StartNew();
+
         var workItem = await BeginRunAsync(args);
         if (workItem == null)
         {
+            // Document hard-deleted; no PipelineRun to mark, but still record run metric for ops.
+            totalStopwatch.Stop();
+            _telemetry.RecordRun(new RelationDiscoveryRunMetrics
+            {
+                DocumentId = args.DocumentId,
+                Result = RelationDiscoveryRunResult.DocumentMissing,
+                TotalDurationMs = totalStopwatch.Elapsed.TotalMilliseconds
+            });
             return;
         }
 
-        int createdCount;
+        DiscoveryOutcome outcome;
         try
         {
-            createdCount = await DiscoverAsync(workItem.DocumentId);
+            outcome = await DiscoverAsync(workItem.DocumentId);
         }
         catch (Exception ex)
         {
@@ -75,10 +89,30 @@ public class RelationDiscoveryBackgroundJob
                 "L2 RelationDiscovery failed for document {DocumentId}. PipelineRun marked failed; document lifecycle unchanged (non-key pipeline).",
                 workItem.DocumentId);
             await FailRunAsync(workItem.DocumentId, workItem.RunId, ex.Message);
+            totalStopwatch.Stop();
+            _telemetry.RecordRun(new RelationDiscoveryRunMetrics
+            {
+                DocumentId = workItem.DocumentId,
+                Result = RelationDiscoveryRunResult.Failed,
+                FailureReason = ex.GetType().Name,
+                TotalDurationMs = totalStopwatch.Elapsed.TotalMilliseconds
+            });
             return;
         }
 
-        await CompleteRunAsync(workItem.DocumentId, workItem.RunId, createdCount);
+        await CompleteRunAsync(workItem.DocumentId, workItem.RunId, outcome.TotalCreated);
+        totalStopwatch.Stop();
+        _telemetry.RecordRun(new RelationDiscoveryRunMetrics
+        {
+            DocumentId = workItem.DocumentId,
+            Result = RelationDiscoveryRunResult.Succeeded,
+            L2CreatedCount = outcome.L2Created,
+            L3Invoked = outcome.L3Invoked,
+            L3CreatedCount = outcome.L3Invoked ? outcome.L3Created : null,
+            L2DurationMs = outcome.L2DurationMs,
+            L3DurationMs = outcome.L3Invoked ? outcome.L3DurationMs : null,
+            TotalDurationMs = totalStopwatch.Elapsed.TotalMilliseconds
+        });
     }
 
     protected virtual async Task<DiscoveryWorkItem?> BeginRunAsync(RelationDiscoveryJobArgs args)
@@ -106,31 +140,50 @@ public class RelationDiscoveryBackgroundJob
         return new DiscoveryWorkItem(run.Id, document.Id);
     }
 
-    protected virtual async Task<int> DiscoverAsync(Guid documentId)
+    protected virtual async Task<DiscoveryOutcome> DiscoverAsync(Guid documentId)
     {
         // L2: structured fan-out across business-module providers. Cheap (DB queries only).
         // L2 writes commit in a dedicated UoW (autoSave: false on inserts ⇒ uow.CompleteAsync()).
         int l2Count;
+        var l2Stopwatch = Stopwatch.StartNew();
         using (var uow = _unitOfWorkManager.Begin(requiresNew: true))
         {
             var created = await _discoveryService.DiscoverAsync(documentId);
             await uow.CompleteAsync();
             l2Count = created.Count;
         }
+        l2Stopwatch.Stop();
 
         if (l2Count > 0)
         {
             // L2 found structured matches — that's strong signal; don't run L3 (expensive LLM)
             // on top. L3 is the fallback for "structured matching found nothing".
-            return l2Count;
+            return new DiscoveryOutcome(l2Count, false, 0, l2Stopwatch.Elapsed.TotalMilliseconds, 0);
         }
 
         // L3 fallback: vector recall + LLM evaluation. Disabled by default (operator opt-in).
         // NOT wrapped in an outer UoW: SemanticRelationDiscoveryService uses autoSave: true on
         // each relation insert (per-call implicit UoW), so LLM calls between candidates run with
         // no ambient UoW — satisfies the "no DB connection during external work" rule.
+        var l3Stopwatch = Stopwatch.StartNew();
         var l3Created = await _semanticDiscoveryService.DiscoverAsync(documentId);
-        return l3Created.Count;
+        l3Stopwatch.Stop();
+        return new DiscoveryOutcome(
+            L2Created: 0,
+            L3Invoked: true,
+            L3Created: l3Created.Count,
+            L2DurationMs: l2Stopwatch.Elapsed.TotalMilliseconds,
+            L3DurationMs: l3Stopwatch.Elapsed.TotalMilliseconds);
+    }
+
+    protected sealed record DiscoveryOutcome(
+        int L2Created,
+        bool L3Invoked,
+        int L3Created,
+        double L2DurationMs,
+        double L3DurationMs)
+    {
+        public int TotalCreated => L2Created + L3Created;
     }
 
     protected virtual async Task CompleteRunAsync(Guid documentId, Guid runId, int createdCount)

@@ -50,6 +50,7 @@ public class SemanticRelationDiscoveryService : DomainService
     private readonly IDocumentKnowledgeIndex _knowledgeIndex;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly RelationInferenceAgent _inferenceAgent;
+    private readonly RelationDiscoveryTelemetryRecorder _telemetry;
     private readonly PaperbaseAIBehaviorOptions _aiOptions;
 
     // No ICurrentTenant injection: tenant flows through DocumentSnapshot.TenantId, sourced from
@@ -60,6 +61,7 @@ public class SemanticRelationDiscoveryService : DomainService
         IDocumentKnowledgeIndex knowledgeIndex,
         IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
         RelationInferenceAgent inferenceAgent,
+        RelationDiscoveryTelemetryRecorder telemetry,
         IOptions<PaperbaseAIBehaviorOptions> aiOptions)
     {
         _documentRepository = documentRepository;
@@ -67,6 +69,7 @@ public class SemanticRelationDiscoveryService : DomainService
         _knowledgeIndex = knowledgeIndex;
         _embeddingGenerator = embeddingGenerator;
         _inferenceAgent = inferenceAgent;
+        _telemetry = telemetry;
         _aiOptions = aiOptions.Value;
     }
 
@@ -211,11 +214,13 @@ public class SemanticRelationDiscoveryService : DomainService
             Logger.LogError(ex,
                 "L3 SemanticRelationDiscovery: LLM evaluation failed for ({Source}, {Candidate}); skipping pair",
                 sourceDocumentId, candidateId);
+            _telemetry.RecordL3LlmCall(RelationDiscoveryL3CallResult.Error);
             return null;
         }
 
         if (!inference.IsRelated || inference.Confidence < _aiOptions.SemanticRelationDiscoveryConfidenceThreshold)
         {
+            _telemetry.RecordL3LlmCall(RelationDiscoveryL3CallResult.Rejected);
             return null;
         }
 
@@ -241,6 +246,7 @@ public class SemanticRelationDiscoveryService : DomainService
         // Per-insert auto-save uses an implicit per-call UoW; LLM calls between candidates
         // happen with NO ambient UoW, satisfying the rule.
         await _relationRepository.InsertAsync(relation, autoSave: true, ct);
+        _telemetry.RecordL3LlmCall(RelationDiscoveryL3CallResult.Confirmed);
         return relation;
     }
 
