@@ -67,7 +67,10 @@ public class DocumentRelationsTool : ITransientDependency
                 "Use this BEFORE search_paperbase_documents when the question implies cross-document evidence " +
                 "(e.g. 'has this contract been paid?' → call get_document_relations on the contract, then " +
                 "drill into the returned documentIds with search_paperbase_documents). " +
-                "Returns up to 20 entries, ordered with manual links first, then AI-suggested links by confidence descending.");
+                "Returns up to 20 entries, ordered with manual links first, then AI-suggested links by confidence descending.",
+            // Issue #116 progress description: documentId is opaque to the user; the
+            // anchor doc is implicit from context. Generic label is fine here.
+            progressDescriber: _ => "正在查找该文档的关联文档…");
     }
 
     /// <summary>

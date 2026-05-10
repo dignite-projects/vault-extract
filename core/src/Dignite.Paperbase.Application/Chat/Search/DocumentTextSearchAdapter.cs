@@ -151,7 +151,55 @@ public class DocumentTextSearchAdapter : ITransientDependency
             toolContext,
             binding.InvokeAsync,
             name: functionName,
-            description: functionDescription);
+            description: functionDescription,
+            // Issue #116: never surface the LLM-rewritten `query` (PII risk per
+            // .claude/rules/doc-chat-anti-patterns.md reverse example C #4). Show
+            // structural intent only — type filter and how many docs are being
+            // drilled into.
+            progressDescriber: SummarizeProgress);
+    }
+
+    private static string SummarizeProgress(IReadOnlyDictionary<string, object?> arguments)
+    {
+        var documentTypeCode = TryGetString(arguments, "documentTypeCode");
+        var documentIdsCount = TryGetCollectionCount(arguments, "documentIds");
+
+        if (documentIdsCount > 0)
+        {
+            return $"正在 {documentIdsCount} 份候选文档中向量检索…";
+        }
+
+        if (!string.IsNullOrEmpty(documentTypeCode))
+        {
+            return $"正在按文档类型 \"{documentTypeCode}\" 向量检索…";
+        }
+
+        return "正在跨全库向量检索…";
+    }
+
+    private static string? TryGetString(IReadOnlyDictionary<string, object?> arguments, string key)
+        => arguments.TryGetValue(key, out var value) ? value?.ToString() : null;
+
+    private static int TryGetCollectionCount(IReadOnlyDictionary<string, object?> arguments, string key)
+    {
+        if (!arguments.TryGetValue(key, out var value) || value is null)
+        {
+            return 0;
+        }
+
+        if (value is System.Collections.ICollection coll)
+        {
+            return coll.Count;
+        }
+
+        if (value is System.Collections.IEnumerable seq)
+        {
+            var count = 0;
+            foreach (var _ in seq) count++;
+            return count;
+        }
+
+        return 0;
     }
 
     // ── nested helper ────────────────────────────────────────────────────────

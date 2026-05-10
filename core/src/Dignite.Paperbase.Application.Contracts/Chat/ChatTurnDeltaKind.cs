@@ -1,4 +1,4 @@
-﻿namespace Dignite.Paperbase.Chat;
+namespace Dignite.Paperbase.Chat;
 
 public enum ChatTurnDeltaKind
 {
@@ -20,5 +20,25 @@ public enum ChatTurnDeltaKind
     /// <see cref="ChatTurnDeltaDto.ErrorMessage"/> carries a safe client-facing message.
     /// No further events follow.
     /// </summary>
-    Error
+    Error,
+
+    /// <summary>
+    /// Issue #116: model decided to invoke a tool. Populated fields:
+    /// <see cref="ChatTurnDeltaDto.ToolName"/>,
+    /// <see cref="ChatTurnDeltaDto.ToolCallId"/>,
+    /// <see cref="ChatTurnDeltaDto.ProgressDescription"/>.
+    /// Lets the UI render an in-progress card (e.g. "▸ 正在按甲方 'X 公司' 查找合同")
+    /// instead of a black screen during multi-step tool reasoning.
+    /// </summary>
+    ToolCallStarted,
+
+    /// <summary>
+    /// Issue #116: a tool returned (or threw). Correlates with the matching
+    /// <see cref="ToolCallStarted"/> via <see cref="ChatTurnDeltaDto.ToolCallId"/>.
+    /// Populated: <see cref="ChatTurnDeltaDto.ToolName"/>,
+    /// <see cref="ChatTurnDeltaDto.ToolCallId"/>,
+    /// <see cref="ChatTurnDeltaDto.ElapsedMs"/>,
+    /// <see cref="ChatTurnDeltaDto.ToolCallSucceeded"/>.
+    /// </summary>
+    ToolCallCompleted
 }

@@ -65,7 +65,11 @@ public class ContractChatToolContributor : IDocumentChatToolContributor, ITransi
                 "Search contracts by structured criteria: contract number, party name, " +
                 "date range, or amount range. " +
                 "Returns matched document IDs and contract metadata summaries. " +
-                "Use the returned document IDs to restrict further document content search to the relevant contracts.");
+                "Use the returned document IDs to restrict further document content search to the relevant contracts.",
+            // Issue #116: party / contract number are user-meaningful filters and OK to surface.
+            // Dates / amount ranges are too noisy in a one-line label — caller can see them in
+            // the audit log. The string is end-user facing, so keep it short and friendly.
+            progressDescriber: DescribeSearch);
 
         yield return toolFactory.Create(
             ctx,
@@ -75,7 +79,9 @@ public class ContractChatToolContributor : IDocumentChatToolContributor, ITransi
                 "Fetch the full extracted field set for a single contract by its document ID. " +
                 "Use this after search_contracts narrows the candidate set, when the user asks " +
                 "for fields not included in the search summary (governing law, auto-renewal, " +
-                "termination notice days, effective date, etc.).");
+                "termination notice days, effective date, etc.).",
+            // documentId is opaque to users; generic label is more useful here than a UUID.
+            progressDescriber: _ => "正在查询合同详情…");
 
         yield return toolFactory.Create(
             ctx,
@@ -86,8 +92,38 @@ public class ContractChatToolContributor : IDocumentChatToolContributor, ITransi
                 "filtered by party name, signed-date range, or status. " +
                 "Use this for arithmetic questions like \"how many active contracts with party X\" " +
                 "or \"total signed amount in Q1\" — these cannot be answered by vector search " +
-                "over document chunks.");
+                "over document chunks.",
+            progressDescriber: DescribeAggregate);
     }
+
+    private static string DescribeSearch(IReadOnlyDictionary<string, object?> arguments)
+    {
+        var party = TryGetString(arguments, "partyName");
+        var contractNumber = TryGetString(arguments, "contractNumber");
+
+        if (!string.IsNullOrEmpty(party))
+        {
+            return $"正在按甲方 \"{party}\" 查找合同…";
+        }
+
+        if (!string.IsNullOrEmpty(contractNumber))
+        {
+            return $"正在按合同号 \"{contractNumber}\" 查找合同…";
+        }
+
+        return "正在按条件筛选合同…";
+    }
+
+    private static string DescribeAggregate(IReadOnlyDictionary<string, object?> arguments)
+    {
+        var party = TryGetString(arguments, "partyName");
+        return string.IsNullOrEmpty(party)
+            ? "正在统计合同金额…"
+            : $"正在统计 \"{party}\" 的合同金额…";
+    }
+
+    private static string? TryGetString(IReadOnlyDictionary<string, object?> arguments, string key)
+        => arguments.TryGetValue(key, out var value) ? value?.ToString() : null;
 
     // ── nested binding ───────────────────────────────────────────────────────
 

@@ -44,10 +44,11 @@ public class DocumentChatToolFactory : IDocumentChatToolFactory, ITransientDepen
         DocumentChatToolContext ctx,
         Delegate method,
         string name,
-        string description)
+        string description,
+        Func<IReadOnlyDictionary<string, object?>, string?>? progressDescriber = null)
     {
         var inner = AIFunctionFactory.Create(method, name, description);
-        return new AuditedDocumentChatFunction(inner, ctx, _recorder);
+        return new AuditedDocumentChatFunction(inner, ctx, _recorder, progressDescriber);
     }
 
     private static IReadOnlyDictionary<string, object?> SummarizeArguments(AIFunctionArguments? arguments)
@@ -272,20 +273,35 @@ public class DocumentChatToolFactory : IDocumentChatToolFactory, ITransientDepen
         return Convert.ToHexString(bytes, 0, HashHexPrefixLength / 2).ToLowerInvariant();
     }
 
-    private sealed class AuditedDocumentChatFunction : AIFunction
+    /// <summary>
+    /// Internal so <c>DocumentChatAppService</c> (same assembly) can downcast on the
+    /// streaming path to fetch <see cref="ProgressDescriber"/> for
+    /// <c>ToolCallStarted</c> events. External consumers should treat the returned
+    /// <see cref="AIFunction"/> as opaque.
+    /// </summary>
+    internal sealed class AuditedDocumentChatFunction : AIFunction
     {
         private readonly AIFunction _inner;
         private readonly DocumentChatToolContext _ctx;
         private readonly DocumentChatTelemetryRecorder _recorder;
 
+        /// <summary>
+        /// Issue #116: optional sanitized-progress describer supplied at registration
+        /// time. <c>null</c> when the tool didn't opt in; the streaming AppService
+        /// falls back to a generic "正在执行 {ToolName}" label.
+        /// </summary>
+        public Func<IReadOnlyDictionary<string, object?>, string?>? ProgressDescriber { get; }
+
         public AuditedDocumentChatFunction(
             AIFunction inner,
             DocumentChatToolContext ctx,
-            DocumentChatTelemetryRecorder recorder)
+            DocumentChatTelemetryRecorder recorder,
+            Func<IReadOnlyDictionary<string, object?>, string?>? progressDescriber = null)
         {
             _inner = inner;
             _ctx = ctx;
             _recorder = recorder;
+            ProgressDescriber = progressDescriber;
         }
 
         public override string Name => _inner.Name;

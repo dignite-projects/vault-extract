@@ -460,7 +460,7 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
         // telemetry but does not block the turn — see reverse example E.
         var anchorResolutionFailed = conversation.DocumentId.HasValue && string.IsNullOrEmpty(anchorContext);
 
-        return new AgentSetup(agent, session, capture, anchorResolutionFailed);
+        return new AgentSetup(agent, session, capture, anchorResolutionFailed, tools);
     }
 
     /// <summary>
@@ -779,6 +779,113 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
     /// On error, a <see cref="ChatTurnDeltaKind.Error"/> event is written before closing
     /// the channel.
     /// </summary>
+    /// <summary>
+    /// Issue #116: surfaces MAF's <see cref="MeAi.FunctionCallContent"/> and
+    /// <see cref="MeAi.FunctionResultContent"/> updates as
+    /// <see cref="ChatTurnDeltaKind.ToolCallStarted"/> and
+    /// <see cref="ChatTurnDeltaKind.ToolCallCompleted"/> events on the streaming channel
+    /// so the UI can render in-progress cards instead of a black screen.
+    /// </summary>
+    /// <remarks>
+    /// Tool-name → describer resolution: looks up the AIFunction by name in
+    /// <paramref name="tools"/> (the same list passed to <c>ChatClientAgentOptions</c>),
+    /// downcasts to <see cref="Telemetry.DocumentChatToolFactory.AuditedDocumentChatFunction"/>,
+    /// and invokes its <c>ProgressDescriber</c>. Falls back to a generic label when the
+    /// tool didn't supply one — never reveals raw <c>arguments</c> JSON, which would
+    /// re-introduce the prompt-injection / PII vector reverse example C #4 forbids.
+    /// </remarks>
+    private async Task EmitToolCallEventsAsync(
+        AgentResponseUpdate update,
+        IReadOnlyList<AITool> tools,
+        IDictionary<string, (string ToolName, long StartTimestamp)> toolCallStartTimes,
+        ChannelWriter<ChatTurnDeltaDto> writer,
+        CancellationToken ct)
+    {
+        if (update.Contents == null || update.Contents.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var content in update.Contents)
+        {
+            switch (content)
+            {
+                case MeAi.FunctionCallContent call when !string.IsNullOrEmpty(call.CallId):
+                {
+                    toolCallStartTimes[call.CallId] = (call.Name, Stopwatch.GetTimestamp());
+
+                    // Snapshot arguments into a read-only dictionary so describers can't
+                    // accidentally mutate the same instance MAF will hand to the tool body.
+                    var roArgs = call.Arguments == null
+                        ? (IReadOnlyDictionary<string, object?>)new Dictionary<string, object?>(StringComparer.Ordinal)
+                        : new Dictionary<string, object?>(call.Arguments, StringComparer.Ordinal);
+
+                    await writer.WriteAsync(new ChatTurnDeltaDto
+                    {
+                        Kind = ChatTurnDeltaKind.ToolCallStarted,
+                        ToolName = call.Name,
+                        ToolCallId = call.CallId,
+                        ProgressDescription = ResolveProgressDescription(call.Name, roArgs, tools)
+                    }, ct);
+                    break;
+                }
+
+                case MeAi.FunctionResultContent result when !string.IsNullOrEmpty(result.CallId):
+                {
+                    if (!toolCallStartTimes.TryGetValue(result.CallId, out var entry))
+                    {
+                        // Out-of-order Result without a matching Started — emit Completed
+                        // anyway so the UI doesn't leave a card hanging, but ElapsedMs is
+                        // unknown. Should not happen with FunctionInvokingChatClient but
+                        // defensive against future custom invokers. The MAF
+                        // FunctionResultContent does not carry the tool name (it's only on
+                        // the originating FunctionCallContent), so we synthesise a placeholder.
+                        entry = ("(unknown)", Stopwatch.GetTimestamp());
+                    }
+                    else
+                    {
+                        toolCallStartTimes.Remove(result.CallId);
+                    }
+
+                    var elapsedMs = Stopwatch.GetElapsedTime(entry.StartTimestamp).TotalMilliseconds;
+                    var succeeded = result.Exception is null;
+
+                    await writer.WriteAsync(new ChatTurnDeltaDto
+                    {
+                        Kind = ChatTurnDeltaKind.ToolCallCompleted,
+                        ToolName = entry.ToolName,
+                        ToolCallId = result.CallId,
+                        ElapsedMs = elapsedMs,
+                        ToolCallSucceeded = succeeded
+                    }, ct);
+                    break;
+                }
+            }
+        }
+    }
+
+    private static string ResolveProgressDescription(
+        string toolName,
+        IReadOnlyDictionary<string, object?> arguments,
+        IReadOnlyList<AITool> tools)
+    {
+        foreach (var tool in tools)
+        {
+            if (tool is Telemetry.DocumentChatToolFactory.AuditedDocumentChatFunction audited
+                && string.Equals(audited.Name, toolName, StringComparison.Ordinal))
+            {
+                var described = audited.ProgressDescriber?.Invoke(arguments);
+                if (!string.IsNullOrEmpty(described))
+                {
+                    return described;
+                }
+                break;
+            }
+        }
+
+        return $"正在执行 {toolName}…";
+    }
+
     private async Task FillStreamingChannelAsync(
         ChatConversation conversation,
         SendChatMessageInput input,
@@ -795,9 +902,19 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
             var setup = await PrepareAgentSetupAsync(conversation, ct);
             // MAF prepends history via DocumentChatHistoryProvider — see InvokeAgentAsync.
             var newUserMessage = new MeAi.ChatMessage(MeAi.ChatRole.User, input.Message);
+
+            // Issue #116: per-CallId stopwatch dictionary so ToolCallCompleted can carry
+            // accurate ElapsedMs even when the FunctionInvokingChatClient interleaves
+            // multiple in-flight calls. Keyed by CallId from FunctionCallContent.
+            var toolCallStartTimes = new Dictionary<string, (string ToolName, long StartTimestamp)>(StringComparer.Ordinal);
+
             await foreach (var update in setup.Agent.RunStreamingAsync(
                 newUserMessage, setup.Session, options: null, ct))
             {
+                // Tool-call progress events first — they help users see the agent is
+                // working before any text starts streaming.
+                await EmitToolCallEventsAsync(update, setup.Tools, toolCallStartTimes, writer, ct);
+
                 var text = update.Text;
                 if (!string.IsNullOrEmpty(text))
                 {
@@ -970,12 +1087,19 @@ public class DocumentChatAppService : PaperbaseAppService, IDocumentChatAppServi
     /// <see cref="DocumentChatAppService.BuildAnchorContextAsync"/> degraded for it
     /// (deleted, tenant mismatch, or caller lost <c>Documents.Default</c>). Surfaces
     /// to telemetry so operators can see permission drift at scale; never blocks the turn.
+    /// <para>
+    /// Issue #116: <see cref="Tools"/> mirrors the <c>ChatClientAgentOptions.ChatOptions.Tools</c>
+    /// list so the streaming path can look up an
+    /// <see cref="Telemetry.DocumentChatToolFactory.AuditedDocumentChatFunction"/> by name
+    /// to resolve its <c>ProgressDescriber</c> when emitting <c>ToolCallStarted</c> events.
+    /// </para>
     /// </remarks>
     protected record AgentSetup(
         ChatClientAgent Agent,
         AgentSession Session,
         DocumentSearchCapture Capture,
-        bool AnchorResolutionFailed);
+        bool AnchorResolutionFailed,
+        IReadOnlyList<AITool> Tools);
 
     protected record AgentRunOutcome(
         string Text,
