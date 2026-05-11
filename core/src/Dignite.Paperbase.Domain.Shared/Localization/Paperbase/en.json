@@ -148,6 +148,7 @@
     "Chat:NewConversation": "New conversation",
     "Chat:NoConversations": "No conversations yet.",
     "Chat:SelectConversation": "Select or create a conversation.",
+    "Chat:StartNewConversation": "Type a message below to start a new conversation.",
     "Chat:MessagePlaceholder": "Ask a question...",
     "Chat:Send": "Send",
     "Chat:Thinking": "Thinking...",

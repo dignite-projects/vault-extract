@@ -88,7 +88,6 @@ export class ChatPanelComponent implements OnInit, OnChanges, AfterViewChecked {
   // nothing — independent Chat starts unscoped and the user's question (and
   // backend tools) decide which documents are involved.
   readonly documentId = input<string | undefined>(undefined);
-  readonly documentTypeCode = input<string | undefined>(undefined);
 
   readonly ChatMessageRole = ChatMessageRole;
 
@@ -257,7 +256,6 @@ export class ChatPanelComponent implements OnInit, OnChanges, AfterViewChecked {
       this.createAndOpen(
         {
           documentId: this.isPanelMode() ? this.documentId() ?? null : null,
-          documentTypeCode: null,
         },
         created => this.sendToConversation(created, text)
       );
@@ -275,7 +273,6 @@ export class ChatPanelComponent implements OnInit, OnChanges, AfterViewChecked {
   }
 
   sourceLabel(conversation: ChatConversationDto | ChatConversationListItemDto): string {
-    if (conversation.documentTypeCode) return conversation.documentTypeCode;
     if (conversation.documentId) {
       return this.localization.instant({
         key: '::Chat:Scope:Document',

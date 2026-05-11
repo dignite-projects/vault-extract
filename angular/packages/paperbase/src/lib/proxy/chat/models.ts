@@ -13,15 +13,11 @@ export interface ChatConversationDto extends FullAuditedEntityDto<string> {
   tenantId?: string | null;
   title?: string;
   documentId?: string | null;
-  documentTypeCode?: string | null;
-  topK?: number | null;
-  minScore?: number | null;
 }
 
 export interface ChatConversationListItemDto extends EntityDto<string> {
   title?: string;
   documentId?: string | null;
-  documentTypeCode?: string | null;
   creationTime?: string;
 }
 
@@ -94,9 +90,6 @@ export interface ChatTurnDeltaDto {
 export interface CreateChatConversationInput {
   title?: string | null;
   documentId?: string | null;
-  documentTypeCode?: string | null;
-  topK?: number | null;
-  minScore?: number | null;
 }
 
 export interface GetChatConversationListInput extends PagedAndSortedResultRequestDto {

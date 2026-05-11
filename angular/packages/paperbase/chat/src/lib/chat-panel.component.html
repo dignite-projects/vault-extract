@@ -133,7 +133,7 @@
               type="button"
               class="btn btn-link btn-sm ms-auto p-0"
               (click)="startDraft()"
-              [disabled]="isCreating()"
+              [disabled]="isCreating() || !activeConversation()"
               [title]="'::Chat:NewConversation' | abpLocalization"
             >
               <i class="fas fa-plus"></i>
@@ -250,7 +250,11 @@
         @if (!activeConversation() && !isLoadingMessages() && messages().length === 0) {
           <div class="no-active-conversation">
             <i class="fas fa-comments d-block mb-3"></i>
-            <h5>{{ '::Chat:SelectConversation' | abpLocalization }}</h5>
+            @if (isPanelMode()) {
+              <h5>{{ '::Chat:StartNewConversation' | abpLocalization }}</h5>
+            } @else {
+              <h5>{{ '::Chat:SelectConversation' | abpLocalization }}</h5>
+            }
           </div>
         }
       </section>

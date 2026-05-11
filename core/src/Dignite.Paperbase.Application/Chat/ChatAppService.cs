@@ -132,7 +132,15 @@ public class ChatAppService : PaperbaseAppService, IChatAppService
         queryable = queryable.Where(c => c.CreatorId == ownerId);
         if (input.DocumentId.HasValue)
         {
+            // Panel-mode caller (document detail): list anchored conversations for that document.
             queryable = queryable.Where(c => c.DocumentId == input.DocumentId.Value);
+        }
+        else
+        {
+            // Full-mode caller (/chat): main list shows only un-anchored conversations.
+            // Anchored conversations belong to the document detail panel and are surfaced
+            // there via the explicit-documentId branch above.
+            queryable = queryable.Where(c => c.DocumentId == null);
         }
 
         var totalCount = await AsyncExecuter.LongCountAsync(queryable);

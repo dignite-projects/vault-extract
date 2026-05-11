@@ -64,6 +64,7 @@
     "Chat:NewConversation": "新建对话",
     "Chat:NoConversations": "还没有对话。",
     "Chat:SelectConversation": "选择或创建一个对话。",
+    "Chat:StartNewConversation": "在下方输入消息开始新对话。",
     "Chat:MessagePlaceholder": "输入问题...",
     "Chat:Send": "发送",
     "Chat:Thinking": "正在思考...",
