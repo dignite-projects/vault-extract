@@ -3,6 +3,57 @@
   "texts": {
     "MyAccount": "我的账户",
     "SamplePageMessage": "Contracts 模块的示例页面",
-    "Contract:OpenSourceDocument": "打开源文档"
+
+    "Menu:Contracts": "合同",
+
+    "DocumentType:Contract": "合同",
+    "DocumentType:ContractDescription": "包含甲乙方、期限、金额、签字的合同文档。",
+
+    "Permission:Contracts": "合同",
+    "Permission:Contracts.Contracts": "合同",
+    "Permission:Contracts.Contracts.Update": "更新合同",
+    "Permission:Contracts.Contracts.Confirm": "确认合同",
+
+    "Title": "标题",
+    "ContractNumber": "合同编号",
+    "PartyAName": "甲方",
+    "PartyBName": "乙方",
+    "CounterpartyName": "对方",
+    "SignedDate": "签订日期",
+    "EffectiveDate": "生效日期",
+    "ExpirationDate": "到期日期",
+    "ExpirationDateFrom": "到期日 ≥",
+    "ExpirationDateTo": "到期日 ≤",
+    "TotalAmount": "金额",
+    "TotalAmountMin": "金额 ≥",
+    "TotalAmountMax": "金额 ≤",
+    "Currency": "币种",
+    "AutoRenewal": "自动续约",
+    "TerminationNoticeDays": "终止通知期（天）",
+    "GoverningLaw": "管辖法",
+    "Summary": "摘要",
+    "Status": "状态",
+    "Confidence": "置信度",
+    "NeedsReview": "待复核",
+    "ReviewStatus": "复核状态",
+
+    "ContractReviewStatus:Pending": "待复核",
+    "ContractReviewStatus:Confirmed": "已确认",
+    "ContractReviewStatus:Corrected": "已修正",
+
+    "Contract:Detail": "合同详情",
+    "Contract:OpenSourceDocument": "打开源文档",
+    "Contract:DocumentType": "文档类型",
+    "Contract:ExtractionConfidence": "抽取置信度",
+    "Contract:Fields": "字段",
+    "Contract:NeedsReviewMessage": "AI 抽取的字段待您复核，修正错误后点击确认。",
+    "Contract:ConfirmExtraction": "确认抽取结果",
+    "Contract:ExportCsv": "导出 CSV",
+    "Contract:NotFound": "未找到该合同。",
+    "Contract:LoadFailed": "加载合同失败。",
+    "Contract:UpdateSuccess": "已更新。",
+    "Contract:UpdateFailed": "更新失败。",
+    "Contract:ConfirmSuccess": "已确认。",
+    "Contract:ConfirmFailed": "确认失败。"
   }
 }

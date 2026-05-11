@@ -3,24 +3,57 @@
   "texts": {
     "MyAccount":  "My account",
     "SamplePageMessage": "A sample page for the Contracts module",
+
+    "Menu:Contracts": "Contracts",
+
     "DocumentType:Contract": "Contract",
     "DocumentType:ContractDescription": "A contract document containing parties, term, amount, and signatures.",
+
     "Permission:Contracts": "Contracts",
     "Permission:Contracts.Contracts": "Contracts",
     "Permission:Contracts.Contracts.Update": "Update contracts",
     "Permission:Contracts.Contracts.Confirm": "Confirm contracts",
+
     "Title": "Title",
+    "ContractNumber": "Contract number",
+    "PartyAName": "Party A",
+    "PartyBName": "Party B",
     "CounterpartyName": "Counterparty",
     "SignedDate": "Signed date",
+    "EffectiveDate": "Effective date",
     "ExpirationDate": "Expiration date",
+    "ExpirationDateFrom": "Expires from",
+    "ExpirationDateTo": "Expires to",
     "TotalAmount": "Amount",
+    "TotalAmountMin": "Amount ≥",
+    "TotalAmountMax": "Amount ≤",
+    "Currency": "Currency",
+    "AutoRenewal": "Auto renewal",
+    "TerminationNoticeDays": "Termination notice (days)",
+    "GoverningLaw": "Governing law",
+    "Summary": "Summary",
     "Status": "Status",
     "Confidence": "Confidence",
     "NeedsReview": "Needs review",
     "ReviewStatus": "Review status",
+
     "ContractReviewStatus:Pending": "Pending review",
     "ContractReviewStatus:Confirmed": "Confirmed",
     "ContractReviewStatus:Corrected": "Corrected",
-    "Contract:OpenSourceDocument": "Open Source Document"
+
+    "Contract:Detail": "Contract Detail",
+    "Contract:OpenSourceDocument": "Open Source Document",
+    "Contract:DocumentType": "Document type",
+    "Contract:ExtractionConfidence": "Extraction confidence",
+    "Contract:Fields": "Fields",
+    "Contract:NeedsReviewMessage": "AI-extracted fields are awaiting your review. Correct any errors and click Confirm.",
+    "Contract:ConfirmExtraction": "Confirm extraction",
+    "Contract:ExportCsv": "Export CSV",
+    "Contract:NotFound": "Contract not found.",
+    "Contract:LoadFailed": "Failed to load contract.",
+    "Contract:UpdateSuccess": "Contract updated.",
+    "Contract:UpdateFailed": "Failed to update contract.",
+    "Contract:ConfirmSuccess": "Contract confirmed.",
+    "Contract:ConfirmFailed": "Failed to confirm contract."
   }
 }
