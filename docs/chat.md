@@ -161,6 +161,39 @@ Every turn carries a `groundingSource` enum on `ChatTurnResultDto` describing wh
 
 `isDegraded` and `groundingSource` are both surfaced on the API response so the UI can show a "no sources used" banner or a "answered from contract data" badge.
 
+## Auto-generated conversation titles
+
+When the **first** message of a conversation arrives — defined as `ChatConversation.Messages.Count == 0` and the title still equal to the `Chat:UntitledConversation` localization placeholder — `ChatAppService.TryGenerateAndApplyTitleAsync` fires a small extra LLM call right after the main turn finishes. Its job is to produce a 2–3 word conversation title from `(user message, assistant answer)` so the UI sidebar shows something more informative than "Untitled conversation". The result is written via `conversation.Rename(title)` in the same unit of work.
+
+This call is intentionally minimal:
+
+| Property | Value |
+|---|---|
+| Prompt | The user's message and the assistant's reply, wrapped in `PromptBoundary` envelopes |
+| Instructions | `IPromptProvider.GetConversationTitlePrompt(DefaultLanguage)` — explicitly disallows tool use, asks for a short title only |
+| Token cost | ~200 input / ~5 output per turn (verified against SiliconFlow billing) |
+| Failure mode | Try/catch around the whole call — if the LLM errors out, the conversation just keeps its "Untitled" title; no user-visible failure |
+
+### Why it shows up as a second `orchestrate_tools` span on the trace
+
+The title generator calls the **same** `_chatClient` registered in `PaperbaseHostModule.ConfigureAI`, which is wrapped with `.UseFunctionInvocation()`. The `FunctionInvokingChatClient` decorator emits an `orchestrate_tools` Activity span around every call regardless of whether tools actually get invoked. So a trace of "first turn of a new conversation" looks like this:
+
+```
+POST .../messages/stream
+├── orchestrate_tools          ← the real chat turn (search/answer/etc.)
+│   ├── chat <model>
+│   ├── execute_tool <name>
+│   └── chat <model>
+└── orchestrate_tools          ← THIS ONE is the title generator
+    └── chat <model>           ← input_tokens ≈ 200, output_tokens ≈ 5, no tool_calls
+```
+
+If you see exactly two `orchestrate_tools` siblings under the same root and the second one has tiny input/output and no `execute_tool` children, that's the title generator, not a bug. Subsequent turns in the same conversation produce only one `orchestrate_tools` span because `ShouldGenerateTitle` returns false after the first message lands.
+
+### Disabling or replacing
+
+Override `ShouldGenerateTitle` to return `false` (in a host-level subclass) to skip auto-titling entirely. Override `TryGenerateAndApplyTitleAsync` to plug in a different naming strategy (e.g. take the first 30 chars of the user message verbatim, no LLM call). The base method is `protected virtual` for that reason.
+
 ## Observability
 
 Beyond the OpenTelemetry signals from `Microsoft.Extensions.AI` (see [ai-provider.md → OpenTelemetry signals](ai-provider.md#opentelemetry-signals)), each turn enriches the ABP audit row through `ChatTelemetryRecorder`. Two structured payloads are attached to `AbpAuditLogs.ExtraProperties`:
