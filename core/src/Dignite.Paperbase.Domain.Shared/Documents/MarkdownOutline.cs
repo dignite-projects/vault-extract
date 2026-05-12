@@ -72,8 +72,9 @@ public static class MarkdownOutline
 
     /// <summary>
     /// 在 Markdown 中按子串（大小写不敏感）搜索 <paramref name="query"/>，返回命中段落，
-    /// 每段附带前后 <paramref name="contextLines"/> 行上下文。最多返回 <paramref name="maxMatches"/>
-    /// 段（防爆窗口）。空 query 或空文本返回空列表（不抛）。
+    /// 每段附带前后 <paramref name="contextLines"/> 行上下文。重叠或相邻的上下文窗口合并为
+    /// 一个 snippet（避免重复行）。最多返回 <paramref name="maxMatches"/> 个 snippet（防爆窗口）。
+    /// 空 query 或空文本返回空列表（不抛）。
     /// </summary>
     public static IReadOnlyList<string> Grep(
         string? markdown, string query,
@@ -87,33 +88,39 @@ public static class MarkdownOutline
         }
 
         var lines = SplitLines(markdown);
-        var results = new List<string>();
-        var lastEmittedEnd = -1; // 1-based exclusive line index; -1 = nothing emitted yet
-
+        // Pass 1: sweep hits, building merged context windows by interval coalescing.
+        // A new hit whose window starts within (or directly after) the previous window
+        // extends that window rather than spawning a duplicate. maxMatches caps the number
+        // of *distinct* windows, not raw hits — clusters of hits collapse into one entry.
+        var windows = new List<(int Start, int End)>();
         for (var i = 0; i < lines.Count; i++)
         {
-            if (lines[i].IndexOf(query, StringComparison.OrdinalIgnoreCase) < 0)
-            {
-                continue;
-            }
+            if (lines[i].IndexOf(query, StringComparison.OrdinalIgnoreCase) < 0) continue;
 
             var start = Math.Max(0, i - contextLines);
             var end = Math.Min(lines.Count - 1, i + contextLines);
 
-            // Merge overlapping windows so two close hits don't return duplicated lines.
-            if (start <= lastEmittedEnd)
+            if (windows.Count > 0 && start <= windows[^1].End)
             {
-                start = lastEmittedEnd + 1;
-                if (start > end) continue;
+                // Strict overlap (windows share at least one line) — extend the previous
+                // window. Adjacent-but-disjoint windows stay separate so two consecutive
+                // single-line hits with contextLines=0 still report as two matches.
+                windows[^1] = (windows[^1].Start, Math.Max(windows[^1].End, end));
             }
-
-            var snippet = string.Join('\n', SliceRange(lines, start, end));
-            results.Add(snippet);
-            lastEmittedEnd = end;
-
-            if (results.Count >= maxMatches) break;
+            else
+            {
+                if (windows.Count >= maxMatches) break;
+                windows.Add((start, end));
+            }
         }
 
+        if (windows.Count == 0) return Array.Empty<string>();
+
+        var results = new List<string>(windows.Count);
+        foreach (var (s, e) in windows)
+        {
+            results.Add(string.Join('\n', SliceRange(lines, s, e)));
+        }
         return results;
     }
 
