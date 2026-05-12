@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Dignite.Paperbase.Abstractions.Agents;
 using Dignite.Paperbase.Abstractions.Documents;
 using Dignite.Paperbase.Contracts.Contracts;
+using Dignite.Paperbase.Contracts.Telemetry;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -26,6 +27,7 @@ public class ContractDocumentHandler :
     private readonly ICurrentTenant _currentTenant;
     private readonly IContractExtractionExampleProvider _exampleProvider;
     private readonly IExtractionValidator<ContractExtractionResult> _extractionValidator;
+    private readonly ContractsTelemetryRecorder _telemetry;
     private readonly ILogger<ContractDocumentHandler> _logger;
 
     public ContractDocumentHandler(
@@ -35,6 +37,7 @@ public class ContractDocumentHandler :
         ICurrentTenant currentTenant,
         IContractExtractionExampleProvider exampleProvider,
         IExtractionValidator<ContractExtractionResult> extractionValidator,
+        ContractsTelemetryRecorder telemetry,
         ILogger<ContractDocumentHandler>? logger = null)
     {
         _contractRepository = contractRepository;
@@ -43,6 +46,7 @@ public class ContractDocumentHandler :
         _currentTenant = currentTenant;
         _exampleProvider = exampleProvider;
         _extractionValidator = extractionValidator;
+        _telemetry = telemetry;
         _logger = logger ?? NullLogger<ContractDocumentHandler>.Instance;
     }
 
@@ -60,6 +64,17 @@ public class ContractDocumentHandler :
             var extraction = await ExtractFieldsAsync(
                 eventData.Markdown ?? string.Empty,
                 eventData.DocumentTypeCode);
+
+            // Issue #143 telemetry snapshot: re-run the validator on the FINAL result so
+            // the recorder reflects what's actually being persisted (retries may have
+            // either fixed or exhausted by this point). The validator is a pure function,
+            // so the second call is essentially free relative to the LLM cost above.
+            var finalValidation = _extractionValidator.Validate(extraction);
+            _telemetry.RecordExtraction(
+                eventData.DocumentTypeCode,
+                finalValidation,
+                extraction.ExtractionConfidence);
+
             var fields = extraction.ToContractFields();
 
             var existing = await _contractRepository.FindByDocumentIdAsync(eventData.DocumentId);

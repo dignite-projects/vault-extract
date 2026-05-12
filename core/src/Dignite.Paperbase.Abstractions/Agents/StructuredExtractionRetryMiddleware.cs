@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -148,11 +149,12 @@ public static class StructuredExtractionRetryMiddleware
                 return lastResponse;
             }
 
-            lastFeedback = "Previous extraction failed validation: " + string.Join("; ", validation.Errors)
+            var errorMessages = string.Join("; ", validation.Errors.Select(e => e.Message));
+            lastFeedback = "Previous extraction failed validation: " + errorMessages
                 + ". Re-extract; preserve correct fields and only fix the invalid ones.";
             logger.LogWarning(
                 "StructuredExtractionRetry attempt {Attempt} failed validation: {Errors}",
-                attempt, string.Join("; ", validation.Errors));
+                attempt, errorMessages);
         }
 
         // Out of retries — return the last response. The caller's RunAsync<T> still

@@ -50,7 +50,7 @@ public class ContractExtractionValidator_Tests
         var r = _validator.Validate(input);
 
         r.IsValid.ShouldBeFalse();
-        r.Errors.ShouldContain(e => e.Contains("TotalAmount") && e.Contains("non-negative"));
+        r.Errors.ShouldContain(e => e.Message.Contains("TotalAmount") && e.Message.Contains("non-negative"));
     }
 
     [Fact]
@@ -73,7 +73,7 @@ public class ContractExtractionValidator_Tests
         var r = _validator.Validate(input);
 
         r.IsValid.ShouldBeFalse();
-        r.Errors.ShouldContain(e => e.Contains("Currency") && e.Contains("ISO 4217"));
+        r.Errors.ShouldContain(e => e.Message.Contains("Currency") && e.Message.Contains("ISO 4217"));
     }
 
     [Fact]
@@ -106,7 +106,7 @@ public class ContractExtractionValidator_Tests
         var r = _validator.Validate(input);
 
         r.IsValid.ShouldBeFalse();
-        r.Errors.ShouldContain(e => e.Contains("SignedDate") && e.Contains("ISO 8601"));
+        r.Errors.ShouldContain(e => e.Message.Contains("SignedDate") && e.Message.Contains("ISO 8601"));
     }
 
     // ── Rule 4: EffectiveDate ≤ ExpirationDate ──────────────────────────────────
@@ -121,7 +121,7 @@ public class ContractExtractionValidator_Tests
         var r = _validator.Validate(input);
 
         r.IsValid.ShouldBeFalse();
-        r.Errors.ShouldContain(e => e.Contains("EffectiveDate") && e.Contains("on or before ExpirationDate"));
+        r.Errors.ShouldContain(e => e.Message.Contains("EffectiveDate") && e.Message.Contains("on or before ExpirationDate"));
     }
 
     [Fact]
@@ -149,7 +149,7 @@ public class ContractExtractionValidator_Tests
         var r = _validator.Validate(input);
 
         r.IsValid.ShouldBeFalse();
-        r.Errors.ShouldContain(e => e.Contains("At least one of Title"));
+        r.Errors.ShouldContain(e => e.Message.Contains("At least one of Title"));
     }
 
     [Fact]
@@ -175,7 +175,7 @@ public class ContractExtractionValidator_Tests
         var r = _validator.Validate(input);
 
         r.IsValid.ShouldBeTrue();
-        r.Warnings.ShouldContain(w => w.Contains("TerminationNoticeDays") && w.Contains("400"));
+        r.Warnings.ShouldContain(w => w.Message.Contains("TerminationNoticeDays") && w.Message.Contains("400"));
     }
 
     // ── Rule 7: Low confidence (warning) ───────────────────────────────────────
@@ -189,10 +189,26 @@ public class ContractExtractionValidator_Tests
         var r = _validator.Validate(input);
 
         r.IsValid.ShouldBeTrue();
-        r.Warnings.ShouldContain(w => w.Contains("ExtractionConfidence") && w.Contains("0.30"));
+        r.Warnings.ShouldContain(w => w.Message.Contains("ExtractionConfidence") && w.Message.Contains("0.30"));
     }
 
     // ── Aggregate behavior ──────────────────────────────────────────────────────
+
+    [Fact]
+    public void Errors_Carry_Stable_Rule_Codes_For_Telemetry()
+    {
+        // Telemetry dashboards key off RuleCode (low-cardinality, language-neutral),
+        // so every error must populate it from ContractExtractionValidator.RuleCodes.
+        var input = Valid();
+        input.TotalAmount = -1m;
+        input.Currency = "yen";
+
+        var r = _validator.Validate(input);
+
+        r.IsValid.ShouldBeFalse();
+        r.Errors.Any(e => e.RuleCode == ContractExtractionValidator.RuleCodes.TotalAmountNonNegative).ShouldBeTrue();
+        r.Errors.Any(e => e.RuleCode == ContractExtractionValidator.RuleCodes.CurrencyIso4217).ShouldBeTrue();
+    }
 
     [Fact]
     public void Multiple_Errors_Are_All_Reported_For_Single_Retry()
@@ -209,8 +225,8 @@ public class ContractExtractionValidator_Tests
 
         r.IsValid.ShouldBeFalse();
         r.Errors.Count.ShouldBeGreaterThanOrEqualTo(3);
-        r.Errors.Any(e => e.Contains("TotalAmount")).ShouldBeTrue();
-        r.Errors.Any(e => e.Contains("Currency")).ShouldBeTrue();
-        r.Errors.Any(e => e.Contains("EffectiveDate")).ShouldBeTrue();
+        r.Errors.Any(e => e.Message.Contains("TotalAmount")).ShouldBeTrue();
+        r.Errors.Any(e => e.Message.Contains("Currency")).ShouldBeTrue();
+        r.Errors.Any(e => e.Message.Contains("EffectiveDate")).ShouldBeTrue();
     }
 }
