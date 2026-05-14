@@ -12,15 +12,23 @@ namespace Dignite.Paperbase.Abstractions.TextExtraction;
 /// <remarks>
 /// <para>
 /// <b>Markdown-first 契约</b>：实现方<b>必须</b>在
-/// <see cref="TextExtractionResult.Markdown"/> 中返回 Markdown 文本。
-/// 这是项目"AI 驱动企业档案平台"定位下的核心数据流约束——
-/// Markdown 同时被向量化（结构感知切块）、LLM 分类 / QA / Rerank、业务模块字段抽取消费，
-/// 标题、表格、列表是 LLM 理解文档的关键语义信号。
+/// <see cref="TextExtractionResult.Markdown"/> 中返回 Markdown 文本。Markdown 同时被向量化（结构感知切块）、
+/// LLM 分类 / QA / Rerank、业务模块字段抽取消费。
 /// </para>
 /// <para>
-/// 即使源文件没有结构（例如低质量扫描件 OCR 仅产出散段落），仍应以扁平 Markdown 段落输出，
-/// 而<b>不能</b>退回到独立的"plain text"路径或在 <see cref="TextExtractionResult"/> 上引入并行的纯文本字段。
-/// 下游需要纯文本时，统一通过 <c>Dignite.Paperbase.Documents.MarkdownStripper</c> 在消费侧投影。
+/// <b>对结构化文档而言</b>（合同 / 报告 / CSV / 带标题的 DOCX / layout-aware OCR 输出），
+/// 标题、表格、列表是 LLM 推理的真信号。
+/// <b>对无结构内容而言</b>（OCR 散段落 / 纯 txt / PP-OCRv4 行级输出），扁平 Markdown 段落与纯文本双换行重组字面相同——
+/// Markdown 是<b>容器命名</b>而非信号增益，保留此路径只是为了下游消费一种格式。
+/// </para>
+/// <para>
+/// 即使源文件没有结构，仍应以扁平 Markdown 段落输出，而<b>不能</b>退回到独立的"plain text"路径或在
+/// <see cref="TextExtractionResult"/> 上引入并行的纯文本字段。下游需要纯文本时，统一通过
+/// <c>Dignite.Paperbase.Documents.MarkdownStripper</c> 在消费侧投影。
+/// </para>
+/// <para>
+/// <b>out-of-band 信号</b>（坐标 / page metadata / 表单 key-value）与 Markdown 正交——未来扩展应作为
+/// <see cref="TextExtractionResult"/> 上具名可选强类型字段，而非塞回 Markdown 字符串或通用扩展槽。
 /// </para>
 /// </remarks>
 public interface ITextExtractor

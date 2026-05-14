@@ -42,7 +42,6 @@ public class PaddleOcrProvider : IOcrProvider, ITransientDependency
         content.Add(fileContent, "file", "document");
         content.Add(new StringContent(string.Join(",", languages)), "languages");
         content.Add(new StringContent(_options.ModelName), "model_name");
-        content.Add(new StringContent(options.IncludeBlockPositions ? "true" : "false"), "include_bboxes");
 
         var client = _httpClientFactory.CreateClient(PaperbasePaddleOcrModule.HttpClientName);
         var response = await client.PostAsync($"{_options.Endpoint.TrimEnd('/')}/ocr", content);
@@ -59,29 +58,43 @@ public class PaddleOcrProvider : IOcrProvider, ITransientDependency
         var result = JsonSerializer.Deserialize<PaddleOcrResponse>(json)
             ?? throw new InvalidOperationException("PaddleOCR server returned an empty response.");
 
-        var blocks = result.Blocks.Select(b => new OcrBlock
-        {
-            Text = b.Text,
-            Confidence = b.Confidence,
-            PageNumber = b.Page,
-            BoundingBox = options.IncludeBlockPositions
-                ? new BoundingBox { X = b.Bbox[0], Y = b.Bbox[1], Width = b.Bbox[2], Height = b.Bbox[3] }
-                : new BoundingBox()
-        }).ToList();
+        // Markdown-first：PP-StructureV3 / PaddleOCR-VL 模式返回结构化 Markdown；
+        // PP-OCRv4 等只返回 raw_text 的模式由 Provider 内部包成扁平 Markdown 段落，
+        // 不把 plain-text-to-markdown 翻译职责泄漏给上游 orchestrator。
+        var markdown = !string.IsNullOrEmpty(result.Markdown)
+            ? result.Markdown
+            : WrapParagraphs(result.RawText);
+
+        var confidence = result.Blocks is { Count: > 0 }
+            ? result.Blocks.Average(b => b.Confidence)
+            : 0;
 
         return new OcrResult
         {
-            RawText = result.RawText,
-            Markdown = string.IsNullOrEmpty(result.Markdown) ? null : result.Markdown,
-            Blocks = blocks,
-            Confidence = blocks.Count > 0 ? blocks.Average(b => b.Confidence) : 0,
+            Markdown = markdown,
+            Confidence = confidence,
             DetectedLanguage = result.DetectedLanguage,
             PageCount = result.PageCount
         };
     }
 
+    private static string WrapParagraphs(string? rawText)
+    {
+        if (string.IsNullOrWhiteSpace(rawText)) return string.Empty;
+
+        // 把换行分隔的纯文本段落转成 Markdown 扁平段落（空行分隔）。
+        // 这是 Provider 侧履行 Markdown-first 契约的最低实现。
+        var paragraphs = rawText
+            .Replace("\r\n", "\n")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Trim())
+            .Where(line => line.Length > 0);
+        return string.Join(Environment.NewLine + Environment.NewLine, paragraphs);
+    }
+
     private sealed class PaddleOcrResponse
     {
+        /// <summary>纯文本输出。当 sidecar 模式只提供 raw_text 时由 Provider 包成扁平 Markdown。</summary>
         [JsonPropertyName("raw_text")]
         public string RawText { get; set; } = string.Empty;
 
@@ -89,8 +102,10 @@ public class PaddleOcrProvider : IOcrProvider, ITransientDependency
         [JsonPropertyName("markdown")]
         public string? Markdown { get; set; }
 
+        /// <summary>Sidecar 行级 OCR 结果。Provider 内部只读其 <c>confidence</c> 用于整体置信度均值，
+        /// 不再向外暴露 bbox/text。Sidecar 协议未来若简化 schema 可安全省略此字段（按 0 处理）。</summary>
         [JsonPropertyName("blocks")]
-        public List<PaddleOcrBlock> Blocks { get; set; } = [];
+        public List<PaddleOcrLineConfidence>? Blocks { get; set; }
 
         [JsonPropertyName("detected_language")]
         public string? DetectedLanguage { get; set; }
@@ -99,19 +114,9 @@ public class PaddleOcrProvider : IOcrProvider, ITransientDependency
         public int PageCount { get; set; }
     }
 
-    private sealed class PaddleOcrBlock
+    private sealed class PaddleOcrLineConfidence
     {
-        [JsonPropertyName("text")]
-        public string Text { get; set; } = string.Empty;
-
         [JsonPropertyName("confidence")]
         public double Confidence { get; set; }
-
-        [JsonPropertyName("page")]
-        public int Page { get; set; }
-
-        // [x, y, width, height]
-        [JsonPropertyName("bbox")]
-        public double[] Bbox { get; set; } = [0, 0, 0, 0];
     }
 }

@@ -49,15 +49,7 @@ public class DefaultTextExtractor : ITextExtractor, ITransientDependency
         await fileStream.CopyToAsync(seekable, cancellationToken);
         seekable.Position = 0;
 
-        var md = await _markdownProvider.ExtractAsync(
-            seekable,
-            new MarkdownExtractionContext
-            {
-                ContentType = context.ContentType ?? string.Empty,
-                FileExtension = context.FileExtension ?? string.Empty,
-                LanguageHints = context.LanguageHints
-            },
-            cancellationToken);
+        var md = await _markdownProvider.ExtractAsync(seekable, context, cancellationToken);
 
         if (!HasMeaningfulText(md.Markdown) && IsPdfExtension(context.FileExtension))
         {
@@ -67,15 +59,7 @@ public class DefaultTextExtractor : ITextExtractor, ITransientDependency
         }
 
         Logger.LogDebug("Markdown extraction completed using {Provider}", _markdownProvider.GetType().Name);
-
-        return new TextExtractionResult
-        {
-            Markdown = md.Markdown,
-            Confidence = 1.0,
-            DetectedLanguage = md.DetectedLanguage,
-            PageCount = md.PageCount,
-            UsedOcr = false,
-        };
+        return md;
     }
 
     protected virtual async Task<TextExtractionResult> ExtractByOcrAsync(
@@ -87,24 +71,16 @@ public class DefaultTextExtractor : ITextExtractor, ITransientDependency
             ContentType = ctx.ContentType ?? string.Empty,
             LanguageHints = ctx.LanguageHints?.Count > 0
                 ? ctx.LanguageHints
-                : (IList<string>)_ocrOptions.DefaultLanguageHints,
-            IncludeBlockPositions = false
+                : (IList<string>)_ocrOptions.DefaultLanguageHints
         };
 
         var result = await _ocrProvider.RecognizeAsync(fileStream, options);
 
         Logger.LogDebug("OCR extraction completed using {Provider}", _ocrProvider.GetType().Name);
 
-        // Provider 没有原生 Markdown 输出（如 PaddleOcr PP-OCRv4 模式）时，
-        // 用 RawText 作为退化 Markdown：无标题/表格/列表的纯段落是合法 Markdown，
-        // 下游 Markdown-aware 切块器按段落工作不会失败。
-        var markdown = !string.IsNullOrEmpty(result.Markdown)
-            ? result.Markdown
-            : (result.RawText ?? string.Empty);
-
         return new TextExtractionResult
         {
-            Markdown = markdown,
+            Markdown = result.Markdown,
             Confidence = result.Confidence,
             DetectedLanguage = result.DetectedLanguage,
             PageCount = result.PageCount,

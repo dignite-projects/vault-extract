@@ -9,7 +9,4 @@ public class OcrOptions
 
     /// <summary>文件 MIME 类型，帮助部分 Provider 优化识别策略。</summary>
     public string ContentType { get; set; } = string.Empty;
-
-    /// <summary>是否需要保留文本块坐标信息。false 时只返回纯文本，性能更优。</summary>
-    public bool IncludeBlockPositions { get; set; } = false;
 }

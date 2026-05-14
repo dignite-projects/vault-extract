@@ -35,8 +35,8 @@ public class DefaultTextExtractor_Tests : AbpIntegratedTest<DefaultTextExtractor
 
         var result = await _extractor.ExtractAsync(stream, ctx);
 
-        // OCR Provider 没有 Markdown 输出时，DefaultTextExtractor 把 RawText 当退化 Markdown 透传。
-        result.Markdown.ShouldBe("fake ocr text");
+        // OCR Provider 直接负责输出 Markdown（即便是扁平段落），DefaultTextExtractor 透传字段。
+        result.Markdown.ShouldBe("fake ocr markdown");
         result.Confidence.ShouldBe(0.95);
         result.UsedOcr.ShouldBeTrue();
     }
@@ -93,7 +93,7 @@ public class DefaultTextExtractor_Tests : AbpIntegratedTest<DefaultTextExtractor
         var result = await _extractor.ExtractAsync(stream, ctx);
 
         result.UsedOcr.ShouldBeTrue();
-        result.Markdown.ShouldBe("fake ocr text");
+        result.Markdown.ShouldBe("fake ocr markdown");
     }
 
     [DependsOn(
@@ -107,7 +107,7 @@ public class DefaultTextExtractor_Tests : AbpIntegratedTest<DefaultTextExtractor
             fakeOcr.RecognizeAsync(Arg.Any<Stream>(), Arg.Any<OcrOptions>())
                 .Returns(new OcrResult
                 {
-                    RawText = "fake ocr text",
+                    Markdown = "fake ocr markdown",
                     Confidence = 0.95,
                     PageCount = 1
                 });

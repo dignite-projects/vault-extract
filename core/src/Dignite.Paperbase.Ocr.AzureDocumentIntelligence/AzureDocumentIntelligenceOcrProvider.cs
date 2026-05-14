@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -40,56 +39,38 @@ public class AzureDocumentIntelligenceOcrProvider : IOcrProvider, ITransientDepe
             OutputContentFormat = DocumentContentFormat.Markdown
         };
         var operation = await client.AnalyzeDocumentAsync(WaitUntil.Completed, analyzeOptions);
-
         var analyzeResult = operation.Value;
-        var blocks = new List<OcrBlock>();
-        double totalConfidence = 0;
-        int blockCount = 0;
 
+        // Confidence: page.Lines 命中 Spans 视为高置信，否则给 0.9 兜底；整体取均值。
+        double totalConfidence = 0;
+        int lineCount = 0;
         foreach (var page in analyzeResult.Pages ?? [])
         {
             foreach (var line in page.Lines ?? [])
             {
-                var confidence = line.Spans?.Any() == true ? 1.0 : 0.9;
-                blocks.Add(new OcrBlock
-                {
-                    Text = line.Content,
-                    PageNumber = page.PageNumber,
-                    Confidence = confidence,
-                    BoundingBox = options.IncludeBlockPositions
-                        ? ParseBoundingBox(line.Polygon)
-                        : new BoundingBox()
-                });
-                totalConfidence += confidence;
-                blockCount++;
+                totalConfidence += line.Spans?.Any() == true ? 1.0 : 0.9;
+                lineCount++;
             }
         }
 
-        var markdown = analyzeResult.Content ?? string.Empty;
+        // analyzeResult.Content 已是 Markdown；若 Azure 返回空，回退到行级文本拼接成扁平 Markdown 段落。
+        // Provider 负责自填，不把 plain-text-to-markdown 翻译职责泄漏给上游 orchestrator。
+        var markdown = analyzeResult.Content;
+        if (string.IsNullOrEmpty(markdown))
+        {
+            var paragraphs = (analyzeResult.Pages ?? [])
+                .SelectMany(p => p.Lines ?? [])
+                .Select(l => l.Content)
+                .Where(t => !string.IsNullOrWhiteSpace(t));
+            markdown = string.Join(Environment.NewLine + Environment.NewLine, paragraphs);
+        }
 
         return new OcrResult
         {
-            RawText = string.Join(Environment.NewLine, blocks.Select(b => b.Text)),
-            Markdown = string.IsNullOrEmpty(markdown) ? null : markdown,
-            Blocks = blocks,
-            Confidence = blockCount > 0 ? totalConfidence / blockCount : 0,
+            Markdown = markdown ?? string.Empty,
+            Confidence = lineCount > 0 ? totalConfidence / lineCount : 0,
             DetectedLanguage = analyzeResult.Languages?.FirstOrDefault()?.Locale,
             PageCount = analyzeResult.Pages?.Count ?? 0
-        };
-    }
-
-    protected virtual BoundingBox ParseBoundingBox(IReadOnlyList<float>? polygon)
-    {
-        // Azure polygon: [x1,y1,x2,y2,x3,y3,x4,y4] — top-left + width/height
-        if (polygon == null || polygon.Count < 8)
-            return new BoundingBox();
-
-        return new BoundingBox
-        {
-            X = polygon[0],
-            Y = polygon[1],
-            Width = polygon[4] - polygon[0],
-            Height = polygon[5] - polygon[1]
         };
     }
 }

@@ -1,6 +1,8 @@
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Dignite.Paperbase.Abstractions.TextExtraction;
+using Dignite.Paperbase.TextExtraction;
 using ElBruno.MarkItDotNet;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -20,16 +22,9 @@ public class ElBrunoMarkdownProvider : IMarkdownTextProvider, ITransientDependen
         _markdownService = markdownService;
     }
 
-    public virtual bool CanHandle(string contentType, string fileExtension)
-    {
-        // ElBruno 内部按扩展名 ConverterRegistry 解析，未注册时返回失败 ConversionResult。
-        // 这里乐观返回 true，由 ExtractAsync 把不支持的格式转换为空 Markdown（交由 DefaultTextExtractor 处理）。
-        return !string.IsNullOrWhiteSpace(fileExtension);
-    }
-
-    public virtual async Task<MarkdownExtractionResult> ExtractAsync(
+    public virtual async Task<TextExtractionResult> ExtractAsync(
         Stream fileStream,
-        MarkdownExtractionContext context,
+        TextExtractionContext context,
         CancellationToken cancellationToken = default)
     {
         var conversion = await _markdownService.ConvertAsync(
@@ -41,14 +36,16 @@ public class ElBrunoMarkdownProvider : IMarkdownTextProvider, ITransientDependen
         {
             Logger.LogDebug("ElBruno conversion failed for {Extension}: {Error}",
                 context.FileExtension, conversion.ErrorMessage);
-            return new MarkdownExtractionResult { Markdown = string.Empty };
+            return new TextExtractionResult();
         }
 
-        return new MarkdownExtractionResult
+        return new TextExtractionResult
         {
             Markdown = conversion.Markdown ?? string.Empty,
+            Confidence = 1.0,
             PageCount = conversion.Metadata?.PageCount ?? 0,
             DetectedLanguage = null,
+            UsedOcr = false,
         };
     }
 }
