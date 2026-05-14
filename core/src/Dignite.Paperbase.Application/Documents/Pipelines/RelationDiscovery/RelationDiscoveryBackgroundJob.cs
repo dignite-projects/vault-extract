@@ -132,6 +132,9 @@ public class RelationDiscoveryBackgroundJob
             L2CreatedCount = outcome.L2Created,
             L3Invoked = outcome.L3Invoked,
             L3CreatedCount = outcome.L3Invoked ? outcome.L3Created : null,
+            L3CandidatesRecalled = outcome.L3Invoked ? outcome.L3CandidatesRecalled : null,
+            L3CandidatesEvaluated = outcome.L3Invoked ? outcome.L3CandidatesEvaluated : null,
+            L3CircuitBroken = outcome.L3CircuitBroken,
             L2DurationMs = outcome.L2DurationMs,
             L3DurationMs = outcome.L3Invoked ? outcome.L3DurationMs : null,
             TotalDurationMs = totalStopwatch.Elapsed.TotalMilliseconds
@@ -198,18 +201,24 @@ public class RelationDiscoveryBackgroundJob
                 L2Created: l2Count,
                 L3Invoked: false,
                 L3Created: 0,
+                L3CandidatesRecalled: 0,
+                L3CandidatesEvaluated: 0,
+                L3CircuitBroken: false,
                 L2DurationMs: l2Stopwatch.Elapsed.TotalMilliseconds,
                 L3DurationMs: 0);
         }
 
         var l3Stopwatch = Stopwatch.StartNew();
-        var l3Created = await _semanticDiscoveryService.DiscoverAsync(documentId);
+        var l3Outcome = await _semanticDiscoveryService.DiscoverAsync(documentId);
         l3Stopwatch.Stop();
 
         return new DiscoveryOutcome(
             L2Created: l2Count,
             L3Invoked: true,
-            L3Created: l3Created.Count,
+            L3Created: l3Outcome.Relations.Count,
+            L3CandidatesRecalled: l3Outcome.CandidatesRecalled,
+            L3CandidatesEvaluated: l3Outcome.CandidatesEvaluated,
+            L3CircuitBroken: l3Outcome.CircuitBroken,
             L2DurationMs: l2Stopwatch.Elapsed.TotalMilliseconds,
             L3DurationMs: l3Stopwatch.Elapsed.TotalMilliseconds);
     }
@@ -218,6 +227,9 @@ public class RelationDiscoveryBackgroundJob
         int L2Created,
         bool L3Invoked,
         int L3Created,
+        int L3CandidatesRecalled,
+        int L3CandidatesEvaluated,
+        bool L3CircuitBroken,
         double L2DurationMs,
         double L3DurationMs)
     {

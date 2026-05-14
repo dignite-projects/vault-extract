@@ -75,17 +75,17 @@ public class SemanticRelationDiscoveryService : DomainService
     }
 
     /// <summary>
-    /// 对源文档运行 L3 发现。返回新创建的 AiSuggested 关系列表。
+    /// 对源文档运行 L3 发现。返回新创建的 AiSuggested 关系列表 + 漏斗统计（Y4 telemetry granularity）。
     /// 如果 <see cref="PaperbaseAIBehaviorOptions.EnableSemanticRelationDiscovery"/>=false，
-    /// 立即返回空列表（短路，不走任何 IO/LLM）。
+    /// 立即返回空 outcome（短路，不走任何 IO/LLM）。
     /// </summary>
-    public virtual async Task<IReadOnlyList<DocumentRelation>> DiscoverAsync(
+    public virtual async Task<SemanticDiscoveryOutcome> DiscoverAsync(
         Guid sourceDocumentId,
         CancellationToken cancellationToken = default)
     {
         if (!_aiOptions.EnableSemanticRelationDiscovery)
         {
-            return Array.Empty<DocumentRelation>();
+            return SemanticDiscoveryOutcome.Empty;
         }
 
         if (sourceDocumentId == Guid.Empty)
@@ -97,7 +97,7 @@ public class SemanticRelationDiscoveryService : DomainService
         var source = await _documentRepository.FindAsync(sourceDocumentId, cancellationToken: cancellationToken);
         if (source == null || string.IsNullOrWhiteSpace(source.Markdown))
         {
-            return Array.Empty<DocumentRelation>();
+            return SemanticDiscoveryOutcome.Empty;
         }
 
         // Phase 2: vector recall — search by source's Markdown head (where titles / unique identifiers
@@ -105,7 +105,7 @@ public class SemanticRelationDiscoveryService : DomainService
         var candidates = await RecallCandidatesAsync(source, cancellationToken);
         if (candidates.Count == 0)
         {
-            return Array.Empty<DocumentRelation>();
+            return new SemanticDiscoveryOutcome(Array.Empty<DocumentRelation>(), CandidatesRecalled: 0, CandidatesEvaluated: 0, CircuitBroken: false);
         }
 
         // Phase 3: filter peers already linked by ANY relation kind, INCLUDING dismissed
@@ -116,7 +116,7 @@ public class SemanticRelationDiscoveryService : DomainService
         var freshCandidates = candidates.Where(id => !alreadyLinked.Contains(id)).ToList();
         if (freshCandidates.Count == 0)
         {
-            return Array.Empty<DocumentRelation>();
+            return new SemanticDiscoveryOutcome(Array.Empty<DocumentRelation>(), CandidatesRecalled: candidates.Count, CandidatesEvaluated: 0, CircuitBroken: false);
         }
 
         // Phase 4: per-candidate LLM evaluation. Provider-isolation: one bad LLM call must not
@@ -131,9 +131,12 @@ public class SemanticRelationDiscoveryService : DomainService
         // Single transient hiccup tolerated; sustained failure treated as provider outage.
         var consecutiveFailures = 0;
         var cutoff = Math.Max(1, _aiOptions.SemanticRelationDiscoveryConsecutiveFailureCutoff);
+        var circuitBroken = false;
+        var evaluated = 0;
 
         foreach (var candidateId in freshCandidates)
         {
+            evaluated++;
             var (relation, failed) = await EvaluateAndCreateAsync(
                 sourceDocumentId, sourceSnapshot, candidateId, cancellationToken);
             if (relation != null)
@@ -148,7 +151,8 @@ public class SemanticRelationDiscoveryService : DomainService
                     Logger.LogError(
                         "L3 SemanticRelationDiscovery: {Cutoff} consecutive candidate failures for source {DocumentId}; " +
                         "treating LLM provider as unavailable and bailing out of remaining {Remaining} candidates.",
-                        cutoff, sourceDocumentId, freshCandidates.Count - (created.Count + consecutiveFailures));
+                        cutoff, sourceDocumentId, freshCandidates.Count - evaluated);
+                    circuitBroken = true;
                     break;
                 }
             }
@@ -159,10 +163,10 @@ public class SemanticRelationDiscoveryService : DomainService
         }
 
         Logger.LogInformation(
-            "L3 SemanticRelationDiscovery: source={DocumentId} candidates={CandidateCount} fresh={FreshCount} llmConfirmed={CreatedCount}",
-            sourceDocumentId, candidates.Count, freshCandidates.Count, created.Count);
+            "L3 SemanticRelationDiscovery: source={DocumentId} recalled={Recalled} fresh={FreshCount} evaluated={Evaluated} llmConfirmed={CreatedCount} circuitBroken={CircuitBroken}",
+            sourceDocumentId, candidates.Count, freshCandidates.Count, evaluated, created.Count, circuitBroken);
 
-        return created;
+        return new SemanticDiscoveryOutcome(created, CandidatesRecalled: candidates.Count, CandidatesEvaluated: evaluated, CircuitBroken: circuitBroken);
     }
 
     protected virtual async Task<IReadOnlyList<Guid>> RecallCandidatesAsync(
@@ -362,4 +366,19 @@ public class SemanticRelationDiscoveryService : DomainService
         var max = _aiOptions.MaxTextLengthPerExtraction;
         return markdown.Length <= max ? markdown : markdown.Substring(0, max);
     }
+}
+
+/// <summary>
+/// Y4: L3 run outcome — relations created plus funnel-granularity counts so per-run telemetry
+/// can distinguish "0 created because recall empty" / "0 because all already linked" /
+/// "0 because LLM rejected all" / "stopped because circuit broke".
+/// </summary>
+public sealed record SemanticDiscoveryOutcome(
+    IReadOnlyList<DocumentRelation> Relations,
+    int CandidatesRecalled,
+    int CandidatesEvaluated,
+    bool CircuitBroken)
+{
+    public static readonly SemanticDiscoveryOutcome Empty =
+        new(Array.Empty<DocumentRelation>(), CandidatesRecalled: 0, CandidatesEvaluated: 0, CircuitBroken: false);
 }

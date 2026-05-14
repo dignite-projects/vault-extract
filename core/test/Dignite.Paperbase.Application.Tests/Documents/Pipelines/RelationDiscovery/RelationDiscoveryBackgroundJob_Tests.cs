@@ -84,11 +84,11 @@ public class RelationDiscoveryBackgroundJob_Tests
         _discoveryService = GetRequiredService<RelationDiscoveryService>();
         _semanticDiscoveryService = GetRequiredService<SemanticRelationDiscoveryService>();
 
-        // Default: L3 fallback returns empty (most lifecycle tests don't care about L3 results).
+        // Default: L3 fallback returns empty outcome (most lifecycle tests don't care about L3 results).
         // Tests exercising the fallback path override this explicitly.
         _semanticDiscoveryService
             .DiscoverAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
-            .Returns((IReadOnlyList<DocumentRelation>)new List<DocumentRelation>());
+            .Returns(SemanticDiscoveryOutcome.Empty);
     }
 
     [Fact]
@@ -160,7 +160,11 @@ public class RelationDiscoveryBackgroundJob_Tests
 
         _semanticDiscoveryService
             .DiscoverAsync(doc.Id, Arg.Any<CancellationToken>())
-            .Returns((IReadOnlyList<DocumentRelation>)new List<DocumentRelation> { l3Relation });
+            .Returns(new SemanticDiscoveryOutcome(
+                new List<DocumentRelation> { l3Relation },
+                CandidatesRecalled: 1,
+                CandidatesEvaluated: 1,
+                CircuitBroken: false));
 
         await _job.ExecuteAsync(new RelationDiscoveryJobArgs { DocumentId = doc.Id });
 

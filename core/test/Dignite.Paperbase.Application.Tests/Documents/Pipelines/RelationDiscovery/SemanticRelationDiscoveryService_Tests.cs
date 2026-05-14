@@ -83,7 +83,7 @@ public class SemanticRelationDiscoveryService_Tests
 
         var created = await _service.DiscoverAsync(sourceId);
 
-        created.ShouldBeEmpty();
+        created.Relations.ShouldBeEmpty();
         // Short-circuit means NO IO at all — not even a document load.
         await _documentRepository.DidNotReceive().FindAsync(
             Arg.Any<Guid>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
@@ -105,7 +105,7 @@ public class SemanticRelationDiscoveryService_Tests
 
         var created = await _service.DiscoverAsync(sourceId);
 
-        created.ShouldBeEmpty();
+        created.Relations.ShouldBeEmpty();
         await _embeddingGenerator.DidNotReceive().GenerateAsync(
             Arg.Any<IEnumerable<string>>(), Arg.Any<EmbeddingGenerationOptions>(), Arg.Any<CancellationToken>());
     }
@@ -118,7 +118,7 @@ public class SemanticRelationDiscoveryService_Tests
 
         var created = await _service.DiscoverAsync(source.Id);
 
-        created.ShouldBeEmpty();
+        created.Relations.ShouldBeEmpty();
     }
 
     [Fact]
@@ -131,7 +131,7 @@ public class SemanticRelationDiscoveryService_Tests
 
         var created = await _service.DiscoverAsync(source.Id);
 
-        created.ShouldBeEmpty();
+        created.Relations.ShouldBeEmpty();
     }
 
     [Fact]
@@ -148,7 +148,7 @@ public class SemanticRelationDiscoveryService_Tests
 
         var created = await _service.DiscoverAsync(source.Id);
 
-        created.ShouldBeEmpty();
+        created.Relations.ShouldBeEmpty();
         await _inferenceAgent.DidNotReceive().EvaluateAsync(
             Arg.Any<DocumentSnapshot>(), Arg.Any<DocumentSnapshot>(), Arg.Any<CancellationToken>());
     }
@@ -168,7 +168,7 @@ public class SemanticRelationDiscoveryService_Tests
 
         var created = await _service.DiscoverAsync(source.Id);
 
-        created.ShouldBeEmpty();
+        created.Relations.ShouldBeEmpty();
         await _inferenceAgent.DidNotReceive().EvaluateAsync(
             Arg.Any<DocumentSnapshot>(), Arg.Any<DocumentSnapshot>(), Arg.Any<CancellationToken>());
     }
@@ -190,7 +190,7 @@ public class SemanticRelationDiscoveryService_Tests
 
         var created = await _service.DiscoverAsync(source.Id);
 
-        created.ShouldBeEmpty();
+        created.Relations.ShouldBeEmpty();
         await _relationRepository.DidNotReceive().InsertAsync(
             Arg.Any<DocumentRelation>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
     }
@@ -218,7 +218,7 @@ public class SemanticRelationDiscoveryService_Tests
 
         var created = await _service.DiscoverAsync(source.Id);
 
-        created.ShouldBeEmpty();
+        created.Relations.ShouldBeEmpty();
     }
 
     [Fact]
@@ -264,8 +264,8 @@ public class SemanticRelationDiscoveryService_Tests
 
         var created = await _service.DiscoverAsync(source.Id);
 
-        created.Count.ShouldBe(1);
-        created.Single().TargetDocumentId.ShouldBe(inTenantCandidate.Id);
+        created.Relations.Count.ShouldBe(1);
+        created.Relations.Single().TargetDocumentId.ShouldBe(inTenantCandidate.Id);
         // Cross-tenant doc never enters candidate list → never reaches LLM evaluation.
         await _inferenceAgent.Received(1).EvaluateAsync(
             Arg.Any<DocumentSnapshot>(), Arg.Any<DocumentSnapshot>(), Arg.Any<CancellationToken>());
@@ -293,8 +293,8 @@ public class SemanticRelationDiscoveryService_Tests
 
         var created = await _service.DiscoverAsync(source.Id);
 
-        created.Count.ShouldBe(1);
-        var rel = created.Single();
+        created.Relations.Count.ShouldBe(1);
+        var rel = created.Relations.Single();
         rel.SourceDocumentId.ShouldBe(source.Id);
         rel.TargetDocumentId.ShouldBe(candidate.Id);
         rel.Source.ShouldBe(RelationSource.AiSuggested);
@@ -339,8 +339,8 @@ public class SemanticRelationDiscoveryService_Tests
 
         var created = await _service.DiscoverAsync(source.Id);
 
-        created.Count.ShouldBe(1);
-        created.Single().TargetDocumentId.ShouldBe(goodCandidate.Id);
+        created.Relations.Count.ShouldBe(1);
+        created.Relations.Single().TargetDocumentId.ShouldBe(goodCandidate.Id);
     }
 
     [Fact]
@@ -387,7 +387,7 @@ public class SemanticRelationDiscoveryService_Tests
 
         var created = await _service.DiscoverAsync(source.Id);
 
-        created.Count.ShouldBe(1);
+        created.Relations.Count.ShouldBe(1);
         _collection.SearchCalls.ShouldBe(1);
         await _inferenceAgent.Received(1).EvaluateAsync(
             Arg.Any<DocumentSnapshot>(), Arg.Any<DocumentSnapshot>(), Arg.Any<CancellationToken>());
@@ -420,7 +420,7 @@ public class SemanticRelationDiscoveryService_Tests
 
         var created = await _service.DiscoverAsync(source.Id);
 
-        created.ShouldBeEmpty();
+        created.Relations.ShouldBeEmpty();
         // No DocumentRelation insert attempted (would have persisted NaN before the fix).
         await _relationRepository.DidNotReceive().InsertAsync(
             Arg.Any<DocumentRelation>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
@@ -453,8 +453,8 @@ public class SemanticRelationDiscoveryService_Tests
 
         var created = await _service.DiscoverAsync(source.Id);
 
-        created.Count.ShouldBe(1);
-        created.Single().Confidence.ShouldBe(1.0);   // Clamped, not raw 1.5
+        created.Relations.Count.ShouldBe(1);
+        created.Relations.Single().Confidence.ShouldBe(1.0);   // Clamped, not raw 1.5
     }
 
     [Fact]
@@ -489,7 +489,7 @@ public class SemanticRelationDiscoveryService_Tests
 
         var created = await _service.DiscoverAsync(source.Id);
 
-        created.ShouldBeEmpty();
+        created.Relations.ShouldBeEmpty();
         // Exactly 2 candidates attempted before the circuit breaks; c3 never evaluated.
         await _inferenceAgent.Received(2).EvaluateAsync(
             Arg.Any<DocumentSnapshot>(), Arg.Any<DocumentSnapshot>(), Arg.Any<CancellationToken>());
@@ -518,7 +518,7 @@ public class SemanticRelationDiscoveryService_Tests
 
         var created = await _service.DiscoverAsync(source.Id);
 
-        created.ShouldBeEmpty();
+        created.Relations.ShouldBeEmpty();
         await _inferenceAgent.DidNotReceive().EvaluateAsync(
             Arg.Any<DocumentSnapshot>(), Arg.Any<DocumentSnapshot>(), Arg.Any<CancellationToken>());
         // Verify the call was made with includeDismissed=true (R2 contract).
@@ -539,7 +539,7 @@ public class SemanticRelationDiscoveryService_Tests
 
         var created = await _service.DiscoverAsync(source.Id);
 
-        created.ShouldBeEmpty();
+        created.Relations.ShouldBeEmpty();
         await _inferenceAgent.DidNotReceive().EvaluateAsync(
             Arg.Any<DocumentSnapshot>(), Arg.Any<DocumentSnapshot>(), Arg.Any<CancellationToken>());
     }

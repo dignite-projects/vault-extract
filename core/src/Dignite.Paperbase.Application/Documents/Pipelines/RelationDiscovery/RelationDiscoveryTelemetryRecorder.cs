@@ -48,6 +48,33 @@ public class RelationDiscoveryTelemetryRecorder : ISingletonDependency
         "paperbase.relation_discovery.l3.created",
         description: "AiSuggested DocumentRelations created by L3 per run (only when L3 invoked).");
 
+    /// <summary>
+    /// Y4 funnel granularity: how many candidates vector recall returned (pre-dedup). Combined with
+    /// <see cref="L3CandidatesEvaluated"/> this distinguishes "0 created because recall was empty"
+    /// from "0 created because everything was already linked" from "0 created because LLM rejected all".
+    /// </summary>
+    private static readonly Histogram<long> L3CandidatesRecalled = Meter.CreateHistogram<long>(
+        "paperbase.relation_discovery.l3.candidates_recalled",
+        description: "Vector-recall candidates before alreadyLinked / dismissal dedup.");
+
+    /// <summary>
+    /// Y4 funnel granularity: how many candidates actually reached LLM evaluation (post-dedup,
+    /// pre-circuit-break). recalled − evaluated = filtered as already-linked-or-dismissed.
+    /// evaluated − (confirmed + rejected + error) = skipped by circuit break.
+    /// </summary>
+    private static readonly Histogram<long> L3CandidatesEvaluated = Meter.CreateHistogram<long>(
+        "paperbase.relation_discovery.l3.candidates_evaluated",
+        description: "Candidates that reached the LLM evaluation step (post-dedup, pre-circuit-break).");
+
+    /// <summary>
+    /// Y4 funnel granularity: count of runs where the consecutive-failure circuit broke. Pairs
+    /// with <see cref="L3CandidatesEvaluated"/> &lt; (alreadyLinked-filtered candidates) to diagnose
+    /// "L3 looks dead" — provider down vs operator disabled vs everything-already-linked.
+    /// </summary>
+    private static readonly Counter<long> L3CircuitBroken = Meter.CreateCounter<long>(
+        "paperbase.relation_discovery.l3.circuit_broken",
+        description: "Runs where consecutive-failure circuit broke during L3 candidate evaluation.");
+
     private static readonly Histogram<double> RunDuration = Meter.CreateHistogram<double>(
         "paperbase.relation_discovery.duration",
         unit: "ms",
@@ -91,6 +118,18 @@ public class RelationDiscoveryTelemetryRecorder : ISingletonDependency
             if (metrics.L3CreatedCount.HasValue)
             {
                 L3Created.Record(metrics.L3CreatedCount.Value);
+            }
+            if (metrics.L3CandidatesRecalled.HasValue)
+            {
+                L3CandidatesRecalled.Record(metrics.L3CandidatesRecalled.Value);
+            }
+            if (metrics.L3CandidatesEvaluated.HasValue)
+            {
+                L3CandidatesEvaluated.Record(metrics.L3CandidatesEvaluated.Value);
+            }
+            if (metrics.L3CircuitBroken)
+            {
+                L3CircuitBroken.Add(1);
             }
         }
 
@@ -178,6 +217,16 @@ public sealed record RelationDiscoveryRunMetrics
 
     /// <summary>Number of AiSuggested relations L3 created (null = L3 didn't run).</summary>
     public int? L3CreatedCount { get; init; }
+
+    /// <summary>Y4: how many candidates vector recall returned (pre-dedup). null = L3 didn't run.</summary>
+    public int? L3CandidatesRecalled { get; init; }
+
+    /// <summary>Y4: how many candidates reached the LLM evaluation step (post-alreadyLinked dedup,
+    /// pre-circuit-break). null = L3 didn't run.</summary>
+    public int? L3CandidatesEvaluated { get; init; }
+
+    /// <summary>Y4: true when the consecutive-failure circuit broke during L3 candidate evaluation.</summary>
+    public bool L3CircuitBroken { get; init; }
 
     public double? L2DurationMs { get; init; }
     public double? L3DurationMs { get; init; }
