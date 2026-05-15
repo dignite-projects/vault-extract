@@ -111,14 +111,13 @@ public class DocumentRelationsTool : ITransientDependency
         queryable = queryable.Where(r =>
             r.SourceDocumentId == documentId || r.TargetDocumentId == documentId);
 
-        // Manual relations come first (user-confirmed = highest signal); within the
-        // AI-suggested bucket, descending by Confidence. Source enum: Manual=0,
-        // AiSuggested=1, so OrderBy(Source) naturally puts Manual first. Take(N)
-        // bounds context-window cost.
+        // Manual relations come first (user-confirmed = highest signal); within each bucket,
+        // newest first. Source enum: Manual=1, AiSuggested=2, so OrderBy(Source) naturally
+        // puts Manual first. Take(N) bounds context-window cost.
         var relations = await executer.ToListAsync(
             queryable
                 .OrderBy(r => r.Source)
-                .ThenByDescending(r => r.Confidence)
+                .ThenByDescending(r => r.CreationTime)
                 .Take(MaxResultRows),
             cancellationToken);
 
@@ -141,7 +140,6 @@ public class DocumentRelationsTool : ITransientDependency
                 // Wrap to keep indirect prompt-injection content inside <field>…</field>.
                 description = PromptBoundary.WrapField(r.Description),
                 source = r.Source.ToString(),   // "Manual" / "AiSuggested"
-                confidence = r.Confidence
             })
         };
 

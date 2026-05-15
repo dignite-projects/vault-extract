@@ -3,9 +3,9 @@ using System.Collections.Generic;
 namespace Dignite.Paperbase.Documents;
 
 /// <summary>
-/// 硬伤二 (L2 Phase 3): a multi-field business "entity signature" — what business modules
-/// emit to mark documents as referring to the same underlying business object even when
-/// no single identifier is shared.
+/// A multi-field business "entity signature" — what business modules emit to mark
+/// documents as referring to the same underlying business object even when no single
+/// identifier is shared.
 ///
 /// <para>
 /// <strong>Why single-field identifiers aren't enough</strong>: a contract and its
@@ -26,11 +26,6 @@ namespace Dignite.Paperbase.Documents;
 /// <item><see cref="Fields"/> values MUST be already normalized by the provider. The L2
 /// service compares signatures by exact-string equality of all field values; "上海某某  有限公司"
 /// vs "上海某某 有限公司" will not match unless the provider canonicalized whitespace first.</item>
-/// <item><see cref="InherentConfidence"/> belongs to the signature, not the relation: a
-/// <c>"PartiesAndYear"</c> signature inherently has higher confidence than a <c>"Parties"</c>
-/// signature (more fields = less ambiguity). Providers calibrate this themselves; L2 writes it
-/// straight to <c>DocumentRelation.Confidence</c>. Recommended range 0.6–0.9 — leave 0.95
-/// for single-identifier matches which are essentially deterministic.</item>
 /// <item>If ANY field value is empty/whitespace, the provider should NOT emit the signature
 /// at all (incomplete signatures cause cross-document false positives — every
 /// "PartyA=ACME, PartyB=null" matches every other "PartyA=ACME, PartyB=null").</item>
@@ -41,9 +36,6 @@ namespace Dignite.Paperbase.Documents;
 /// <param name="Fields">Normalized field values composing the signature. Comparison is by
 /// the full dictionary's content (key + value), so two signatures match iff every (key, value)
 /// pair is identical.</param>
-/// <param name="InherentConfidence">Confidence written into the AiSuggested <c>DocumentRelation</c>
-/// when this signature matches another document's signature. In [0, 1].</param>
 public sealed record DocumentEntitySignature(
     string Kind,
-    IReadOnlyDictionary<string, string> Fields,
-    double InherentConfidence);
+    IReadOnlyDictionary<string, string> Fields);

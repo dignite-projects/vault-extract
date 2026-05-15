@@ -10,6 +10,5 @@ public class DocumentRelationDto : EntityDto<Guid>
     public Guid TargetDocumentId { get; set; }
     public string Description { get; set; } = default!;
     public RelationSource Source { get; set; }
-    public double? Confidence { get; set; }
     public DateTime CreationTime { get; set; }
 }

@@ -228,7 +228,6 @@ public class RelationDiscoveryService_Tests
         relation.SourceDocumentId.ShouldBe(sourceDocId);
         relation.TargetDocumentId.ShouldBe(peerDocId);
         relation.Source.ShouldBe(RelationSource.AiSuggested);
-        relation.Confidence.ShouldBe(RelationDiscoveryService.StructuralMatchConfidence);
         relation.Description.ShouldContain("ContractNumber");
         relation.Description.ShouldContain("HT-001");
     }
@@ -457,8 +456,7 @@ public class RelationDiscoveryService_Tests
                 ["PartyA"] = "上海某某科技有限公司",
                 ["PartyB"] = "北京贝塔信息技术有限公司",
                 ["Year"] = "2024",
-            },
-            InherentConfidence: 0.80);
+            });
         _signatureProvider.Signatures[sourceDocId] = new[] { signature };
         _signatureProvider.Lookup[FakeSignatureProvider.FingerprintOf(signature)] = new[] { peerDocId };
 
@@ -471,7 +469,6 @@ public class RelationDiscoveryService_Tests
         var relation = created.ShouldHaveSingleItem();
         relation.TargetDocumentId.ShouldBe(peerDocId);
         relation.Source.ShouldBe(RelationSource.AiSuggested);
-        relation.Confidence.ShouldBe(0.80);                              // signature's inherent confidence
         relation.Description.ShouldContain("Test.Signature");
         relation.Description.ShouldContain("PartyA=上海某某科技有限公司");
         relation.Description.ShouldContain("Year=2024");
@@ -480,9 +477,9 @@ public class RelationDiscoveryService_Tests
     [Fact]
     public async Task DiscoverAsync_Identifier_Match_Wins_Over_Signature_Match_When_Same_Peer()
     {
-        // 硬伤二 dedup contract: if a peer is found via BOTH identifier and signature paths
-        // (deterministic and statistical evidence), the identifier path's higher-confidence
-        // relation is what gets persisted — single source of truth per (source, peer) pair.
+        // Dedup contract: if a peer is found via BOTH identifier and signature paths,
+        // the identifier path's description wins (identifier match is deterministic;
+        // first-write-wins per (source, peer) pair).
         var sourceDocId = Guid.NewGuid();
         var peerDocId = Guid.NewGuid();
         SetupSource(sourceDocId);
@@ -496,8 +493,7 @@ public class RelationDiscoveryService_Tests
         // Same peer also matches a signature.
         var signature = new DocumentEntitySignature(
             FakeSignatureProvider.TestSignatureKind,
-            new Dictionary<string, string> { ["X"] = "y" },
-            InherentConfidence: 0.70);
+            new Dictionary<string, string> { ["X"] = "y" });
         _signatureProvider.Signatures[sourceDocId] = new[] { signature };
         _signatureProvider.Lookup[FakeSignatureProvider.FingerprintOf(signature)] = new[] { peerDocId };
 
@@ -508,8 +504,6 @@ public class RelationDiscoveryService_Tests
         var created = await _service.DiscoverAsync(sourceDocId);
 
         var relation = created.ShouldHaveSingleItem();
-        // Confidence is the IDENTIFIER path's 0.95 — not the signature's 0.70.
-        relation.Confidence.ShouldBe(RelationDiscoveryService.StructuralMatchConfidence);
         relation.Description.ShouldContain("Identifier match");
         relation.Description.ShouldNotContain("Entity signature");
     }
@@ -537,7 +531,7 @@ public class RelationDiscoveryService_Tests
         _signatureProvider.Signatures[sourceDocId] = new[]
         {
             new DocumentEntitySignature(FakeSignatureProvider.TestSignatureKind,
-                new Dictionary<string, string> { ["X"] = "y" }, 0.8),
+                new Dictionary<string, string> { ["X"] = "y" }),
         };
 
         await _service.DiscoverAsync(sourceDocId);
@@ -595,8 +589,7 @@ public class RelationDiscoveryService_Tests
             sourceDocumentId: source,
             targetDocumentId: target,
             description: "Manual link",
-            source: src,
-            confidence: src == RelationSource.Manual ? null : 0.9);
+            source: src);
     }
 }
 

@@ -9,7 +9,7 @@ using Volo.Abp.DependencyInjection;
 namespace Dignite.Paperbase.Contracts;
 
 /// <summary>
-/// 硬伤二 (L2 Phase 3): the contract module's multi-field entity signature contributor.
+/// The contract module's multi-field entity signature contributor.
 ///
 /// <para>
 /// Emits one signature kind — <see cref="PartiesAndYearSignatureKind"/> — whose fields are the
@@ -23,22 +23,14 @@ namespace Dignite.Paperbase.Contracts;
 /// <see cref="ContractIdentifierProvider"/> only exposes <c>ContractNumber</c>. Most "obviously
 /// related" contracts in real data do NOT share a contract number — supplements get their own
 /// number, main + addendum get separate numbers, framework + order contracts each have their
-/// own. They DO share <c>(PartyA, PartyB, year)</c>. The signature path lets L2 find them
-/// while sidestepping the "one supplier has 100 contracts" noise problem that would happen
-/// if PartyA were exposed as a single-field identifier.
-/// </para>
-///
-/// <para>
-/// <strong>Confidence calibration</strong>: <see cref="PartiesAndYearConfidence"/> = 0.80 —
-/// strong enough to surface in the UI by default, weaker than the 0.95 used by
-/// <c>RelationDiscoveryService.StructuralMatchConfidence</c> (single-identifier match is
-/// essentially deterministic; this is statistical).
+/// own. They DO share <c>(PartyA, PartyB, year)</c>. The signature path lets RelationDiscovery
+/// find them while sidestepping the "one supplier has 100 contracts" noise problem that would
+/// happen if PartyA were exposed as a single-field identifier.
 /// </para>
 /// </summary>
 public class ContractEntitySignatureProvider : IDocumentEntitySignatureProvider, ITransientDependency
 {
     public const string PartiesAndYearSignatureKind = "Contracts.PartiesAndYear";
-    public const double PartiesAndYearConfidence = 0.80;
 
     public const string FieldPartyA = "PartyA";
     public const string FieldPartyB = "PartyB";
@@ -81,8 +73,7 @@ public class ContractEntitySignatureProvider : IDocumentEntitySignatureProvider,
                     [FieldPartyA] = contract.NormalizedPartyAName!,
                     [FieldPartyB] = contract.NormalizedPartyBName!,
                     [FieldYear] = contract.SignedDate.Value.Year.ToString("D4"),
-                },
-                InherentConfidence: PartiesAndYearConfidence),
+                }),
         };
     }
 

@@ -38,6 +38,4 @@ public class DocumentRelationEdgeDto
     public string Description { get; set; } = default!;
 
     public RelationSource Source { get; set; }
-
-    public double? Confidence { get; set; }
 }

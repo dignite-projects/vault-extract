@@ -245,7 +245,6 @@ public class InvoiceEntitySignatureProvider
     : IDocumentEntitySignatureProvider, ITransientDependency
 {
     public const string VendorAndDateSignatureKind = "Invoices.VendorAndDate";
-    public const double VendorAndDateConfidence = 0.75;
 
     public const string FieldVendor = "Vendor";
     public const string FieldYear = "Year";
@@ -272,8 +271,7 @@ public class InvoiceEntitySignatureProvider
                 {
                     [FieldVendor] = invoice.NormalizedVendorName!,
                     [FieldYear] = invoice.InvoiceDate.Value.Year.ToString("D4"),
-                },
-                InherentConfidence: VendorAndDateConfidence),
+                }),
         };
     }
 
@@ -296,11 +294,6 @@ The same three rules apply:
 - Normalize field values the same way on emit and lookup.
 - Cross-module signature interop (rare, but possible) uses NuGet PackageReference +
   public constants.
-
-`InherentConfidence` is your call. Reserve `0.95` for single-identifier deterministic
-matches (RelationDiscovery sets `StructuralMatchConfidence` there); use `0.7–0.9` for
-multi-field signatures so the user can tell them apart from "contract number exact
-match" at a glance.
 
 ---
 

@@ -208,7 +208,6 @@ public class DocumentRelationAppService : PaperbaseAppService, IDocumentRelation
             TargetDocumentId = relation.TargetDocumentId,
             Description = relation.Description,
             Source = relation.Source,
-            Confidence = relation.Confidence
         };
     }
 

@@ -25,15 +25,11 @@ public class DocumentRelation : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// <summary>关系来源</summary>
     public virtual RelationSource Source { get; private set; }
 
-    /// <summary>AI 推断的置信度（Manual 关系为 null）</summary>
-    public virtual double? Confidence { get; private set; }
-
     protected DocumentRelation() { }
 
     public virtual void Confirm()
     {
         Source = RelationSource.Manual;
-        Confidence = null;
     }
 
     public DocumentRelation(
@@ -42,8 +38,7 @@ public class DocumentRelation : FullAuditedAggregateRoot<Guid>, IMultiTenant
         Guid sourceDocumentId,
         Guid targetDocumentId,
         string description,
-        RelationSource source,
-        double? confidence = null)
+        RelationSource source)
         : base(id)
     {
         TenantId = tenantId;
@@ -60,7 +55,6 @@ public class DocumentRelation : FullAuditedAggregateRoot<Guid>, IMultiTenant
             nameof(description),
             DocumentRelationConsts.MaxDescriptionLength);
         Source = source;
-        Confidence = ValidateConfidence(source, confidence);
     }
 
     private static Guid ValidateDocumentId(Guid documentId, string parameterName)
@@ -72,20 +66,5 @@ public class DocumentRelation : FullAuditedAggregateRoot<Guid>, IMultiTenant
         }
 
         return documentId;
-    }
-
-    private static double? ValidateConfidence(RelationSource source, double? confidence)
-    {
-        if (source == RelationSource.Manual)
-        {
-            return null;
-        }
-
-        if (confidence is < 0 or > 1)
-        {
-            throw new BusinessException(PaperbaseErrorCodes.DocumentRelationConfidenceOutOfRange);
-        }
-
-        return confidence;
     }
 }

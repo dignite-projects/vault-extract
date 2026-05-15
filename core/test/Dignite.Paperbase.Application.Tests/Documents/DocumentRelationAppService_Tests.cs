@@ -230,8 +230,7 @@ public class DocumentRelationAppService_Tests
             sourceDocumentId,
             targetDocumentId,
             description,
-            source,
-            source == RelationSource.AiSuggested ? 0.9 : null);
+            source);
     }
 
     private static Document CreateDocument(

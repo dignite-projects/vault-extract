@@ -74,7 +74,6 @@ public class ContractEntitySignatureProvider_Tests
 
         var sig = sigs.ShouldHaveSingleItem();
         sig.Kind.ShouldBe(ContractEntitySignatureProvider.PartiesAndYearSignatureKind);
-        sig.InherentConfidence.ShouldBe(ContractEntitySignatureProvider.PartiesAndYearConfidence);
         sig.Fields[ContractEntitySignatureProvider.FieldPartyA].ShouldBe("上海某某科技有限公司");
         sig.Fields[ContractEntitySignatureProvider.FieldPartyB].ShouldBe("北京贝塔信息技术有限公司");
         sig.Fields[ContractEntitySignatureProvider.FieldYear].ShouldBe("2024");
@@ -121,8 +120,7 @@ public class ContractEntitySignatureProvider_Tests
                 [ContractEntitySignatureProvider.FieldPartyA] = "x",
                 [ContractEntitySignatureProvider.FieldPartyB] = "y",
                 [ContractEntitySignatureProvider.FieldYear] = "2024",
-            },
-            0.5);
+            });
 
         (await _provider.FindDocumentsBySignatureAsync(foreignSig)).ShouldBeEmpty();
         // Repository must NOT have been called.
@@ -140,8 +138,7 @@ public class ContractEntitySignatureProvider_Tests
                 [ContractEntitySignatureProvider.FieldPartyA] = "x",
                 [ContractEntitySignatureProvider.FieldPartyB] = "y",
                 [ContractEntitySignatureProvider.FieldYear] = "abc",  // not parseable
-            },
-            0.8);
+            });
 
         (await _provider.FindDocumentsBySignatureAsync(sig)).ShouldBeEmpty();
     }
@@ -169,8 +166,7 @@ public class ContractEntitySignatureProvider_Tests
                 [ContractEntitySignatureProvider.FieldPartyA] = "上海某某科技有限公司",
                 [ContractEntitySignatureProvider.FieldPartyB] = "北京贝塔信息技术有限公司",
                 [ContractEntitySignatureProvider.FieldYear] = "2024",
-            },
-            ContractEntitySignatureProvider.PartiesAndYearConfidence);
+            });
 
         var result = await _provider.FindDocumentsBySignatureAsync(sig);
 

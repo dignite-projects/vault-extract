@@ -158,8 +158,7 @@ public class DocumentRelationUniqueIndex_Tests : PaperbaseEntityFrameworkCoreTes
             sourceDocumentId: sourceId,
             targetDocumentId: targetId,
             description: "test relation",
-            source: RelationSource.AiSuggested,
-            confidence: 0.9);
+            source: RelationSource.AiSuggested);
     }
 
     /// <summary>

@@ -40,9 +40,6 @@ namespace Dignite.Paperbase.Documents.Pipelines.RelationDiscovery;
 /// </summary>
 public class RelationDiscoveryService : DomainService
 {
-    /// <summary>结构化标识符匹配的固定置信度。L3 LLM 评判会输出动态 confidence；L2 是确定性匹配，固定高分。</summary>
-    public const double StructuralMatchConfidence = 0.95;
-
     private readonly IEnumerable<IDocumentIdentifierProvider> _providers;
     private readonly IEnumerable<IDocumentEntitySignatureProvider> _signatureProviders;
     private readonly IDocumentRelationRepository _relationRepository;
@@ -52,7 +49,7 @@ public class RelationDiscoveryService : DomainService
     // No ICurrentTenant injection (Issue #121): tenant flows through Document.TenantId
     // (loaded from the source document at the start of DiscoverAsync). Background jobs may
     // run without an ambient ICurrentTenant restored — explicit Document-derived tenant is
-    // Hangfire-safe and matches L3's strategy in SemanticRelationDiscoveryService.
+    // Hangfire-safe.
     public RelationDiscoveryService(
         IEnumerable<IDocumentIdentifierProvider> providers,
         IEnumerable<IDocumentEntitySignatureProvider> signatureProviders,
@@ -161,8 +158,7 @@ public class RelationDiscoveryService : DomainService
                 sourceDocumentId: sourceDocumentId,
                 targetDocumentId: peer.PeerDocumentId,
                 description: peer.Description,
-                source: RelationSource.AiSuggested,
-                confidence: peer.Confidence);
+                source: RelationSource.AiSuggested);
 
             await _relationRepository.InsertAsync(relation, autoSave: false, cancellationToken);
             created.Add(relation);
@@ -270,12 +266,10 @@ public class RelationDiscoveryService : DomainService
 
                     if (!seen.Add(peerId)) continue;                   // Already a peer via another identifier
 
-                    // Description uses RawValue (user-recognizable form, e.g. "HT-2024-001");
-                    // confidence is the fixed structural-match value.
+                    // Description uses RawValue (user-recognizable form, e.g. "HT-2024-001").
                     peers.Add(new PeerCandidate(
                         PeerDocumentId: peerId,
-                        Description: $"Identifier match: {identifier.Type} = {identifier.Value}",
-                        Confidence: StructuralMatchConfidence));
+                        Description: $"Identifier match: {identifier.Type} = {identifier.Value}"));
                 }
             }
 
@@ -361,8 +355,7 @@ public class RelationDiscoveryService : DomainService
 
                     peers.Add(new PeerCandidate(
                         PeerDocumentId: peerId,
-                        Description: BuildSignatureDescription(signature),
-                        Confidence: signature.InherentConfidence));
+                        Description: BuildSignatureDescription(signature)));
                 }
             }
 
@@ -405,10 +398,8 @@ public class RelationDiscoveryService : DomainService
     }
 
     /// <summary>
-    /// 中间数据：一个对端文档候选 + 该匹配的描述 + 置信度。当多个匹配同时命中同一对端时，
+    /// 中间数据：一个对端文档候选 + 该匹配的描述。当多个匹配同时命中同一对端时，
     /// 第一个命中决定保留的 PeerCandidate（避免一对文档建多条关系）。
-    /// 硬伤二 (L2 Phase 3): identifier path 用 <see cref="StructuralMatchConfidence"/> = 0.95；
-    /// signature path 用各自 signature 的 <see cref="DocumentEntitySignature.InherentConfidence"/>。
     /// </summary>
-    protected sealed record PeerCandidate(Guid PeerDocumentId, string Description, double Confidence);
+    protected sealed record PeerCandidate(Guid PeerDocumentId, string Description);
 }

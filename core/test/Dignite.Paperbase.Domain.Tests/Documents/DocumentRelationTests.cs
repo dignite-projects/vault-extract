@@ -9,7 +9,7 @@ namespace Dignite.Paperbase.Documents;
 public class DocumentRelationTests
 {
     [Fact]
-    public void Confirm_Should_Convert_To_Manual_And_Clear_Confidence()
+    public void Confirm_Should_Flip_Source_To_Manual()
     {
         var relation = new DocumentRelation(
             Guid.NewGuid(),
@@ -17,28 +17,11 @@ public class DocumentRelationTests
             sourceDocumentId: Guid.NewGuid(),
             targetDocumentId: Guid.NewGuid(),
             description: "本文档引用了主合同的付款条款",
-            source: RelationSource.AiSuggested,
-            confidence: 0.9);
+            source: RelationSource.AiSuggested);
 
         relation.Confirm();
 
         relation.Source.ShouldBe(RelationSource.Manual);
-        relation.Confidence.ShouldBeNull();
-    }
-
-    [Fact]
-    public void Constructor_Should_Clear_Confidence_For_Manual_Relation()
-    {
-        var relation = new DocumentRelation(
-            Guid.NewGuid(),
-            tenantId: null,
-            sourceDocumentId: Guid.NewGuid(),
-            targetDocumentId: Guid.NewGuid(),
-            description: "本文档引用了主合同的付款条款",
-            source: RelationSource.Manual,
-            confidence: 0.9);
-
-        relation.Confidence.ShouldBeNull();
     }
 
     [Fact]
@@ -50,8 +33,7 @@ public class DocumentRelationTests
             sourceDocumentId: Guid.Empty,
             targetDocumentId: Guid.NewGuid(),
             description: "本文档引用了主合同的付款条款",
-            source: RelationSource.AiSuggested,
-            confidence: 0.9));
+            source: RelationSource.AiSuggested));
 
         exception.Code.ShouldBe(PaperbaseErrorCodes.DocumentRelationDocumentIdRequired);
     }
@@ -67,25 +49,9 @@ public class DocumentRelationTests
             sourceDocumentId: documentId,
             targetDocumentId: documentId,
             description: "本文档引用了主合同的付款条款",
-            source: RelationSource.AiSuggested,
-            confidence: 0.9));
+            source: RelationSource.AiSuggested));
 
         exception.Code.ShouldBe(PaperbaseErrorCodes.DocumentRelationCannotTargetSelf);
-    }
-
-    [Fact]
-    public void Constructor_Should_Reject_Out_Of_Range_Confidence()
-    {
-        var exception = Should.Throw<BusinessException>(() => new DocumentRelation(
-            Guid.NewGuid(),
-            tenantId: null,
-            sourceDocumentId: Guid.NewGuid(),
-            targetDocumentId: Guid.NewGuid(),
-            description: "本文档引用了主合同的付款条款",
-            source: RelationSource.AiSuggested,
-            confidence: 1.1));
-
-        exception.Code.ShouldBe(PaperbaseErrorCodes.DocumentRelationConfidenceOutOfRange);
     }
 
     [Fact]
@@ -97,7 +63,6 @@ public class DocumentRelationTests
             sourceDocumentId: Guid.NewGuid(),
             targetDocumentId: Guid.NewGuid(),
             description: " ",
-            source: RelationSource.AiSuggested,
-            confidence: 0.9));
+            source: RelationSource.AiSuggested));
     }
 }
