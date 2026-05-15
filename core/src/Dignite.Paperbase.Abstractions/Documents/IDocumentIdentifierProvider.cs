@@ -6,62 +6,106 @@ using System.Threading.Tasks;
 namespace Dignite.Paperbase.Documents;
 
 /// <summary>
-/// Issue #115 L2：业务模块向核心暴露的"标识符查询"契约。
+/// Issue #115 L2: business module → L2 contract for single-field identifier matching.
 ///
 /// <para>
-/// <strong>设计原则：核心层不持有标识符数据，业务模块是单一来源</strong>。
-/// 合同编号已经存在 <c>Contract.ContractNumber</c> 字段、PO 号已经存在 <c>Invoice.PoNumber</c> 字段——
-/// 业务模块字段是这些标识符的唯一权威。L2 关系发现通过本契约在所有业务模块间 fan-out 查询，
-/// 避免在核心层重复存储一份索引（这会引入数据冗余 + 用户编辑后的同步腐烂问题）。
+/// <strong>Design principle</strong>: business modules are the single source of truth for
+/// their own identifier data. <see cref="Contracts.Contract.ContractNumber"/> lives in the
+/// contract module's database; the core layer never holds a redundant copy. L2 RelationDiscovery
+/// fans out across all installed providers to find peer documents that share an identifier
+/// value with the source.
 /// </para>
 ///
 /// <para>
-/// 实现位于业务模块（如 <c>Dignite.Paperbase.Contracts.Domain.Contracts.ContractIdentifierProvider</c>）；
-/// 实现类应注册为 <see cref="Volo.Abp.DependencyInjection.ITransientDependency"/>，
-/// L2 通过 DI 收集 <c>IEnumerable&lt;IDocumentIdentifierProvider&gt;</c> 自动 fan-out。
+/// <strong>Open by design (Issue #159)</strong>: <see cref="SupportedIdentifierTypes"/> is an
+/// open string collection — the core does NOT know which type strings exist in the system.
+/// Business modules can name their types freely; we recommend a <c>"&lt;ModuleName&gt;.&lt;TypeName&gt;"</c>
+/// prefix (e.g. <c>"HR.EmployeeId"</c>) for module-private types to avoid name collisions with
+/// other modules. <see cref="DocumentIdentifierTypes"/> provides constants for types that are
+/// genuinely cross-module (parties, project codes, contract numbers shared between contracts and
+/// invoices); using those constants is opt-in. Adding a new business module requires NO change
+/// to this contract, to <see cref="DocumentIdentifierTypes"/>, or to any core code — only your
+/// own provider implementation registered as <see cref="Volo.Abp.DependencyInjection.ITransientDependency"/>.
 /// </para>
 ///
 /// <para>
-/// 多租户：实现侧用 ABP <c>IMultiTenant</c> ambient filter（仓储默认行为）；
-/// 不需要从入参收 <c>tenantId</c>。
+/// <strong>Normalization is provider-owned</strong>: comparing identifier values for "same business
+/// entity" requires normalization (case-fold, strip separators, NFKC for full-width vs half-width,
+/// etc. — see <see cref="DocumentIdentifierNormalization"/>). L2 does NOT apply normalization
+/// centrally because it doesn't know your type's semantic class. Instead:
+/// <list type="bullet">
+/// <item><see cref="GetIdentifiersAsync"/> returns <see cref="DocumentIdentifierEntry"/> records
+/// that already carry BOTH the raw display form AND the normalized comparison key — your
+/// responsibility to compute the normalized key correctly for your type.</item>
+/// <item><see cref="FindDocumentsAsync"/> receives the source's already-normalized value (passed
+/// straight through by L2). Your repository lookup must compare against an already-normalized
+/// column (e.g. <see cref="Contracts.Contract.NormalizedContractNumber"/>) using the SAME
+/// normalization rule you used in <see cref="GetIdentifiersAsync"/>.</item>
+/// </list>
+/// Two modules that both declare the same type string MUST use compatible normalization rules
+/// (otherwise cross-module match silently fails). This is a governance contract between modules,
+/// not enforced by code.
 /// </para>
 ///
 /// <para>
-/// 此契约位于 <c>Abstractions</c> 层，业务模块通过 NuGet 引用 <c>Dignite.Paperbase.Abstractions</c> 即可实现，
-/// 不被迫依赖核心 Application 层。
+/// <strong>Multi-tenancy</strong>: implementations use ABP <see cref="Volo.Abp.MultiTenancy.IMultiTenant"/>
+/// ambient filter on their repositories; the L2 background job sets
+/// <c>CurrentTenant.Change(args.TenantId)</c> before invoking providers, so queries are
+/// automatically tenant-scoped.
+/// </para>
+///
+/// <para>
+/// <strong>Future-proof for microservices (Issue #159)</strong>: the contract is async,
+/// arguments are all serializable strings/Guids, and there's no shared in-process state. When
+/// business modules move to standalone microservices, a remote-call wrapper implementing this
+/// interface (gRPC/HTTP client) plugs in transparently.
 /// </para>
 /// </summary>
 public interface IDocumentIdentifierProvider
 {
     /// <summary>
-    /// 该 provider 支持的标准化 identifier 类型集合（参见 <see cref="DocumentIdentifierTypes"/>）。
-    /// L2 fan-out 时按此集合筛选——provider 不支持的类型不会被调用，避免无谓查询。
+    /// The identifier type strings this provider handles. L2 fan-out routes a lookup to this
+    /// provider iff the source's identifier type is in this collection. Open string set —
+    /// see contract docs.
     /// </summary>
     IReadOnlyCollection<string> SupportedIdentifierTypes { get; }
 
     /// <summary>
-    /// 返回该 provider 名下的某文档持有的所有标识符 (type, value) 对。
-    /// 若该 provider 不拥有该文档（例如合同 provider 收到一份发票），返回空列表（不抛异常）。
-    /// 同一类型可能有多条值（如 <c>PartyName</c> 可能同时是甲方和乙方），所以返回 <see cref="IReadOnlyList{T}"/> 而非字典。
+    /// Returns the identifiers the given document holds. Each entry carries the raw display
+    /// form (for UI / description) and the normalized comparison key (for matching). The
+    /// provider is responsible for producing the normalized value consistent with how it
+    /// stores / compares its own data — see contract docs.
+    ///
+    /// <para>
+    /// Returns an empty list if this provider does not own the document (e.g. a contract
+    /// provider receiving an invoice's document id) — do NOT throw.
+    /// </para>
     /// </summary>
     Task<IReadOnlyList<DocumentIdentifierEntry>> GetIdentifiersAsync(
         Guid documentId,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 反查：当前租户内该 provider 名下，持有指定 (type, value) 的文档 ID 列表。
-    /// L2 主查询路径——找到与源文档共享标识符的对端文档。
-    /// 实现侧应依赖 ABP ambient <c>DataFilter</c> 自动按 <c>CurrentTenant</c> 过滤。
+    /// Reverse lookup. <paramref name="normalizedIdentifierValue"/> is the already-normalized
+    /// comparison key from the source's <see cref="DocumentIdentifierEntry.NormalizedValue"/>;
+    /// the provider compares it against its own indexed normalized column.
     /// </summary>
     Task<IReadOnlyList<Guid>> FindDocumentsAsync(
         string identifierType,
-        string identifierValue,
+        string normalizedIdentifierValue,
         CancellationToken cancellationToken = default);
 }
 
 /// <summary>
-/// 标识符条目（不可变值对象）。
+/// An identifier the provider has emitted for a document — carries the raw display form
+/// AND the normalized comparison key.
 /// </summary>
-/// <param name="Type">标识符类型，应为 <see cref="DocumentIdentifierTypes"/> 中的常量。</param>
-/// <param name="Value">标识符值，已规范化（trim 后）。</param>
-public sealed record DocumentIdentifierEntry(string Type, string Value);
+/// <param name="Type">Identifier type — module-defined string; see contract docs on
+/// <see cref="IDocumentIdentifierProvider"/>.</param>
+/// <param name="Value">Raw value the user / source data carries (e.g. <c>"HT-2024-001"</c>) —
+/// used for UI display and L2 relation descriptions.</param>
+/// <param name="NormalizedValue">Comparison key (e.g. <c>"HT2024001"</c>) — produced by the
+/// provider so cross-module matching works regardless of casing / separator / full-width
+/// variation. Two providers handling the same <paramref name="Type"/> string MUST use
+/// compatible normalization to interoperate.</param>
+public sealed record DocumentIdentifierEntry(string Type, string Value, string NormalizedValue);

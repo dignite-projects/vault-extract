@@ -93,9 +93,9 @@ public class RelationDiscoveryService : DomainService
         var sourceTenantId = source.TenantId;
 
         // Phase 1: collect all identifiers held by source document across all providers.
-        // CollectedIdentifier carries both raw (what provider emitted, what users would
-        // recognize) and normalized (硬伤一 — what L2 uses for matching across casing /
-        // separator / width variants).
+        // Each DocumentIdentifierEntry carries both raw display form AND the normalized
+        // comparison key — normalization is provider-owned (Issue #159 open-contract reform),
+        // so L2 just trusts the entry as-is.
         var sourceIdentifiers = await CollectSourceIdentifiersAsync(sourceDocumentId, cancellationToken);
 
         // Phase 1b (硬伤二 L2 Phase 3): collect multi-field entity signatures. Modules emit
@@ -179,7 +179,7 @@ public class RelationDiscoveryService : DomainService
         return created;
     }
 
-    protected virtual async Task<IReadOnlyList<CollectedIdentifier>> CollectSourceIdentifiersAsync(
+    protected virtual async Task<IReadOnlyList<DocumentIdentifierEntry>> CollectSourceIdentifiersAsync(
         Guid documentId,
         CancellationToken ct)
     {
@@ -211,25 +211,22 @@ public class RelationDiscoveryService : DomainService
             _telemetry.RecordIdentifiersByProvider(provider.GetType().Name, fromProvider.Count);
         }
 
-        // 硬伤一 normalization: collapse "HT-2024-001" / "ht2024001" / "ＨＴ－２０２４－００１"
-        // into a single comparison key. RawValue is preserved for user-facing descriptions
-        // ("Identifier match: ContractNumber = HT-2024-001"); NormalizedValue drives lookup
-        // and dedup. De-dup is by (Type, Normalized) — first raw wins for description.
-        // Empty normalized values (raw was only separators / whitespace) are dropped.
+        // L2 trusts provider-side normalization (Issue #159 open-contract reform). Each entry
+        // already carries both the raw display form AND the normalized comparison key — produced
+        // by the provider using whatever rule fits its type's semantics. L2 dedupes on
+        // (Type, NormalizedValue) and uses RawValue for human-readable descriptions; the
+        // central layer no longer knows or decides normalization strategy. See
+        // IDocumentIdentifierProvider docs for the cross-module governance contract.
         return entries
-            .Select(e => new CollectedIdentifier(
-                Type: e.Type,
-                RawValue: e.Value,
-                NormalizedValue: DocumentIdentifierNormalization.Normalize(e.Type, e.Value)))
-            .Where(c => !string.IsNullOrEmpty(c.NormalizedValue))
-            .GroupBy(c => (c.Type, c.NormalizedValue))
+            .Where(e => !string.IsNullOrEmpty(e.NormalizedValue))
+            .GroupBy(e => (e.Type, e.NormalizedValue))
             .Select(g => g.First())
             .ToList();
     }
 
     protected virtual async Task<List<PeerCandidate>> FindPeerDocumentsAsync(
         Guid sourceDocumentId,
-        IReadOnlyList<CollectedIdentifier> sourceIdentifiers,
+        IReadOnlyList<DocumentIdentifierEntry> sourceIdentifiers,
         CancellationToken ct)
     {
         var seen = new HashSet<Guid>();
@@ -251,8 +248,9 @@ public class RelationDiscoveryService : DomainService
                 IReadOnlyList<Guid> found;
                 try
                 {
-                    // L2 sends NormalizedValue to providers; providers' DB-side lookups should
-                    // also be over normalized columns (硬伤一 — see e.g. Contract.NormalizedContractNumber).
+                    // L2 sends NormalizedValue to providers; the provider compares it against
+                    // its own indexed normalized column (e.g. Contract.NormalizedContractNumber).
+                    // Normalization is the provider's responsibility — L2 just routes by type.
                     found = await provider.FindDocumentsAsync(identifier.Type, identifier.NormalizedValue, ct);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
@@ -276,7 +274,7 @@ public class RelationDiscoveryService : DomainService
                     // confidence is the fixed structural-match value.
                     peers.Add(new PeerCandidate(
                         PeerDocumentId: peerId,
-                        Description: $"Identifier match: {identifier.Type} = {identifier.RawValue}",
+                        Description: $"Identifier match: {identifier.Type} = {identifier.Value}",
                         Confidence: StructuralMatchConfidence));
                 }
             }
@@ -413,11 +411,4 @@ public class RelationDiscoveryService : DomainService
     /// signature path 用各自 signature 的 <see cref="DocumentEntitySignature.InherentConfidence"/>。
     /// </summary>
     protected sealed record PeerCandidate(Guid PeerDocumentId, string Description, double Confidence);
-
-    /// <summary>
-    /// 内部传递结构：source document 持有的一个标识符的 raw + normalized 双形式。
-    /// RawValue 来自业务模块 provider（LLM/OCR 抽取原值，用户可识别）；NormalizedValue 由
-    /// <see cref="DocumentIdentifierNormalization.Normalize"/> 派生（用于跨形式匹配的比较键）。
-    /// </summary>
-    protected sealed record CollectedIdentifier(string Type, string RawValue, string NormalizedValue);
 }

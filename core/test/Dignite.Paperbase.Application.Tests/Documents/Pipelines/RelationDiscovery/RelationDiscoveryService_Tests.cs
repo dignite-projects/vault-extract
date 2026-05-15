@@ -157,7 +157,7 @@ public class RelationDiscoveryService_Tests
 
         _contractProvider.Identifiers[sourceDocId] = new[]
         {
-            new DocumentIdentifierEntry(DocumentIdentifierTypes.ContractNumber, "HT-TENANT")
+            CodeEntry(DocumentIdentifierTypes.ContractNumber, "HT-TENANT")
         };
         _invoiceProvider.Lookup[(DocumentIdentifierTypes.ContractNumber, "HT-TENANT")] = new[] { peerDocId };
         _relationRepository.GetLinkedPeerDocumentIdsAsync(
@@ -190,7 +190,7 @@ public class RelationDiscoveryService_Tests
 
         _contractProvider.Identifiers[sourceDocId] = new[]
         {
-            new DocumentIdentifierEntry(DocumentIdentifierTypes.ContractNumber, "HT-UOW-CHECK")
+            CodeEntry(DocumentIdentifierTypes.ContractNumber, "HT-UOW-CHECK")
         };
         _invoiceProvider.Lookup[(DocumentIdentifierTypes.ContractNumber, "HT-UOW-CHECK")] = new[] { peerDocId };
         _relationRepository.GetLinkedPeerDocumentIdsAsync(
@@ -212,7 +212,7 @@ public class RelationDiscoveryService_Tests
         // Source is a contract holding ContractNumber=HT-001.
         _contractProvider.Identifiers[sourceDocId] = new[]
         {
-            new DocumentIdentifierEntry(DocumentIdentifierTypes.ContractNumber, "HT-001")
+            CodeEntry(DocumentIdentifierTypes.ContractNumber, "HT-001")
         };
         // Invoice peer also holds ContractNumber=HT-001 → cross-module match expected.
         _invoiceProvider.Lookup[(DocumentIdentifierTypes.ContractNumber, "HT-001")] = new[] { peerDocId };
@@ -242,7 +242,7 @@ public class RelationDiscoveryService_Tests
 
         _contractProvider.Identifiers[sourceDocId] = new[]
         {
-            new DocumentIdentifierEntry(DocumentIdentifierTypes.ContractNumber, "HT-002")
+            CodeEntry(DocumentIdentifierTypes.ContractNumber, "HT-002")
         };
         _invoiceProvider.Lookup[(DocumentIdentifierTypes.ContractNumber, "HT-002")] = new[] { alreadyLinkedPeerId, freshPeerId };
 
@@ -266,8 +266,8 @@ public class RelationDiscoveryService_Tests
         // Source has two identifiers; both happen to point to the same peer document.
         _contractProvider.Identifiers[sourceDocId] = new[]
         {
-            new DocumentIdentifierEntry(DocumentIdentifierTypes.ContractNumber, "HT-003"),
-            new DocumentIdentifierEntry(DocumentIdentifierTypes.PartyName, "上海某某有限公司"),
+            CodeEntry(DocumentIdentifierTypes.ContractNumber, "HT-003"),
+            NameEntry(DocumentIdentifierTypes.PartyName, "上海某某有限公司"),
         };
         _invoiceProvider.Lookup[(DocumentIdentifierTypes.ContractNumber, "HT-003")] = new[] { peerDocId };
         _invoiceProvider.Lookup[(DocumentIdentifierTypes.PartyName, "上海某某有限公司")] = new[] { peerDocId };
@@ -289,7 +289,7 @@ public class RelationDiscoveryService_Tests
         var sourceDocId = Guid.NewGuid();
         _contractProvider.Identifiers[sourceDocId] = new[]
         {
-            new DocumentIdentifierEntry(DocumentIdentifierTypes.PartyName, "甲方公司")
+            NameEntry(DocumentIdentifierTypes.PartyName, "甲方公司")
         };
         // Defensive: provider FindDocumentsAsync echoes source itself (because contract module
         // also holds the source document). Service must filter self.
@@ -314,7 +314,7 @@ public class RelationDiscoveryService_Tests
 
         _contractProvider.Identifiers[sourceDocId] = new[]
         {
-            new DocumentIdentifierEntry(DocumentIdentifierTypes.ContractNumber, "HT-IDEMPOTENT")
+            CodeEntry(DocumentIdentifierTypes.ContractNumber, "HT-IDEMPOTENT")
         };
         _invoiceProvider.Lookup[(DocumentIdentifierTypes.ContractNumber, "HT-IDEMPOTENT")]
             = new[] { alreadyAiLinkedPeer };
@@ -339,7 +339,7 @@ public class RelationDiscoveryService_Tests
         _contractProvider.GetIdentifiersThrowsFor.Add(sourceDocId);
         _invoiceProvider.Identifiers[sourceDocId] = new[]
         {
-            new DocumentIdentifierEntry(DocumentIdentifierTypes.InvoiceNumber, "INV-RESILIENT")
+            CodeEntry(DocumentIdentifierTypes.InvoiceNumber, "INV-RESILIENT")
         };
         _invoiceProvider.Lookup[(DocumentIdentifierTypes.InvoiceNumber, "INV-RESILIENT")] = new[] { peerDocId };
 
@@ -362,7 +362,7 @@ public class RelationDiscoveryService_Tests
 
         _contractProvider.Identifiers[sourceDocId] = new[]
         {
-            new DocumentIdentifierEntry(DocumentIdentifierTypes.ContractNumber, "HT-RESILIENT")
+            CodeEntry(DocumentIdentifierTypes.ContractNumber, "HT-RESILIENT")
         };
         _contractProvider.FindDocumentsThrowsFor.Add((DocumentIdentifierTypes.ContractNumber, "HT-RESILIENT"));
         // Invoice provider succeeds for the same identifier — peer should still surface.
@@ -389,7 +389,7 @@ public class RelationDiscoveryService_Tests
         // must not be called for this type.
         _invoiceProvider.Identifiers[sourceDocId] = new[]
         {
-            new DocumentIdentifierEntry(DocumentIdentifierTypes.InvoiceNumber, "INV-001")
+            CodeEntry(DocumentIdentifierTypes.InvoiceNumber, "INV-001")
         };
         _invoiceProvider.Lookup[(DocumentIdentifierTypes.InvoiceNumber, "INV-001")] = new[] { peerDocId };
 
@@ -429,7 +429,7 @@ public class RelationDiscoveryService_Tests
         SetupSource(sourceDocId);
         _contractProvider.Identifiers[sourceDocId] = new[]
         {
-            new DocumentIdentifierEntry(DocumentIdentifierTypes.ContractNumber, "HT-2024-007"),
+            CodeEntry(DocumentIdentifierTypes.ContractNumber, "HT-2024-007"),
         };
         // Invoice provider not given anything → should report 0 contribution.
 
@@ -489,7 +489,7 @@ public class RelationDiscoveryService_Tests
 
         _contractProvider.Identifiers[sourceDocId] = new[]
         {
-            new DocumentIdentifierEntry(DocumentIdentifierTypes.ContractNumber, "HT-2024-009"),
+            CodeEntry(DocumentIdentifierTypes.ContractNumber, "HT-2024-009"),
         };
         _invoiceProvider.Lookup[(DocumentIdentifierTypes.ContractNumber, "HT-2024-009")] = new[] { peerDocId };
 
@@ -556,7 +556,7 @@ public class RelationDiscoveryService_Tests
         SetupSource(sourceDocId);
         _contractProvider.Identifiers[sourceDocId] = new[]
         {
-            new DocumentIdentifierEntry(DocumentIdentifierTypes.ContractNumber, "noise-value"),
+            CodeEntry(DocumentIdentifierTypes.ContractNumber, "noise-value"),
         };
         var noisyPeers = Enumerable.Range(0, RelationDiscoveryTelemetryRecorder.HighAmbiguityPeerThreshold + 2)
             .Select(_ => Guid.NewGuid())
@@ -574,6 +574,18 @@ public class RelationDiscoveryService_Tests
             Arg.Any<string>(),                 // normalized value — doesn't matter for the assertion
             Arg.Is<int>(n => n >= RelationDiscoveryTelemetryRecorder.HighAmbiguityPeerThreshold));
     }
+
+    /// <summary>
+    /// Test helper — produces a <see cref="DocumentIdentifierEntry"/> with the
+    /// IdentifierCode normalization (covers ContractNumber / InvoiceNumber / PoNumber /
+    /// ProjectCode + any code-shaped module-private type). Tests for name-shaped types
+    /// (e.g. PartyName) build entries inline with NormalizeEntityName explicitly.
+    /// </summary>
+    private static DocumentIdentifierEntry CodeEntry(string type, string raw)
+        => new(type, raw, DocumentIdentifierNormalization.NormalizeIdentifierCode(raw));
+
+    private static DocumentIdentifierEntry NameEntry(string type, string raw)
+        => new(type, raw, DocumentIdentifierNormalization.NormalizeEntityName(raw));
 
     private static DocumentRelation CreateExistingRelation(Guid source, Guid target, RelationSource src)
     {
@@ -715,7 +727,12 @@ internal static class FakeIdentifierLookupResolver
         foreach (var entry in lookup)
         {
             if (entry.Key.Type != identifierType) continue;
-            if (DocumentIdentifierNormalization.Normalize(identifierType, entry.Key.Value) == identifierValue)
+            // Try both common normalization strategies — the fake doesn't know the type's
+            // semantic class, so it accepts either as a match. This is intentional test
+            // ergonomics (tests use raw setup values, L2 sends normalized lookups).
+            var codeForm = DocumentIdentifierNormalization.NormalizeIdentifierCode(entry.Key.Value);
+            var nameForm = DocumentIdentifierNormalization.NormalizeEntityName(entry.Key.Value);
+            if (codeForm == identifierValue || nameForm == identifierValue)
             {
                 return entry.Value;
             }

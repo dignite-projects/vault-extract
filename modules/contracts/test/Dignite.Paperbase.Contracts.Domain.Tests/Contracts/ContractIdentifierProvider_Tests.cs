@@ -77,7 +77,11 @@ public class ContractIdentifierProvider_Tests
         var entries = (await _provider.GetIdentifiersAsync(documentId)).ToList();
 
         entries.Count.ShouldBe(1);
-        entries.Single().ShouldBe(new DocumentIdentifierEntry(DocumentIdentifierTypes.ContractNumber, "HT-2026-001"));
+        var entry = entries.Single();
+        entry.Type.ShouldBe(DocumentIdentifierTypes.ContractNumber);
+        entry.Value.ShouldBe("HT-2026-001");
+        // Open contract reform (Issue #159): provider computes normalized form as part of emit.
+        entry.NormalizedValue.ShouldBe("HT2026001");
         // Explicitly assert PartyName values are NOT in the output, even though they're
         // present on the Contract aggregate.
         entries.ShouldNotContain(e => e.Type == DocumentIdentifierTypes.PartyName);
@@ -101,8 +105,11 @@ public class ContractIdentifierProvider_Tests
     }
 
     [Fact]
-    public async Task GetIdentifiersAsync_Should_Trim_ContractNumber()
+    public async Task GetIdentifiersAsync_Should_Normalize_ContractNumber()
     {
+        // Open-contract reform (Issue #159): provider produces both the raw display form
+        // (trimmed; users still recognize their input) AND the normalized comparison key
+        // ("HT2026002" — strips separators and uppercases for cross-form matching).
         var documentId = Guid.NewGuid();
         var contract = CreateContract(
             documentId,
@@ -114,7 +121,10 @@ public class ContractIdentifierProvider_Tests
         var entries = (await _provider.GetIdentifiersAsync(documentId)).ToList();
 
         entries.Count.ShouldBe(1);
-        entries.Single().ShouldBe(new DocumentIdentifierEntry(DocumentIdentifierTypes.ContractNumber, "HT-2026-002"));
+        var entry = entries.Single();
+        entry.Type.ShouldBe(DocumentIdentifierTypes.ContractNumber);
+        entry.Value.ShouldBe("HT-2026-002");                              // trimmed raw
+        entry.NormalizedValue.ShouldBe("HT2026002");                      // comparison key
     }
 
     [Fact]
@@ -149,12 +159,12 @@ public class ContractIdentifierProvider_Tests
     }
 
     [Fact]
-    public async Task FindDocumentsAsync_ContractNumber_Should_Normalize_And_Delegate()
+    public async Task FindDocumentsAsync_ContractNumber_Should_Pass_Through_To_Repo()
     {
-        // 硬伤一 Phase 1: provider normalizes the lookup value before hitting the repo.
-        // The repo is expected to query the indexed NormalizedContractNumber column, so the
-        // stub is keyed on the normalized form "HT2026003" — and the caller sends the raw
-        // form (with surrounding whitespace and dashes), which the provider strips.
+        // Open-contract reform (Issue #159): caller (L2) passes the already-normalized
+        // value; the provider just routes it to the repo, which queries the indexed
+        // NormalizedContractNumber column. Provider does NOT re-normalize — caller's
+        // responsibility.
         var matchingDocId = Guid.NewGuid();
         var matchingContract = CreateContract(matchingDocId, contractNumber: "HT-2026-003");
         _contractRepository
@@ -163,7 +173,7 @@ public class ContractIdentifierProvider_Tests
 
         var result = await _provider.FindDocumentsAsync(
             DocumentIdentifierTypes.ContractNumber,
-            "  HT-2026-003 ");
+            "HT2026003");                                                 // already-normalized
 
         result.ShouldContain(matchingDocId);
     }
@@ -173,7 +183,7 @@ public class ContractIdentifierProvider_Tests
     {
         var sharedDoc = Guid.NewGuid();
         // Two Contract rows pointing to the same document (data anomaly we want to defend against).
-        // Stub keyed on normalized form (硬伤一 Phase 1).
+        // Stub + caller use the already-normalized form (open-contract reform).
         _contractRepository
             .FindByContractNumberAsync("HT2026004", Arg.Any<CancellationToken>())
             .Returns(new List<Contract>
@@ -184,7 +194,7 @@ public class ContractIdentifierProvider_Tests
 
         var result = await _provider.FindDocumentsAsync(
             DocumentIdentifierTypes.ContractNumber,
-            "HT-2026-004");
+            "HT2026004");                                                 // already-normalized
 
         result.Count.ShouldBe(1);
     }

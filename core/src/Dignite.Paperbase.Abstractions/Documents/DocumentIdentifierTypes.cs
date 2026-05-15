@@ -1,36 +1,54 @@
 namespace Dignite.Paperbase.Documents;
 
 /// <summary>
-/// Issue #115 L2: 跨业务模块的标准化标识符类型常量。
+/// Vocabulary of identifier type strings that are likely shared across business modules.
 ///
 /// <para>
-/// 业务模块在实现 <c>IDocumentIdentifierProvider</c> 时把自己的字段映射到这些标准类型。
-/// 例如合同模块把 <c>Contract.ContractNumber</c> 映射为 <see cref="ContractNumber"/>，
-/// 把 <c>Contract.PartyAName</c> + <c>Contract.PartyBName</c> 都映射为 <see cref="PartyName"/>。
+/// <strong>This is NOT a closed enum.</strong> The core layer accepts any string as an
+/// identifier type — see <see cref="IDocumentIdentifierProvider.SupportedIdentifierTypes"/>.
+/// The constants below exist purely as convenience and as a coordination point: if two business
+/// modules want their identifiers to match each other (a contract module's contract number
+/// matching an invoice module's referenced contract number), they should both declare the
+/// SAME type string. Using the constants here is the recommended way to do that without
+/// typo'ing the string literal.
 /// </para>
 ///
 /// <para>
-/// L2 关系发现 Pipeline 用这套类型在 fan-out 时筛选 provider，避免对不相关 type 走无效查询。
-/// 新业务模块需要新增类型时在此添加常量；不在此处的字符串视为非约定类型，L2 不会处理。
+/// <strong>Module-private types</strong> (relationships you don't expect other modules to
+/// share) — name them freely with a module prefix, e.g. <c>"HR.EmployeeId"</c>,
+/// <c>"Medical.PatientId"</c>. You do NOT need to add anything to this class. Your provider
+/// is the single source of truth for what types it handles and how to normalize them.
+/// </para>
+///
+/// <para>
+/// <strong>Adding a new shared type</strong>: only add a constant here when (a) it semantically
+/// transcends any single business module AND (b) you expect 2+ modules to interoperate on it.
+/// Just because a type is "general-sounding" (e.g. <c>"DocumentNumber"</c>) doesn't make it
+/// belong here — the question is whether multiple modules will declare it in their
+/// <c>SupportedIdentifierTypes</c>.
 /// </para>
 /// </summary>
 public static class DocumentIdentifierTypes
 {
-    /// <summary>合同编号（contract number, 框架合同/采购合同等的唯一编号）。</summary>
+    /// <summary>合同编号 (contract number). Used by the contracts module; intentionally
+    /// reusable by invoice / order modules that reference the same contract.</summary>
     public const string ContractNumber = "ContractNumber";
 
-    /// <summary>采购订单号（purchase order number）。</summary>
+    /// <summary>采购订单号 (purchase order number). Cross-module: PO modules emit it,
+    /// invoice modules reference it.</summary>
     public const string PoNumber = "PoNumber";
 
-    /// <summary>发票号（invoice number）。</summary>
+    /// <summary>发票号 (invoice number).</summary>
     public const string InvoiceNumber = "InvoiceNumber";
 
     /// <summary>
-    /// 当事人名称（甲方 / 乙方 / 客户 / 供应商等）。同一文档可能有多个 PartyName 值，
-    /// 同一 PartyName 值可能跨多个文档（这是 L2 发现关系的核心信号之一）。
+    /// 当事人名称 (party / counterparty name). Highly ambiguous as a SINGLE-field identifier
+    /// (one vendor has many contracts); see <see cref="IDocumentEntitySignatureProvider"/> for
+    /// multi-field combinations involving party names.
     /// </summary>
     public const string PartyName = "PartyName";
 
-    /// <summary>项目代号（project code，跨多份业务文档共享的项目标识）。</summary>
+    /// <summary>项目代号 (project code). Cross-module: contract / invoice / report modules
+    /// all reference the same project code.</summary>
     public const string ProjectCode = "ProjectCode";
 }

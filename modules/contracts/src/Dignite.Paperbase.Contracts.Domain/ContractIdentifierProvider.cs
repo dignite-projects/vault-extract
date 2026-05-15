@@ -64,47 +64,41 @@ public class ContractIdentifierProvider : IDocumentIdentifierProvider, ITransien
         }
 
         var entries = new List<DocumentIdentifierEntry>();
+        // ContractNumber: emit raw display form + provider-computed normalized comparison key
+        // (Issue #159 open contract — normalization is the provider's responsibility, not L2's).
         AddIfPresent(entries, DocumentIdentifierTypes.ContractNumber, contract.ContractNumber);
         // PartyName intentionally NOT emitted (codex review fix [high]).
         // 一家供应商可能有上百份合同；以 PartyName 为 L2 强标识符会形成高置信度假关系图，
-        // 污染 chat 路径的 cross-document 推理。Party 关系判断留给 L3 LLM。
+        // 污染 chat 路径的 cross-document 推理。Party 关系判断留给 L3 LLM /
+        // ContractEntitySignatureProvider 的多字段签名路径。
         return entries;
     }
 
+    /// <summary>
+    /// The <paramref name="normalizedIdentifierValue"/> is the comparison key sent by L2
+    /// (originating from another document's <see cref="DocumentIdentifierEntry.NormalizedValue"/>).
+    /// Repository looks up <see cref="Contract.NormalizedContractNumber"/> — same normalization
+    /// rule applied on the storage side, so cross-module matching just works.
+    /// </summary>
     public virtual async Task<IReadOnlyList<Guid>> FindDocumentsAsync(
         string identifierType,
-        string identifierValue,
+        string normalizedIdentifierValue,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(identifierValue))
+        if (string.IsNullOrWhiteSpace(normalizedIdentifierValue))
         {
             return Array.Empty<Guid>();
         }
 
-        // 硬伤一 (Phase 1): defensively normalize the lookup value. L2 RelationDiscoveryService
-        // already normalizes before calling, but idempotent re-normalization here lets callers
-        // outside the L2 fan-out path (future code, tests passing raw values) still match
-        // correctly. NormalizeIdentifierCode is idempotent — normalized values pass through unchanged.
-        var normalized = DocumentIdentifierNormalization.Normalize(identifierType, identifierValue);
-        if (string.IsNullOrEmpty(normalized))
-        {
-            return Array.Empty<Guid>();
-        }
-
-        // PartyName intentionally absent — defensive return-empty for any unsupported type
-        // (codex review fix [high]).
         return identifierType switch
         {
-            DocumentIdentifierTypes.ContractNumber => await FindByContractNumberAsync(normalized, cancellationToken),
+            DocumentIdentifierTypes.ContractNumber => await FindByContractNumberAsync(normalizedIdentifierValue, cancellationToken),
+            // PartyName intentionally absent — return-empty for any unsupported type
+            // (codex review fix [high]).
             _ => Array.Empty<Guid>()
         };
     }
 
-    /// <summary>
-    /// Accepts an ALREADY-normalized contract number (see <see cref="FindDocumentsAsync"/>
-    /// and <see cref="Contract.NormalizedContractNumber"/>). Repository lookup goes through
-    /// the indexed normalized column.
-    /// </summary>
     protected virtual async Task<IReadOnlyList<Guid>> FindByContractNumberAsync(
         string normalizedContractNumber,
         CancellationToken ct)
@@ -113,9 +107,16 @@ public class ContractIdentifierProvider : IDocumentIdentifierProvider, ITransien
         return contracts.Select(c => c.DocumentId).Where(id => id != Guid.Empty).Distinct().ToList();
     }
 
+    /// <summary>
+    /// Helper: emit a (Type, RawValue, NormalizedValue) entry using the
+    /// <see cref="DocumentIdentifierNormalization.NormalizeIdentifierCode"/> helper. Skipped
+    /// when raw is whitespace OR when normalization yields an empty key (raw was punctuation-only).
+    /// </summary>
     private static void AddIfPresent(List<DocumentIdentifierEntry> entries, string type, string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return;
-        entries.Add(new DocumentIdentifierEntry(type, value.Trim()));
+        var normalized = DocumentIdentifierNormalization.NormalizeIdentifierCode(value);
+        if (string.IsNullOrEmpty(normalized)) return;
+        entries.Add(new DocumentIdentifierEntry(type, value.Trim(), normalized));
     }
 }

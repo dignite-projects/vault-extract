@@ -1,67 +1,34 @@
-using System;
-using System.Globalization;
 using System.Text;
 
 namespace Dignite.Paperbase.Documents;
 
 /// <summary>
-/// L2 RelationDiscovery hardening — value normalization (硬伤一).
+/// Helper class providing two canonical normalization strategies for identifier values.
+/// Used by business module providers when producing
+/// <see cref="DocumentIdentifierEntry.NormalizedValue"/> and when comparing stored data
+/// to incoming normalized lookup values.
 ///
 /// <para>
-/// Identifier values arrive from LLM extraction of OCR'd / digital documents and carry
-/// uncontrolled variation: half-width vs full-width characters, en-dash vs em-dash vs
-/// hyphen, casual whitespace, mixed casing. Two documents holding the SAME business
-/// identifier ("HT-2024-001" vs "ht2024001") would fail `==` matching and the relationship
-/// would silently disappear. This class collapses the surface noise into a comparable
-/// canonical form **without changing semantics**.
+/// <strong>This is a utility, NOT a contract</strong>. The core layer does NOT decide which
+/// strategy applies to which type — that's the provider's responsibility (see
+/// <see cref="IDocumentIdentifierProvider"/> docs). Two providers that handle the same
+/// identifier type string MUST use a compatible normalization rule (otherwise cross-module
+/// matching silently fails). New business modules can call these helpers, implement their
+/// own normalization, or both — there's no central registry.
 /// </para>
 ///
 /// <para>
-/// <strong>Contract</strong>: same business identifier MUST produce the same normalized value;
-/// different business identifiers MUST produce different normalized values. We accept that
-/// the canonical form may not round-trip to the original (it's lossy by design) — it is a
-/// comparison key, not a display value. Storage layers keep the raw value too.
+/// <strong>Goal</strong>: collapse uncontrolled surface variation (half-width vs full-width,
+/// em-dash vs hyphen, casual whitespace, mixed casing) into a single comparison key. Two
+/// documents holding the same business identifier ("HT-2024-001" vs "ht2024001" vs
+/// "ＨＴ－２０２４－００１") must produce the same normalized value; different business
+/// identifiers must produce different normalized values. The normalized form is lossy and
+/// intentionally not round-trip-able — it's a key, not a display value (storage keeps the
+/// raw too).
 /// </para>
 /// </summary>
 public static class DocumentIdentifierNormalization
 {
-    /// <summary>
-    /// Returns the normalized form of <paramref name="rawValue"/> for use as an equality key
-    /// when comparing identifiers of the given <paramref name="identifierType"/>. Empty input
-    /// returns empty; never returns null.
-    ///
-    /// <para>
-    /// Strategy dispatches by <paramref name="identifierType"/> against the well-known constants
-    /// in <see cref="DocumentIdentifierTypes"/>. Module-private types (with module-prefixed names,
-    /// e.g. <c>"Contracts.SerialCode"</c>) fall through to the same code-style normalizer used
-    /// for the standard identifier-number types — modules that need different semantics should
-    /// normalize inside their own provider before emitting.
-    /// </para>
-    /// </summary>
-    public static string Normalize(string identifierType, string? rawValue)
-    {
-        if (string.IsNullOrWhiteSpace(rawValue)) return string.Empty;
-
-        return identifierType switch
-        {
-            // Identifier-code types (contract / invoice / PO / project codes): high noise from
-            // human transcription. Aggressive normalization: drop ALL separators, uppercase.
-            DocumentIdentifierTypes.ContractNumber => NormalizeIdentifierCode(rawValue),
-            DocumentIdentifierTypes.InvoiceNumber => NormalizeIdentifierCode(rawValue),
-            DocumentIdentifierTypes.PoNumber => NormalizeIdentifierCode(rawValue),
-            DocumentIdentifierTypes.ProjectCode => NormalizeIdentifierCode(rawValue),
-
-            // Name types (legal entities, parties): structure is meaningful (suffix "Co., Ltd.",
-            // bracketed regions like "上海某某 (国际) 有限公司"), don't strip separators. Casing
-            // matters less because Chinese company names dominate the dataset.
-            DocumentIdentifierTypes.PartyName => NormalizeEntityName(rawValue),
-
-            // Unknown / module-private types: default to identifier-code normalization. Modules
-            // that need different rules should normalize before emitting from their provider.
-            _ => NormalizeIdentifierCode(rawValue),
-        };
-    }
-
     /// <summary>
     /// Aggressive normalization for identifier codes: strip every separator (hyphens, slashes,
     /// dots, spaces, brackets, etc.), normalize unicode digit forms to ASCII, uppercase the rest.

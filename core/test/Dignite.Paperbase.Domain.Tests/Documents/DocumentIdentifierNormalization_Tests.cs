@@ -92,17 +92,13 @@ public class DocumentIdentifierNormalization_Tests
         DocumentIdentifierNormalization.NormalizeEntityName(raw!).ShouldBe(string.Empty);
     }
 
-    // ── Dispatch: Normalize(type, value) routes to the right strategy ─────────────
-
-    [Theory]
-    [InlineData(DocumentIdentifierTypes.ContractNumber, "HT-2024-001", "HT2024001")]
-    [InlineData(DocumentIdentifierTypes.PoNumber,        "PO-2024-001", "PO2024001")]
-    [InlineData(DocumentIdentifierTypes.InvoiceNumber,   "INV.2024.001", "INV2024001")]
-    [InlineData(DocumentIdentifierTypes.ProjectCode,     "PROJ_2024_001", "PROJ2024001")]
-    [InlineData(DocumentIdentifierTypes.PartyName,       "  上海某某  有限公司  ", "上海某某 有限公司")]
-    [InlineData("Contracts.SerialCode",                  "ABC-001", "ABC001")]          // module-private type → code strategy
-    public void Normalize_Dispatches_By_Type(string type, string raw, string expected)
-    {
-        DocumentIdentifierNormalization.Normalize(type, raw).ShouldBe(expected);
-    }
+    // ── Provider-owned strategy choice (Issue #159 open-contract reform) ─────────
+    //
+    // The central Normalize(type, raw) dispatcher was removed: it assumed the core layer
+    // knows which strategy applies to which type, which closed the type vocabulary. Each
+    // provider now picks its own strategy when emitting DocumentIdentifierEntry.NormalizedValue,
+    // and the same provider applies the same strategy to its stored data so cross-module
+    // matching works. The two helpers stay as a public utility — providers can use them or
+    // implement their own normalization. The IDocumentIdentifierProvider docs describe the
+    // governance rule when two modules declare the same type string.
 }
