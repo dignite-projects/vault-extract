@@ -149,12 +149,16 @@ public class ContractIdentifierProvider_Tests
     }
 
     [Fact]
-    public async Task FindDocumentsAsync_ContractNumber_Should_Trim_And_Delegate()
+    public async Task FindDocumentsAsync_ContractNumber_Should_Normalize_And_Delegate()
     {
+        // 硬伤一 Phase 1: provider normalizes the lookup value before hitting the repo.
+        // The repo is expected to query the indexed NormalizedContractNumber column, so the
+        // stub is keyed on the normalized form "HT2026003" — and the caller sends the raw
+        // form (with surrounding whitespace and dashes), which the provider strips.
         var matchingDocId = Guid.NewGuid();
         var matchingContract = CreateContract(matchingDocId, contractNumber: "HT-2026-003");
         _contractRepository
-            .FindByContractNumberAsync("HT-2026-003", Arg.Any<CancellationToken>())
+            .FindByContractNumberAsync("HT2026003", Arg.Any<CancellationToken>())
             .Returns(new List<Contract> { matchingContract });
 
         var result = await _provider.FindDocumentsAsync(
@@ -169,8 +173,9 @@ public class ContractIdentifierProvider_Tests
     {
         var sharedDoc = Guid.NewGuid();
         // Two Contract rows pointing to the same document (data anomaly we want to defend against).
+        // Stub keyed on normalized form (硬伤一 Phase 1).
         _contractRepository
-            .FindByContractNumberAsync("HT-2026-004", Arg.Any<CancellationToken>())
+            .FindByContractNumberAsync("HT2026004", Arg.Any<CancellationToken>())
             .Returns(new List<Contract>
             {
                 CreateContract(sharedDoc, contractNumber: "HT-2026-004"),

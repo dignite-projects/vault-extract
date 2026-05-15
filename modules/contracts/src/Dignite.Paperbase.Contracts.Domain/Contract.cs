@@ -1,4 +1,5 @@
 using System;
+using Dignite.Paperbase.Documents;
 using Volo.Abp;
 using Volo.Abp.Domain.Entities.Auditing;
 using Volo.Abp.MultiTenancy;
@@ -16,6 +17,16 @@ public class Contract : AuditedAggregateRoot<Guid>, IMultiTenant
     public virtual string? Title { get; private set; }
 
     public virtual string? ContractNumber { get; private set; }
+
+    /// <summary>
+    /// Comparison key for <see cref="ContractNumber"/> — derived via
+    /// <see cref="DocumentIdentifierNormalization.NormalizeIdentifierCode"/>. Maintained in
+    /// lockstep with <see cref="ContractNumber"/> through <see cref="ApplyFields"/> and
+    /// <see cref="CorrectFields"/>. Indexed by EF Core; L2 RelationDiscovery looks up
+    /// contracts via this column so casing / hyphenation / full-width-vs-half-width
+    /// variants of the same business number actually match.
+    /// </summary>
+    public virtual string? NormalizedContractNumber { get; private set; }
 
     public virtual string? PartyAName { get; private set; }
 
@@ -96,7 +107,12 @@ public class Contract : AuditedAggregateRoot<Guid>, IMultiTenant
         var changed = false;
 
         if (Title != fields.Title) { Title = fields.Title; changed = true; }
-        if (ContractNumber != fields.ContractNumber) { ContractNumber = fields.ContractNumber; changed = true; }
+        if (ContractNumber != fields.ContractNumber)
+        {
+            ContractNumber = fields.ContractNumber;
+            NormalizedContractNumber = NormalizeContractNumber(fields.ContractNumber);
+            changed = true;
+        }
         if (PartyAName != fields.PartyAName) { PartyAName = fields.PartyAName; changed = true; }
         if (PartyBName != fields.PartyBName) { PartyBName = fields.PartyBName; changed = true; }
         if (SignedDate != fields.SignedDate) { SignedDate = fields.SignedDate; changed = true; }
@@ -140,6 +156,7 @@ public class Contract : AuditedAggregateRoot<Guid>, IMultiTenant
         ValidateFields(fields);
         Title = fields.Title;
         ContractNumber = fields.ContractNumber;
+        NormalizedContractNumber = NormalizeContractNumber(fields.ContractNumber);
         PartyAName = fields.PartyAName;
         PartyBName = fields.PartyBName;
         SignedDate = fields.SignedDate;
@@ -192,5 +209,18 @@ public class Contract : AuditedAggregateRoot<Guid>, IMultiTenant
     {
         ReviewStatus = reviewStatus;
         NeedsReview = reviewStatus == ContractReviewStatus.Pending;
+    }
+
+    /// <summary>
+    /// Centralized helper so <see cref="NormalizedContractNumber"/> is computed identically
+    /// everywhere <see cref="ContractNumber"/> is written. Empty raw value → null normalized
+    /// (consistent with how L2 RelationDiscovery treats empty normalized values as "no
+    /// identifier" and skips them).
+    /// </summary>
+    protected static string? NormalizeContractNumber(string? rawContractNumber)
+    {
+        if (string.IsNullOrWhiteSpace(rawContractNumber)) return null;
+        var normalized = DocumentIdentifierNormalization.NormalizeIdentifierCode(rawContractNumber);
+        return string.IsNullOrEmpty(normalized) ? null : normalized;
     }
 }

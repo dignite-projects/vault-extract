@@ -21,9 +21,17 @@ public static class PaperbaseContractsDbContextModelCreatingExtensions
             b.HasIndex(x => x.Status);
             b.HasIndex(x => x.ReviewStatus);
 
+            // L2 RelationDiscovery lookup index (硬伤一): joins through normalized form so
+            // "HT-2024-001" / "HT2024001" / "ＨＴ－２０２４－００１" all match. Filtered to
+            // non-null because most contracts have a contract number; null rows shouldn't
+            // bloat the index.
+            b.HasIndex(x => x.NormalizedContractNumber)
+                .HasFilter("NormalizedContractNumber IS NOT NULL");
+
             b.Property(x => x.DocumentTypeCode).HasMaxLength(ContractConsts.MaxDocumentTypeCodeLength).IsRequired();
             b.Property(x => x.Title).HasMaxLength(ContractConsts.MaxTitleLength);
             b.Property(x => x.ContractNumber).HasMaxLength(ContractConsts.MaxContractNumberLength);
+            b.Property(x => x.NormalizedContractNumber).HasMaxLength(ContractConsts.MaxContractNumberLength);
             b.Property(x => x.PartyAName).HasMaxLength(ContractConsts.MaxPartyNameLength);
             b.Property(x => x.PartyBName).HasMaxLength(ContractConsts.MaxPartyNameLength);
             b.Property(x => x.Currency).HasMaxLength(ContractConsts.MaxCurrencyLength);

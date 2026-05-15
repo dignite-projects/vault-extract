@@ -87,6 +87,9 @@ public class RelationDiscoveryService : DomainService
         var sourceTenantId = source.TenantId;
 
         // Phase 1: collect all identifiers held by source document across all providers.
+        // CollectedIdentifier carries both raw (what provider emitted, what users would
+        // recognize) and normalized (硬伤一 — what L2 uses for matching across casing /
+        // separator / width variants).
         var sourceIdentifiers = await CollectSourceIdentifiersAsync(sourceDocumentId, cancellationToken);
         if (sourceIdentifiers.Count == 0)
         {
@@ -146,7 +149,7 @@ public class RelationDiscoveryService : DomainService
         return created;
     }
 
-    protected virtual async Task<IReadOnlyList<DocumentIdentifierEntry>> CollectSourceIdentifiersAsync(
+    protected virtual async Task<IReadOnlyList<CollectedIdentifier>> CollectSourceIdentifiersAsync(
         Guid documentId,
         CancellationToken ct)
     {
@@ -168,14 +171,25 @@ public class RelationDiscoveryService : DomainService
             }
         }
 
-        // De-duplicate (type, value) pairs — two providers could in principle report
-        // the same identifier (rare but possible if a doc is dual-classified).
-        return entries.Distinct().ToList();
+        // 硬伤一 normalization: collapse "HT-2024-001" / "ht2024001" / "ＨＴ－２０２４－００１"
+        // into a single comparison key. RawValue is preserved for user-facing descriptions
+        // ("Identifier match: ContractNumber = HT-2024-001"); NormalizedValue drives lookup
+        // and dedup. De-dup is by (Type, Normalized) — first raw wins for description.
+        // Empty normalized values (raw was only separators / whitespace) are dropped.
+        return entries
+            .Select(e => new CollectedIdentifier(
+                Type: e.Type,
+                RawValue: e.Value,
+                NormalizedValue: DocumentIdentifierNormalization.Normalize(e.Type, e.Value)))
+            .Where(c => !string.IsNullOrEmpty(c.NormalizedValue))
+            .GroupBy(c => (c.Type, c.NormalizedValue))
+            .Select(g => g.First())
+            .ToList();
     }
 
     protected virtual async Task<IReadOnlyList<PeerCandidate>> FindPeerDocumentsAsync(
         Guid sourceDocumentId,
-        IReadOnlyList<DocumentIdentifierEntry> sourceIdentifiers,
+        IReadOnlyList<CollectedIdentifier> sourceIdentifiers,
         CancellationToken ct)
     {
         var seen = new HashSet<Guid>();
@@ -191,13 +205,15 @@ public class RelationDiscoveryService : DomainService
                 IReadOnlyList<Guid> found;
                 try
                 {
-                    found = await provider.FindDocumentsAsync(identifier.Type, identifier.Value, ct);
+                    // L2 sends NormalizedValue to providers; providers' DB-side lookups should
+                    // also be over normalized columns (硬伤一 — see e.g. Contract.NormalizedContractNumber).
+                    found = await provider.FindDocumentsAsync(identifier.Type, identifier.NormalizedValue, ct);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     Logger.LogError(ex,
-                        "L2 RelationDiscovery: provider {Provider} threw in FindDocumentsAsync({Type}, {Value}); skipping",
-                        provider.GetType().FullName, identifier.Type, identifier.Value);
+                        "L2 RelationDiscovery: provider {Provider} threw in FindDocumentsAsync({Type}, {NormalizedValue}); skipping",
+                        provider.GetType().FullName, identifier.Type, identifier.NormalizedValue);
                     continue;
                 }
 
@@ -207,7 +223,9 @@ public class RelationDiscoveryService : DomainService
                     if (peerId == Guid.Empty) continue;                // Defensive
                     if (!seen.Add(peerId)) continue;                   // Already a peer via another identifier
 
-                    peers.Add(new PeerCandidate(peerId, identifier.Type, identifier.Value));
+                    // RawValue for description (user-recognizable form); NormalizedValue for any
+                    // future provenance / debugging.
+                    peers.Add(new PeerCandidate(peerId, identifier.Type, identifier.RawValue));
                 }
             }
         }
@@ -235,6 +253,15 @@ public class RelationDiscoveryService : DomainService
     /// <summary>
     /// 中间数据：一个对端文档候选 + 触发本次匹配的 (type, value)。
     /// 当多个标识符同时命中同一对端时，第一个命中决定 Description（避免一对文档建多条关系）。
+    /// IdentifierValue 是 RAW 形式（user-recognizable，例如 "HT-2024-001"），用于 description；
+    /// L2 lookup 时已通过 normalized 形式完成匹配（硬伤一 Phase 1）。
     /// </summary>
     protected sealed record PeerCandidate(Guid PeerDocumentId, string IdentifierType, string IdentifierValue);
+
+    /// <summary>
+    /// 内部传递结构：source document 持有的一个标识符的 raw + normalized 双形式。
+    /// RawValue 来自业务模块 provider（LLM/OCR 抽取原值，用户可识别）；NormalizedValue 由
+    /// <see cref="DocumentIdentifierNormalization.Normalize"/> 派生（用于跨形式匹配的比较键）。
+    /// </summary>
+    protected sealed record CollectedIdentifier(string Type, string RawValue, string NormalizedValue);
 }

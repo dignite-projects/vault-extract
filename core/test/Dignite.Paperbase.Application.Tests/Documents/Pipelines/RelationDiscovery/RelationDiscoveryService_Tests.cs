@@ -404,6 +404,12 @@ public class RelationDiscoveryService_Tests
 
 // ─── Test doubles ──────────────────────────────────────────────────────────────
 
+/// <summary>
+/// Tests put raw (un-normalized) values in <see cref="Lookup"/>; lookups happen on
+/// L2's normalized form. <see cref="LookupNormalized"/> handles both directions so test
+/// code can keep using natural raw values ("HT-001", not "HT001") while still exercising
+/// the L2 normalization path (硬伤一 Phase 1).
+/// </summary>
 internal sealed class FakeContractProvider : IDocumentIdentifierProvider
 {
     public IReadOnlyCollection<string> SupportedIdentifierTypes { get; } = new[]
@@ -436,7 +442,7 @@ internal sealed class FakeContractProvider : IDocumentIdentifierProvider
         FindCalls.Add((identifierType, identifierValue));
         if (FindDocumentsThrowsFor.Contains((identifierType, identifierValue)))
             throw new InvalidOperationException("Simulated provider failure (FindDocumentsAsync)");
-        return Task.FromResult(Lookup.TryGetValue((identifierType, identifierValue), out var v) ? v : (IReadOnlyList<Guid>)Array.Empty<Guid>());
+        return Task.FromResult(FakeIdentifierLookupResolver.Resolve(Lookup, identifierType, identifierValue));
     }
 }
 
@@ -459,6 +465,37 @@ internal sealed class FakeInvoiceProvider : IDocumentIdentifierProvider
     public Task<IReadOnlyList<Guid>> FindDocumentsAsync(string identifierType, string identifierValue, CancellationToken cancellationToken = default)
     {
         FindCalls.Add((identifierType, identifierValue));
-        return Task.FromResult(Lookup.TryGetValue((identifierType, identifierValue), out var v) ? v : (IReadOnlyList<Guid>)Array.Empty<Guid>());
+        return Task.FromResult(FakeIdentifierLookupResolver.Resolve(Lookup, identifierType, identifierValue));
+    }
+}
+
+/// <summary>
+/// Shared resolver — production providers (e.g. <c>ContractIdentifierProvider</c>) normalize
+/// the lookup value before calling the repository. Test fakes mirror that behavior so test
+/// setups can use natural raw values ("HT-001") while the L2 service sends normalized lookups
+/// ("HT001"). Tries exact-key match first (fast path); if missing, scans the dict comparing
+/// keys via the same normalization L2 uses.
+/// </summary>
+internal static class FakeIdentifierLookupResolver
+{
+    public static IReadOnlyList<Guid> Resolve(
+        Dictionary<(string Type, string Value), IReadOnlyList<Guid>> lookup,
+        string identifierType,
+        string identifierValue)
+    {
+        if (lookup.TryGetValue((identifierType, identifierValue), out var direct))
+        {
+            return direct;
+        }
+
+        foreach (var entry in lookup)
+        {
+            if (entry.Key.Type != identifierType) continue;
+            if (DocumentIdentifierNormalization.Normalize(identifierType, entry.Key.Value) == identifierValue)
+            {
+                return entry.Value;
+            }
+        }
+        return Array.Empty<Guid>();
     }
 }

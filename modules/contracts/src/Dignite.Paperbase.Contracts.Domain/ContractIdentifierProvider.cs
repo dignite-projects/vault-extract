@@ -81,22 +81,35 @@ public class ContractIdentifierProvider : IDocumentIdentifierProvider, ITransien
             return Array.Empty<Guid>();
         }
 
-        var trimmed = identifierValue.Trim();
+        // 硬伤一 (Phase 1): defensively normalize the lookup value. L2 RelationDiscoveryService
+        // already normalizes before calling, but idempotent re-normalization here lets callers
+        // outside the L2 fan-out path (future code, tests passing raw values) still match
+        // correctly. NormalizeIdentifierCode is idempotent — normalized values pass through unchanged.
+        var normalized = DocumentIdentifierNormalization.Normalize(identifierType, identifierValue);
+        if (string.IsNullOrEmpty(normalized))
+        {
+            return Array.Empty<Guid>();
+        }
 
         // PartyName intentionally absent — defensive return-empty for any unsupported type
         // (codex review fix [high]).
         return identifierType switch
         {
-            DocumentIdentifierTypes.ContractNumber => await FindByContractNumberAsync(trimmed, cancellationToken),
+            DocumentIdentifierTypes.ContractNumber => await FindByContractNumberAsync(normalized, cancellationToken),
             _ => Array.Empty<Guid>()
         };
     }
 
+    /// <summary>
+    /// Accepts an ALREADY-normalized contract number (see <see cref="FindDocumentsAsync"/>
+    /// and <see cref="Contract.NormalizedContractNumber"/>). Repository lookup goes through
+    /// the indexed normalized column.
+    /// </summary>
     protected virtual async Task<IReadOnlyList<Guid>> FindByContractNumberAsync(
-        string contractNumber,
+        string normalizedContractNumber,
         CancellationToken ct)
     {
-        var contracts = await _contractRepository.FindByContractNumberAsync(contractNumber, ct);
+        var contracts = await _contractRepository.FindByContractNumberAsync(normalizedContractNumber, ct);
         return contracts.Select(c => c.DocumentId).Where(id => id != Guid.Empty).Distinct().ToList();
     }
 

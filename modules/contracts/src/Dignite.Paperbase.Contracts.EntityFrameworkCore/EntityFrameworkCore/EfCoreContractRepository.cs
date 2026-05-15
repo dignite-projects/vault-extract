@@ -25,13 +25,27 @@ public class EfCoreContractRepository :
         return await dbSet.FirstOrDefaultAsync(x => x.DocumentId == documentId);
     }
 
+    /// <summary>
+    /// 硬伤一 fix: lookup goes through <see cref="Contract.NormalizedContractNumber"/> so
+    /// L2 RelationDiscovery's normalized identifier value ("HT2024001") matches the stored
+    /// canonical form, regardless of casing / separator / width variations in the original
+    /// document. The repository accepts an ALREADY-normalized argument — callers (L2 service,
+    /// ContractIdentifierProvider) are responsible for invoking
+    /// <see cref="Dignite.Paperbase.Documents.DocumentIdentifierNormalization.Normalize"/>
+    /// before calling. Documented at the IContractRepository interface.
+    /// </summary>
     public virtual async Task<List<Contract>> FindByContractNumberAsync(
         string contractNumber,
         CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(contractNumber))
+        {
+            return new List<Contract>();
+        }
+
         var dbSet = await GetDbSetAsync();
         return await dbSet
-            .Where(x => x.ContractNumber == contractNumber)
+            .Where(x => x.NormalizedContractNumber == contractNumber)
             .ToListAsync(GetCancellationToken(cancellationToken));
     }
 }
