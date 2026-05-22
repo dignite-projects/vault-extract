@@ -26,6 +26,7 @@
     "Paperbase:PipelineNotRetryable": "流水线 '{PipelineCode}' 当前状态为 '{Status}'，无法重试。",
     "Paperbase:DocumentNotClassified": "该文档尚无文档类型。请先完成分类再编辑抽取字段。",
     "Paperbase:UnknownExtractedField": "字段 '{FieldName}' 未在文档类型 '{DocumentTypeCode}' 下定义。",
+    "Paperbase:InvalidExtractedFieldValue": "文档类型 '{DocumentTypeCode}' 下字段 '{FieldName}' 的值必须是有效的 {DataType}。",
     "Document:PendingReviewMessage": "文档需要人工审核。请根据下方原因选择或创建合适的文档类型，或重新上传更合适的源文件。",
     "Permission:Paperbase": "Paperbase",
     "Permission:Documents": "文档",

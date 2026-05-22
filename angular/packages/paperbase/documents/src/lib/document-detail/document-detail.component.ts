@@ -11,8 +11,8 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
 import { LocalizationPipe, PermissionService } from '@abp/ng.core';
+import { DynamicFormComponent, type FormFieldConfig } from '@abp/ng.components/dynamic-form';
 import { Confirmation, ConfirmationService, ToasterService } from '@abp/ng.theme.shared';
 import {
   DocumentDto,
@@ -54,7 +54,7 @@ const KNOWN_PIPELINE_CODES = [
   selector: 'lib-document-detail',
   templateUrl: './document-detail.component.html',
   styleUrls: ['./document-detail.component.scss'],
-  imports: [CommonModule, RouterModule, FormsModule, LocalizationPipe],
+  imports: [CommonModule, RouterModule, DynamicFormComponent, LocalizationPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DocumentDetailComponent implements OnInit, OnDestroy {
@@ -82,9 +82,9 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
   blobUrl = signal<string | null>(null);
   isBlobLoading = signal(false);
   isEditingFields = signal(false);
-  editedFields = signal<Record<string, string>>({});
   isSavingFields = signal(false);
   fieldDefinitions = signal<FieldDefinitionDto[]>([]);
+  extractedFieldFormFields = signal<FormFieldConfig[]>([]);
 
   readonly DocumentLifecycleStatus = DocumentLifecycleStatus;
   readonly DocumentReviewStatus = DocumentReviewStatus;
@@ -205,6 +205,7 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
         }
         // 编辑字段需要该类型的字段定义（含 LLM 漏抽的空字段）以支持补全。
         // getByDocumentType 需 ConfirmClassification 权限，仅在可编辑时拉取避免 403。
+        this.fieldDefinitions.set([]);
         if (this.canEditFields && doc.documentTypeCode) {
           this.loadFieldDefinitions(doc.documentTypeCode);
         }
@@ -219,7 +220,9 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
     this.fieldDefinitionService.getByDocumentType(typeCode)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: defs => this.fieldDefinitions.set(defs),
+        next: defs => this.fieldDefinitions.set(
+          [...defs].sort((a, b) => a.displayOrder - b.displayOrder || a.name.localeCompare(b.name)),
+        ),
         error: () => this.fieldDefinitions.set([]),
       });
   }
@@ -395,37 +398,29 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
   }
 
   startEditFields(): void {
-    const fields = this.document()?.extractedFields ?? {};
-    const init: Record<string, string> = {};
-    // 基于字段定义遍历——包含 LLM 漏抽的空字段，让操作员补全。
-    for (const def of this.fieldDefinitions()) {
-      const v = fields[def.name];
-      init[def.name] = v === null || v === undefined ? '' : this.formatFieldValue(v);
-    }
-    this.editedFields.set(init);
+    this.extractedFieldFormFields.set(this.createExtractedFieldFormFields());
     this.isEditingFields.set(true);
-  }
-
-  updateField(key: string, value: string): void {
-    this.editedFields.update(f => ({ ...f, [key]: value }));
   }
 
   cancelEditFields(): void {
     this.isEditingFields.set(false);
-    this.editedFields.set({});
+    this.extractedFieldFormFields.set([]);
   }
 
-  saveFields(): void {
+  saveFields(formValue: Record<string, unknown>): void {
     const doc = this.document();
     if (!doc) return;
     this.isSavingFields.set(true);
-    const edited = this.editedFields();
+
     const fields: Record<string, unknown> = {};
-    for (const key of Object.keys(edited)) {
-      // 空 = 不写该字段（整体替换语义下即从 ExtractedFields 移除）。
-      if (edited[key].trim() === '') continue;
-      fields[key] = this.coerceValue(key, edited[key]);
+    for (const def of this.fieldDefinitions()) {
+      const key = def.name;
+      const value = formValue[key];
+
+      if (this.shouldOmitFieldValue(value)) continue;
+      fields[key] = this.coerceValue(def, value);
     }
+
     this.documentService.updateExtractedFields(doc.id, fields)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -433,7 +428,7 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
           this.document.set(updated);
           this.isSavingFields.set(false);
           this.isEditingFields.set(false);
-          this.editedFields.set({});
+          this.extractedFieldFormFields.set([]);
           this.toaster.success('::Document:FieldsUpdated', '::Success');
         },
         error: () => {
@@ -443,25 +438,127 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
       });
   }
 
-  // 按字段 DataType 把文本输入转成对应 JSON 类型——补全的空字段原值为空，
-  // 不能只看原值类型。Date/DateTime/String 一律存字符串。
-  private coerceValue(name: string, raw: string): unknown {
-    const def = this.fieldDefinitions().find(d => d.name === name);
-    switch (def?.dataType) {
-      case FieldDataType.Integer:
-      case FieldDataType.Decimal: {
-        const n = Number(raw);
-        return raw.trim() !== '' && !Number.isNaN(n) ? n : raw;
+  private createExtractedFieldFormFields(): FormFieldConfig[] {
+    const values = this.document()?.extractedFields ?? {};
+
+    return this.fieldDefinitions().map(def => {
+      const config: FormFieldConfig = {
+        key: def.name,
+        label: `${def.displayName} (${def.name})`,
+        type: this.toFormFieldType(def.dataType),
+        value: this.toFormInitialValue(def, values[def.name]),
+        required: def.isRequired,
+        order: def.displayOrder,
+        gridSize: 12,
+        validators: def.isRequired
+          ? [{ type: 'required', message: '::FieldDefinition:Required' }]
+          : [],
+      };
+
+      if (def.dataType === FieldDataType.Integer) {
+        config.step = 1;
+      } else if (def.dataType === FieldDataType.Decimal) {
+        config.step = 'any';
+      } else if (def.dataType === FieldDataType.Boolean) {
+        config.options = {
+          defaultValues: [
+            { key: 'true', value: 'true' },
+            { key: 'false', value: 'false' },
+          ],
+        };
       }
+
+      return config;
+    });
+  }
+
+  private toFormFieldType(dataType: FieldDataType): FormFieldConfig['type'] {
+    switch (dataType) {
+      case FieldDataType.Integer:
+      case FieldDataType.Decimal:
+        return 'number';
       case FieldDataType.Boolean:
-        return raw === 'true' || raw === '1';
+        return 'select';
+      case FieldDataType.Date:
+        return 'date';
+      case FieldDataType.DateTime:
+        return 'datetime-local';
       default:
-        return raw;
+        return 'text';
     }
   }
 
-  fieldDataTypeLabel(dataType: FieldDataType): string {
-    return FieldDataType[dataType] ?? '';
+  private toFormInitialValue(def: FieldDefinitionDto, value: unknown): unknown {
+    if (value === null || value === undefined) return '';
+
+    switch (def.dataType) {
+      case FieldDataType.Integer:
+      case FieldDataType.Decimal:
+        return this.toNumberInputValue(value);
+      case FieldDataType.Boolean:
+        return this.parseBoolean(value) ? 'true' : 'false';
+      case FieldDataType.Date:
+        return this.toDateInputValue(value);
+      case FieldDataType.DateTime:
+        return this.toDateTimeLocalInputValue(value);
+      default:
+        return typeof value === 'object' ? JSON.stringify(value) : String(value);
+    }
+  }
+
+  private shouldOmitFieldValue(value: unknown): boolean {
+    return value === null ||
+      value === undefined ||
+      (typeof value === 'string' && value.trim() === '');
+  }
+
+  // 按字段 DataType 转成对应 JSON 类型。Date/DateTime/String 一律存字符串。
+  private coerceValue(def: FieldDefinitionDto, value: unknown): unknown {
+    switch (def.dataType) {
+      case FieldDataType.Integer:
+      case FieldDataType.Decimal: {
+        const n = typeof value === 'number' ? value : Number(value);
+        return !Number.isNaN(n) ? n : value;
+      }
+      case FieldDataType.Boolean:
+        return this.parseBoolean(value);
+      default:
+        return value;
+    }
+  }
+
+  private toNumberInputValue(value: unknown): string {
+    const raw = String(value).trim();
+    if (raw === '') return '';
+    const n = Number(raw);
+    return Number.isNaN(n) ? '' : raw;
+  }
+
+  private parseBoolean(value: unknown): boolean {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    const normalized = String(value).trim().toLowerCase();
+    return normalized === 'true' || normalized === '1' || normalized === 'yes';
+  }
+
+  private toDateInputValue(value: unknown): string {
+    const raw = String(value);
+    return /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 10) : raw;
+  }
+
+  private toDateTimeLocalInputValue(value: unknown): string {
+    const raw = String(value);
+    if (!raw) return '';
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(raw)) {
+      return raw.slice(0, 16);
+    }
+
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return raw;
+
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}` +
+      `T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
   }
 
   formatElapsed(run: DocumentPipelineRunDto): string {

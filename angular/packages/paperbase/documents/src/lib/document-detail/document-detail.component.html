@@ -211,42 +211,32 @@
                     <p class="text-muted small mb-0">{{ '::Document:NoFieldValues' | abpLocalization }}</p>
                   }
                 } @else {
-                  <div class="mb-2">
-                    @for (def of fieldDefinitions(); track def.id) {
-                      <div class="mb-2">
-                        <label class="form-label small mb-1">
-                          {{ def.displayName }}
-                          <code class="text-muted ms-1">{{ def.name }}</code>
-                          <span class="badge bg-light text-muted border ms-1">{{ fieldDataTypeLabel(def.dataType) }}</span>
-                        </label>
-                        <input
-                          type="text"
-                          class="form-control form-control-sm"
-                          [ngModel]="editedFields()[def.name]"
-                          (ngModelChange)="updateField(def.name, $event)"
-                        />
-                      </div>
-                    }
-                  </div>
-                  <div class="d-flex justify-content-end gap-2">
-                    <button
-                      class="btn btn-secondary btn-sm"
-                      (click)="cancelEditFields()"
-                      [disabled]="isSavingFields()"
-                    >
-                      {{ '::Cancel' | abpLocalization }}
-                    </button>
-                    <button
-                      class="btn btn-primary btn-sm"
-                      (click)="saveFields()"
-                      [disabled]="isSavingFields()"
-                    >
-                      @if (isSavingFields()) {
-                        <span class="spinner-border spinner-border-sm me-1"></span>
-                      }
-                      {{ '::Save' | abpLocalization }}
-                    </button>
-                  </div>
+                  <abp-dynamic-form
+                    [fields]="extractedFieldFormFields()"
+                    [submitInProgress]="isSavingFields()"
+                    (onSubmit)="saveFields($event)"
+                  >
+                    <div actions class="d-flex justify-content-end gap-2">
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        (click)="cancelEditFields()"
+                        [disabled]="isSavingFields()"
+                      >
+                        {{ '::Cancel' | abpLocalization }}
+                      </button>
+                      <button
+                        type="submit"
+                        class="btn btn-primary btn-sm"
+                        [disabled]="isSavingFields()"
+                      >
+                        @if (isSavingFields()) {
+                          <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        {{ '::Save' | abpLocalization }}
+                      </button>
+                    </div>
+                  </abp-dynamic-form>
                 }
               </div>
             </div>

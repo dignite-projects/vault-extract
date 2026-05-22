@@ -29,4 +29,5 @@ public static class PaperbaseErrorCodes
     public const string UnknownPipelineCode = "Paperbase:UnknownPipelineCode";
     public const string DocumentNotClassified = "Paperbase:DocumentNotClassified";
     public const string UnknownExtractedField = "Paperbase:UnknownExtractedField";
+    public const string InvalidExtractedFieldValue = "Paperbase:InvalidExtractedFieldValue";
 }

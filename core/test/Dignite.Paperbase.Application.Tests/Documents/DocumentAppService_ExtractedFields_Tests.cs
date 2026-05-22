@@ -75,6 +75,57 @@ public class DocumentAppService_ExtractedFields_Tests
     }
 
     [Fact]
+    public async Task Should_Accept_Values_That_Match_Field_DataTypes()
+    {
+        var doc = CreateClassifiedDocument("host.contract");
+        StubGet(doc);
+        StubFields(
+            "host.contract",
+            ("title", FieldDataType.String),
+            ("count", FieldDataType.Integer),
+            ("amount", FieldDataType.Decimal),
+            ("approved", FieldDataType.Boolean),
+            ("date", FieldDataType.Date),
+            ("occurredAt", FieldDataType.DateTime));
+
+        await _appService.UpdateExtractedFieldsAsync(doc.Id, new UpdateExtractedFieldsInput
+        {
+            Fields = new Dictionary<string, JsonElement>
+            {
+                ["title"] = JsonValue("Acme"),
+                ["count"] = JsonValue(7),
+                ["amount"] = JsonValue(123.45m),
+                ["approved"] = JsonValue(true),
+                ["date"] = JsonValue("2026-05-22"),
+                ["occurredAt"] = JsonValue("2026-05-22T18:30:00")
+            }
+        });
+
+        doc.ExtractedFields.ShouldNotBeNull();
+        doc.ExtractedFields!.Count.ShouldBe(6);
+    }
+
+    [Fact]
+    public async Task Should_Reject_Value_When_DataType_Does_Not_Match()
+    {
+        var doc = CreateClassifiedDocument("host.contract");
+        StubGet(doc);
+        StubFields("host.contract", ("amount", FieldDataType.Decimal));
+
+        var ex = await Should.ThrowAsync<BusinessException>(() =>
+            _appService.UpdateExtractedFieldsAsync(doc.Id, new UpdateExtractedFieldsInput
+            {
+                Fields = new Dictionary<string, JsonElement>
+                {
+                    ["amount"] = JsonValue("123.45")
+                }
+            }));
+
+        ex.Code.ShouldBe(PaperbaseErrorCodes.InvalidExtractedFieldValue);
+        ex.Data["FieldName"].ShouldBe("amount");
+    }
+
+    [Fact]
     public async Task Should_Reject_When_Document_Not_Classified()
     {
         var doc = CreateDocument(); // DocumentTypeCode 为 null
@@ -97,10 +148,17 @@ public class DocumentAppService_ExtractedFields_Tests
 
     private void StubFields(string typeCode, params string[] names)
     {
-        var defs = names
-            .Select(n => new FieldDefinition(
+        StubFields(
+            typeCode,
+            names.Select(n => (Name: n, DataType: FieldDataType.String)).ToArray());
+    }
+
+    private void StubFields(string typeCode, params (string Name, FieldDataType DataType)[] fields)
+    {
+        var defs = fields
+            .Select(f => new FieldDefinition(
                 Guid.NewGuid(), tenantId: null, documentTypeCode: typeCode,
-                name: n, displayName: n, prompt: "extract " + n, dataType: FieldDataType.String))
+                name: f.Name, displayName: f.Name, prompt: "extract " + f.Name, dataType: f.DataType))
             .ToList();
         _fieldDefinitionRepository.GetForExtractionAsync(typeCode, Arg.Any<CancellationToken>())
             .Returns(defs);
@@ -131,6 +189,11 @@ public class DocumentAppService_ExtractedFields_Tests
     }
 
     private static JsonElement JsonString(string value)
+    {
+        return JsonValue(value);
+    }
+
+    private static JsonElement JsonValue<T>(T value)
     {
         using var doc = JsonDocument.Parse(JsonSerializer.Serialize(value));
         return doc.RootElement.Clone();

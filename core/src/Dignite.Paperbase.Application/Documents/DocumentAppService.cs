@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Dignite.Paperbase.Abstractions.Documents;
 using Dignite.Paperbase.Documents;
@@ -365,21 +367,31 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
         // 校验每个 key 是该文档所属层、该 DocumentType 下已定义的字段名。
         // GetForExtractionAsync 按 ambient CurrentTenant.Id 查单层（已断言 == document.TenantId）。
         var definitions = await _fieldDefinitionRepository.GetForExtractionAsync(document.DocumentTypeCode);
-        var allowedNames = definitions.Select(d => d.Name).ToHashSet(StringComparer.Ordinal);
+        var definitionsByName = definitions.ToDictionary(d => d.Name, StringComparer.Ordinal);
+        var fields = input.Fields ?? new Dictionary<string, JsonElement>();
 
-        foreach (var key in input.Fields.Keys)
+        foreach (var (key, value) in fields)
         {
-            if (!allowedNames.Contains(key))
+            if (!definitionsByName.TryGetValue(key, out var definition))
             {
                 throw new BusinessException(PaperbaseErrorCodes.UnknownExtractedField)
                     .WithData("FieldName", key)
                     .WithData("DocumentTypeCode", document.DocumentTypeCode);
             }
+
+            if (!IsValidExtractedFieldValue(value, definition.DataType))
+            {
+                throw new BusinessException(PaperbaseErrorCodes.InvalidExtractedFieldValue)
+                    .WithData("FieldName", key)
+                    .WithData("DocumentTypeCode", document.DocumentTypeCode)
+                    .WithData("DataType", definition.DataType.ToString())
+                    .WithData("JsonValueKind", value.ValueKind.ToString());
+            }
         }
 
         // 整体替换（与 FieldExtractionEventHandler 一致：空则清空）。值保留原始 JsonElement，
-        // 不做 DataType 强制转换（与 FieldExtractionWorkflow 一致，消费侧按 DataType 反序列化）。
-        document.SetExtractedFields(input.Fields.Count > 0 ? input.Fields : null);
+        // 仅校验 JSON 值类型符合 FieldDefinition.DataType，不做跨类型强制转换。
+        document.SetExtractedFields(fields.Count > 0 ? fields : null);
         await _documentRepository.UpdateAsync(document, autoSave: true);
 
         // 复用 FieldsExtractedEto 重发——手改与 LLM 抽取对下游是同一种"字段已更新"信号，
@@ -391,7 +403,7 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
                 TenantId = document.TenantId,
                 EventTime = Clock.Now,
                 DocumentTypeCode = document.DocumentTypeCode,
-                FieldCount = input.Fields.Count
+                FieldCount = fields.Count
             });
 
         return ObjectMapper.Map<Document, DocumentDto>(document);
@@ -571,5 +583,40 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
         if (value!.Contains(',') || value.Contains('"') || value.Contains('\n'))
             return $"\"{value.Replace("\"", "\"\"")}\"";
         return value;
+    }
+
+    private static bool IsValidExtractedFieldValue(JsonElement value, FieldDataType dataType)
+    {
+        return dataType switch
+        {
+            FieldDataType.String => value.ValueKind == JsonValueKind.String,
+            FieldDataType.Integer => value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out _),
+            FieldDataType.Decimal => value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out _),
+            FieldDataType.Boolean => value.ValueKind is JsonValueKind.True or JsonValueKind.False,
+            FieldDataType.Date => IsValidDateString(value),
+            FieldDataType.DateTime => IsValidDateTimeString(value),
+            _ => false
+        };
+    }
+
+    private static bool IsValidDateString(JsonElement value)
+    {
+        return value.ValueKind == JsonValueKind.String &&
+               DateTime.TryParseExact(
+                   value.GetString(),
+                   "yyyy-MM-dd",
+                   CultureInfo.InvariantCulture,
+                   DateTimeStyles.None,
+                   out _);
+    }
+
+    private static bool IsValidDateTimeString(JsonElement value)
+    {
+        return value.ValueKind == JsonValueKind.String &&
+               DateTime.TryParse(
+                   value.GetString(),
+                   CultureInfo.InvariantCulture,
+                   DateTimeStyles.None,
+                   out _);
     }
 }

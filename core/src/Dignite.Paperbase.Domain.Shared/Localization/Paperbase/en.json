@@ -196,6 +196,7 @@
     "Paperbase:PipelineRetryInProgress": "Pipeline '{PipelineCode}' already has an attempt in progress.",
     "Paperbase:PipelineNotRetryable": "Pipeline '{PipelineCode}' is in '{Status}' state and cannot be retried.",
     "Paperbase:DocumentNotClassified": "This document has no document type yet. Classify it before editing extracted fields.",
-    "Paperbase:UnknownExtractedField": "Field '{FieldName}' is not defined on document type '{DocumentTypeCode}'."
+    "Paperbase:UnknownExtractedField": "Field '{FieldName}' is not defined on document type '{DocumentTypeCode}'.",
+    "Paperbase:InvalidExtractedFieldValue": "Field '{FieldName}' on document type '{DocumentTypeCode}' must be a valid {DataType} value."
   }
 }
