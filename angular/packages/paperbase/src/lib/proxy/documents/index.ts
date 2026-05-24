@@ -1,3 +1,4 @@
+export * from './cabinet.models';
 export * from './document-lifecycle-status.enum';
 export * from './document-review-status.enum';
 export * from './document-type.models';

@@ -23,6 +23,7 @@ public class DocumentAppServiceReviewTestModule : AbpModule
         context.Services.AddSingleton(Substitute.For<IDocumentRepository>());
         context.Services.AddSingleton(Substitute.For<IDocumentTypeRepository>());
         context.Services.AddSingleton(Substitute.For<IFieldDefinitionRepository>());
+        context.Services.AddSingleton(Substitute.For<ICabinetRepository>());
         context.Services.AddSingleton(Substitute.For<IBlobContainer<PaperbaseDocumentContainer>>());
         context.Services.AddSingleton(Substitute.For<IBackgroundJobManager>());
         context.Services.AddSingleton(Substitute.For<IDistributedEventBus>());
@@ -237,6 +238,7 @@ public class DocumentAppService_Review_Tests
             Substitute.For<IDocumentRepository>(),
             Substitute.For<IDocumentTypeRepository>(),
             Substitute.For<IFieldDefinitionRepository>(),
+            Substitute.For<ICabinetRepository>(),
             Substitute.For<IBlobContainer<PaperbaseDocumentContainer>>(),
             new DocumentPipelineRunManager(),
             new DocumentPipelineJobScheduler(

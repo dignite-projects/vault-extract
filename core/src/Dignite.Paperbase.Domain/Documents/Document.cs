@@ -23,6 +23,14 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     public virtual FileOrigin FileOrigin { get; private set; } = default!;
 
     /// <summary>
+    /// 所属文件柜（人工组织归属维度，#194）。可空——null 表示"未归类"。
+    /// 上传时由操作员人工设定，<b>正交于 pipeline</b>：OCR / 分类 / 字段抽取均不读不写此字段
+    /// （否则柜子会退化成第二个 DocumentType，人工组织维度与 AI 内容维度焊死）。
+    /// 以可空 Guid 外键引用 <see cref="Cabinet"/> 聚合根（DDD reference-by-id，无导航属性）。
+    /// </summary>
+    public virtual Guid? CabinetId { get; private set; }
+
+    /// <summary>
     /// 文档类型标识（由分类流水线 Run 成功后写入）。
     /// null 表示当前没有已确认/可用的文档类型；是否等待人工确认由 <see cref="ReviewStatus"/> 表达。
     /// </summary>
@@ -119,13 +127,15 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         Guid? tenantId,
         string originalFileBlobName,
         SourceType sourceType,
-        FileOrigin fileOrigin)
+        FileOrigin fileOrigin,
+        Guid? cabinetId = null)
         : base(id)
     {
         TenantId = tenantId;
         OriginalFileBlobName = Check.NotNullOrWhiteSpace(originalFileBlobName, nameof(originalFileBlobName));
         SourceType = sourceType;
         FileOrigin = Check.NotNull(fileOrigin, nameof(fileOrigin));
+        CabinetId = cabinetId;
         LifecycleStatus = DocumentLifecycleStatus.Uploaded;
     }
 
@@ -158,6 +168,16 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     internal void SetSourceType(SourceType sourceType)
     {
         SourceType = sourceType;
+    }
+
+    /// <summary>
+    /// 删柜时把文档回退"未归类"（#194）。CabinetId 是正交组织维度——清空它不触发任何 pipeline / 领域事件，
+    /// 是原子状态变更（与 <see cref="SetExtractedFields"/> 同类，由 Application 层直接调，无需经 DomainService 中转）。
+    /// 由 <c>CabinetAppService.DeleteAsync</c> 在删柜前对该柜全部文档调用，避免悬空指向已删柜。
+    /// </summary>
+    public void UnassignCabinet()
+    {
+        CabinetId = null;
     }
 
     internal void SetOcrConfidence(double? confidence)

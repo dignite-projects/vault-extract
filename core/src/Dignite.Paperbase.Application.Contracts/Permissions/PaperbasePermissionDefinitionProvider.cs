@@ -20,6 +20,11 @@ public class PaperbasePermissionDefinitionProvider : PermissionDefinitionProvide
 
         var pipelines = documents.AddChild(PaperbasePermissions.Documents.Pipelines.Default, L("Permission:Documents.Pipelines"));
         pipelines.AddChild(PaperbasePermissions.Documents.Pipelines.Retry, L("Permission:Documents.Pipelines.Retry"));
+
+        var cabinets = group.AddPermission(PaperbasePermissions.Cabinets.Default, L("Permission:Cabinets"));
+        cabinets.AddChild(PaperbasePermissions.Cabinets.Create, L("Permission:Cabinets.Create"));
+        cabinets.AddChild(PaperbasePermissions.Cabinets.Update, L("Permission:Cabinets.Update"));
+        cabinets.AddChild(PaperbasePermissions.Cabinets.Delete, L("Permission:Cabinets.Delete"));
     }
 
     private static LocalizableString L(string name)

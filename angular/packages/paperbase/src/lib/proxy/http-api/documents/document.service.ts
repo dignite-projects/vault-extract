@@ -31,6 +31,7 @@ export class DocumentService {
           reviewStatus: input.reviewStatus ?? undefined,
           keyword: input.keyword ?? undefined,
           isDeleted: input.isDeleted ?? undefined,
+          cabinetId: input.cabinetId ?? undefined,
         },
       },
       { apiName: this.apiName }
@@ -87,9 +88,12 @@ export class DocumentService {
       { apiName: this.apiName }
     );
 
-  upload = (file: File): Observable<DocumentDto> => {
+  upload = (file: File, cabinetId?: string): Observable<DocumentDto> => {
     const formData = new FormData();
     formData.append('File', file, file.name);
+    if (cabinetId) {
+      formData.append('CabinetId', cabinetId);
+    }
     return this.rest.request<FormData, DocumentDto>(
       {
         method: 'POST',
@@ -130,6 +134,7 @@ export class DocumentService {
     if (input.documentTypeCode) params.set('documentTypeCode', input.documentTypeCode);
     if (input.reviewStatus != null) params.set('reviewStatus', String(input.reviewStatus));
     if (input.keyword) params.set('keyword', input.keyword);
+    if (input.cabinetId) params.set('cabinetId', input.cabinetId);
     const qs = params.toString();
     return `${this.env.getApiUrl(this.apiName)}${this.basePath}/export${qs ? '?' + qs : ''}`;
   };

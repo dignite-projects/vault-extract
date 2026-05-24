@@ -20,6 +20,7 @@ public class PaperbaseEntityFrameworkCoreModule : AbpModule
             options.AddRepository<Document, EfCoreDocumentRepository>();
             options.AddRepository<DocumentType, EfCoreDocumentTypeRepository>();
             options.AddRepository<FieldDefinition, EfCoreFieldDefinitionRepository>();
+            options.AddRepository<Cabinet, EfCoreCabinetRepository>();
         });
     }
 }

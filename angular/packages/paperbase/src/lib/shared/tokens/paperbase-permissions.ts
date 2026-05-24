@@ -12,4 +12,10 @@ export const PAPERBASE_PERMISSIONS = {
       Retry: 'Paperbase.Documents.Pipelines.Retry',
     },
   },
+  Cabinets: {
+    Default: 'Paperbase.Cabinets',
+    Create: 'Paperbase.Cabinets.Create',
+    Update: 'Paperbase.Cabinets.Update',
+    Delete: 'Paperbase.Cabinets.Delete',
+  },
 } as const;

@@ -77,6 +77,15 @@ public static class PaperbaseDbContextModelCreatingExtensions
                 .HasForeignKey(pr => pr.DocumentId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            // 文件柜外键（#194）：可空 Guid 引用 Cabinet（reference-by-id，无导航属性）。
+            // OnDelete NoAction——Cabinet 走软删除（行保留，不触发级联）；同时阻止误硬删仍被引用的柜。
+            // EF Core 自动为该 FK 建索引，支撑列表按柜筛选。
+            b.HasOne<Cabinet>()
+                .WithMany()
+                .HasForeignKey(x => x.CabinetId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.NoAction);
+
             b.HasIndex(x => x.LifecycleStatus);
             b.HasIndex(x => x.ReviewStatus);
             b.HasIndex(x => x.DocumentTypeCode);
@@ -128,6 +137,19 @@ public static class PaperbaseDbContextModelCreatingExtensions
                 .HasFilter("IsDeleted = 0");
 
             b.HasIndex(x => new { x.TenantId, x.DocumentTypeCode });
+        });
+
+        builder.Entity<Cabinet>(b =>
+        {
+            b.ToTable(PaperbaseDbProperties.DbTablePrefix + "Cabinets", PaperbaseDbProperties.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.DisplayName).IsRequired().HasMaxLength(CabinetConsts.MaxDisplayNameLength);
+
+            // 唯一约束：(TenantId, DisplayName)，层内不可重名（Host 与租户各自独立宇宙）。软删过滤。
+            b.HasIndex(x => new { x.TenantId, x.DisplayName })
+                .IsUnique()
+                .HasFilter("IsDeleted = 0");
         });
     }
 }

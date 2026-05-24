@@ -54,6 +54,13 @@ export const DOCUMENTS_ROUTES: Routes = [
       ),
   },
   {
+    path: 'cabinets',
+    canActivate: [authGuard, permissionGuard],
+    data: { requiredPolicy: PAPERBASE_PERMISSIONS.Cabinets.Default },
+    loadComponent: () =>
+      import('./cabinet-list/cabinet-list.component').then(c => c.CabinetListComponent),
+  },
+  {
     path: ':id',
     canActivate: [authGuard, permissionGuard],
     data: { requiredPolicy: PAPERBASE_PERMISSIONS.Documents.Default },

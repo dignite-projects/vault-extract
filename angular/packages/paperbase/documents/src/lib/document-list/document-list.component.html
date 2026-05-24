@@ -96,6 +96,18 @@
         }
       </select>
     }
+    @if (canViewCabinets && cabinets().length > 0) {
+      <select
+        class="form-select form-select-sm w-auto"
+        [ngModel]="cabinetFilter()"
+        (ngModelChange)="onCabinetFilterChange($event)"
+      >
+        <option value="">{{ '::Document:Filter:AllCabinets' | abpLocalization }}</option>
+        @for (c of cabinets(); track c.id) {
+          <option [value]="c.id">{{ c.displayName }}</option>
+        }
+      </select>
+    }
   </div>
 
   <!-- Bulk upload results -->
@@ -153,6 +165,9 @@
               <th style="width: 48px"></th>
               <th>{{ '::Document:FileName' | abpLocalization }}</th>
               <th>{{ '::Document:Type' | abpLocalization }}</th>
+              @if (canViewCabinets) {
+                <th>{{ '::Document:Cabinet' | abpLocalization }}</th>
+              }
               <th>{{ '::Document:Status' | abpLocalization }}</th>
               <th>{{ '::Document:Size' | abpLocalization }}</th>
               <th>{{ '::Document:UploadedAt' | abpLocalization }}</th>
@@ -181,6 +196,17 @@
                     <span class="text-muted">—</span>
                   }
                 </td>
+                @if (canViewCabinets) {
+                  <td>
+                    @if (cabinetName(doc); as name) {
+                      <span class="badge bg-light text-dark border">
+                        <i class="fas fa-folder text-warning me-1"></i>{{ name }}
+                      </span>
+                    } @else {
+                      <span class="text-muted">—</span>
+                    }
+                  </td>
+                }
                 <td>
                   <span [class]="getDocumentStatusBadgeClass(doc)">
                     @if (isProcessingDocument(doc)) {

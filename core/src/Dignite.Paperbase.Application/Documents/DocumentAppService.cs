@@ -28,6 +28,7 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
     private readonly IDocumentRepository _documentRepository;
     private readonly IDocumentTypeRepository _documentTypeRepository;
     private readonly IFieldDefinitionRepository _fieldDefinitionRepository;
+    private readonly ICabinetRepository _cabinetRepository;
     private readonly IBlobContainer<PaperbaseDocumentContainer> _blobContainer;
     private readonly DocumentPipelineRunManager _pipelineRunManager;
     private readonly DocumentPipelineJobScheduler _pipelineJobScheduler;
@@ -37,6 +38,7 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
         IDocumentRepository documentRepository,
         IDocumentTypeRepository documentTypeRepository,
         IFieldDefinitionRepository fieldDefinitionRepository,
+        ICabinetRepository cabinetRepository,
         IBlobContainer<PaperbaseDocumentContainer> blobContainer,
         DocumentPipelineRunManager pipelineRunManager,
         DocumentPipelineJobScheduler pipelineJobScheduler,
@@ -45,6 +47,7 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
         _documentRepository = documentRepository;
         _documentTypeRepository = documentTypeRepository;
         _fieldDefinitionRepository = fieldDefinitionRepository;
+        _cabinetRepository = cabinetRepository;
         _blobContainer = blobContainer;
         _pipelineRunManager = pipelineRunManager;
         _pipelineJobScheduler = pipelineJobScheduler;
@@ -111,6 +114,22 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
             throw new BusinessException(PaperbaseErrorCodes.NoDocumentTypesConfigured);
         }
 
+        // 文件柜归属校验（#194）：若指定 cabinetId，先断言 Cabinets 权限（fail-closed，与前端 canViewCabinets
+        // gate 对称）——[Authorize(Documents.Upload)] 不覆盖 cabinet 归属，无此断言则无 Cabinets 权限者可绕过 UI
+        // 把文档归到隐藏柜。再校验柜存在且属当前层（显式 TenantId 谓词，
+        // 不依赖 ambient DataFilter）。柜正交于 pipeline——此处仅做上传时人工归属校验，后续 pipeline 不碰。
+        if (input.CabinetId.HasValue)
+        {
+            await CheckPolicyAsync(PaperbasePermissions.Cabinets.Default);
+
+            var cabinet = await _cabinetRepository.FindAsync(input.CabinetId.Value);
+            if (cabinet == null || cabinet.TenantId != CurrentTenant.Id)
+            {
+                throw new BusinessException(PaperbaseErrorCodes.InvalidCabinetId)
+                    .WithData("CabinetId", input.CabinetId.Value);
+            }
+        }
+
         var fileName = input.File.FileName ?? "document";
         var contentType = input.File.ContentType ?? "application/octet-stream";
         var extension = Path.GetExtension(fileName);
@@ -154,7 +173,8 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
             CurrentTenant.Id,
             blobName,
             sourceType,
-            fileOrigin);
+            fileOrigin,
+            cabinetId: input.CabinetId);
 
         await _documentRepository.InsertAsync(document, autoSave: true);
 
@@ -520,6 +540,9 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
 
         if (!input.DocumentTypeCode.IsNullOrWhiteSpace())
             query = query.Where(x => x.DocumentTypeCode == input.DocumentTypeCode);
+
+        if (input.CabinetId.HasValue)
+            query = query.Where(x => x.CabinetId == input.CabinetId.Value);
 
         if (input.ReviewStatus.HasValue)
         {

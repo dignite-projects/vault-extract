@@ -17,6 +17,8 @@ import type { PagedResultDto } from '@abp/ng.core';
 import { ConfirmationService, ToasterService } from '@abp/ng.theme.shared';
 import { Confirmation } from '@abp/ng.theme.shared';
 import {
+  CabinetDto,
+  CabinetService,
   DocumentLifecycleStatus,
   DocumentListItemDto,
   DocumentReviewStatus,
@@ -50,6 +52,7 @@ interface UploadResult {
 export class DocumentListComponent implements OnInit {
   private readonly documentService = inject(DocumentService);
   private readonly documentTypeService = inject(DocumentTypeService);
+  private readonly cabinetService = inject(CabinetService);
   private readonly router = inject(Router);
   private readonly confirmation = inject(ConfirmationService);
   private readonly toaster = inject(ToasterService);
@@ -62,6 +65,9 @@ export class DocumentListComponent implements OnInit {
   readonly canConfirm = this.permissionService.getGrantedPolicy(
     PAPERBASE_PERMISSIONS.Documents.ConfirmClassification,
   );
+  readonly canViewCabinets = this.permissionService.getGrantedPolicy(
+    PAPERBASE_PERMISSIONS.Cabinets.Default,
+  );
 
   documents = signal<PagedResultDto<DocumentListItemDto>>({ totalCount: 0, items: [] });
   isLoading = signal(true);
@@ -71,10 +77,12 @@ export class DocumentListComponent implements OnInit {
 
   reviewStatusFilter = signal<DocumentReviewStatus | undefined>(undefined);
   typeFilter = signal<string>('');
+  cabinetFilter = signal<string>('');
   lifecycleFilter = signal<DocumentLifecycleStatus | undefined>(undefined);
   keyword = signal<string>('');
   confirmingDoc = signal<DocumentListItemDto | null>(null);
   documentTypes = signal<DocumentTypeDto[]>([]);
+  cabinets = signal<CabinetDto[]>([]);
   selectedTypeCode = signal('');
   isConfirming = signal(false);
 
@@ -97,6 +105,11 @@ export class DocumentListComponent implements OnInit {
     if (this.canConfirm) {
       this.loadDocumentTypes();
     }
+    // Cabinet getList is gated by Cabinets.Default; only fetch when granted to
+    // avoid a 403 for users without cabinet access (cabinet filter/labels hidden).
+    if (this.canViewCabinets) {
+      this.loadCabinets();
+    }
   }
 
   refresh(): void {
@@ -111,6 +124,12 @@ export class DocumentListComponent implements OnInit {
 
   onTypeFilterChange(value: string): void {
     this.typeFilter.set(value);
+    this.page.set(0);
+    this.loadList();
+  }
+
+  onCabinetFilterChange(value: string): void {
+    this.cabinetFilter.set(value);
     this.page.set(0);
     this.loadList();
   }
@@ -130,6 +149,7 @@ export class DocumentListComponent implements OnInit {
   private buildFilter(): GetDocumentListInput {
     return {
       documentTypeCode: this.typeFilter() || undefined,
+      cabinetId: this.cabinetFilter() || undefined,
       lifecycleStatus: this.lifecycleFilter(),
       reviewStatus: this.reviewStatusFilter(),
       keyword: this.keyword().trim() || undefined,
@@ -145,6 +165,22 @@ export class DocumentListComponent implements OnInit {
         next: types => this.documentTypes.set(types),
         error: () => this.documentTypes.set([]),
       });
+  }
+
+  // Visible cabinets for the current layer — drives the cabinet filter and the
+  // cabinet-name label column (list DTO carries only cabinetId; we map id → name).
+  private loadCabinets(): void {
+    this.cabinetService.getList()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: list => this.cabinets.set(list),
+        error: () => this.cabinets.set([]),
+      });
+  }
+
+  cabinetName(doc: DocumentListItemDto): string | null {
+    if (!doc.cabinetId) return null;
+    return this.cabinets().find(c => c.id === doc.cabinetId)?.displayName ?? null;
   }
 
   private loadList(): void {

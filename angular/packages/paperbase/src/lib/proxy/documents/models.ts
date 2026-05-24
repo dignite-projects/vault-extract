@@ -41,6 +41,8 @@ export interface DocumentDto extends EntityDto<string> {
   originalFileBlobName: string;
   sourceType: SourceType;
   fileOrigin: FileOriginDto;
+  // 所属文件柜（#194）。null = 未归类。柜名由前端用柜列表 map 显示。
+  cabinetId?: string | null;
   documentTypeCode?: string;
   lifecycleStatus: DocumentLifecycleStatus;
   reviewStatus: DocumentReviewStatus;
@@ -65,6 +67,8 @@ export interface DocumentListItemDto extends EntityDto<string> {
   originalFileBlobName: string;
   sourceType: SourceType;
   fileOrigin: FileOriginDto;
+  // 所属文件柜（#194）。null = 未归类。柜名由前端用柜列表 map 显示。
+  cabinetId?: string | null;
   documentTypeCode?: string;
   lifecycleStatus: DocumentLifecycleStatus;
   reviewStatus: DocumentReviewStatus;
@@ -86,4 +90,6 @@ export interface GetDocumentListInput {
   keyword?: string | null;
   // true = 仅返回已软删除文档（回收站视图）；undefined/false = 仅返回未删除文档
   isDeleted?: boolean | null;
+  // 按文件柜筛选（#194）。null/undefined = 不筛选。
+  cabinetId?: string | null;
 }

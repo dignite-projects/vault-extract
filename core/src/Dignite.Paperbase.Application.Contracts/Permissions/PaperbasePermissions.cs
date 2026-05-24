@@ -23,6 +23,15 @@ public class PaperbasePermissions
         }
     }
 
+    // 文件柜（#194）——人工组织维度，与 Documents 同级权限组。
+    public static class Cabinets
+    {
+        public const string Default = GroupName + ".Cabinets";
+        public const string Create = Default + ".Create";
+        public const string Update = Default + ".Update";
+        public const string Delete = Default + ".Delete";
+    }
+
     public static string[] GetAll()
     {
         return ReflectionHelper.GetPublicConstantsRecursively(typeof(PaperbasePermissions));

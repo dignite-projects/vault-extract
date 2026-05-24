@@ -25,6 +25,7 @@ public class DocumentAppServiceDeleteTestModule : AbpModule
         context.Services.AddSingleton(Substitute.For<IDocumentRepository>());
         context.Services.AddSingleton(Substitute.For<IDocumentTypeRepository>());
         context.Services.AddSingleton(Substitute.For<IFieldDefinitionRepository>());
+        context.Services.AddSingleton(Substitute.For<ICabinetRepository>());
         context.Services.AddSingleton(Substitute.For<IBlobContainer<PaperbaseDocumentContainer>>());
         context.Services.AddSingleton(Substitute.For<IBackgroundJobManager>());
         context.Services.AddSingleton(Substitute.For<IDistributedEventBus>());
@@ -39,6 +40,7 @@ public class DocumentAppService_Delete_Tests
     private readonly IDistributedEventBus _distributedEventBus;
     private readonly IBlobContainer<PaperbaseDocumentContainer> _blobContainer;
     private readonly IDocumentTypeRepository _documentTypeRepository;
+    private readonly ICabinetRepository _cabinetRepository;
 
     public DocumentAppService_Delete_Tests()
     {
@@ -47,6 +49,7 @@ public class DocumentAppService_Delete_Tests
         _distributedEventBus = GetRequiredService<IDistributedEventBus>();
         _blobContainer = GetRequiredService<IBlobContainer<PaperbaseDocumentContainer>>();
         _documentTypeRepository = GetRequiredService<IDocumentTypeRepository>();
+        _cabinetRepository = GetRequiredService<ICabinetRepository>();
 
         // UploadAsync 的前置 fail-fast 检查（当前层至少有一个 DocumentType）—— 测试默认走"已配置"路径，
         // 让重复 / 回收站检查能跑到。专门测试"未配置 → NoDocumentTypesConfigured"应在另外的 fact 里覆盖空 list。
@@ -162,6 +165,38 @@ public class DocumentAppService_Delete_Tests
 
         exception.Code.ShouldBe(PaperbaseErrorCodes.DocumentInRecycleBin);
         exception.Data["ExistingDocumentId"].ShouldBe(existing.Id);
+    }
+
+    [Fact]
+    public async Task UploadAsync_Files_Document_Into_Cabinet_When_CabinetId_Is_Valid()
+    {
+        var cabinet = new Cabinet(Guid.NewGuid(), null, "Legal");
+        _cabinetRepository.FindAsync(cabinet.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(cabinet);
+
+        var input = CreateUploadInput([9, 8, 7]);
+        input.CabinetId = cabinet.Id;
+
+        await _appService.UploadAsync(input);
+
+        // 上传时人工归属：Document 以传入的 CabinetId 落库（已校验当前层柜存在 + Cabinets 权限）。
+        await _documentRepository.Received(1).InsertAsync(
+            Arg.Is<Document>(d => d.CabinetId == cabinet.Id),
+            Arg.Any<bool>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task UploadAsync_Throws_InvalidCabinetId_When_Cabinet_Not_In_Current_Layer()
+    {
+        // 不 setup FindAsync → mock 默认返回 null（柜不存在 / 跨层被 ambient tenant filter 滤掉）。
+        // 经过 CheckPolicyAsync(Cabinets.Default)（测试环境 AlwaysAllow）后落到 fail-closed 拒绝。
+        var input = CreateUploadInput([4, 5, 6]);
+        input.CabinetId = Guid.NewGuid();
+
+        var exception = await Should.ThrowAsync<BusinessException>(async () =>
+            await _appService.UploadAsync(input));
+
+        exception.Code.ShouldBe(PaperbaseErrorCodes.InvalidCabinetId);
     }
 
     private static Document CreateDocument()

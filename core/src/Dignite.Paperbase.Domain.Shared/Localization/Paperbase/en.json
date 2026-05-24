@@ -142,6 +142,22 @@
     "DocumentType:DeletedSuccessfully": "Document type deleted.",
     "DocumentType:RestoredSuccessfully": "Document type restored.",
 
+    "Menu:Cabinets": "Cabinets",
+    "Cabinet:Title": "Cabinets",
+    "Cabinet:New": "New Cabinet",
+    "Cabinet:Edit": "Edit Cabinet",
+    "Cabinet:Empty": "No cabinets yet. Create one to organize documents by group or batch.",
+    "Cabinet:DisplayName": "Name",
+    "Cabinet:DisplayNameHint": "A cabinet groups documents by manual organization (e.g. Legal Dept, 2024 Project) — orthogonal to the AI document type.",
+    "Cabinet:AreYouSureToDelete": "Delete this cabinet? Documents in it become unfiled (they are not deleted).",
+    "Cabinet:CreatedSuccessfully": "Cabinet created.",
+    "Cabinet:UpdatedSuccessfully": "Cabinet updated.",
+    "Cabinet:DeletedSuccessfully": "Cabinet deleted.",
+    "Document:Cabinet": "Cabinet",
+    "Document:Unfiled": "Unfiled",
+    "Document:Filter:AllCabinets": "All Cabinets",
+    "Document:SelectCabinet": "Cabinet (optional)",
+
     "FieldDefinition:Title": "Type-Bound Fields",
     "FieldDefinition:New": "New Field",
     "FieldDefinition:Edit": "Edit Field",
@@ -177,6 +193,10 @@
     "Permission:Documents.ConfirmClassification": "Confirm Classification",
     "Permission:Documents.Pipelines": "Document Pipelines",
     "Permission:Documents.Pipelines.Retry": "Retry Failed Pipelines",
+    "Permission:Cabinets": "Cabinets",
+    "Permission:Cabinets.Create": "Create Cabinets",
+    "Permission:Cabinets.Update": "Edit Cabinets",
+    "Permission:Cabinets.Delete": "Delete Cabinets",
 
     "Paperbase:InvalidDocumentTypeCode": "Invalid document type code: '{documentTypeCode}'.",
     "Paperbase:InvalidDocumentTypeCodeFormat": "Document type code '{typeCode}' is not allowed. Must match pattern '{pattern}' (letters, digits, underscore, hyphen segments, optionally separated by '.'; no leading/trailing/consecutive '.').",
@@ -199,6 +219,9 @@
     "Paperbase:PipelineNotRetryable": "Pipeline '{PipelineCode}' is in '{Status}' state and cannot be retried.",
     "Paperbase:DocumentNotClassified": "This document has no document type yet. Classify it before editing extracted fields.",
     "Paperbase:UnknownExtractedField": "Field '{FieldName}' is not defined on document type '{DocumentTypeCode}'.",
-    "Paperbase:InvalidExtractedFieldValue": "Field '{FieldName}' on document type '{DocumentTypeCode}' must be a valid {DataType} value."
+    "Paperbase:InvalidExtractedFieldValue": "Field '{FieldName}' on document type '{DocumentTypeCode}' must be a valid {DataType} value.",
+    "Paperbase:InvalidCabinetDisplayName": "Cabinet name '{displayName}' contains control characters (newlines, tabs, etc.), which are not allowed.",
+    "Paperbase:CabinetDisplayNameAlreadyExists": "A cabinet named '{DisplayName}' already exists in this scope.",
+    "Paperbase:InvalidCabinetId": "The selected cabinet does not exist in this scope."
   }
 }

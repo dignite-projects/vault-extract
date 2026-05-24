@@ -10,6 +10,22 @@
         </div>
         <div class="card-body p-4">
 
+          @if (canViewCabinets && cabinets().length > 0 && !isUploading() && !hasDoneWithErrors()) {
+            <div class="mb-3">
+              <label class="form-label fw-semibold">{{ '::Document:SelectCabinet' | abpLocalization }}</label>
+              <select
+                class="form-select"
+                [ngModel]="selectedCabinetId()"
+                (ngModelChange)="selectedCabinetId.set($event)"
+              >
+                <option value="">{{ '::Document:Unfiled' | abpLocalization }}</option>
+                @for (c of cabinets(); track c.id) {
+                  <option [value]="c.id">{{ c.displayName }}</option>
+                }
+              </select>
+            </div>
+          }
+
           <!-- Drop zone -->
           <div
             class="drop-zone"

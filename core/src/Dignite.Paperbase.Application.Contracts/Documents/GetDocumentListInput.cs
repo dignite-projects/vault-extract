@@ -1,3 +1,4 @@
+using System;
 using Dignite.Paperbase.Documents;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Validation;
@@ -24,4 +25,7 @@ public class GetDocumentListInput : PagedAndSortedResultRequestDto
     /// true = 仅返回已软删除文档（回收站视图，需要 <see cref="Documents.PaperbasePermissions.Documents.Restore"/> 权限）。
     /// </summary>
     public bool? IsDeleted { get; set; }
+
+    /// <summary>按文件柜筛选（#194）。null = 不筛选；具体 Guid = 仅返回该柜文档。</summary>
+    public Guid? CabinetId { get; set; }
 }

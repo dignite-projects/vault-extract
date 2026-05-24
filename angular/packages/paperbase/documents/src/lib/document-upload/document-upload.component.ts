@@ -1,10 +1,11 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
-import { LocalizationPipe } from '@abp/ng.core';
+import { FormsModule } from '@angular/forms';
+import { LocalizationPipe, PermissionService } from '@abp/ng.core';
 import { ToasterService } from '@abp/ng.theme.shared';
-import { DocumentService } from '@dignite/paperbase';
+import { CabinetDto, CabinetService, DocumentService, PAPERBASE_PERMISSIONS } from '@dignite/paperbase';
 import { from, of } from 'rxjs';
 import { catchError, map, mergeMap } from 'rxjs/operators';
 
@@ -24,19 +25,39 @@ interface FileUploadState {
   selector: 'lib-document-upload',
   templateUrl: './document-upload.component.html',
   styleUrls: ['./document-upload.component.scss'],
-  imports: [CommonModule, LocalizationPipe],
+  imports: [CommonModule, FormsModule, LocalizationPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class DocumentUploadComponent {
+export class DocumentUploadComponent implements OnInit {
   private readonly documentService = inject(DocumentService);
+  private readonly cabinetService = inject(CabinetService);
   private readonly router = inject(Router);
   private readonly toaster = inject(ToasterService);
+  private readonly permissionService = inject(PermissionService);
   private readonly destroyRef = inject(DestroyRef);
+
+  // 选柜需要 Cabinets.Default 权限（getList 后端 [Authorize]）；无权限则不显示下拉，上传为未归类。
+  readonly canViewCabinets = this.permissionService.getGrantedPolicy(
+    PAPERBASE_PERMISSIONS.Cabinets.Default,
+  );
+  cabinets = signal<CabinetDto[]>([]);
+  selectedCabinetId = signal<string>('');
 
   isDragOver = signal(false);
   isUploading = signal(false);
   hasDoneWithErrors = signal(false);
   uploadingFiles = signal<FileUploadState[]>([]);
+
+  ngOnInit(): void {
+    if (this.canViewCabinets) {
+      this.cabinetService.getList()
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: list => this.cabinets.set(list),
+          error: () => this.cabinets.set([]),
+        });
+    }
+  }
 
   onDragOver(event: DragEvent): void {
     event.preventDefault();
@@ -96,7 +117,7 @@ export class DocumentUploadComponent {
       .pipe(
         mergeMap(
           ({ file, idx }) =>
-            this.documentService.upload(file).pipe(
+            this.documentService.upload(file, this.selectedCabinetId() || undefined).pipe(
               map(() => ({ idx, success: true, errorMessage: undefined as string | undefined })),
               catchError(err => {
                 const errorMessage: string | undefined = err?.error?.error?.message;

@@ -111,3 +111,10 @@ public partial class FieldDefinitionToDtoMapper : MapperBase<FieldDefinition, Fi
     public override partial FieldDefinitionDto Map(FieldDefinition source);
     public override partial void Map(FieldDefinition source, FieldDefinitionDto destination);
 }
+
+[Mapper(RequiredMappingStrategy = RequiredMappingStrategy.Target)]
+public partial class CabinetToDtoMapper : MapperBase<Cabinet, CabinetDto>
+{
+    public override partial CabinetDto Map(Cabinet source);
+    public override partial void Map(Cabinet source, CabinetDto destination);
+}
