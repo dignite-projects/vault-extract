@@ -63,10 +63,6 @@ jobs:
         run: npx nx build paperbase --configuration production
         working-directory: angular
 
-      - name: Build contracts library
-        run: npx nx build contracts --configuration production
-        working-directory: angular
-
       - name: Build host application
         run: npx nx build host --configuration production
         working-directory: angular
