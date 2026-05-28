@@ -93,14 +93,15 @@ public sealed class DocumentSearchTool
     }
 
     /// <summary>
-    /// 把文档的 ExtractedFields（原样 <see cref="JsonElement"/>）转成 LLM-facing 字符串：
-    /// String 类型值（用户派生自由文本）经 <c>PromptBoundary.WrapField</c> 包裹防 indirect prompt injection；
-    /// 数字 / 布尔等结构化值取裸文本——注入风险 ⟺ 值是 JSON 字符串，故仅 <see cref="JsonValueKind.String"/> 需包裹
+    /// 把文档的 ExtractedFields（原样 <see cref="JsonElement"/>）转成 LLM-facing 投影，保留声明类型：
+    /// 数字 / 布尔等结构化值原样透传——下游 LLM 从值本身推断类型，无需字符串转换；
+    /// String 类型值（用户派生自由文本）经 <c>PromptBoundary.WrapField</c> 包裹后重新装回 JSON 字符串
+    /// 防 indirect prompt injection——注入风险 ⟺ 值是 JSON 字符串，故仅 <see cref="JsonValueKind.String"/> 需包裹
     /// （JSON 无原生 date 类型，日期以字符串存储会一并被包裹，冗余但无害）。
     /// JSON null（LLM 抽取不符声明类型时的兜底值，见 <c>ExtractedFieldValueValidator</c>）跳过不投影——
-    /// 无有效值，避免投出误导性的字面 "null"。全部跳过 / 无字段 → 返回 null。
+    /// 无有效值，避免投出误导性的字面 null。全部跳过 / 无字段 → 返回 null。
     /// </summary>
-    private static IReadOnlyDictionary<string, string>? ProjectFields(
+    private static IReadOnlyDictionary<string, JsonElement>? ProjectFields(
         IReadOnlyDictionary<string, JsonElement>? fields)
     {
         if (fields is not { Count: > 0 })
@@ -108,7 +109,7 @@ public sealed class DocumentSearchTool
             return null;
         }
 
-        var projected = new Dictionary<string, string>(fields.Count);
+        var projected = new Dictionary<string, JsonElement>(fields.Count);
         foreach (var pair in fields)
         {
             switch (pair.Value.ValueKind)
@@ -117,10 +118,13 @@ public sealed class DocumentSearchTool
                 case JsonValueKind.Undefined:
                     continue;
                 case JsonValueKind.String:
-                    projected[pair.Key] = PromptBoundary.WrapField(pair.Value.GetString())!;
+                    // 用户派生自由文本 → 包裹后重新装回 JSON 字符串（仍是 String，序列化为带分隔符的引号值）。
+                    projected[pair.Key] = JsonSerializer.SerializeToElement(
+                        PromptBoundary.WrapField(pair.Value.GetString()));
                     break;
                 default:
-                    projected[pair.Key] = pair.Value.GetRawText();
+                    // 数字 / 布尔等结构化值原样透传——保留 JSON 类型，下游 LLM 从值本身推断类型。
+                    projected[pair.Key] = pair.Value;
                     break;
             }
         }

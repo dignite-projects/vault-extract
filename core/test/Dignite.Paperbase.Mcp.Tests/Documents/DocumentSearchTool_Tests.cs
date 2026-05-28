@@ -141,11 +141,15 @@ public class DocumentSearchTool_Tests : PaperbaseTestBase<DocumentSearchToolTest
             _documentAppService,
             documentTypeCode: "contract.general");
 
-        // String 字段值（用户派生自由文本）经 PromptBoundary 包裹防 indirect prompt injection；
-        // 数字等结构化值取裸文本不包裹（注入风险 ⟺ 值是 JSON 字符串）。
+        // String 字段值（用户派生自由文本）经 PromptBoundary 包裹后仍是 JSON 字符串（防 indirect prompt injection）；
+        // 数字等结构化值原样透传保留 JSON 类型（Number），下游 LLM 从值本身推断类型，无需字符串转换。
         result[0].ExtractedFields.ShouldNotBeNull();
-        result[0].ExtractedFields!["partyName"].ShouldBe(PromptBoundary.WrapField("Acme Corp"));
-        result[0].ExtractedFields!["amount"].ShouldBe("125000");
+        var partyName = result[0].ExtractedFields!["partyName"];
+        partyName.ValueKind.ShouldBe(JsonValueKind.String);
+        partyName.GetString().ShouldBe(PromptBoundary.WrapField("Acme Corp"));
+        var amount = result[0].ExtractedFields!["amount"];
+        amount.ValueKind.ShouldBe(JsonValueKind.Number);
+        amount.GetInt32().ShouldBe(125000);
     }
 
     [Fact]
@@ -174,10 +178,12 @@ public class DocumentSearchTool_Tests : PaperbaseTestBase<DocumentSearchToolTest
             _documentAppService,
             documentTypeCode: "contract.general");
 
-        // JSON null（抽取兜底）跳过不投影，避免投出误导性的字面 "null"；只剩有效值字段。
+        // JSON null（抽取兜底）跳过不投影，避免投出误导性的字面 null；只剩有效值字段。
         result[0].ExtractedFields.ShouldNotBeNull();
         result[0].ExtractedFields!.Count.ShouldBe(1);
-        result[0].ExtractedFields!["amount"].ShouldBe("125000");
+        var amount = result[0].ExtractedFields!["amount"];
+        amount.ValueKind.ShouldBe(JsonValueKind.Number);
+        amount.GetInt32().ShouldBe(125000);
         result[0].ExtractedFields!.ContainsKey("expiryDate").ShouldBeFalse();
     }
 }
