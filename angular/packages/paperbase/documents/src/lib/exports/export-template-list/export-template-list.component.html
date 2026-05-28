@@ -60,7 +60,7 @@
                   @if (t.documentTypeCode) {
                     <span class="badge bg-info text-dark">{{ t.documentTypeCode }}</span>
                   } @else {
-                    <span class="text-muted">{{ '::ExportTemplate:AllTypes' | abpLocalization }}</span>
+                    <span class="text-muted">-</span>
                   }
                 </td>
                 <td class="text-muted">{{ t.columns.length }}</td>
@@ -142,7 +142,7 @@
               <div class="col-md-4">
                 <label class="form-label">{{ '::ExportTemplate:DocumentType' | abpLocalization }}</label>
                 <select class="form-select" formControlName="documentTypeCode">
-                  <option value="">{{ '::ExportTemplate:AllTypes' | abpLocalization }}</option>
+                  <option value="" disabled>{{ '::ExportTemplate:DocumentType' | abpLocalization }}</option>
                   @for (dt of documentTypes(); track dt.id) {
                     <option [value]="dt.typeCode">{{ dt.displayName }} ({{ dt.typeCode }})</option>
                   }
@@ -163,37 +163,21 @@
 
             <div formArrayName="columns">
               <div class="row g-2 mb-1 text-muted small d-none d-md-flex">
-                <div class="col-md-3">{{ '::ExportTemplate:ColumnSource' | abpLocalization }}</div>
-                <div class="col-md-4">{{ '::ExportTemplate:ColumnKey' | abpLocalization }}</div>
-                <div class="col-md-4">{{ '::ExportTemplate:ColumnName' | abpLocalization }}</div>
+                <div class="col-md-5">{{ '::ExportTemplate:ColumnKey' | abpLocalization }}</div>
+                <div class="col-md-6">{{ '::ExportTemplate:ColumnName' | abpLocalization }}</div>
                 <div class="col-md-1"></div>
               </div>
               @for (col of columns.controls; track $index) {
                 <div class="row g-2 mb-2 align-items-center" [formGroupName]="$index">
-                  <div class="col-md-3">
-                    <select class="form-select form-select-sm" formControlName="sourceKind">
-                      @for (opt of sourceKindOptions; track opt.value) {
-                        <option [ngValue]="opt.value">{{ opt.key }}</option>
-                      }
-                    </select>
+                  <div class="col-md-5">
+                    <input
+                      type="text"
+                      class="form-control form-control-sm"
+                      formControlName="fieldName"
+                      placeholder="field_name"
+                    />
                   </div>
-                  <div class="col-md-4">
-                    @if (col.value.sourceKind === ExportColumnSourceKind.System) {
-                      <select class="form-select form-select-sm" formControlName="key">
-                        @for (k of systemFieldKeys; track k) {
-                          <option [ngValue]="k">{{ k }}</option>
-                        }
-                      </select>
-                    } @else {
-                      <input
-                        type="text"
-                        class="form-control form-control-sm"
-                        formControlName="key"
-                        placeholder="field_name"
-                      />
-                    }
-                  </div>
-                  <div class="col-md-4">
+                  <div class="col-md-6">
                     <input
                       type="text"
                       class="form-control form-control-sm"

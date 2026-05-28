@@ -23,7 +23,7 @@ const SUGGEST_TIMEOUT_MS = 8000;
  *
  * 行为：
  * - admin 在 displayName 停顿 → 调后端 LLM 英译端点预填 target（name / typeCode）。
- * - **仅创建态生效**：编辑态 target 被 disable（机器键不可改），自动跳过。
+ * - **仅调用方允许时生效**：target enabled 且未标记为手动编辑时，自动建议才会接管。
  * - **用户手动改过 target 就不再覆盖**：监听 target.valueChanges；程序化写入一律用
  *   `{ emitEvent: false }`，因此只有真实键入会被识别为"手动"。
  * - **过期键防护**：displayName 一变就**立即清空** target（防抖前），让 target 在新建议落定前为空——
@@ -37,6 +37,8 @@ export interface SlugSuggestionHandle {
    * 在创建表单的 opener 里、`form.reset()` 与 `enable()` **之后**调用。
    */
   reset(): void;
+  /** 标记 target 当前值由用户/调用方保留，后续 displayName 变化不再自动覆盖。 */
+  markManual(): void;
 }
 
 export interface SlugSuggestionConfig {
@@ -56,9 +58,8 @@ export interface SlugSuggestionConfig {
 export function wireSlugSuggestion(config: SlugSuggestionConfig): SlugSuggestionHandle {
   let manuallyEdited = false;
 
-  // 自动接管 target 的条件：创建态（编辑态 target 被 disable）且用户未手动改过。
-  // 注意：调用方必须在 openEdit 里 **先 disable 再 reset**，否则编辑态 reset 触发的 displayName 变化
-  // 会在 target 尚未 disable 时被误判为创建态，把既有机器键清空。
+  // 自动接管 target 的条件：调用方启用 target 且尚未把它标记为手动值。
+  // 编辑态若需要保留既有机器键，调用方应先 disable 再 reset，随后 enable 并 markManual()。
   const autoManaged = (): boolean => config.target.enabled && !manuallyEdited;
 
   // target 上的真实键入 → 标记为手动，停止自动覆盖。
@@ -105,6 +106,10 @@ export function wireSlugSuggestion(config: SlugSuggestionConfig): SlugSuggestion
     reset: () => {
       manuallyEdited = false;
       // 复位 pending：重开创建表单时关掉可能残留的"正在生成"提示，调用方无需再手动清。
+      config.onPending?.(false);
+    },
+    markManual: () => {
+      manuallyEdited = true;
       config.onPending?.(false);
     },
   };

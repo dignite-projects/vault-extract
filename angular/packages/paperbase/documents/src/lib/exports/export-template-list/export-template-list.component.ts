@@ -16,34 +16,18 @@ import {
   DocumentTypeDto,
   DocumentTypeService,
   ExportColumnInput,
-  ExportColumnSourceKind,
   ExportFormat,
   ExportTemplateDto,
   ExportTemplateService,
   PAPERBASE_PERMISSIONS,
-  exportColumnSourceKindOptions,
   exportFormatOptions,
 } from '@dignite/paperbase';
 
 // Mirrors ExportTemplateConsts (Domain.Shared).
 const MAX_NAME_LENGTH = 128;
-const MAX_COLUMN_KEY_LENGTH = 64;
+const MAX_FIELD_NAME_LENGTH = 64;
 const MAX_COLUMN_NAME_LENGTH = 128;
-
-// Mirrors ExportSystemFields.All (Domain.Shared) — valid keys for System columns.
-const SYSTEM_FIELD_KEYS = [
-  'Id',
-  'Title',
-  'DocumentTypeCode',
-  'LifecycleStatus',
-  'ReviewStatus',
-  'Language',
-  'ClassificationConfidence',
-  'CreationTime',
-  'OriginalFileName',
-  'ContentType',
-  'FileSize',
-];
+const FIELD_NAME_PATTERN = /^[A-Za-z0-9_\-]{1,64}$/;
 
 @Component({
   selector: 'lib-export-template-list',
@@ -69,9 +53,6 @@ export class ExportTemplateListComponent implements OnInit {
   );
 
   readonly formatOptions = exportFormatOptions;
-  readonly sourceKindOptions = exportColumnSourceKindOptions;
-  readonly systemFieldKeys = SYSTEM_FIELD_KEYS;
-  readonly ExportColumnSourceKind = ExportColumnSourceKind;
   readonly ExportFormat = ExportFormat;
 
   templates = signal<ExportTemplateDto[]>([]);
@@ -84,7 +65,7 @@ export class ExportTemplateListComponent implements OnInit {
   readonly form = this.fb.nonNullable.group({
     name: ['', [Validators.required, Validators.maxLength(MAX_NAME_LENGTH)]],
     format: [ExportFormat.Csv, [Validators.required]],
-    documentTypeCode: [''],
+    documentTypeCode: ['', [Validators.required]],
     columns: this.fb.array<FormGroup>([]),
   });
 
@@ -138,19 +119,21 @@ export class ExportTemplateListComponent implements OnInit {
     });
     [...template.columns]
       .sort((a, b) => a.order - b.order)
-      .forEach(c => this.addColumn(c.sourceKind, c.key, c.columnName));
+      .forEach(c => this.addColumn(c.fieldName ?? '', c.columnName));
     this.editing.set(template);
   }
 
-  addColumn(
-    sourceKind: ExportColumnSourceKind = ExportColumnSourceKind.System,
-    key = '',
-    columnName = '',
-  ): void {
+  addColumn(fieldName = '', columnName = ''): void {
     this.columns.push(
       this.fb.nonNullable.group({
-        sourceKind: [sourceKind, Validators.required],
-        key: [key, [Validators.required, Validators.maxLength(MAX_COLUMN_KEY_LENGTH)]],
+        fieldName: [
+          fieldName,
+          [
+            Validators.required,
+            Validators.maxLength(MAX_FIELD_NAME_LENGTH),
+            Validators.pattern(FIELD_NAME_PATTERN),
+          ],
+        ],
         columnName: [columnName, [Validators.required, Validators.maxLength(MAX_COLUMN_NAME_LENGTH)]],
       }),
     );
@@ -177,19 +160,17 @@ export class ExportTemplateListComponent implements OnInit {
     // Order = array position; the editor's row order is the source of truth.
     const columns: ExportColumnInput[] = this.columns.controls.map((ctrl, i) => {
       const v = ctrl.getRawValue() as {
-        sourceKind: ExportColumnSourceKind;
-        key: string;
+        fieldName: string;
         columnName: string;
       };
-      return { sourceKind: v.sourceKind, key: v.key, columnName: v.columnName, order: i };
+      return { fieldName: v.fieldName, columnName: v.columnName, order: i };
     });
-    const documentTypeCode = raw.documentTypeCode ? raw.documentTypeCode : undefined;
 
     if (mode === 'create') {
       const input: CreateExportTemplateDto = {
         name: raw.name,
         format: raw.format,
-        documentTypeCode,
+        documentTypeCode: raw.documentTypeCode,
         columns,
       };
       this.service
@@ -201,7 +182,12 @@ export class ExportTemplateListComponent implements OnInit {
         });
     } else {
       this.service
-        .update(mode.id, { name: raw.name, format: raw.format, documentTypeCode, columns })
+        .update(mode.id, {
+          name: raw.name,
+          format: raw.format,
+          documentTypeCode: raw.documentTypeCode,
+          columns,
+        })
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
           next: () => this.onSaved('::ExportTemplate:UpdatedSuccessfully'),
@@ -263,9 +249,5 @@ export class ExportTemplateListComponent implements OnInit {
 
   formatLabel(format: ExportFormat): string {
     return this.formatOptions.find(o => o.value === format)?.key ?? String(format);
-  }
-
-  columnSourceKind(ctrl: FormGroup): ExportColumnSourceKind {
-    return ctrl.controls['sourceKind'].value as ExportColumnSourceKind;
   }
 }

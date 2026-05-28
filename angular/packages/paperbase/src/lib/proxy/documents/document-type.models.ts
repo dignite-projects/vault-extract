@@ -18,8 +18,8 @@ export interface CreateDocumentTypeDto {
   priority: number;
 }
 
-// TypeCode is immutable after creation — UpdateDocumentTypeDto carries no typeCode.
 export interface UpdateDocumentTypeDto {
+  typeCode: string;
   displayName: string;
   confidenceThreshold: number;
   priority: number;

@@ -125,8 +125,7 @@ export class DocumentTypeListComponent implements OnInit {
   }
 
   openEdit(type: DocumentTypeDto): void {
-    // TypeCode is immutable after creation (UpdateDocumentTypeDto omits it).
-    // 先 disable 再 reset：让 slug 自动建议在编辑态 reset 期间识别为非创建态，
+    // 先 disable 再 reset：让 slug 自动建议在编辑态 reset 期间识别为非自动接管，
     // 不会把既有 typeCode 当"过期键"清空（见 wireSlugSuggestion 注释）。
     this.form.controls.typeCode.disable();
     this.form.reset({
@@ -135,6 +134,8 @@ export class DocumentTypeListComponent implements OnInit {
       confidenceThreshold: type.confidenceThreshold,
       priority: type.priority,
     });
+    this.form.controls.typeCode.enable();
+    this.slugHandle?.markManual();
     this.editing.set(type);
   }
 
@@ -168,6 +169,7 @@ export class DocumentTypeListComponent implements OnInit {
         });
     } else {
       this.service.update(mode.id, {
+        typeCode: raw.typeCode,
         displayName: raw.displayName,
         confidenceThreshold: raw.confidenceThreshold,
         priority: raw.priority,

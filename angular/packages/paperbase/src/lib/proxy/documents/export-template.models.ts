@@ -1,12 +1,11 @@
 import type { EntityDto } from '@abp/ng.core';
 import type { DocumentLifecycleStatus } from './document-lifecycle-status.enum';
-import type { ExportColumnSourceKind } from './export-column-source-kind.enum';
 import type { ExportFormat } from './export-format.enum';
 
 // Mirrors C# Dignite.Paperbase.Documents.Exports.ExportColumnDto / ExportTemplateDto / inputs.
 export interface ExportColumnDto {
-  sourceKind: ExportColumnSourceKind;
-  key: string;
+  fieldDefinitionId: string;
+  fieldName?: string;
   columnName: string;
   order: number;
 }
@@ -20,8 +19,7 @@ export interface ExportTemplateDto extends EntityDto<string> {
 }
 
 export interface ExportColumnInput {
-  sourceKind: ExportColumnSourceKind;
-  key: string;
+  fieldName: string;
   columnName: string;
   order: number;
 }
@@ -29,14 +27,14 @@ export interface ExportColumnInput {
 export interface CreateExportTemplateDto {
   name: string;
   format: ExportFormat;
-  documentTypeCode?: string;
+  documentTypeCode: string;
   columns: ExportColumnInput[];
 }
 
 export interface UpdateExportTemplateDto {
   name: string;
   format: ExportFormat;
-  documentTypeCode?: string;
+  documentTypeCode: string;
   columns: ExportColumnInput[];
 }
 
@@ -45,5 +43,4 @@ export interface ExportDocumentsInput {
   templateId: string;
   documentIds?: string[];
   lifecycleStatus?: DocumentLifecycleStatus;
-  documentTypeCode?: string;
 }

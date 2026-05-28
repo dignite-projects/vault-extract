@@ -143,8 +143,7 @@ export class FieldDefinitionListComponent implements OnInit {
   }
 
   openEdit(field: FieldDefinitionDto): void {
-    // Name is immutable after creation (UpdateFieldDefinitionDto omits it).
-    // 先 disable 再 reset：让 slug 自动建议在编辑态 reset 期间识别为非创建态，
+    // 先 disable 再 reset：让 slug 自动建议在编辑态 reset 期间识别为非自动接管，
     // 不会把既有 name 当"过期键"清空（见 wireSlugSuggestion 注释）。
     this.form.controls.name.disable();
     this.form.reset({
@@ -155,6 +154,8 @@ export class FieldDefinitionListComponent implements OnInit {
       displayOrder: field.displayOrder,
       isRequired: field.isRequired,
     });
+    this.form.controls.name.enable();
+    this.slugHandle?.markManual();
     this.editing.set(field);
   }
 
@@ -191,6 +192,7 @@ export class FieldDefinitionListComponent implements OnInit {
         });
     } else {
       this.service.update(mode.id, {
+        name: raw.name,
         displayName: raw.displayName,
         prompt: raw.prompt,
         dataType: raw.dataType,

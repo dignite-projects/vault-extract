@@ -25,8 +25,8 @@ export interface CreateFieldDefinitionDto {
   isRequired: boolean;
 }
 
-// Name + documentTypeCode are immutable after creation — UpdateFieldDefinitionDto omits them.
 export interface UpdateFieldDefinitionDto {
+  name: string;
   displayName: string;
   prompt: string;
   dataType: FieldDataType;

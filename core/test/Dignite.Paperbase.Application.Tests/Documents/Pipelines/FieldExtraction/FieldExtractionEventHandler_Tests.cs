@@ -51,8 +51,8 @@ public class FieldExtractionEventHandlerTestModule : AbpModule
 ///   <item>**Cross-tenant 防护**：事件 TenantId 与 Document.TenantId 不一致时丢弃（防 DataFilter disable 路径泄漏）</item>
 ///   <item>**ETO 契约**：FieldsExtractedEto 在空字段 / 有字段两条路径下都按 outbox 语义发布</item>
 /// </list>
-/// #207：handler 先把事件携带的 DocumentTypeCode 解析为内部 DocumentTypeId（FindByTypeCodeAsync），再按 Id 读字段定义
-/// 与做 stale/cross-tenant 守卫；测试用 name/code → 稳定 Guid 派生保证 mock 一致。
+/// #207：handler 以 Document 当前 DocumentTypeId 为准读字段定义；事件 TypeCode 只作为 stale reclassify 辅助判断。
+/// 测试用 name/code → 稳定 Guid 派生保证 mock 一致。
 /// </summary>
 public class FieldExtractionEventHandler_Tests
     : PaperbaseApplicationTestBase<FieldExtractionEventHandlerTestModule>
@@ -97,15 +97,18 @@ public class FieldExtractionEventHandler_Tests
     [Fact]
     public async Task No_Field_Definitions_Publishes_Empty_FieldsExtractedEto()
     {
-        var docId = Guid.NewGuid();
+        var doc = CreateDocument(tenantId: null, typeCode: "contract.general");
         SetupType("contract.general");
+        _documentRepository
+            .FindAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(doc);
         _fieldDefinitionRepository
             .GetForExtractionAsync(TypeId("contract.general"), Arg.Any<CancellationToken>())
             .Returns(new List<FieldDefinition>());
 
         var evt = new DocumentClassifiedEto
         {
-            DocumentId = docId,
+            DocumentId = doc.Id,
             TenantId = null,
             EventTime = DateTime.UtcNow,
             DocumentTypeCode = "contract.general",
@@ -117,7 +120,7 @@ public class FieldExtractionEventHandler_Tests
         // 即使没有字段定义，也要发空事件让下游 DocumentReady 推进
         await _eventBus.Received(1).PublishAsync(
             Arg.Is<FieldsExtractedEto>(e =>
-                e.DocumentId == docId &&
+                e.DocumentId == doc.Id &&
                 e.DocumentTypeCode == "contract.general" &&
                 e.FieldCount == 0),
             Arg.Any<bool>(), Arg.Any<bool>());
@@ -251,6 +254,7 @@ public class FieldExtractionEventHandler_Tests
         // 正确做法：丢弃 stale 事件，等新分类事件触发新一轮抽取。
         var doc = CreateDocument(tenantId: null, typeCode: "invoice.general");
         SetupType("contract.general");
+        SetupType("invoice.general");
         _documentRepository
             .FindAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(doc);
@@ -344,14 +348,129 @@ public class FieldExtractionEventHandler_Tests
             Arg.Any<bool>(), Arg.Any<bool>());
     }
 
+    [Fact]
+    public async Task Renamed_TypeCode_Event_Uses_Current_DocumentTypeId_And_Publishes_Current_Code()
+    {
+        // TypeCode rename race：事件里还是旧 code，但 DocumentTypeId 是稳定内部关联。
+        // 旧 code 解析不到时不应跳过抽取；应按当前类型 Id 抽取并发布当前 TypeCode。
+        var typeId = TypeId("contract.general");
+        var doc = CreateDocument(tenantId: null, documentTypeId: typeId);
+        SetupType("contract.renamed", typeId: typeId);
+        _documentRepository
+            .FindAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(doc);
+
+        var defs = new List<FieldDefinition>
+        {
+            CreateFieldDefinition(typeId, "amount", FieldDataType.Decimal)
+        };
+        _fieldDefinitionRepository
+            .GetForExtractionAsync(typeId, Arg.Any<CancellationToken>())
+            .Returns(defs);
+        _workflow
+            .ExtractAsync(
+                Arg.Any<IReadOnlyList<FieldExtractionDescriptor>>(),
+                Arg.Any<string>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<string, JsonElement?>
+            {
+                ["amount"] = JsonDocument.Parse("1500").RootElement
+            });
+
+        var evt = new DocumentClassifiedEto
+        {
+            DocumentId = doc.Id,
+            TenantId = null,
+            EventTime = DateTime.UtcNow,
+            DocumentTypeCode = "contract.general",   // old code, now unresolvable
+            ClassificationConfidence = 0.92
+        };
+
+        await _handler.HandleEventAsync(evt);
+
+        doc.ExtractedFieldValues.Count.ShouldBe(1);
+        doc.ExtractedFieldValues.Single().FieldDefinitionId.ShouldBe(FieldId("amount"));
+
+        await _eventBus.Received(1).PublishAsync(
+            Arg.Is<FieldsExtractedEto>(e =>
+                e.DocumentId == doc.Id &&
+                e.DocumentTypeCode == "contract.renamed" &&
+                e.FieldCount == 1),
+            Arg.Any<bool>(), Arg.Any<bool>());
+    }
+
+    [Fact]
+    public async Task DataType_Changed_During_Extraction_Skips_Stale_Value()
+    {
+        // LLM 调用期间 admin 把字段类型 Decimal 改成 String：旧 descriptor 抽到的 number 不能写进当前 String 字段。
+        var doc = CreateDocument(tenantId: null, typeCode: "contract.general");
+        SetupType("contract.general");
+        _documentRepository
+            .FindAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(doc);
+
+        var initialDefs = new List<FieldDefinition>
+        {
+            CreateFieldDefinition("contract.general", "amount", FieldDataType.Decimal)
+        };
+        var currentDefs = new List<FieldDefinition>
+        {
+            CreateFieldDefinition("contract.general", "amount", FieldDataType.String)
+        };
+        _fieldDefinitionRepository
+            .GetForExtractionAsync(TypeId("contract.general"), Arg.Any<CancellationToken>())
+            .Returns(initialDefs, currentDefs);
+        _workflow
+            .ExtractAsync(
+                Arg.Is<IReadOnlyList<FieldExtractionDescriptor>>(d =>
+                    d.Count == 1 && d[0].Name == "amount" && d[0].DataType == FieldDataType.Decimal),
+                Arg.Any<string>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<string, JsonElement?>
+            {
+                ["amount"] = JsonDocument.Parse("1500").RootElement
+            });
+
+        var evt = new DocumentClassifiedEto
+        {
+            DocumentId = doc.Id,
+            TenantId = null,
+            EventTime = DateTime.UtcNow,
+            DocumentTypeCode = "contract.general",
+            ClassificationConfidence = 0.92
+        };
+
+        await _handler.HandleEventAsync(evt);
+
+        doc.ExtractedFieldValues.ShouldBeEmpty();
+        await _documentRepository.Received(1).UpdateAsync(
+            doc, Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        await _eventBus.Received(1).PublishAsync(
+            Arg.Is<FieldsExtractedEto>(e =>
+                e.DocumentId == doc.Id &&
+                e.DocumentTypeCode == "contract.general" &&
+                e.FieldCount == 0),
+            Arg.Any<bool>(), Arg.Any<bool>());
+    }
+
     // ─── helpers ───────────────────────────────────────────────────────────
 
-    private void SetupType(string code)
-        => _documentTypeRepository
+    private void SetupType(string code, Guid? tenantId = null, Guid? typeId = null)
+    {
+        var id = typeId ?? TypeId(code);
+        var type = new DocumentType(id, tenantId, code, code);
+        _documentTypeRepository
             .FindByTypeCodeAsync(code, Arg.Any<CancellationToken>())
-            .Returns(new DocumentType(TypeId(code), null, code, code));
+            .Returns(type);
+        _documentTypeRepository
+            .FindAsync(id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(type);
+    }
 
     private static Document CreateDocument(Guid? tenantId, string typeCode)
+        => CreateDocument(tenantId, TypeId(typeCode));
+
+    private static Document CreateDocument(Guid? tenantId, Guid documentTypeId)
     {
         var doc = new Document(
             Guid.NewGuid(), tenantId,
@@ -368,7 +487,7 @@ public class FieldExtractionEventHandler_Tests
         typeof(Document)
             .GetMethod("ApplyAutomaticClassificationResult",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
-            .Invoke(doc, [TypeId(typeCode), 0.99]);
+            .Invoke(doc, [documentTypeId, 0.99]);
         typeof(Document)
             .GetMethod("SetMarkdown",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
@@ -380,10 +499,15 @@ public class FieldExtractionEventHandler_Tests
     private static FieldDefinition CreateFieldDefinition(
         string documentTypeCode, string name,
         FieldDataType dataType = FieldDataType.String, Guid? tenantId = null) =>
+        CreateFieldDefinition(TypeId(documentTypeCode), name, dataType, tenantId);
+
+    private static FieldDefinition CreateFieldDefinition(
+        Guid documentTypeId, string name,
+        FieldDataType dataType = FieldDataType.String, Guid? tenantId = null) =>
         new(
             id: FieldId(name),
             tenantId: tenantId,
-            documentTypeId: TypeId(documentTypeCode),
+            documentTypeId: documentTypeId,
             name: name,
             displayName: name,
             prompt: $"Extract the {name}.",
