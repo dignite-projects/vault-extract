@@ -325,7 +325,8 @@ public class ExportTemplateAppService : PaperbaseAppService, IExportTemplateAppS
     }
 
     // 按字段类型渲染类型化列为单元格字符串（InvariantCulture，与 DocumentExtractedField.ToJsonElement 的规范形一致）。
-    // 类型来自 FieldDefinition.DataType（#208：不在字段值行持久化）。
+    // 类型来自 FieldDefinition.DataType（#208：不在字段值行持久化）。未知类型 loud fail——与 SetValue / ToJsonElement /
+    // ApplyFieldValueFilter 一致（绝不静默吐空单元格：新增枚举值漏改本处应在测试 / 运行期响亮报错，而非无声错导）。
     private static string? FieldValueToString(ExtractedFieldProjection f, FieldDataType dataType) => dataType switch
     {
         FieldDataType.String => f.StringValue,
@@ -334,6 +335,6 @@ public class ExportTemplateAppService : PaperbaseAppService, IExportTemplateAppS
         FieldDataType.Boolean => f.BooleanValue == null ? null : (f.BooleanValue.Value ? "true" : "false"),
         FieldDataType.Date => f.DateValue?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
         FieldDataType.DateTime => f.DateTimeValue?.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture),
-        _ => null
+        _ => throw new ArgumentOutOfRangeException(nameof(dataType), dataType, "Unsupported field data type.")
     };
 }

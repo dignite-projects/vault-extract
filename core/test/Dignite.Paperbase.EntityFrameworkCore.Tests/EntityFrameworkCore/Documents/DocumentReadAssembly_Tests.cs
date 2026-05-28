@@ -44,16 +44,16 @@ public class DocumentReadAssembly_Tests : PaperbaseEntityFrameworkCoreTestBase
     }
 
     [Fact]
-    public async Task WithDetails_eager_loads_child_rows_and_round_trips_each_DataType()
+    public async Task WithDetails_eager_loads_child_rows_and_round_trips_every_FieldDataType()
     {
+        // 穷尽性绊线（#208）：遍历所有 FieldDataType。加新枚举值若不在 SampleFor 补样本，建样本时即抛错（红）；
+        // 补样本后往返会跑过 SetValue + ToJsonElement，那两处漏处理新类型也会抛（红）——守住实体的两处 typed-column switch。
+        var dataTypes = Enum.GetValues<FieldDataType>();
+        var samples = dataTypes.ToDictionary(dt => dt, SampleFor);
+
         var id = _guidGenerator.Create();
         await WithUnitOfWorkAsync(() => InsertAsync(id,
-            Field("amount", FieldDataType.Decimal, 1000.50m),
-            Field("partner", FieldDataType.String, "Acme"),
-            Field("paid", FieldDataType.Boolean, true),
-            Field("count", FieldDataType.Integer, 7L),
-            Field("issued", FieldDataType.Date, "2024-03-09"),
-            Field("created", FieldDataType.DateTime, "2024-03-09T13:45:00")));
+            dataTypes.Select(dt => new DocumentFieldValue(FieldIdFor(dt), dt, samples[dt].Value)).ToArray()));
 
         await WithUnitOfWorkAsync(async () =>
         {
@@ -67,13 +67,11 @@ public class DocumentReadAssembly_Tests : PaperbaseEntityFrameworkCoreTestBase
             var fields = doc.ExtractedFieldValues.ToDictionary(
                 f => f.FieldDefinitionId, f => f.ToJsonElement(types[f.FieldDefinitionId]));
 
-            fields.Count.ShouldBe(6);
-            fields[FieldId("amount")].GetDecimal().ShouldBe(1000.50m);
-            fields[FieldId("partner")].GetString().ShouldBe("Acme");
-            fields[FieldId("paid")].GetBoolean().ShouldBeTrue();
-            fields[FieldId("count")].GetInt64().ShouldBe(7L);
-            fields[FieldId("issued")].GetString().ShouldBe("2024-03-09");
-            fields[FieldId("created")].GetString().ShouldBe("2024-03-09T13:45:00");
+            fields.Count.ShouldBe(dataTypes.Length);
+            foreach (var dt in dataTypes)
+            {
+                samples[dt].AssertRoundTrip(fields[FieldIdFor(dt)]);
+            }
         });
     }
 
@@ -122,9 +120,22 @@ public class DocumentReadAssembly_Tests : PaperbaseEntityFrameworkCoreTestBase
         await _documentRepository.InsertAsync(doc, autoSave: true);
     }
 
-    private static DocumentFieldValue Field<T>(string name, FieldDataType dataType, T value)
-        => new(FieldId(name), dataType, JsonSerializer.SerializeToElement(value));
+    // 每个 FieldDataType 的代表样本 + 往返断言。default 分支抛错 = 穷尽性绊线（加新枚举值必须在此补全）。
+    private static (JsonElement Value, Action<JsonElement> AssertRoundTrip) SampleFor(FieldDataType dataType) => dataType switch
+    {
+        FieldDataType.String => (Json("Acme"), e => e.GetString().ShouldBe("Acme")),
+        FieldDataType.Integer => (Json(7L), e => e.GetInt64().ShouldBe(7L)),
+        FieldDataType.Decimal => (Json(1000.50m), e => e.GetDecimal().ShouldBe(1000.50m)),
+        FieldDataType.Boolean => (Json(true), e => e.GetBoolean().ShouldBeTrue()),
+        FieldDataType.Date => (Json("2024-03-09"), e => e.GetString().ShouldBe("2024-03-09")),
+        FieldDataType.DateTime => (Json("2024-03-09T13:45:00"), e => e.GetString().ShouldBe("2024-03-09T13:45:00")),
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(dataType), dataType, "新增 FieldDataType 必须在此补样本 + 往返断言（#208 穷尽性绊线）。")
+    };
+
+    private static JsonElement Json<T>(T value) => JsonSerializer.SerializeToElement(value);
 
     private static Guid FieldId(string name) => new(MD5.HashData(Encoding.UTF8.GetBytes("field:" + name)));
+    private static Guid FieldIdFor(FieldDataType dataType) => FieldId(dataType.ToString());
     private static Guid TypeId(string typeCode) => new(MD5.HashData(Encoding.UTF8.GetBytes("type:" + typeCode)));
 }
