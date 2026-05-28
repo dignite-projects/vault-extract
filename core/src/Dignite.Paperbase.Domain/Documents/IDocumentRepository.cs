@@ -19,6 +19,34 @@ public interface IDocumentRepository : IRepository<Document, Guid>
     Task HardDeleteAsync(Guid id, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 按 Id 加载 Document，<b>仅</b> eager-load <see cref="Document.PipelineRuns"/> 子集合（不含
+    /// <see cref="Document.ExtractedFieldValues"/>）。流水线编排路径（后台作业的 begin/complete/fail、
+    /// 单条 pipeline 重试）只需 run 历史来算 AttemptNumber / 取最近一次 Run，不需要字段值——用全量
+    /// <c>WithDetailsAsync()</c> 会把字段值一并拖出来造成无谓 JOIN。
+    /// <para>
+    /// 语义与 <c>GetAsync(id, includeDetails: true)</c> 对齐：找不到抛 <see cref="Volo.Abp.Domain.Entities.EntityNotFoundException"/>；
+    /// <c>IMultiTenant</c> + <c>ISoftDelete</c> 全局过滤器按 ambient 状态自动施加。
+    /// </para>
+    /// <para>
+    /// <b>红线</b>：本方法返回的实例<b>未加载</b> <see cref="Document.ExtractedFieldValues"/>，绝不能在其上调
+    /// <see cref="Document.SetFields"/>——reconcile 会拿空集合对账把真实字段行全删。需要改字段值的路径用
+    /// <see cref="FindWithFieldValuesAsync"/> 或全量 <c>includeDetails: true</c>。
+    /// </para>
+    /// </summary>
+    Task<Document> GetWithPipelineRunsAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 按 Id 查找 Document，<b>仅</b> eager-load <see cref="Document.ExtractedFieldValues"/> 子集合（不含
+    /// <see cref="Document.PipelineRuns"/>）。字段抽取写回路径（<c>FieldExtractionEventHandler</c>）需要现有字段行
+    /// 在场才能让 <see cref="Document.SetFields"/> 正确 reconcile（删旧 / 原地改 / 增新），但不需要流水线 run 历史。
+    /// <para>
+    /// 语义与 <c>FindAsync(id, includeDetails: true)</c> 对齐：找不到返回 <c>null</c>；
+    /// <c>IMultiTenant</c> + <c>ISoftDelete</c> 全局过滤器按 ambient 状态自动施加。
+    /// </para>
+    /// </summary>
+    Task<Document?> FindWithFieldValuesAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 结构化检索的字段值匹配子查询（字段架构 v2 / Issue #206 + #207）：返回当前层（ABP <c>IMultiTenant</c> + 软删除
     /// 全局过滤器按 ambient 状态自动隔离）内、<see cref="Document.DocumentTypeId"/> == <paramref name="documentTypeId"/>
     /// 且 <see cref="Document.ExtractedFieldValues"/> 满足 <paramref name="fieldQueries"/>（多个之间 <c>AND</c>，

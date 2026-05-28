@@ -75,7 +75,7 @@ public class DocumentClassificationBackgroundJob
     {
         using var uow = _unitOfWorkManager.Begin(requiresNew: true);
 
-        var document = await _documentRepository.GetAsync(args.DocumentId, includeDetails: true);
+        var document = await _documentRepository.GetWithPipelineRunsAsync(args.DocumentId);
 
         // 候选集组装：按 Document.TenantId 匹配单层文档类型（解读 X + 没有继承关系）。
         // Host 文档用 TenantId IS NULL 类型；租户文档用对应租户类型；按 Priority DESC + 截断。
@@ -129,7 +129,7 @@ public class DocumentClassificationBackgroundJob
     {
         using var uow = _unitOfWorkManager.Begin(requiresNew: true);
 
-        var document = await _documentRepository.GetAsync(workItem.DocumentId, includeDetails: true);
+        var document = await _documentRepository.GetWithPipelineRunsAsync(workItem.DocumentId);
         var run = document.GetRun(workItem.RunId)
             ?? await _pipelineRunAccessor.BeginOrStartAsync(
                 document, workItem.RunId, PaperbasePipelines.Classification);
@@ -144,7 +144,7 @@ public class DocumentClassificationBackgroundJob
     {
         using var uow = _unitOfWorkManager.Begin(requiresNew: true);
 
-        var document = await _documentRepository.GetAsync(documentId, includeDetails: true);
+        var document = await _documentRepository.GetWithPipelineRunsAsync(documentId);
         var run = document.GetRun(runId)
             ?? await _pipelineRunAccessor.BeginOrStartAsync(
                 document, runId, PaperbasePipelines.Classification);

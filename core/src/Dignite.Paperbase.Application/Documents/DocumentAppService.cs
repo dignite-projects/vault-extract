@@ -298,7 +298,8 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
         Document document;
         using (DataFilter.Disable<ISoftDelete>())
         {
-            document = await _documentRepository.GetAsync(id, includeDetails: true);
+            // 永久删除只需标量 + owned FileOrigin（blob 名），子集合一概不用。
+            document = await _documentRepository.GetAsync(id, includeDetails: false);
         }
 
         await _documentRepository.HardDeleteAsync(id);
@@ -366,8 +367,9 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
                 .WithData("PipelineCode", input.PipelineCode);
         }
 
-        // 租户隔离由 ambient IMultiTenant 过滤器施加——GetAsync 对跨租户 id 已抛 EntityNotFound。
-        var document = await _documentRepository.GetAsync(id, includeDetails: true);
+        // 只需 run 历史（取最近一次 Run 判可重试）；不碰字段值。租户隔离由 ambient IMultiTenant 过滤器施加，
+        // GetWithPipelineRunsAsync 对跨租户 / 不存在 id 同样抛 EntityNotFound。
+        var document = await _documentRepository.GetWithPipelineRunsAsync(id);
 
         if (document.IsDeleted)
         {

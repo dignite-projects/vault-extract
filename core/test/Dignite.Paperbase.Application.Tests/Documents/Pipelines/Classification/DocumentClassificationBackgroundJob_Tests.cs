@@ -285,8 +285,9 @@ public class DocumentClassificationBackgroundJob_Tests
 
     private void SetupDocumentRepository(Document doc)
     {
+        // 分类作业三处加载均走 GetWithPipelineRunsAsync（只 eager-load PipelineRuns，不含字段值）。
         _documentRepository
-            .GetAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .GetWithPipelineRunsAsync(doc.Id, Arg.Any<CancellationToken>())
             .Returns(doc);
     }
 

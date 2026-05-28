@@ -157,7 +157,8 @@ public class FieldExtractionEventHandler
             {
                 using var clearUow = _unitOfWorkManager.Begin(requiresNew: true);
 
-                var blankDocument = await _documentRepository.FindAsync(eventData.DocumentId, includeDetails: true);
+                // 清空残留字段行需现有 ExtractedFieldValues 在场（SetFields reconcile）；不需要 PipelineRuns。
+                var blankDocument = await _documentRepository.FindWithFieldValuesAsync(eventData.DocumentId);
                 // 仅当文档仍存在、同租户、且当前类型仍是当前抽取类型（非 reclassify race 的 stale 事件）才清空，
                 // 避免用 stale 事件误删后续分类写入的字段。按内部 DocumentTypeId 比较（#207）。
                 if (blankDocument == null)
@@ -230,9 +231,9 @@ public class FieldExtractionEventHandler
             // 两件事在同一 UoW 内由 ABP outbox 原子持久化，避免"字段写入成功但事件丢失"。
             using var writeUow = _unitOfWorkManager.Begin(requiresNew: true);
 
-            // includeDetails: true 让 ExtractedFieldValues child 集合一并加载——SetFields 走 reconcile
-            // 需要现有字段行在场才能正确 diff（删旧 / 原地改同名 / 增新），避免 stale collection 漏删旧行。
-            var document = await _documentRepository.FindAsync(eventData.DocumentId, includeDetails: true);
+            // FindWithFieldValuesAsync 只 eager-load ExtractedFieldValues child 集合——SetFields 走 reconcile
+            // 需要现有字段行在场才能正确 diff（删旧 / 原地改同名 / 增新），避免 stale collection 漏删旧行；不需要 PipelineRuns。
+            var document = await _documentRepository.FindWithFieldValuesAsync(eventData.DocumentId);
             if (document == null)
             {
                 _logger.LogWarning(

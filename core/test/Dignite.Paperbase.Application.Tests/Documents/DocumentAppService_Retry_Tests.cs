@@ -183,8 +183,8 @@ public class DocumentAppService_Retry_Tests
         ex.Code.ShouldBe(PaperbaseErrorCodes.UnknownPipelineCode);
         // 未知 PipelineCode 必须在读 Document 之前就被拒绝——
         // 否则给业务模块一个旁路调度核心 Job 的口子。
-        await _documentRepository.DidNotReceive().GetAsync(
-            Arg.Any<Guid>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        await _documentRepository.DidNotReceive().GetWithPipelineRunsAsync(
+            Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -196,7 +196,7 @@ public class DocumentAppService_Retry_Tests
         var docTenant = Guid.NewGuid();
         var callerTenant = Guid.NewGuid();
         var doc = CreateDocument(tenantId: docTenant);
-        _documentRepository.GetAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
+        _documentRepository.GetWithPipelineRunsAsync(doc.Id, Arg.Any<CancellationToken>())
             .ThrowsAsync(new EntityNotFoundException(typeof(Document), doc.Id));
 
         using (_currentTenant.Change(callerTenant))
@@ -262,7 +262,8 @@ public class DocumentAppService_Retry_Tests
 
     private void StubGet(Document doc)
     {
-        _documentRepository.GetAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
+        // RetryPipelineAsync 只需 run 历史，改走 GetWithPipelineRunsAsync。
+        _documentRepository.GetWithPipelineRunsAsync(doc.Id, Arg.Any<CancellationToken>())
             .Returns(doc);
     }
 

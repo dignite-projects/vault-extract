@@ -102,6 +102,10 @@ public class FieldExtractionEventHandler_Tests
         _documentRepository
             .FindAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(doc);
+        // 空字段清空路径 + 写回路径改走 FindWithFieldValuesAsync（只 eager-load 字段值，不含 PipelineRuns）。
+        _documentRepository
+            .FindWithFieldValuesAsync(doc.Id, Arg.Any<CancellationToken>())
+            .Returns(doc);
         _fieldDefinitionRepository
             .GetForExtractionAsync(TypeId("contract.general"), Arg.Any<CancellationToken>())
             .Returns(new List<FieldDefinition>());
@@ -146,6 +150,10 @@ public class FieldExtractionEventHandler_Tests
         SetupType("blank.type");
         _documentRepository
             .FindAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(doc);
+        // 空字段清空路径 + 写回路径改走 FindWithFieldValuesAsync（只 eager-load 字段值，不含 PipelineRuns）。
+        _documentRepository
+            .FindWithFieldValuesAsync(doc.Id, Arg.Any<CancellationToken>())
             .Returns(doc);
         _fieldDefinitionRepository
             .GetForExtractionAsync(TypeId("blank.type"), Arg.Any<CancellationToken>())
@@ -216,6 +224,10 @@ public class FieldExtractionEventHandler_Tests
         _documentRepository
             .FindAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(doc);
+        // 空字段清空路径 + 写回路径改走 FindWithFieldValuesAsync（只 eager-load 字段值，不含 PipelineRuns）。
+        _documentRepository
+            .FindWithFieldValuesAsync(doc.Id, Arg.Any<CancellationToken>())
+            .Returns(doc);
         _fieldDefinitionRepository
             .GetForExtractionAsync(TypeId("contract.general"), Arg.Any<CancellationToken>())
             .Returns(new List<FieldDefinition> { CreateFieldDefinition("contract.general", "amount", tenantId: eventTenant) });
@@ -258,6 +270,10 @@ public class FieldExtractionEventHandler_Tests
         _documentRepository
             .FindAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(doc);
+        // 空字段清空路径 + 写回路径改走 FindWithFieldValuesAsync（只 eager-load 字段值，不含 PipelineRuns）。
+        _documentRepository
+            .FindWithFieldValuesAsync(doc.Id, Arg.Any<CancellationToken>())
+            .Returns(doc);
         _fieldDefinitionRepository
             .GetForExtractionAsync(TypeId("contract.general"), Arg.Any<CancellationToken>())
             .Returns(new List<FieldDefinition> { CreateFieldDefinition("contract.general", "amount") });
@@ -294,6 +310,10 @@ public class FieldExtractionEventHandler_Tests
         SetupType("contract.general");
         _documentRepository
             .FindAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(doc);
+        // 空字段清空路径 + 写回路径改走 FindWithFieldValuesAsync（只 eager-load 字段值，不含 PipelineRuns）。
+        _documentRepository
+            .FindWithFieldValuesAsync(doc.Id, Arg.Any<CancellationToken>())
             .Returns(doc);
 
         // 类型与 DataType 对齐（生产中 workflow 已校验类型；amount=Decimal 数字、party=String 字符串、date=Date）。
@@ -359,6 +379,10 @@ public class FieldExtractionEventHandler_Tests
         _documentRepository
             .FindAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(doc);
+        // 空字段清空路径 + 写回路径改走 FindWithFieldValuesAsync（只 eager-load 字段值，不含 PipelineRuns）。
+        _documentRepository
+            .FindWithFieldValuesAsync(doc.Id, Arg.Any<CancellationToken>())
+            .Returns(doc);
 
         var defs = new List<FieldDefinition>
         {
@@ -407,6 +431,10 @@ public class FieldExtractionEventHandler_Tests
         SetupType("contract.general");
         _documentRepository
             .FindAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(doc);
+        // 空字段清空路径 + 写回路径改走 FindWithFieldValuesAsync（只 eager-load 字段值，不含 PipelineRuns）。
+        _documentRepository
+            .FindWithFieldValuesAsync(doc.Id, Arg.Any<CancellationToken>())
             .Returns(doc);
 
         var initialDefs = new List<FieldDefinition>

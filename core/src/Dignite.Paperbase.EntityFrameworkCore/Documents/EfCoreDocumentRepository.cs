@@ -11,6 +11,7 @@ using Dignite.Paperbase.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Volo.Abp;
 using Volo.Abp.Data;
+using Volo.Abp.Domain.Entities;
 using Volo.Abp.Domain.Repositories.EntityFrameworkCore;
 using Volo.Abp.EntityFrameworkCore;
 
@@ -53,6 +54,24 @@ public class EfCoreDocumentRepository
     public override async Task<IQueryable<Document>> WithDetailsAsync()
     {
         return (await GetQueryableAsync()).IncludeDetails();
+    }
+
+    public virtual async Task<Document> GetWithPipelineRunsAsync(
+        Guid id, CancellationToken cancellationToken = default)
+    {
+        // 选择器重载只 Include 指定导航（不触发全量 IncludeDetails()）；ABP 全局过滤器经 GetQueryableAsync 自动施加。
+        var query = await WithDetailsAsync(d => d.PipelineRuns);
+        var document = await query.FirstOrDefaultAsync(
+            d => d.Id == id, GetCancellationToken(cancellationToken));
+        return document ?? throw new EntityNotFoundException(typeof(Document), id);
+    }
+
+    public virtual async Task<Document?> FindWithFieldValuesAsync(
+        Guid id, CancellationToken cancellationToken = default)
+    {
+        var query = await WithDetailsAsync(d => d.ExtractedFieldValues);
+        return await query.FirstOrDefaultAsync(
+            d => d.Id == id, GetCancellationToken(cancellationToken));
     }
 
     public virtual async Task HardDeleteAsync(Guid id, CancellationToken cancellationToken = default)
