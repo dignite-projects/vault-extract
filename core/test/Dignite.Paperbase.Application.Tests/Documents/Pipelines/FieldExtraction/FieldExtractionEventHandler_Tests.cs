@@ -143,7 +143,7 @@ public class FieldExtractionEventHandler_Tests
         var doc = CreateDocument(tenantId: null, typeCode: "blank.type");
         doc.SetFields(new[]
         {
-            new DocumentFieldValue(FieldId("amount"), FieldDataType.Decimal, JsonDocument.Parse("100").RootElement)
+            new DocumentFieldValue(FieldId("amount"), FieldDataType.Number, JsonDocument.Parse("100").RootElement)
         });
         doc.ExtractedFieldValues.ShouldNotBeEmpty();
 
@@ -316,10 +316,10 @@ public class FieldExtractionEventHandler_Tests
             .FindWithFieldValuesAsync(doc.Id, Arg.Any<CancellationToken>())
             .Returns(doc);
 
-        // 类型与 DataType 对齐（生产中 workflow 已校验类型；amount=Decimal 数字、party=String 字符串、date=Date）。
+        // 类型与 DataType 对齐（生产中 workflow 已校验类型；amount=Number 数字、party=String 字符串、date=Date）。
         var defs = new List<FieldDefinition>
         {
-            CreateFieldDefinition("contract.general", "amount", FieldDataType.Decimal),
+            CreateFieldDefinition("contract.general", "amount", FieldDataType.Number),
             CreateFieldDefinition("contract.general", "party", FieldDataType.String),
             CreateFieldDefinition("contract.general", "date", FieldDataType.Date)
         };
@@ -386,7 +386,7 @@ public class FieldExtractionEventHandler_Tests
 
         var defs = new List<FieldDefinition>
         {
-            CreateFieldDefinition(typeId, "amount", FieldDataType.Decimal)
+            CreateFieldDefinition(typeId, "amount", FieldDataType.Number)
         };
         _fieldDefinitionRepository
             .GetForExtractionAsync(typeId, Arg.Any<CancellationToken>())
@@ -426,7 +426,7 @@ public class FieldExtractionEventHandler_Tests
     [Fact]
     public async Task DataType_Changed_During_Extraction_Skips_Stale_Value()
     {
-        // LLM 调用期间 admin 把字段类型 Decimal 改成 String：旧 descriptor 抽到的 number 不能写进当前 String 字段。
+        // LLM 调用期间 admin 把字段类型 Number 改成 String：旧 descriptor 抽到的 number 不能写进当前 String 字段。
         var doc = CreateDocument(tenantId: null, typeCode: "contract.general");
         SetupType("contract.general");
         _documentRepository
@@ -439,7 +439,7 @@ public class FieldExtractionEventHandler_Tests
 
         var initialDefs = new List<FieldDefinition>
         {
-            CreateFieldDefinition("contract.general", "amount", FieldDataType.Decimal)
+            CreateFieldDefinition("contract.general", "amount", FieldDataType.Number)
         };
         var currentDefs = new List<FieldDefinition>
         {
@@ -451,7 +451,7 @@ public class FieldExtractionEventHandler_Tests
         _workflow
             .ExtractAsync(
                 Arg.Is<IReadOnlyList<FieldExtractionDescriptor>>(d =>
-                    d.Count == 1 && d[0].Name == "amount" && d[0].DataType == FieldDataType.Decimal),
+                    d.Count == 1 && d[0].Name == "amount" && d[0].DataType == FieldDataType.Number),
                 Arg.Any<string>(),
                 Arg.Any<CancellationToken>())
             .Returns(new Dictionary<string, JsonElement?>

@@ -81,8 +81,8 @@ public class DocumentAppService_ExtractedFields_Tests
         StubFields(
             "host.contract",
             ("title", FieldDataType.String),
-            ("count", FieldDataType.Integer),
-            ("amount", FieldDataType.Decimal),
+            ("count", FieldDataType.Number),
+            ("amount", FieldDataType.Number),
             ("approved", FieldDataType.Boolean),
             ("date", FieldDataType.Date),
             ("occurredAt", FieldDataType.DateTime));
@@ -108,7 +108,7 @@ public class DocumentAppService_ExtractedFields_Tests
     {
         var doc = CreateClassifiedDocument("host.contract");
         StubGet(doc);
-        StubFields("host.contract", ("amount", FieldDataType.Decimal));
+        StubFields("host.contract", ("amount", FieldDataType.Number));
 
         var ex = await Should.ThrowAsync<BusinessException>(() =>
             _appService.UpdateExtractedFieldsAsync(doc.Id, new UpdateExtractedFieldsInput

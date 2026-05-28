@@ -28,7 +28,6 @@ internal sealed class ExtractedFieldProjection
     public Guid FieldDefinitionId { get; init; }
     public string? StringValue { get; init; }
     public bool? BooleanValue { get; init; }
-    public long? IntegerValue { get; init; }
     public decimal? DecimalValue { get; init; }
     public DateOnly? DateValue { get; init; }
     public DateTime? DateTimeValue { get; init; }

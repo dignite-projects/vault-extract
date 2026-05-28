@@ -186,17 +186,7 @@ public class FieldExtractionEventHandler
                     return;
                 }
 
-                var latestEmptyType = await _documentTypeRepository.FindAsync(documentTypeId, includeDetails: false);
-                if (latestEmptyType == null)
-                {
-                    _logger.LogWarning(
-                        "Document {DocumentId} references missing DocumentTypeId {DocumentTypeId}; field extraction skipped.",
-                        eventData.DocumentId, documentTypeId);
-                    return;
-                }
-
-                documentTypeCode = latestEmptyType.TypeCode;
-
+                // documentTypeCode 沿用阶段 1 解析的值（同一 documentTypeId，ETO 语义容忍飞行窗口内的轻微 rename）。
                 if (blankDocument.ExtractedFieldValues.Count > 0)
                 {
                     blankDocument.SetFields(Array.Empty<DocumentFieldValue>());
@@ -264,17 +254,7 @@ public class FieldExtractionEventHandler
                 return;
             }
 
-            var latestType = await _documentTypeRepository.FindAsync(documentTypeId, includeDetails: false);
-            if (latestType == null)
-            {
-                _logger.LogWarning(
-                    "Document {DocumentId} references missing DocumentTypeId {DocumentTypeId}; field extraction skipped.",
-                    eventData.DocumentId, documentTypeId);
-                return;
-            }
-
-            documentTypeCode = latestType.TypeCode;
-
+            // documentTypeCode 沿用阶段 1 解析的值，不再为填 ETO 重读类型（ETO 语义容忍飞行窗口内的轻微 rename）。
             // LLM 调用期间字段定义可能被 admin 改名 / 改类型 / 删除。写入前按稳定 Id 重读一次：
             // - Name rename：descriptor.Name 仍用于读取本轮 LLM 输出，FieldDefinitionId 仍稳定；
             // - DataType change：跳过该旧类型值，避免 typed-column 错位；

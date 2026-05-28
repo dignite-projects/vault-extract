@@ -11,7 +11,7 @@ namespace Dignite.Paperbase.Documents;
 /// 且都锚定在同一个 <c>documentTypeCode</c> 内。字段声明类型由服务端从 <c>(documentTypeCode, Name)</c> 的
 /// <c>FieldDefinition</c> 解析——调用方不传类型。
 /// <see cref="Value"/>（等值）与 <see cref="Min"/> / <see cref="Max"/>（区间）至少给其一；
-/// 区间只对 Integer / Decimal / Date / DateTime 字段有意义，String / Boolean 只认等值。
+/// 区间只对 Number / Date / DateTime 字段有意义，String / Boolean 只认等值。
 /// </summary>
 public class DocumentFieldFilter : IValidatableObject
 {
@@ -26,7 +26,7 @@ public class DocumentFieldFilter : IValidatableObject
     public string? Value { get; set; }
 
     [StringLength(DocumentConsts.MaxSearchFieldValueLength)]
-    [Description("Inclusive lower bound for a field-value range. Only Integer, Decimal, Date and DateTime "
+    [Description("Inclusive lower bound for a field-value range. Only Number, Date and DateTime "
         + "fields support ranges (passing a range on a String/Boolean field is rejected). Optional.")]
     public string? Min { get; set; }
 

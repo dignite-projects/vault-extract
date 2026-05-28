@@ -97,7 +97,7 @@ public class FieldExtractionWorkflow : ITransientDependency
         "The second user message contains the document body. " +
         "Return JSON only with one key per requested field. " +
         "Normalize each value to its declared data type: " +
-        "Integer and Decimal as bare JSON numbers (strip currency symbols, thousands separators, and units; " +
+        "Number as a bare JSON number, integer or decimal (strip currency symbols, thousands separators, and units; " +
         "use '.' as the decimal point and '-' for negatives); " +
         "Date as an ISO-8601 \"YYYY-MM-DD\" JSON string; " +
         "DateTime as an offset-free ISO-8601 \"YYYY-MM-DDThh:mm:ss\" JSON string (local wall-clock time, no timezone offset or trailing Z); " +

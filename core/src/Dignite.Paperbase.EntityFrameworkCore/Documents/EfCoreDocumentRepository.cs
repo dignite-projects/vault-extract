@@ -134,7 +134,7 @@ public class EfCoreDocumentRepository
     /// <list type="bullet">
     ///   <item><c>String</c> / <c>Boolean</c>：仅等值（红线：永不 LIKE）；传区间 → 抛
     ///   <see cref="PaperbaseErrorCodes.FieldTypeDoesNotSupportRange"/>（给 AI 客户端可纠正信号）。</item>
-    ///   <item><c>Integer</c> / <c>Decimal</c> / <c>Date</c> / <c>DateTime</c>：等值或区间（含界）。
+    ///   <item><c>Number</c> / <c>Date</c> / <c>DateTime</c>：等值或区间（含界）。
     ///   入参无法解析为声明类型 → 抛 <see cref="PaperbaseErrorCodes.InvalidExtractedFieldValue"/>（loud，不静默空）。</item>
     /// </list>
     /// 等值统一表达为退化区间 <c>[v, v]</c>，与区间共用同一谓词形，消除等值 / 区间分支重复。
@@ -180,16 +180,7 @@ public class EfCoreDocumentRepository
                 return query.Where(d => d.ExtractedFieldValues
                     .Any(f => f.FieldDefinitionId == fieldDefinitionId && f.BooleanValue == boolValue));
 
-            case FieldDataType.Integer:
-            {
-                var (min, max) = ParseRange(fieldQuery, ParseLong);
-                return query.Where(d => d.ExtractedFieldValues.Any(f =>
-                    f.FieldDefinitionId == fieldDefinitionId
-                    && (min == null || f.IntegerValue >= min)
-                    && (max == null || f.IntegerValue <= max)));
-            }
-
-            case FieldDataType.Decimal:
+            case FieldDataType.Number:
             {
                 var (min, max) = ParseRange(fieldQuery, ParseDecimal);
                 return query.Where(d => d.ExtractedFieldValues.Any(f =>
@@ -250,9 +241,6 @@ public class EfCoreDocumentRepository
         }
         return (min, max);
     }
-
-    private static long? ParseLong(string s)
-        => long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
 
     private static decimal? ParseDecimal(string s)
         => decimal.TryParse(s, NumberStyles.Number, CultureInfo.InvariantCulture, out var v) ? v : null;

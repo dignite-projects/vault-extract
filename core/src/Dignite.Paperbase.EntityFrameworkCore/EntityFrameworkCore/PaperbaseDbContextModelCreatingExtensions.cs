@@ -126,9 +126,8 @@ public static class PaperbaseDbContextModelCreatingExtensions
 
             // 字段值查询从 Documents 聚合根起手（按 TenantId + DocumentTypeId + 软删全局过滤收窄），再对 child 走
             // (FieldDefinitionId, typedValue) EXISTS。下列 (TenantId, FieldDefinitionId, <typedValue>, DocumentId) 复合索引
-            // 支撑数字 / 日期字段的等值 + 范围；其 (TenantId, FieldDefinitionId) 前缀也覆盖 String / Boolean 等值收窄
+            // 支撑 Number / 日期字段的等值 + 范围；其 (TenantId, FieldDefinitionId) 前缀也覆盖 String / Boolean 等值收窄
             // （StringValue 是 nvarchar(max) 不能进索引键，靠前缀分组 + 与其他选择性字段 AND 收窄）。
-            b.HasIndex(x => new { x.TenantId, x.FieldDefinitionId, x.IntegerValue, x.DocumentId });
             b.HasIndex(x => new { x.TenantId, x.FieldDefinitionId, x.DecimalValue, x.DocumentId });
             b.HasIndex(x => new { x.TenantId, x.FieldDefinitionId, x.DateValue, x.DocumentId });
             b.HasIndex(x => new { x.TenantId, x.FieldDefinitionId, x.DateTimeValue, x.DocumentId });

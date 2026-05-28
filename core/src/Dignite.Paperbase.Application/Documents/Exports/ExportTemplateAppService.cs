@@ -141,7 +141,6 @@ public class ExportTemplateAppService : PaperbaseAppService, IExportTemplateAppS
                             FieldDefinitionId = f.FieldDefinitionId,
                             StringValue = f.StringValue,
                             BooleanValue = f.BooleanValue,
-                            IntegerValue = f.IntegerValue,
                             DecimalValue = f.DecimalValue,
                             DateValue = f.DateValue,
                             DateTimeValue = f.DateTimeValue,
@@ -330,8 +329,8 @@ public class ExportTemplateAppService : PaperbaseAppService, IExportTemplateAppS
     private static string? FieldValueToString(ExtractedFieldProjection f, FieldDataType dataType) => dataType switch
     {
         FieldDataType.String => f.StringValue,
-        FieldDataType.Integer => f.IntegerValue?.ToString(CultureInfo.InvariantCulture),
-        FieldDataType.Decimal => f.DecimalValue?.ToString(CultureInfo.InvariantCulture),
+        // Number 以最小形渲染（"0.######"）：整数 1000 → "1000"，小数 10.50 → "10.5"——不带 decimal(38,6) 的 6 位尾零。
+        FieldDataType.Number => f.DecimalValue?.ToString("0.######", CultureInfo.InvariantCulture),
         FieldDataType.Boolean => f.BooleanValue == null ? null : (f.BooleanValue.Value ? "true" : "false"),
         FieldDataType.Date => f.DateValue?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
         FieldDataType.DateTime => f.DateTimeValue?.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture),

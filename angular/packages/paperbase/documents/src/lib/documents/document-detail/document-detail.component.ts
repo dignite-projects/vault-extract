@@ -455,9 +455,7 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
           : [],
       };
 
-      if (def.dataType === FieldDataType.Integer) {
-        config.step = 1;
-      } else if (def.dataType === FieldDataType.Decimal) {
+      if (def.dataType === FieldDataType.Number) {
         config.step = 'any';
       } else if (def.dataType === FieldDataType.Boolean) {
         config.options = {
@@ -474,8 +472,7 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
 
   private toFormFieldType(dataType: FieldDataType): FormFieldConfig['type'] {
     switch (dataType) {
-      case FieldDataType.Integer:
-      case FieldDataType.Decimal:
+      case FieldDataType.Number:
         return 'number';
       case FieldDataType.Boolean:
         return 'select';
@@ -492,8 +489,7 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
     if (value === null || value === undefined) return '';
 
     switch (def.dataType) {
-      case FieldDataType.Integer:
-      case FieldDataType.Decimal:
+      case FieldDataType.Number:
         return this.toNumberInputValue(value);
       case FieldDataType.Boolean:
         return this.parseBoolean(value) ? 'true' : 'false';
@@ -515,8 +511,7 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
   // 按字段 DataType 转成对应 JSON 类型。Date/DateTime/String 一律存字符串。
   private coerceValue(def: FieldDefinitionDto, value: unknown): unknown {
     switch (def.dataType) {
-      case FieldDataType.Integer:
-      case FieldDataType.Decimal: {
+      case FieldDataType.Number: {
         const n = typeof value === 'number' ? value : Number(value);
         return !Number.isNaN(n) ? n : value;
       }

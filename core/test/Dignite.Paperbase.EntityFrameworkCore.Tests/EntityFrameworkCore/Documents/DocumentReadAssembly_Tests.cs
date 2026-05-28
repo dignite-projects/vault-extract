@@ -124,8 +124,7 @@ public class DocumentReadAssembly_Tests : PaperbaseEntityFrameworkCoreTestBase
     private static (JsonElement Value, Action<JsonElement> AssertRoundTrip) SampleFor(FieldDataType dataType) => dataType switch
     {
         FieldDataType.String => (Json("Acme"), e => e.GetString().ShouldBe("Acme")),
-        FieldDataType.Integer => (Json(7L), e => e.GetInt64().ShouldBe(7L)),
-        FieldDataType.Decimal => (Json(1000.50m), e => e.GetDecimal().ShouldBe(1000.50m)),
+        FieldDataType.Number => (Json(1000.50m), e => e.GetDecimal().ShouldBe(1000.50m)),
         FieldDataType.Boolean => (Json(true), e => e.GetBoolean().ShouldBeTrue()),
         FieldDataType.Date => (Json("2024-03-09"), e => e.GetString().ShouldBe("2024-03-09")),
         FieldDataType.DateTime => (Json("2024-03-09T13:45:00"), e => e.GetString().ShouldBe("2024-03-09T13:45:00")),

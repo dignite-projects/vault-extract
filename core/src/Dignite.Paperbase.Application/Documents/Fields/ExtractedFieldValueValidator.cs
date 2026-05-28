@@ -31,8 +31,7 @@ internal static class ExtractedFieldValueValidator
         return dataType switch
         {
             FieldDataType.String => value.ValueKind == JsonValueKind.String,
-            FieldDataType.Integer => value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out _),
-            FieldDataType.Decimal => value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out _),
+            FieldDataType.Number => value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out _),
             FieldDataType.Boolean => value.ValueKind is JsonValueKind.True or JsonValueKind.False,
             FieldDataType.Date => IsValidDateString(value),
             FieldDataType.DateTime => IsValidDateTimeString(value),

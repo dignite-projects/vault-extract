@@ -115,10 +115,10 @@ public class EfCoreDocumentRepositorySearch_Tests : PaperbaseEntityFrameworkCore
     {
         await WithUnitOfWorkAsync(async () =>
         {
-            // Integer 字段传 "abc" → 值无法解析为声明类型 → loud fail（不静默空）。
+            // Number 字段传 "abc" → 值无法解析为声明类型 → loud fail（不静默空）。
             var ex = await Should.ThrowAsync<BusinessException>(() => _documentRepository.GetFieldMatchedIdsAsync(
                 TypeId(TypeCode),
-                new[] { Query("count", FieldDataType.Integer, value: "abc") }));
+                new[] { Query("count", FieldDataType.Number, value: "abc") }));
 
             ex.Code.ShouldBe(PaperbaseErrorCodes.InvalidExtractedFieldValue);
         });
@@ -132,7 +132,7 @@ public class EfCoreDocumentRepositorySearch_Tests : PaperbaseEntityFrameworkCore
             // 等值 / 区间全空是残缺查询——必须 loud fail，绝不退化成「该类型全捞」（纵深防御，非 DTO 校验路径）。
             var ex = await Should.ThrowAsync<BusinessException>(() => _documentRepository.GetFieldMatchedIdsAsync(
                 TypeId(TypeCode),
-                new[] { Query("count", FieldDataType.Integer) }));
+                new[] { Query("count", FieldDataType.Number) }));
 
             ex.Code.ShouldBe(PaperbaseErrorCodes.InvalidExtractedFieldValue);
         });
@@ -186,31 +186,32 @@ public class EfCoreDocumentRepositorySearch_Tests : PaperbaseEntityFrameworkCore
         });
     }
 
+    // Number 统一了整数与小数（同落 DecimalValue）：以下两组分别验证整数形与小数形 JSON 值都能往返 + 匹配。
     [Fact]
-    public async Task Integer_equality_matches()
+    public async Task Number_equality_matches_integer_value()
     {
         await WithUnitOfWorkAsync(async () =>
         {
-            var hit = await InsertDocumentAsync(Field("count", FieldDataType.Integer, 7L));
-            await InsertDocumentAsync(Field("count", FieldDataType.Integer, 9L));
+            var hit = await InsertDocumentAsync(Field("count", FieldDataType.Number, 7L));
+            await InsertDocumentAsync(Field("count", FieldDataType.Number, 9L));
 
             var ids = await _documentRepository.GetFieldMatchedIdsAsync(
-                TypeId(TypeCode), new[] { Query("count", FieldDataType.Integer, value: "7") });
+                TypeId(TypeCode), new[] { Query("count", FieldDataType.Number, value: "7") });
 
             ids.ShouldHaveSingleItem().ShouldBe(hit);
         });
     }
 
     [Fact]
-    public async Task Decimal_equality_matches()
+    public async Task Number_equality_matches_decimal_value()
     {
         await WithUnitOfWorkAsync(async () =>
         {
-            var hit = await InsertDocumentAsync(Field("amount", FieldDataType.Decimal, 123.45m));
-            await InsertDocumentAsync(Field("amount", FieldDataType.Decimal, 999.99m));
+            var hit = await InsertDocumentAsync(Field("amount", FieldDataType.Number, 123.45m));
+            await InsertDocumentAsync(Field("amount", FieldDataType.Number, 999.99m));
 
             var ids = await _documentRepository.GetFieldMatchedIdsAsync(
-                TypeId(TypeCode), new[] { Query("amount", FieldDataType.Decimal, value: "123.45") });
+                TypeId(TypeCode), new[] { Query("amount", FieldDataType.Number, value: "123.45") });
 
             ids.ShouldHaveSingleItem().ShouldBe(hit);
         });
@@ -249,16 +250,16 @@ public class EfCoreDocumentRepositorySearch_Tests : PaperbaseEntityFrameworkCore
     // ─── 范围（含界）───────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task Integer_range_matches_inclusive()
+    public async Task Number_range_matches_inclusive_integer_values()
     {
         await WithUnitOfWorkAsync(async () =>
         {
-            await InsertDocumentAsync(Field("count", FieldDataType.Integer, 100L));   // 下界（含）
-            var mid = await InsertDocumentAsync(Field("count", FieldDataType.Integer, 150L));
-            await InsertDocumentAsync(Field("count", FieldDataType.Integer, 250L));   // 越上界
+            await InsertDocumentAsync(Field("count", FieldDataType.Number, 100L));   // 下界（含）
+            var mid = await InsertDocumentAsync(Field("count", FieldDataType.Number, 150L));
+            await InsertDocumentAsync(Field("count", FieldDataType.Number, 250L));   // 越上界
 
             var ids = await _documentRepository.GetFieldMatchedIdsAsync(
-                TypeId(TypeCode), new[] { Query("count", FieldDataType.Integer, min: "100", max: "200") });
+                TypeId(TypeCode), new[] { Query("count", FieldDataType.Number, min: "100", max: "200") });
 
             ids.Count.ShouldBe(2);
             ids.ShouldContain(mid);
@@ -266,18 +267,18 @@ public class EfCoreDocumentRepositorySearch_Tests : PaperbaseEntityFrameworkCore
     }
 
     [Fact]
-    public async Task Decimal_range_matches_inclusive()
+    public async Task Number_range_matches_inclusive_decimal_values()
     {
         await WithUnitOfWorkAsync(async () =>
         {
             // 同位数（3 整数位）取值——既验证数值区间逻辑，又规避 SQLite 把 decimal 存为 TEXT、按字典序比较的怪异
-            // （生产 SQL Server 是真 decimal 列、数值比较）。代码路径与 Integer/Date/DateTime 区间完全一致。
-            await InsertDocumentAsync(Field("amount", FieldDataType.Decimal, 200m));
-            var mid = await InsertDocumentAsync(Field("amount", FieldDataType.Decimal, 300m));
-            await InsertDocumentAsync(Field("amount", FieldDataType.Decimal, 400m));
+            // （生产 SQL Server 是真 decimal 列、数值比较）。代码路径与整数值 Number / Date / DateTime 区间完全一致。
+            await InsertDocumentAsync(Field("amount", FieldDataType.Number, 200m));
+            var mid = await InsertDocumentAsync(Field("amount", FieldDataType.Number, 300m));
+            await InsertDocumentAsync(Field("amount", FieldDataType.Number, 400m));
 
             var ids = await _documentRepository.GetFieldMatchedIdsAsync(
-                TypeId(TypeCode), new[] { Query("amount", FieldDataType.Decimal, min: "250", max: "350") });
+                TypeId(TypeCode), new[] { Query("amount", FieldDataType.Number, min: "250", max: "350") });
 
             ids.ShouldHaveSingleItem().ShouldBe(mid);
         });
@@ -327,20 +328,20 @@ public class EfCoreDocumentRepositorySearch_Tests : PaperbaseEntityFrameworkCore
         {
             var both = await InsertDocumentAsync(
                 Field("party", FieldDataType.String, "Acme"),
-                Field("amount", FieldDataType.Decimal, 300m));
+                Field("amount", FieldDataType.Number, 300m));
             // 只满足一个条件 → 不应命中（AND，不同字段互相收窄）。
             await InsertDocumentAsync(
                 Field("party", FieldDataType.String, "Acme"),
-                Field("amount", FieldDataType.Decimal, 999m));
+                Field("amount", FieldDataType.Number, 999m));
             await InsertDocumentAsync(
                 Field("party", FieldDataType.String, "Globex"),
-                Field("amount", FieldDataType.Decimal, 300m));
+                Field("amount", FieldDataType.Number, 300m));
 
             var ids = await _documentRepository.GetFieldMatchedIdsAsync(
                 TypeId(TypeCode), new[]
                 {
                     Query("party", FieldDataType.String, value: "Acme"),
-                    Query("amount", FieldDataType.Decimal, min: "250", max: "350")
+                    Query("amount", FieldDataType.Number, min: "250", max: "350")
                 });
 
             ids.ShouldHaveSingleItem().ShouldBe(both);
@@ -429,7 +430,7 @@ public class EfCoreDocumentRepositorySearch_Tests : PaperbaseEntityFrameworkCore
 
         await WithUnitOfWorkAsync(async () =>
         {
-            var amount = Field("amount", FieldDataType.Decimal, 100m);
+            var amount = Field("amount", FieldDataType.Number, 100m);
             await EnsureSchemaAsync(TypeCode, new[] { amount });
             await _documentRepository.InsertAsync(
                 CreateDocument(id, _currentTenant.Id, TypeCode, amount),
@@ -439,7 +440,7 @@ public class EfCoreDocumentRepositorySearch_Tests : PaperbaseEntityFrameworkCore
         // reclassify 到新类型 + 新字段集（含 details 加载现有字段行供 reconcile diff）。
         await WithUnitOfWorkAsync(async () =>
         {
-            var total = Field("total", FieldDataType.Decimal, 200m);
+            var total = Field("total", FieldDataType.Number, 200m);
             await EnsureSchemaAsync("invoice.general", new[] { total });
             var doc = await _documentRepository.GetAsync(id, includeDetails: true);
             typeof(Document).GetProperty(nameof(Document.DocumentTypeId))!.SetValue(doc, TypeId("invoice.general"));
@@ -456,7 +457,7 @@ public class EfCoreDocumentRepositorySearch_Tests : PaperbaseEntityFrameworkCore
 
             // 旧字段已查不到（锚定旧类型也查不到旧字段值）。
             var oldHits = await _documentRepository.GetFieldMatchedIdsAsync(
-                TypeId(TypeCode), new[] { Query("amount", FieldDataType.Decimal, value: "100") });
+                TypeId(TypeCode), new[] { Query("amount", FieldDataType.Number, value: "100") });
             oldHits.ShouldBeEmpty();
         });
     }
@@ -468,7 +469,7 @@ public class EfCoreDocumentRepositorySearch_Tests : PaperbaseEntityFrameworkCore
 
         await WithUnitOfWorkAsync(async () =>
         {
-            var amount = Field("amount", FieldDataType.Decimal, 100m);
+            var amount = Field("amount", FieldDataType.Number, 100m);
             await EnsureSchemaAsync(TypeCode, new[] { amount });
             await _documentRepository.InsertAsync(
                 CreateDocument(id, _currentTenant.Id, TypeCode, amount),
@@ -479,7 +480,7 @@ public class EfCoreDocumentRepositorySearch_Tests : PaperbaseEntityFrameworkCore
         await WithUnitOfWorkAsync(async () =>
         {
             var doc = await _documentRepository.GetAsync(id, includeDetails: true);
-            doc.SetFields(new[] { Field("amount", FieldDataType.Decimal, 200m) });
+            doc.SetFields(new[] { Field("amount", FieldDataType.Number, 200m) });
             await _documentRepository.UpdateAsync(doc, autoSave: true);
         });
 
@@ -489,7 +490,7 @@ public class EfCoreDocumentRepositorySearch_Tests : PaperbaseEntityFrameworkCore
             reloaded.ExtractedFieldValues.ShouldHaveSingleItem().DecimalValue.ShouldBe(200m);
 
             var newHits = await _documentRepository.GetFieldMatchedIdsAsync(
-                TypeId(TypeCode), new[] { Query("amount", FieldDataType.Decimal, value: "200") });
+                TypeId(TypeCode), new[] { Query("amount", FieldDataType.Number, value: "200") });
             newHits.ShouldHaveSingleItem().ShouldBe(id);
         });
     }

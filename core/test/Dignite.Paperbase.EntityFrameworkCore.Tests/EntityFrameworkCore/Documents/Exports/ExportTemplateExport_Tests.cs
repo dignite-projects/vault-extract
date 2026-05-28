@@ -18,7 +18,7 @@ namespace Dignite.Paperbase.EntityFrameworkCore.Documents;
 /// ExportTemplateAppService.ExportAsync 集成测试（SQLite 真实 EF，#207）：
 /// <list type="bullet">
 ///   <item>固定系统字段（SourceType / LifecycleStatus / ReviewStatus / Title）始终在前，模板抽取列（按 FieldDefinitionId 匹配）在后</item>
-///   <item>typed child 行（#206）经投影 + FieldValueToString 正确渲染（含 Decimal / Date）</item>
+///   <item>typed child 行（#206）经投影 + FieldValueToString 正确渲染（含 Number / Date）</item>
 ///   <item>over-cap fail-fast（fetch Max+1，超限抛错而非静默截断）</item>
 /// </list>
 /// 注：导出按 FieldDefinitionId 匹配列、渲染存储的 ColumnName；字段类型由 FieldDefinition.DataType 决定（#208，
@@ -111,7 +111,7 @@ public class ExportTemplateExport_Tests : PaperbaseEntityFrameworkCoreTestBase
     }
 
     [Fact]
-    public async Task Export_Should_Render_Typed_Decimal_And_Date_Fields()
+    public async Task Export_Should_Render_Typed_Number_And_Date_Fields()
     {
         // 覆盖非 String 字段经 typed child 投影 + FieldValueToString 的导出渲染。
         var templateId = _guidGenerator.Create();
@@ -123,7 +123,7 @@ public class ExportTemplateExport_Tests : PaperbaseEntityFrameworkCoreTestBase
         {
             var fields = new[]
             {
-                new DocumentFieldValue(amountFieldId, FieldDataType.Decimal, JsonSerializer.SerializeToElement(1234.5m)),
+                new DocumentFieldValue(amountFieldId, FieldDataType.Number, JsonSerializer.SerializeToElement(1234.5m)),
                 new DocumentFieldValue(issuedFieldId, FieldDataType.Date, JsonSerializer.SerializeToElement("2024-03-09")),
             };
             await SeedSchemaAsync(typeId, fields);
@@ -155,7 +155,7 @@ public class ExportTemplateExport_Tests : PaperbaseEntityFrameworkCoreTestBase
         });
 
         csv.ShouldContain("金额,日期");
-        csv.ShouldContain("1234.5");      // Decimal 渲染（decimal(38,6) 带尾随零，只断言数值前缀）
+        csv.ShouldContain("1234.5");      // Number 渲染（0.###### 最小形：1234.5m → "1234.5"，无尾随零）
         csv.ShouldContain("2024-03-09");  // Date 渲染
     }
 
@@ -216,7 +216,7 @@ public class ExportTemplateExport_Tests : PaperbaseEntityFrameworkCoreTestBase
             await _documentTypeRepository.InsertAsync(
                 new DocumentType(typeId, null, "contract.general", "Contract"), autoSave: true);
             await _fieldDefinitionRepository.InsertAsync(
-                new FieldDefinition(fieldId, null, typeId, "amount", "Amount", "extract", FieldDataType.Decimal),
+                new FieldDefinition(fieldId, null, typeId, "amount", "Amount", "extract", FieldDataType.Number),
                 autoSave: true);
         });
 

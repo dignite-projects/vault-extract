@@ -29,7 +29,7 @@ public sealed record DocumentTypeFieldSchema
 {
     public required string Name { get; init; }
 
-    /// <summary>字段数据类型（<c>FieldDataType</c> 枚举名：String / Integer / Decimal / Boolean / Date / DateTime）。</summary>
+    /// <summary>字段数据类型（<c>FieldDataType</c> 枚举名：String / Number / Boolean / Date / DateTime）。</summary>
     public required string DataType { get; init; }
 
     /// <summary>字段显示名（已 PromptBoundary 包裹）。</summary>

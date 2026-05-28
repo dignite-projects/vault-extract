@@ -55,8 +55,8 @@ public class FieldExtractionWorkflow_Tests
         var result = await workflow.ExtractAsync(
             new[]
             {
-                Field("amount", FieldDataType.Decimal),
-                Field("count", FieldDataType.Integer),
+                Field("amount", FieldDataType.Number),
+                Field("count", FieldDataType.Number),
                 Field("active", FieldDataType.Boolean),
                 Field("signed_on", FieldDataType.Date),
                 Field("party", FieldDataType.String),
@@ -73,7 +73,7 @@ public class FieldExtractionWorkflow_Tests
     [Fact]
     public async Task Nulls_values_that_do_not_match_declared_type()
     {
-        // 脏值：货币串给 Decimal、非 ISO 日期给 Date、字符串 "true" 给 Boolean、数字给 String、小数给 Integer。
+        // 脏值：货币串给 Number、非 ISO 日期给 Date、字符串 "true" 给 Boolean、数字给 String、布尔给 Number。
         // 全部应被强校验拦下存 null——保证 ExtractedFields 类型自洽（任务 3 类型化查询的干净数据前提）。
         var json = """
         {
@@ -81,7 +81,7 @@ public class FieldExtractionWorkflow_Tests
           "signed_on": "2024/01/15",
           "active": "true",
           "party": 123,
-          "count": 3.5
+          "count": true
         }
         """;
         var workflow = CreateWorkflow(json);
@@ -89,11 +89,11 @@ public class FieldExtractionWorkflow_Tests
         var result = await workflow.ExtractAsync(
             new[]
             {
-                Field("amount", FieldDataType.Decimal),
+                Field("amount", FieldDataType.Number),
                 Field("signed_on", FieldDataType.Date),
                 Field("active", FieldDataType.Boolean),
                 Field("party", FieldDataType.String),
-                Field("count", FieldDataType.Integer),
+                Field("count", FieldDataType.Number),
             },
             "# doc");
 
@@ -157,7 +157,7 @@ public class FieldExtractionWorkflow_Tests
         var workflow = CreateWorkflow("sorry, I can't do that");
 
         var result = await workflow.ExtractAsync(
-            new[] { Field("amount", FieldDataType.Decimal) },
+            new[] { Field("amount", FieldDataType.Number) },
             "# doc");
 
         result["amount"].ShouldBeNull();

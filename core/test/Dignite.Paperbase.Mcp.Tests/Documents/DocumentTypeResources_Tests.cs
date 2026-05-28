@@ -60,7 +60,7 @@ public class DocumentTypeResources_Tests : PaperbaseTestBase<DocumentTypeResourc
             .Returns(new List<FieldDefinition>
             {
                 new(Guid.NewGuid(), null, typeId, "amount", "合同金额",
-                    "Extract the total contract amount", FieldDataType.Decimal, displayOrder: 1, isRequired: true),
+                    "Extract the total contract amount", FieldDataType.Number, displayOrder: 1, isRequired: true),
                 new(Guid.NewGuid(), null, typeId, "partyName", "甲方",
                     "Extract party A name", FieldDataType.String, displayOrder: 0)
             });
@@ -79,7 +79,7 @@ public class DocumentTypeResources_Tests : PaperbaseTestBase<DocumentTypeResourc
         schema.Fields[0].DataType.ShouldBe("String");
         schema.Fields[0].DisplayName.ShouldBe(PromptBoundary.WrapField("甲方"));
         schema.Fields[1].Name.ShouldBe("amount");
-        schema.Fields[1].DataType.ShouldBe("Decimal");
+        schema.Fields[1].DataType.ShouldBe("Number");
         schema.Fields[1].IsRequired.ShouldBeTrue();
     }
 

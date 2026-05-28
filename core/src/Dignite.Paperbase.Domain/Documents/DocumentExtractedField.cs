@@ -15,7 +15,7 @@ namespace Dignite.Paperbase.Documents;
 /// 内部用不可变 <see cref="FieldDefinitionId"/> 关联产生该值的 <see cref="FieldDefinition"/>，
 /// 不再冗余字段名 / TypeCode 字符串；<see cref="FieldDefinition.Name"/> rename 不级联本表。同文档同字段唯一，
 /// 整组重建 / 操作员手改走 reconcile（同字段原地更新），不留重复行。值按写入时的 <c>FieldDataType</c> 落到对应类型化列
-/// （<see cref="StringValue"/> / <see cref="IntegerValue"/> / …）——类型由所引用的 <see cref="FieldDefinition"/> 决定、<b>不在本行持久化</b>（#208），
+/// （<see cref="StringValue"/> / <see cref="DecimalValue"/> / …）——类型由所引用的 <see cref="FieldDefinition"/> 决定、<b>不在本行持久化</b>（#208），
 /// 让 <c>GetFieldMatchedIdsAsync</c> 用普通列比较（等值 + 范围）跨任意关系型数据库可移植——不再依赖 SQL Server <c>JSON_VALUE</c> / <c>TRY_CONVERT</c> 方言。
 /// </para>
 /// <para>
@@ -42,10 +42,9 @@ public class DocumentExtractedField : Entity, IMultiTenant
     public virtual Guid FieldDefinitionId { get; private set; }
 
     // 类型化值列——按字段类型取用其一，其余为 null（类型由 FieldDefinition 决定、不在本行持久化，#208）。
-    // 普通列即可建 B-tree 索引、支持等值 + 范围。
+    // 普通列即可建 B-tree 索引、支持等值 + 范围。Number（整数与小数统一）落 DecimalValue。
     public virtual string? StringValue { get; private set; }
     public virtual bool? BooleanValue { get; private set; }
-    public virtual long? IntegerValue { get; private set; }
     public virtual decimal? DecimalValue { get; private set; }
     public virtual DateOnly? DateValue { get; private set; }
     public virtual DateTime? DateTimeValue { get; private set; }
@@ -71,7 +70,6 @@ public class DocumentExtractedField : Entity, IMultiTenant
     {
         StringValue = null;
         BooleanValue = null;
-        IntegerValue = null;
         DecimalValue = null;
         DateValue = null;
         DateTimeValue = null;
@@ -82,10 +80,7 @@ public class DocumentExtractedField : Entity, IMultiTenant
             case FieldDataType.String:
                 StringValue = element.GetString();
                 break;
-            case FieldDataType.Integer:
-                IntegerValue = element.GetInt64();
-                break;
-            case FieldDataType.Decimal:
+            case FieldDataType.Number:
                 DecimalValue = element.GetDecimal();
                 break;
             case FieldDataType.Boolean:
@@ -110,8 +105,7 @@ public class DocumentExtractedField : Entity, IMultiTenant
     public JsonElement ToJsonElement(FieldDataType dataType) => dataType switch
     {
         FieldDataType.String => JsonSerializer.SerializeToElement(StringValue),
-        FieldDataType.Integer => JsonSerializer.SerializeToElement(IntegerValue),
-        FieldDataType.Decimal => JsonSerializer.SerializeToElement(DecimalValue),
+        FieldDataType.Number => JsonSerializer.SerializeToElement(DecimalValue),
         FieldDataType.Boolean => JsonSerializer.SerializeToElement(BooleanValue),
         FieldDataType.Date => JsonSerializer.SerializeToElement(DateValue?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
         FieldDataType.DateTime => JsonSerializer.SerializeToElement(DateTimeValue?.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture)),

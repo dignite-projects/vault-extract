@@ -56,7 +56,7 @@ public class DocumentReferenceResolution_Tests : PaperbaseTestBase<DocumentRefer
         await WithUnitOfWorkAsync(async () =>
         {
             (typeId, fieldId) = await SeedTypeFieldAndDocAsync(
-                "contract.general", "amount", FieldDataType.Decimal, docId, 100m);
+                "contract.general", "amount", FieldDataType.Number, docId, 100m);
         });
 
         // 重命名前：DTO 输出原 code / name。
@@ -83,7 +83,7 @@ public class DocumentReferenceResolution_Tests : PaperbaseTestBase<DocumentRefer
                 Name = "total_amount",
                 DisplayName = "Amount",
                 Prompt = "Extract the amount.",
-                DataType = FieldDataType.Decimal,
+                DataType = FieldDataType.Number,
                 DisplayOrder = 0,
                 IsRequired = false
             });
@@ -133,7 +133,7 @@ public class DocumentReferenceResolution_Tests : PaperbaseTestBase<DocumentRefer
         await WithUnitOfWorkAsync(async () =>
         {
             (_, fieldId) = await SeedTypeFieldAndDocAsync(
-                "contract.general", "amount", FieldDataType.Decimal, docId, 100m);
+                "contract.general", "amount", FieldDataType.Number, docId, 100m);
         });
 
         // 已有抽取值的字段禁止改 DataType（否则历史值落在旧 typed 列、按新类型查会静默漏掉）。
@@ -145,7 +145,7 @@ public class DocumentReferenceResolution_Tests : PaperbaseTestBase<DocumentRefer
                     Name = "amount",
                     DisplayName = "Amount",
                     Prompt = "Extract the amount.",
-                    DataType = FieldDataType.String,   // ← 从 Decimal 改 String
+                    DataType = FieldDataType.String,   // ← 从 Number 改 String
                     DisplayOrder = 0,
                     IsRequired = false
                 }));
