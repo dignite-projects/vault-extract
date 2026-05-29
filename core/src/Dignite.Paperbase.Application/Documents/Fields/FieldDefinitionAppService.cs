@@ -68,7 +68,7 @@ public class FieldDefinitionAppService : PaperbaseAppService, IFieldDefinitionAp
         }
         if (existing != null)
         {
-            throw new BusinessException(PaperbaseErrorCodes.FieldDefinitionAlreadyExists)
+            throw new BusinessException(PaperbaseErrorCodes.FieldDefinition.AlreadyExists)
                 .WithData("DocumentTypeCode", type.TypeCode)
                 .WithData("Name", input.Name);
         }
@@ -109,7 +109,7 @@ public class FieldDefinitionAppService : PaperbaseAppService, IFieldDefinitionAp
             if (conflict != null)
             {
                 // 仅错误路径解析 TypeCode 供人读消息（happy path 不查）。
-                throw new BusinessException(PaperbaseErrorCodes.FieldDefinitionAlreadyExists)
+                throw new BusinessException(PaperbaseErrorCodes.FieldDefinition.AlreadyExists)
                     .WithData("DocumentTypeCode", await ResolveTypeCodeAsync(entity.DocumentTypeId) ?? string.Empty)
                     .WithData("Name", input.Name);
             }
@@ -120,7 +120,7 @@ public class FieldDefinitionAppService : PaperbaseAppService, IFieldDefinitionAp
         if (input.DataType != entity.DataType
             && await _documentRepository.AnyExtractedFieldValueAsync(entity.Id))
         {
-            throw new BusinessException(PaperbaseErrorCodes.FieldDefinitionDataTypeChangeNotAllowed)
+            throw new BusinessException(PaperbaseErrorCodes.FieldDefinition.DataTypeChangeNotAllowed)
                 .WithData("Name", entity.Name);
         }
 
@@ -163,7 +163,7 @@ public class FieldDefinitionAppService : PaperbaseAppService, IFieldDefinitionAp
             // 父类型仍处于已删除态时，应走 IDocumentTypeAppService.RestoreAsync 的级联路径。
             if (parentType == null || parentType.IsDeleted)
             {
-                throw new BusinessException(PaperbaseErrorCodes.FieldDefinitionParentTypeMissing)
+                throw new BusinessException(PaperbaseErrorCodes.FieldDefinition.ParentTypeMissing)
                     .WithData("DocumentTypeCode", documentTypeCode ?? string.Empty)
                     .WithData("Name", entity.Name);
             }
@@ -178,7 +178,7 @@ public class FieldDefinitionAppService : PaperbaseAppService, IFieldDefinitionAp
                     !f.IsDeleted));
             if (nameConflict)
             {
-                throw new BusinessException(PaperbaseErrorCodes.FieldDefinitionRestoreConflict)
+                throw new BusinessException(PaperbaseErrorCodes.FieldDefinition.RestoreConflict)
                     .WithData("DocumentTypeCode", documentTypeCode ?? string.Empty)
                     .WithData("Name", entity.Name);
             }

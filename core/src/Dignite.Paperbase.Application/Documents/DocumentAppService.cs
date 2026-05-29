@@ -73,7 +73,7 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
             {
                 if (input.FieldFilters is { Count: > 0 })
                 {
-                    throw new BusinessException(PaperbaseErrorCodes.UnknownExtractedField)
+                    throw new BusinessException(PaperbaseErrorCodes.ExtractedField.Unknown)
                         .WithData("FieldName", input.FieldFilters[0].Name ?? string.Empty)
                         .WithData("DocumentTypeCode", input.DocumentTypeCode!);
                 }
@@ -115,7 +115,7 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
             var definition = await _fieldDefinitionRepository.FindByNameAsync(documentTypeId!.Value, filter.Name!);
             if (definition == null)
             {
-                throw new BusinessException(PaperbaseErrorCodes.UnknownExtractedField)
+                throw new BusinessException(PaperbaseErrorCodes.ExtractedField.Unknown)
                     .WithData("FieldName", filter.Name!)
                     .WithData("DocumentTypeCode", input.DocumentTypeCode!);
             }
@@ -177,7 +177,7 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
         var hasType = (await _documentTypeRepository.GetListAsync()).Any();
         if (!hasType)
         {
-            throw new BusinessException(PaperbaseErrorCodes.NoDocumentTypesConfigured);
+            throw new BusinessException(PaperbaseErrorCodes.DocumentType.NoneConfigured);
         }
 
         // 文件柜归属校验（#194）：若指定 cabinetId，先断言 Cabinets 权限（fail-closed，与前端 canViewCabinets
@@ -191,7 +191,7 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
             var cabinet = await _cabinetRepository.FindAsync(input.CabinetId.Value);
             if (cabinet == null)
             {
-                throw new BusinessException(PaperbaseErrorCodes.InvalidCabinetId)
+                throw new BusinessException(PaperbaseErrorCodes.Cabinet.InvalidId)
                     .WithData("CabinetId", input.CabinetId.Value);
             }
         }
@@ -212,8 +212,8 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
         if (existing != null)
         {
             var errorCode = existing.IsDeleted
-                ? PaperbaseErrorCodes.DocumentInRecycleBin
-                : PaperbaseErrorCodes.DocumentDuplicate;
+                ? PaperbaseErrorCodes.Document.InRecycleBin
+                : PaperbaseErrorCodes.Document.Duplicate;
 
             throw new BusinessException(errorCode)
                 .WithData("FileName", fileName)
@@ -363,7 +363,7 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
     {
         if (!PaperbasePipelines.RetryablePipelines.Contains(input.PipelineCode))
         {
-            throw new BusinessException(PaperbaseErrorCodes.UnknownPipelineCode)
+            throw new BusinessException(PaperbaseErrorCodes.Pipeline.UnknownCode)
                 .WithData("PipelineCode", input.PipelineCode);
         }
 
@@ -373,14 +373,14 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
 
         if (document.IsDeleted)
         {
-            throw new BusinessException(PaperbaseErrorCodes.DocumentInRecycleBin)
+            throw new BusinessException(PaperbaseErrorCodes.Document.InRecycleBin)
                 .WithData("FileName", document.OriginalFileBlobName);
         }
 
         var latestRun = document.GetLatestRun(input.PipelineCode);
         if (latestRun == null)
         {
-            throw new BusinessException(PaperbaseErrorCodes.PipelineNeverRan)
+            throw new BusinessException(PaperbaseErrorCodes.Pipeline.NeverRan)
                 .WithData("PipelineCode", input.PipelineCode);
         }
 
@@ -388,11 +388,11 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
         {
             case PipelineRunStatus.Pending:
             case PipelineRunStatus.Running:
-                throw new BusinessException(PaperbaseErrorCodes.PipelineRetryInProgress)
+                throw new BusinessException(PaperbaseErrorCodes.Pipeline.RetryInProgress)
                     .WithData("PipelineCode", input.PipelineCode);
             case PipelineRunStatus.Succeeded:
             case PipelineRunStatus.Skipped:
-                throw new BusinessException(PaperbaseErrorCodes.PipelineNotRetryable)
+                throw new BusinessException(PaperbaseErrorCodes.Pipeline.NotRetryable)
                     .WithData("PipelineCode", input.PipelineCode)
                     .WithData("Status", latestRun.Status.ToString());
         }
@@ -417,7 +417,7 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
         // 字段定义挂在 DocumentType 下——未分类无从校验字段名。
         if (!document.DocumentTypeId.HasValue)
         {
-            throw new BusinessException(PaperbaseErrorCodes.DocumentNotClassified);
+            throw new BusinessException(PaperbaseErrorCodes.Document.NotClassified);
         }
 
         // ETO 仍携带 DocumentTypeCode 字符串（出口契约不变）——由内部 DocumentTypeId 解析（#207）。
@@ -436,14 +436,14 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
         {
             if (!definitionsByName.TryGetValue(key, out var definition))
             {
-                throw new BusinessException(PaperbaseErrorCodes.UnknownExtractedField)
+                throw new BusinessException(PaperbaseErrorCodes.ExtractedField.Unknown)
                     .WithData("FieldName", key)
                     .WithData("DocumentTypeCode", documentTypeCode ?? string.Empty);
             }
 
             if (!ExtractedFieldValueValidator.IsValid(value, definition.DataType))
             {
-                throw new BusinessException(PaperbaseErrorCodes.InvalidExtractedFieldValue)
+                throw new BusinessException(PaperbaseErrorCodes.ExtractedField.InvalidValue)
                     .WithData("FieldName", key)
                     .WithData("DocumentTypeCode", documentTypeCode ?? string.Empty)
                     .WithData("DataType", definition.DataType.ToString())
@@ -507,7 +507,7 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
         var typeDef = await _documentTypeRepository.FindByTypeCodeAsync(documentTypeCode);
         if (typeDef == null)
         {
-            throw new BusinessException(PaperbaseErrorCodes.InvalidDocumentTypeCode)
+            throw new BusinessException(PaperbaseErrorCodes.DocumentType.InvalidCode)
                 .WithData(nameof(documentTypeCode), documentTypeCode);
         }
 

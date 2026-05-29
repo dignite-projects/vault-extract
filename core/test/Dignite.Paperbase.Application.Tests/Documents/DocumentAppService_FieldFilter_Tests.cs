@@ -98,6 +98,6 @@ public class DocumentAppService_FieldFilter_Tests
             FieldFilters = new List<DocumentFieldFilter> { new() { Name = "ghost", Value = "x" } }
         }));
 
-        ex.Code.ShouldBe(PaperbaseErrorCodes.UnknownExtractedField);
+        ex.Code.ShouldBe(PaperbaseErrorCodes.ExtractedField.Unknown);
     }
 }

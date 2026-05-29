@@ -29,7 +29,7 @@ public class CabinetTests
     public void Should_Reject_Name_With_Control_Chars(string name)
     {
         var ex = Should.Throw<BusinessException>(() => new Cabinet(Guid.NewGuid(), null, name));
-        ex.Code.ShouldBe(PaperbaseErrorCodes.InvalidCabinetName);
+        ex.Code.ShouldBe(PaperbaseErrorCodes.Cabinet.InvalidName);
     }
 
     [Fact]
@@ -38,6 +38,6 @@ public class CabinetTests
         // 构造时合法，但 Update 路径必须重新校验——避免 admin 通过 Update API 绕过实体不变量。
         var cabinet = new Cabinet(Guid.NewGuid(), null, "Legal");
         Should.Throw<BusinessException>(() => cabinet.Update("Bad\nName"))
-            .Code.ShouldBe(PaperbaseErrorCodes.InvalidCabinetName);
+            .Code.ShouldBe(PaperbaseErrorCodes.Cabinet.InvalidName);
     }
 }

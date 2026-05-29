@@ -150,7 +150,7 @@ public class DocumentReferenceResolution_Tests : PaperbaseTestBase<DocumentRefer
                     IsRequired = false
                 }));
 
-            ex.Code.ShouldBe(PaperbaseErrorCodes.FieldDefinitionDataTypeChangeNotAllowed);
+            ex.Code.ShouldBe(PaperbaseErrorCodes.FieldDefinition.DataTypeChangeNotAllowed);
         });
     }
 

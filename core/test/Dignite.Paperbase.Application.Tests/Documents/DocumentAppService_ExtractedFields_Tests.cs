@@ -70,7 +70,7 @@ public class DocumentAppService_ExtractedFields_Tests
                 Fields = new Dictionary<string, JsonElement> { ["unknown"] = JsonString("x") }
             }));
 
-        ex.Code.ShouldBe(PaperbaseErrorCodes.UnknownExtractedField);
+        ex.Code.ShouldBe(PaperbaseErrorCodes.ExtractedField.Unknown);
     }
 
     [Fact]
@@ -119,7 +119,7 @@ public class DocumentAppService_ExtractedFields_Tests
                 }
             }));
 
-        ex.Code.ShouldBe(PaperbaseErrorCodes.InvalidExtractedFieldValue);
+        ex.Code.ShouldBe(PaperbaseErrorCodes.ExtractedField.InvalidValue);
         ex.Data["FieldName"].ShouldBe("amount");
     }
 
@@ -141,7 +141,7 @@ public class DocumentAppService_ExtractedFields_Tests
                 }
             }));
 
-        ex.Code.ShouldBe(PaperbaseErrorCodes.InvalidExtractedFieldValue);
+        ex.Code.ShouldBe(PaperbaseErrorCodes.ExtractedField.InvalidValue);
         ex.Data["FieldName"].ShouldBe("occurredAt");
     }
 
@@ -179,7 +179,7 @@ public class DocumentAppService_ExtractedFields_Tests
                 Fields = new Dictionary<string, JsonElement>()
             }));
 
-        ex.Code.ShouldBe(PaperbaseErrorCodes.DocumentNotClassified);
+        ex.Code.ShouldBe(PaperbaseErrorCodes.Document.NotClassified);
     }
 
     private void StubGet(Document doc)

@@ -101,7 +101,7 @@ public class CabinetAppService : PaperbaseAppService, ICabinetAppService
         var existing = await _repository.FindByNameAsync(name);
         if (existing != null)
         {
-            throw new BusinessException(PaperbaseErrorCodes.CabinetNameAlreadyExists)
+            throw new BusinessException(PaperbaseErrorCodes.Cabinet.NameAlreadyExists)
                 .WithData("Name", name);
         }
     }

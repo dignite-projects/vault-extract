@@ -93,7 +93,7 @@ public class EfCoreDocumentRepositorySearch_Tests : PaperbaseEntityFrameworkCore
                 TypeId(TypeCode),
                 new[] { Query("party", FieldDataType.String, min: "a", max: "z") }));
 
-            ex.Code.ShouldBe(PaperbaseErrorCodes.FieldTypeDoesNotSupportRange);
+            ex.Code.ShouldBe(PaperbaseErrorCodes.ExtractedField.FieldTypeDoesNotSupportRange);
         });
     }
 
@@ -106,7 +106,7 @@ public class EfCoreDocumentRepositorySearch_Tests : PaperbaseEntityFrameworkCore
                 TypeId(TypeCode),
                 new[] { Query("active", FieldDataType.Boolean, min: "false", max: "true") }));
 
-            ex.Code.ShouldBe(PaperbaseErrorCodes.FieldTypeDoesNotSupportRange);
+            ex.Code.ShouldBe(PaperbaseErrorCodes.ExtractedField.FieldTypeDoesNotSupportRange);
         });
     }
 
@@ -120,7 +120,7 @@ public class EfCoreDocumentRepositorySearch_Tests : PaperbaseEntityFrameworkCore
                 TypeId(TypeCode),
                 new[] { Query("count", FieldDataType.Number, value: "abc") }));
 
-            ex.Code.ShouldBe(PaperbaseErrorCodes.InvalidExtractedFieldValue);
+            ex.Code.ShouldBe(PaperbaseErrorCodes.ExtractedField.InvalidValue);
         });
     }
 
@@ -134,7 +134,7 @@ public class EfCoreDocumentRepositorySearch_Tests : PaperbaseEntityFrameworkCore
                 TypeId(TypeCode),
                 new[] { Query("count", FieldDataType.Number) }));
 
-            ex.Code.ShouldBe(PaperbaseErrorCodes.InvalidExtractedFieldValue);
+            ex.Code.ShouldBe(PaperbaseErrorCodes.ExtractedField.InvalidValue);
         });
     }
 
@@ -150,7 +150,7 @@ public class EfCoreDocumentRepositorySearch_Tests : PaperbaseEntityFrameworkCore
                 TypeId(TypeCode),
                 new[] { Query("created", FieldDataType.DateTime, value: offsetInput) }));
 
-            ex.Code.ShouldBe(PaperbaseErrorCodes.InvalidExtractedFieldValue);
+            ex.Code.ShouldBe(PaperbaseErrorCodes.ExtractedField.InvalidValue);
         });
     }
 

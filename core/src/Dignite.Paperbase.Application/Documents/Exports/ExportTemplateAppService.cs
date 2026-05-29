@@ -152,7 +152,7 @@ public class ExportTemplateAppService : PaperbaseAppService, IExportTemplateAppS
 
         if (rows.Count > limit)
         {
-            throw new BusinessException(PaperbaseErrorCodes.ExportDocumentLimitExceeded)
+            throw new BusinessException(PaperbaseErrorCodes.Export.DocumentLimitExceeded)
                 .WithData("count", limit + "+")
                 .WithData("max", limit);
         }
@@ -222,7 +222,7 @@ public class ExportTemplateAppService : PaperbaseAppService, IExportTemplateAppS
         var existing = await _templateRepository.FindByNameAsync(name);
         if (existing != null)
         {
-            throw new BusinessException(PaperbaseErrorCodes.ExportTemplateNameAlreadyExists)
+            throw new BusinessException(PaperbaseErrorCodes.Export.TemplateNameAlreadyExists)
                 .WithData("Name", name);
         }
     }

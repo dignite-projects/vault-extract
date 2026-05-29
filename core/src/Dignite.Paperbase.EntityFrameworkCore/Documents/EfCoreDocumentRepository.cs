@@ -133,9 +133,9 @@ public class EfCoreDocumentRepository
     /// 按 <see cref="FieldDataType"/> 分派到对应类型化列做普通比较：
     /// <list type="bullet">
     ///   <item><c>String</c> / <c>Boolean</c>：仅等值（红线：永不 LIKE）；传区间 → 抛
-    ///   <see cref="PaperbaseErrorCodes.FieldTypeDoesNotSupportRange"/>（给 AI 客户端可纠正信号）。</item>
+    ///   <see cref="PaperbaseErrorCodes.ExtractedField.FieldTypeDoesNotSupportRange"/>（给 AI 客户端可纠正信号）。</item>
     ///   <item><c>Number</c> / <c>Date</c> / <c>DateTime</c>：等值或区间（含界）。
-    ///   入参无法解析为声明类型 → 抛 <see cref="PaperbaseErrorCodes.InvalidExtractedFieldValue"/>（loud，不静默空）。</item>
+    ///   入参无法解析为声明类型 → 抛 <see cref="PaperbaseErrorCodes.ExtractedField.InvalidValue"/>（loud，不静默空）。</item>
     /// </list>
     /// 等值统一表达为退化区间 <c>[v, v]</c>，与区间共用同一谓词形，消除等值 / 区间分支重复。
     /// </summary>
@@ -214,7 +214,7 @@ public class EfCoreDocumentRepository
 
     /// <summary>
     /// 把字段查询解析成类型化的 <c>(min, max)</c> 闭区间界：等值退化为 <c>[v, v]</c>；区间取 min / max
-    /// （任一可空）。任一入参解析失败抛 <see cref="PaperbaseErrorCodes.InvalidExtractedFieldValue"/>（loud）。
+    /// （任一可空）。任一入参解析失败抛 <see cref="PaperbaseErrorCodes.ExtractedField.InvalidValue"/>（loud）。
     /// </summary>
     private static (T? Min, T? Max) ParseRange<T>(
         DocumentFieldQuery fieldQuery, Func<string, T?> parse)
@@ -259,12 +259,12 @@ public class EfCoreDocumentRepository
             : null;
 
     private static BusinessException RangeNotSupported(string fieldName, FieldDataType dataType) =>
-        new BusinessException(PaperbaseErrorCodes.FieldTypeDoesNotSupportRange)
+        new BusinessException(PaperbaseErrorCodes.ExtractedField.FieldTypeDoesNotSupportRange)
             .WithData("FieldName", fieldName)
             .WithData("DataType", dataType.ToString());
 
     private static BusinessException InvalidValue(string fieldName, FieldDataType dataType) =>
-        new BusinessException(PaperbaseErrorCodes.InvalidExtractedFieldValue)
+        new BusinessException(PaperbaseErrorCodes.ExtractedField.InvalidValue)
             .WithData("FieldName", fieldName)
             .WithData("DataType", dataType.ToString());
 }

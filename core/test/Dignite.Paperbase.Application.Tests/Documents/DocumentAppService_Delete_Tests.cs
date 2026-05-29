@@ -126,7 +126,7 @@ public class DocumentAppService_Delete_Tests
             await _appService.UploadAsync(CreateUploadInput([1, 2, 3]));
         });
 
-        exception.Code.ShouldBe(PaperbaseErrorCodes.NoDocumentTypesConfigured);
+        exception.Code.ShouldBe(PaperbaseErrorCodes.DocumentType.NoneConfigured);
     }
 
     [Fact]
@@ -143,7 +143,7 @@ public class DocumentAppService_Delete_Tests
             await _appService.UploadAsync(CreateUploadInput([1, 2, 3]));
         });
 
-        exception.Code.ShouldBe(PaperbaseErrorCodes.DocumentDuplicate);
+        exception.Code.ShouldBe(PaperbaseErrorCodes.Document.Duplicate);
     }
 
     [Fact]
@@ -161,7 +161,7 @@ public class DocumentAppService_Delete_Tests
             await _appService.UploadAsync(CreateUploadInput([1, 2, 3]));
         });
 
-        exception.Code.ShouldBe(PaperbaseErrorCodes.DocumentInRecycleBin);
+        exception.Code.ShouldBe(PaperbaseErrorCodes.Document.InRecycleBin);
         exception.Data["ExistingDocumentId"].ShouldBe(existing.Id);
     }
 
@@ -194,7 +194,7 @@ public class DocumentAppService_Delete_Tests
         var exception = await Should.ThrowAsync<BusinessException>(async () =>
             await _appService.UploadAsync(input));
 
-        exception.Code.ShouldBe(PaperbaseErrorCodes.InvalidCabinetId);
+        exception.Code.ShouldBe(PaperbaseErrorCodes.Cabinet.InvalidId);
     }
 
     private static Document CreateDocument()

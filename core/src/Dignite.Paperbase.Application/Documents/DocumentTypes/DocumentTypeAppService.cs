@@ -66,7 +66,7 @@ public class DocumentTypeAppService : PaperbaseAppService, IDocumentTypeAppServi
         }
         if (existing != null)
         {
-            throw new BusinessException(PaperbaseErrorCodes.DocumentTypeCodeAlreadyExists)
+            throw new BusinessException(PaperbaseErrorCodes.DocumentType.CodeAlreadyExists)
                 .WithData("TypeCode", input.TypeCode);
         }
 
@@ -103,7 +103,7 @@ public class DocumentTypeAppService : PaperbaseAppService, IDocumentTypeAppServi
             }
             if (conflict != null)
             {
-                throw new BusinessException(PaperbaseErrorCodes.DocumentTypeCodeAlreadyExists)
+                throw new BusinessException(PaperbaseErrorCodes.DocumentType.CodeAlreadyExists)
                     .WithData("TypeCode", input.TypeCode);
             }
         }
@@ -125,7 +125,7 @@ public class DocumentTypeAppService : PaperbaseAppService, IDocumentTypeAppServi
             documentQueryable.Where(d => d.DocumentTypeId == entity.Id));
         if (inUse)
         {
-            throw new BusinessException(PaperbaseErrorCodes.DocumentTypeInUse)
+            throw new BusinessException(PaperbaseErrorCodes.DocumentType.InUse)
                 .WithData("TypeCode", entity.TypeCode);
         }
 
@@ -167,7 +167,7 @@ public class DocumentTypeAppService : PaperbaseAppService, IDocumentTypeAppServi
                     !t.IsDeleted));
             if (typeConflict)
             {
-                throw new BusinessException(PaperbaseErrorCodes.DocumentTypeRestoreConflict)
+                throw new BusinessException(PaperbaseErrorCodes.DocumentType.RestoreConflict)
                     .WithData("TypeCode", entity.TypeCode);
             }
 

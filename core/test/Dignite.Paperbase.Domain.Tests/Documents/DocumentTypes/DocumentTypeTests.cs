@@ -35,7 +35,7 @@ public class DocumentTypeTests
     public void Should_Reject_DisplayName_With_Control_Chars(string displayName)
     {
         var ex = Should.Throw<BusinessException>(() => CreateDocumentType(displayName));
-        ex.Code.ShouldBe(PaperbaseErrorCodes.InvalidDocumentTypeDisplayName);
+        ex.Code.ShouldBe(PaperbaseErrorCodes.DocumentType.InvalidDisplayName);
     }
 
     [Fact]
@@ -44,7 +44,7 @@ public class DocumentTypeTests
         // 构造时合法，但 Update 路径必须重新校验——避免 admin 通过 Update API 绕过实体不变量
         var type = CreateDocumentType("Contract");
         Should.Throw<BusinessException>(() => type.Update("host.test", "Bad\nName", 0.7, 0))
-            .Code.ShouldBe(PaperbaseErrorCodes.InvalidDocumentTypeDisplayName);
+            .Code.ShouldBe(PaperbaseErrorCodes.DocumentType.InvalidDisplayName);
     }
 
     [Fact]
@@ -65,7 +65,7 @@ public class DocumentTypeTests
         // rename 解锁不等于跳过 regex 白名单——非法 TypeCode 仍被拒。
         var type = CreateDocumentType("Contract");
         Should.Throw<BusinessException>(() => type.Update("bad code", "Contract", 0.7, 0))
-            .Code.ShouldBe(PaperbaseErrorCodes.InvalidDocumentTypeCodeFormat);
+            .Code.ShouldBe(PaperbaseErrorCodes.DocumentType.InvalidCodeFormat);
     }
 
     [Theory]
@@ -100,7 +100,7 @@ public class DocumentTypeTests
             Guid.NewGuid(), null,
             typeCode: typeCode,
             displayName: "Contract"));
-        ex.Code.ShouldBe(PaperbaseErrorCodes.InvalidDocumentTypeCodeFormat);
+        ex.Code.ShouldBe(PaperbaseErrorCodes.DocumentType.InvalidCodeFormat);
     }
 
     private static DocumentType CreateDocumentType(string displayName) =>

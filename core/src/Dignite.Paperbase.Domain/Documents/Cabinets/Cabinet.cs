@@ -49,7 +49,7 @@ public class Cabinet : FullAuditedAggregateRoot<Guid>, IMultiTenant
 
         if (name.Any(char.IsControl))
         {
-            throw new BusinessException(PaperbaseErrorCodes.InvalidCabinetName)
+            throw new BusinessException(PaperbaseErrorCodes.Cabinet.InvalidName)
                 .WithData("name", name);
         }
 

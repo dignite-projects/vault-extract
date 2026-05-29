@@ -11,7 +11,7 @@ namespace Dignite.Paperbase.Documents.Fields;
 /// 两条写入路径共用此校验器，保证落库的字段值永远"合类型或为 null"：
 /// <list type="bullet">
 ///   <item><b>操作员手改</b>（<c>DocumentAppService.UpdateExtractedFieldsAsync</c>）：交互式路径，
-///   不符 → 抛 <see cref="PaperbaseErrorCodes.InvalidExtractedFieldValue"/> 让操作员纠正。</item>
+///   不符 → 抛 <see cref="PaperbaseErrorCodes.ExtractedField.InvalidValue"/> 让操作员纠正。</item>
 ///   <item><b>LLM 抽取</b>（<c>FieldExtractionWorkflow</c>）：后台非交互式路径，不符 → 存 null + log
 ///   （归一化责任在 prompt，由 AI 输出规范形；校验器是兜底护栏）。</item>
 /// </list>

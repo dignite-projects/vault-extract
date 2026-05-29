@@ -24,7 +24,7 @@ public interface IDocumentTypeAppService : IApplicationService
 
     /// <summary>
     /// 恢复软删除的文档类型，并级联恢复同 (TenantId, TypeCode) 下随之被软删除的字段定义。
-    /// 若同代码已有活跃记录则抛 <see cref="PaperbaseErrorCodes.DocumentTypeRestoreConflict"/>；
+    /// 若同代码已有活跃记录则抛 <see cref="PaperbaseErrorCodes.DocumentType.RestoreConflict"/>；
     /// 个别字段恢复时与活跃字段冲突的会被跳过（防御性，正常流程下不会发生）。
     /// </summary>
     Task<DocumentTypeDto> RestoreAsync(Guid id);

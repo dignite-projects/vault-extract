@@ -69,7 +69,7 @@ public class DocumentPipelineJobScheduler : ITransientDependency
                     PipelineRunId = pipelineRunId
                 },
                 delay: effectiveDelay),
-            _ => throw new BusinessException(PaperbaseErrorCodes.UnknownPipelineCode)
+            _ => throw new BusinessException(PaperbaseErrorCodes.Pipeline.UnknownCode)
                 .WithData("PipelineCode", pipelineCode)
         };
     }

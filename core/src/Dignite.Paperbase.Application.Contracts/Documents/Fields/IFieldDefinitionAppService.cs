@@ -26,8 +26,8 @@ public interface IFieldDefinitionAppService : IApplicationService
 
     /// <summary>
     /// 恢复单个软删除的字段定义。要求父 <see cref="DocumentType"/>（同 TenantId + TypeCode）存在且活跃；
-    /// 父类型缺失或仍处于已删除状态时抛 <see cref="PaperbaseErrorCodes.FieldDefinitionParentTypeMissing"/>；
-    /// 同名活跃字段已存在则抛 <see cref="PaperbaseErrorCodes.FieldDefinitionRestoreConflict"/>。
+    /// 父类型缺失或仍处于已删除状态时抛 <see cref="PaperbaseErrorCodes.FieldDefinition.ParentTypeMissing"/>；
+    /// 同名活跃字段已存在则抛 <see cref="PaperbaseErrorCodes.FieldDefinition.RestoreConflict"/>。
     /// 批量恢复请走 <see cref="IDocumentTypeAppService.RestoreAsync"/> 的级联路径。
     /// </summary>
     Task<FieldDefinitionDto> RestoreAsync(Guid id);

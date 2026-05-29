@@ -69,7 +69,7 @@ public class DocumentType : FullAuditedAggregateRoot<Guid>, IMultiTenant
 
         if (!TypeCodeRegex.IsMatch(typeCode))
         {
-            throw new BusinessException(PaperbaseErrorCodes.InvalidDocumentTypeCodeFormat)
+            throw new BusinessException(PaperbaseErrorCodes.DocumentType.InvalidCodeFormat)
                 .WithData("typeCode", typeCode)
                 .WithData("pattern", DocumentTypeConsts.TypeCodePattern);
         }
@@ -88,7 +88,7 @@ public class DocumentType : FullAuditedAggregateRoot<Guid>, IMultiTenant
         // 控制字符（含 \r \n \t \0 等 C0/C1）一律拒绝——这是 prompt injection 主要注入向量。
         if (displayName.Any(c => char.IsControl(c)))
         {
-            throw new BusinessException(PaperbaseErrorCodes.InvalidDocumentTypeDisplayName)
+            throw new BusinessException(PaperbaseErrorCodes.DocumentType.InvalidDisplayName)
                 .WithData("displayName", displayName);
         }
 

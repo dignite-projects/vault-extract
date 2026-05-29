@@ -146,14 +146,14 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     internal void SetMarkdown(string markdown)
     {
         if (!string.IsNullOrEmpty(Markdown))
-            throw new BusinessException(PaperbaseErrorCodes.MarkdownIsImmutable);
+            throw new BusinessException(PaperbaseErrorCodes.Document.MarkdownIsImmutable);
         Markdown = string.IsNullOrEmpty(markdown) ? null : markdown;
     }
 
     internal void SetTitle(string? title)
     {
         if (!string.IsNullOrEmpty(Title))
-            throw new BusinessException(PaperbaseErrorCodes.TitleIsImmutable);
+            throw new BusinessException(PaperbaseErrorCodes.Document.TitleIsImmutable);
 
         if (string.IsNullOrWhiteSpace(title))
         {

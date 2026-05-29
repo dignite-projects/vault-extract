@@ -43,7 +43,7 @@ public class ExportColumn
 
         if (columnName.Any(char.IsControl))
         {
-            throw new BusinessException(PaperbaseErrorCodes.InvalidExportColumnName)
+            throw new BusinessException(PaperbaseErrorCodes.Export.InvalidColumnName)
                 .WithData("columnName", columnName);
         }
 

@@ -39,7 +39,7 @@ public class FieldDefinitionTests
     public void Should_Reject_Name_With_Invalid_Chars(string name)
     {
         var ex = Should.Throw<BusinessException>(() => CreateDefinition(name));
-        ex.Code.ShouldBe(PaperbaseErrorCodes.InvalidFieldDefinitionName);
+        ex.Code.ShouldBe(PaperbaseErrorCodes.FieldDefinition.InvalidName);
     }
 
     [Fact]
@@ -73,7 +73,7 @@ public class FieldDefinitionTests
     public void Should_Reject_DisplayName_With_Control_Chars(string displayName)
     {
         var ex = Should.Throw<BusinessException>(() => CreateDefinition("amount", displayName));
-        ex.Code.ShouldBe(PaperbaseErrorCodes.InvalidFieldDefinitionDisplayName);
+        ex.Code.ShouldBe(PaperbaseErrorCodes.FieldDefinition.InvalidDisplayName);
     }
 
     [Fact]
@@ -82,7 +82,7 @@ public class FieldDefinitionTests
         var def = CreateDefinition("amount", "Amount");
         Should.Throw<BusinessException>(() =>
                 def.Update("amount", "Bad\nName", "Extract", FieldDataType.String, 0, false))
-            .Code.ShouldBe(PaperbaseErrorCodes.InvalidFieldDefinitionDisplayName);
+            .Code.ShouldBe(PaperbaseErrorCodes.FieldDefinition.InvalidDisplayName);
     }
 
     [Fact]
@@ -104,7 +104,7 @@ public class FieldDefinitionTests
         var def = CreateDefinition("amount", "Amount");
         Should.Throw<BusinessException>(() =>
                 def.Update("bad name", "Amount", "Extract", FieldDataType.String, 0, false))
-            .Code.ShouldBe(PaperbaseErrorCodes.InvalidFieldDefinitionName);
+            .Code.ShouldBe(PaperbaseErrorCodes.FieldDefinition.InvalidName);
     }
 
     private static FieldDefinition CreateDefinition(string name, string displayName = "Amount") =>

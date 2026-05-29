@@ -34,7 +34,7 @@ public class ExportTemplateTests
     {
         Should.Throw<BusinessException>(() =>
                 new ExportColumn(Guid.NewGuid(), columnName, 0))
-            .Code.ShouldBe(PaperbaseErrorCodes.InvalidExportColumnName);
+            .Code.ShouldBe(PaperbaseErrorCodes.Export.InvalidColumnName);
     }
 
     [Theory]
@@ -67,7 +67,7 @@ public class ExportTemplateTests
     public void Should_Reject_Template_With_No_Columns()
     {
         Should.Throw<BusinessException>(() => CreateTemplate())
-            .Code.ShouldBe(PaperbaseErrorCodes.ExportTemplateRequiresColumn);
+            .Code.ShouldBe(PaperbaseErrorCodes.Export.TemplateRequiresColumn);
     }
 
     [Fact]
@@ -76,7 +76,7 @@ public class ExportTemplateTests
         Should.Throw<BusinessException>(() => CreateTemplate(
                 new ExportColumn(Guid.NewGuid(), "重复", 0),
                 new ExportColumn(Guid.NewGuid(), "重复", 1)))
-            .Code.ShouldBe(PaperbaseErrorCodes.ExportTemplateDuplicateColumnName);
+            .Code.ShouldBe(PaperbaseErrorCodes.Export.TemplateDuplicateColumnName);
     }
 
     [Theory]
@@ -87,7 +87,7 @@ public class ExportTemplateTests
         Should.Throw<BusinessException>(() => new ExportTemplate(
                 Guid.NewGuid(), tenantId: null, name, ExportFormat.Csv, TypeId,
                 new[] { new ExportColumn(Guid.NewGuid(), "T", 0) }))
-            .Code.ShouldBe(PaperbaseErrorCodes.InvalidExportTemplateName);
+            .Code.ShouldBe(PaperbaseErrorCodes.Export.InvalidTemplateName);
     }
 
     [Fact]

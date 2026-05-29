@@ -112,7 +112,7 @@ public class DocumentAppService_Retry_Tests
                 doc.Id,
                 new RetryPipelineInput { PipelineCode = PaperbasePipelines.TextExtraction }));
 
-        ex.Code.ShouldBe(PaperbaseErrorCodes.PipelineNotRetryable);
+        ex.Code.ShouldBe(PaperbaseErrorCodes.Pipeline.NotRetryable);
         await _backgroundJobManager.DidNotReceive().EnqueueAsync(
             Arg.Any<DocumentTextExtractionJobArgs>(),
             Arg.Any<BackgroundJobPriority>(),
@@ -132,7 +132,7 @@ public class DocumentAppService_Retry_Tests
                 doc.Id,
                 new RetryPipelineInput { PipelineCode = PaperbasePipelines.Classification }));
 
-        ex.Code.ShouldBe(PaperbaseErrorCodes.PipelineNotRetryable);
+        ex.Code.ShouldBe(PaperbaseErrorCodes.Pipeline.NotRetryable);
     }
 
     [Fact]
@@ -148,7 +148,7 @@ public class DocumentAppService_Retry_Tests
                 doc.Id,
                 new RetryPipelineInput { PipelineCode = PaperbasePipelines.Classification }));
 
-        ex.Code.ShouldBe(PaperbaseErrorCodes.PipelineRetryInProgress);
+        ex.Code.ShouldBe(PaperbaseErrorCodes.Pipeline.RetryInProgress);
         await _backgroundJobManager.DidNotReceive().EnqueueAsync(
             Arg.Any<DocumentClassificationJobArgs>(),
             Arg.Any<BackgroundJobPriority>(),
@@ -166,7 +166,7 @@ public class DocumentAppService_Retry_Tests
                 doc.Id,
                 new RetryPipelineInput { PipelineCode = PaperbasePipelines.TextExtraction }));
 
-        ex.Code.ShouldBe(PaperbaseErrorCodes.PipelineNeverRan);
+        ex.Code.ShouldBe(PaperbaseErrorCodes.Pipeline.NeverRan);
     }
 
     [Fact]
@@ -180,7 +180,7 @@ public class DocumentAppService_Retry_Tests
                 doc.Id,
                 new RetryPipelineInput { PipelineCode = "contracts.field-extraction" }));
 
-        ex.Code.ShouldBe(PaperbaseErrorCodes.UnknownPipelineCode);
+        ex.Code.ShouldBe(PaperbaseErrorCodes.Pipeline.UnknownCode);
         // 未知 PipelineCode 必须在读 Document 之前就被拒绝——
         // 否则给业务模块一个旁路调度核心 Job 的口子。
         await _documentRepository.DidNotReceive().GetWithPipelineRunsAsync(
@@ -227,7 +227,7 @@ public class DocumentAppService_Retry_Tests
                 doc.Id,
                 new RetryPipelineInput { PipelineCode = PaperbasePipelines.TextExtraction }));
 
-        ex.Code.ShouldBe(PaperbaseErrorCodes.DocumentInRecycleBin);
+        ex.Code.ShouldBe(PaperbaseErrorCodes.Document.InRecycleBin);
         await _backgroundJobManager.DidNotReceive().EnqueueAsync(
             Arg.Any<DocumentTextExtractionJobArgs>(),
             Arg.Any<BackgroundJobPriority>(),

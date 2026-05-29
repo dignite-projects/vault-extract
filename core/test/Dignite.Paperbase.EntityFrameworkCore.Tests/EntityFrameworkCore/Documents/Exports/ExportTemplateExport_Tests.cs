@@ -195,7 +195,7 @@ public class ExportTemplateExport_Tests : PaperbaseEntityFrameworkCoreTestBase
             {
                 var ex = await Should.ThrowAsync<BusinessException>(() =>
                     _appService.ExportAsync(new ExportDocumentsInput { TemplateId = templateId }));
-                ex.Code.ShouldBe(PaperbaseErrorCodes.ExportDocumentLimitExceeded);
+                ex.Code.ShouldBe(PaperbaseErrorCodes.Export.DocumentLimitExceeded);
             });
         }
         finally
