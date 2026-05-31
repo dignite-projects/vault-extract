@@ -169,6 +169,7 @@
     "FieldDefinition:Required": "必填",
     "FieldDefinition:AllowMultiple": "允许多值",
     "FieldDefinition:AllowMultipleHint": "仅 String 字段可用——存储一组值（如标签、当事人）。",
+    "FieldDefinition:AllowMultipleEditHint": "每行一个值。",
     "FieldDefinition:Restore": "恢复",
     "FieldDefinition:AreYouSureToDelete": "删除此字段定义？",
     "FieldDefinition:CreatedSuccessfully": "字段已创建。",

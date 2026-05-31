@@ -12,7 +12,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { of, switchMap } from 'rxjs';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { CommonModule } from '@angular/common';
-import { LocalizationPipe, PermissionService } from '@abp/ng.core';
+import { LocalizationPipe, LocalizationService, PermissionService } from '@abp/ng.core';
 import { DynamicFormComponent, type FormFieldConfig } from '@abp/ng.components/dynamic-form';
 import { Confirmation, ConfirmationService, ToasterService } from '@abp/ng.theme.shared';
 import {
@@ -68,6 +68,7 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
   private readonly toaster = inject(ToasterService);
   private readonly confirmation = inject(ConfirmationService);
   private readonly permissionService = inject(PermissionService);
+  private readonly localization = inject(LocalizationService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly canDelete = this.permissionService.getGrantedPolicy(
@@ -405,6 +406,10 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
 
   formatFieldValue(value: unknown): string {
     if (value === null || value === undefined) return '—';
+    // 多值字段（#212）出口是 JSON 数组 → 以 ", " 连接展示（空数组当无值）。
+    if (Array.isArray(value)) {
+      return value.length > 0 ? value.map(v => String(v)).join(', ') : '—';
+    }
     if (typeof value === 'object') return JSON.stringify(value);
     return String(value);
   }
@@ -457,7 +462,8 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
       const config: FormFieldConfig = {
         key: def.name,
         label: `${def.displayName} (${def.name})`,
-        type: this.toFormFieldType(def.dataType),
+        // 多值字段（#212，仅 String）用 textarea 每行一个值；单值按 DataType 选输入类型。
+        type: def.allowMultiple ? 'textarea' : this.toFormFieldType(def.dataType),
         value: this.toFormInitialValue(def, values[def.name]),
         required: def.isRequired,
         order: def.displayOrder,
@@ -467,7 +473,9 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
           : [],
       };
 
-      if (def.dataType === FieldDataType.Number) {
+      if (def.allowMultiple) {
+        config.placeholder = this.localization.instant('::FieldDefinition:AllowMultipleEditHint');
+      } else if (def.dataType === FieldDataType.Number) {
         config.step = 'any';
       } else if (def.dataType === FieldDataType.Boolean) {
         config.options = {
@@ -498,6 +506,11 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
   }
 
   private toFormInitialValue(def: FieldDefinitionDto, value: unknown): unknown {
+    // 多值字段（#212）：出口数组 → textarea 每行一个值。非数组（含 null/未抽取）→ 空。
+    if (def.allowMultiple) {
+      return Array.isArray(value) ? value.map(v => String(v)).join('\n') : '';
+    }
+
     if (value === null || value === undefined) return '';
 
     switch (def.dataType) {
@@ -522,6 +535,14 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
 
   // 按字段 DataType 转成对应 JSON 类型。Date/DateTime/String 一律存字符串。
   private coerceValue(def: FieldDefinitionDto, value: unknown): unknown {
+    // 多值字段（#212）：textarea 每行一个值 → 去空白 + 去空行 → string[]（与后端 UpdateExtractedFieldsAsync 收数组对称）。
+    if (def.allowMultiple) {
+      return String(value ?? '')
+        .split(/\r?\n/)
+        .map(s => s.trim())
+        .filter(s => s.length > 0);
+    }
+
     switch (def.dataType) {
       case FieldDataType.Number: {
         const n = typeof value === 'number' ? value : Number(value);

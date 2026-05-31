@@ -122,6 +122,31 @@ public sealed class DocumentSearchTool
                     projected[pair.Key] = JsonSerializer.SerializeToElement(
                         PromptBoundary.WrapField(pair.Value.GetString()));
                     break;
+                case JsonValueKind.Array:
+                    // 多值字段（#212）：逐元素包裹——每个 String 元素都是用户派生自由文本，必须 WrapField 防 indirect
+                    // prompt injection（多值实为 String-only，非 String 元素按结构化值原样透传作保守兜底）。空数组跳过。
+                    var items = new List<JsonElement>();
+                    foreach (var element in pair.Value.EnumerateArray())
+                    {
+                        switch (element.ValueKind)
+                        {
+                            case JsonValueKind.Null:
+                            case JsonValueKind.Undefined:
+                                continue;
+                            case JsonValueKind.String:
+                                items.Add(JsonSerializer.SerializeToElement(
+                                    PromptBoundary.WrapField(element.GetString())));
+                                break;
+                            default:
+                                items.Add(element);
+                                break;
+                        }
+                    }
+                    if (items.Count > 0)
+                    {
+                        projected[pair.Key] = JsonSerializer.SerializeToElement(items);
+                    }
+                    break;
                 default:
                     // 数字 / 布尔等结构化值原样透传——保留 JSON 类型，下游 LLM 从值本身推断类型。
                     projected[pair.Key] = pair.Value;

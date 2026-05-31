@@ -161,11 +161,10 @@ public class ExportTemplateExport_Tests : PaperbaseEntityFrameworkCoreTestBase
     }
 
     [Fact]
-    public async Task Export_Renders_MultiValue_Field_Deterministically_As_Order0()
+    public async Task Export_Renders_MultiValue_Field_As_Ordered_Join()
     {
-        // #212：多值字段作为导出列 → 渲染 Order 最小行（确定，与 REST/MCP 的 Order-0 标量一致），
-        // 不依赖 DB 对 child 子查询未指定的行返回顺序。本测试故意把行按 Order 2,0,1 的乱序插入——
-        // 若 GetExtractedValue 走旧的 FirstOrDefault（无 OrderBy），会取到物理首行 "2026"（Order 2）而非 Order-0。
+        // #212：多值字段作为导出列 → 按 Order 升序 join 全部值（不丢值、确定，不依赖 DB 对 child 子查询未指定的
+        // 行返回顺序）。本测试故意把行按 Order 2,0,1 的乱序插入——验证导出仍按 Order 0,1,2 = "urgent; legal; 2026"。
         var templateId = _guidGenerator.Create();
         var typeId = _guidGenerator.Create();
         var tagsFieldId = _guidGenerator.Create();
@@ -207,9 +206,8 @@ public class ExportTemplateExport_Tests : PaperbaseEntityFrameworkCoreTestBase
             csv = await reader.ReadToEndAsync();
         });
 
-        // 确定渲染 Order-0 值 "urgent"，而非乱序物理首行 "2026"。
-        csv.ShouldContain("Doc M,urgent");
-        csv.ShouldNotContain("2026");
+        // 按 Order 0,1,2 join（"urgent; legal; 2026"），不是乱序物理顺序 "2026; urgent; legal"。
+        csv.ShouldContain("Doc M,urgent; legal; 2026");
     }
 
     [Fact]

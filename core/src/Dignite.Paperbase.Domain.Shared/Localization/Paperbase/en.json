@@ -172,6 +172,7 @@
     "FieldDefinition:Required": "Required",
     "FieldDefinition:AllowMultiple": "Allow multiple values",
     "FieldDefinition:AllowMultipleHint": "String fields only — stores a list of values (e.g. tags, parties).",
+    "FieldDefinition:AllowMultipleEditHint": "One value per line.",
     "FieldDefinition:Restore": "Restore",
     "FieldDefinition:AreYouSureToDelete": "Delete this field definition?",
     "FieldDefinition:CreatedSuccessfully": "Field created.",

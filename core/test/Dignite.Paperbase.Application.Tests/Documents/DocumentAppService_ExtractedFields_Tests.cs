@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -193,6 +194,38 @@ public class DocumentAppService_ExtractedFields_Tests
             Arg.Is<FieldsExtractedEto>(e => e.DocumentId == doc.Id && e.FieldCount == 1),
             Arg.Any<bool>(),
             Arg.Any<bool>());
+    }
+
+    [Fact]
+    public async Task Should_Render_MultiValue_Field_As_Array_In_Returned_Dto()
+    {
+        // #212：读写对称——多值字段写入数组，出口 DTO 也渲染为 JSON 数组（让 operator 读—改—存往返一致）。
+        var doc = CreateClassifiedDocument("host.contract");
+        StubGet(doc);
+        var tags = new FieldDefinition(
+            Guid.NewGuid(), tenantId: null, documentTypeId: TypeId("host.contract"),
+            name: "tags", displayName: "Tags", prompt: "extract tags",
+            dataType: FieldDataType.String, allowMultiple: true);
+        // 写路径解析（按 typeId 查定义）
+        _fieldDefinitionRepository.GetListAsync(TypeId("host.contract"), Arg.Any<CancellationToken>())
+            .Returns(new List<FieldDefinition> { tags });
+        // 读路径解析（MapToDtoAsync → ResolveReferenceMapsAsync 按 predicate 查定义拿 Name/DataType/AllowMultiple）
+        _fieldDefinitionRepository.GetListAsync(
+            Arg.Any<Expression<Func<FieldDefinition, bool>>>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(new List<FieldDefinition> { tags });
+
+        var dto = await _appService.UpdateExtractedFieldsAsync(doc.Id, new UpdateExtractedFieldsInput
+        {
+            Fields = new Dictionary<string, JsonElement>
+            {
+                ["tags"] = JsonValue(new[] { "urgent", "legal", "2026" })
+            }
+        });
+
+        dto.ExtractedFields.ShouldNotBeNull();
+        var tagsValue = dto.ExtractedFields!["tags"];
+        tagsValue.ValueKind.ShouldBe(JsonValueKind.Array);
+        tagsValue.EnumerateArray().Select(e => e.GetString()).ShouldBe(new[] { "urgent", "legal", "2026" });
     }
 
     [Fact]

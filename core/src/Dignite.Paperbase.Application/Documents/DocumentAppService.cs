@@ -620,11 +620,12 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
     }
 
     /// <summary>
-    /// 一次性解析这批文档涉及的全部 DocumentTypeId → TypeCode 与 FieldDefinitionId → (Name, DataType) 映射。
+    /// 一次性解析这批文档涉及的全部 DocumentTypeId → TypeCode 与 FieldDefinitionId → (Name, DataType, AllowMultiple) 映射。
     /// 穿透 soft-delete（已归档类型 / 字段仍可解析）；IMultiTenant 仍按 ambient 租户隔离（这批文档同属一层）。
-    /// DataType 随 Name 一并取出（#208：字段类型由 FieldDefinition 决定、不在字段值行持久化），供 <see cref="DocumentExtractedField.ToJsonElement"/> 重建出口 JSON。
+    /// DataType 随 Name 一并取出（#208：字段类型由 FieldDefinition 决定、不在字段值行持久化），供 <see cref="DocumentExtractedField.ToJsonElement"/> 重建出口 JSON；
+    /// AllowMultiple（#212）决定该字段在出口渲染为 JSON 数组（多值）还是标量（单值）。
     /// </summary>
-    protected virtual async Task<(Dictionary<Guid, string> TypeCodes, Dictionary<Guid, (string Name, FieldDataType DataType)> Fields)>
+    protected virtual async Task<(Dictionary<Guid, string> TypeCodes, Dictionary<Guid, (string Name, FieldDataType DataType, bool AllowMultiple)> Fields)>
         ResolveReferenceMapsAsync(IReadOnlyCollection<Document> documents)
     {
         var typeIds = documents
@@ -639,7 +640,7 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
             .ToList();
 
         var typeCodes = new Dictionary<Guid, string>();
-        var fields = new Dictionary<Guid, (string Name, FieldDataType DataType)>();
+        var fields = new Dictionary<Guid, (string Name, FieldDataType DataType, bool AllowMultiple)>();
 
         using (DataFilter.Disable<ISoftDelete>())
         {
@@ -655,7 +656,7 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
             {
                 foreach (var f in await _fieldDefinitionRepository.GetListAsync(f => fieldIds.Contains(f.Id)))
                 {
-                    fields[f.Id] = (f.Name, f.DataType);
+                    fields[f.Id] = (f.Name, f.DataType, f.AllowMultiple);
                 }
             }
         }
@@ -668,7 +669,7 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
 
     private static Dictionary<string, JsonElement>? AssembleExtractedFields(
         IReadOnlyCollection<DocumentExtractedField> values,
-        IReadOnlyDictionary<Guid, (string Name, FieldDataType DataType)> fieldDefs)
+        IReadOnlyDictionary<Guid, (string Name, FieldDataType DataType, bool AllowMultiple)> fieldDefs)
     {
         if (values.Count == 0)
         {
@@ -687,12 +688,22 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
                 continue;
             }
 
-            // #212 范围限定：出口 ExtractedFields 字典格式本期不变（用户明确"出口契约可以不做"）——多值字段
-            // 取 Order 最小行渲染标量（MinBy 单趟取最小，不全排序），wire-shape 与多值前完全一致
-            // （既有消费方 / MCP ProjectFields / 导出列零感知）。多值的完整集合当前经字段过滤查询消费
-            // （GetFieldMatchedIdsAsync 的 .Any 跨全部行命中任一值）；数组出口形态（含 MCP 逐元素 PromptBoundary 包裹、导出列 join）留作后续出口契约增量。
-            var primary = group.MinBy(v => v.Order)!;
-            dict[def.Name] = primary.ToJsonElement(def.DataType);
+            if (def.AllowMultiple)
+            {
+                // 多值字段（#212）：按 Order 升序渲染为 JSON 数组（出口 wire-shape：string[]）——与写入路径
+                // （UpdateExtractedFieldsAsync / 抽取均收数组）对称，让 operator 读—改—存往返一致。
+                var array = group
+                    .OrderBy(v => v.Order)
+                    .Select(v => v.ToJsonElement(def.DataType))
+                    .ToArray();
+                dict[def.Name] = JsonSerializer.SerializeToElement(array);
+            }
+            else
+            {
+                // 单值字段：取 Order 最小行渲染标量（MinBy 单趟取最小，不全排序），wire-shape 与既有完全一致。
+                var primary = group.MinBy(v => v.Order)!;
+                dict[def.Name] = primary.ToJsonElement(def.DataType);
+            }
         }
 
         return dict.Count > 0 ? dict : null;

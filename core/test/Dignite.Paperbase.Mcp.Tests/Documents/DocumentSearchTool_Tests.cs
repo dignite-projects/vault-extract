@@ -153,6 +153,38 @@ public class DocumentSearchTool_Tests : PaperbaseTestBase<DocumentSearchToolTest
     }
 
     [Fact]
+    public async Task Wraps_each_element_of_multi_value_string_array()
+    {
+        var docId = Guid.NewGuid();
+        _documentAppService
+            .GetListAsync(Arg.Any<GetDocumentListInput>())
+            .Returns(new PagedResultDto<DocumentListItemDto>(1, new List<DocumentListItemDto>
+            {
+                new()
+                {
+                    Id = docId,
+                    LifecycleStatus = DocumentLifecycleStatus.Ready,
+                    CreationTime = new DateTime(2024, 1, 1),
+                    // 多值 String 字段（#212）出口是 JSON 数组。
+                    ExtractedFields = new Dictionary<string, JsonElement>
+                    {
+                        ["tags"] = JsonSerializer.SerializeToElement(new[] { "urgent", "legal" })
+                    }
+                }
+            }));
+
+        var result = await DocumentSearchTool.SearchAsync(
+            _documentAppService, documentTypeCode: "contract.general");
+
+        // 数组逐元素经 PromptBoundary 包裹——每个元素都是用户派生自由文本，防 indirect prompt injection。
+        var tags = result[0].ExtractedFields!["tags"];
+        tags.ValueKind.ShouldBe(JsonValueKind.Array);
+        tags.GetArrayLength().ShouldBe(2);
+        tags[0].GetString().ShouldBe(PromptBoundary.WrapField("urgent"));
+        tags[1].GetString().ShouldBe(PromptBoundary.WrapField("legal"));
+    }
+
+    [Fact]
     public async Task Skips_null_valued_extracted_fields()
     {
         var docId = Guid.NewGuid();
