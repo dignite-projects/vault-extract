@@ -12,9 +12,6 @@
     },
     "Dignite.Paperbase.Host": {
       "path": "host/Dignite.Paperbase.Host.abpmdl"
-    },
-    "Dignite.Paperbase.Contracts": {
-      "path": "modules/contracts/Dignite.Paperbase.Contracts.abpmdl"
     }
   },
   "runProfiles": {
