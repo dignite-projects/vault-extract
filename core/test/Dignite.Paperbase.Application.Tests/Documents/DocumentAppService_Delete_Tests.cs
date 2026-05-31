@@ -203,7 +203,6 @@ public class DocumentAppService_Delete_Tests
             Guid.NewGuid(),
             Guid.NewGuid(),
             $"blobs/{Guid.NewGuid():N}.pdf",
-            SourceType.Digital,
             new FileOrigin(
                 uploadedByUserName: "test-user",
                 contentType: "application/pdf",
@@ -221,7 +220,6 @@ public class DocumentAppService_Delete_Tests
             Guid.NewGuid(),
             Guid.NewGuid(),
             $"blobs/{Guid.NewGuid():N}.pdf",
-            SourceType.Digital,
             new FileOrigin(
                 uploadedByUserName: "test-user",
                 contentType: "application/pdf",

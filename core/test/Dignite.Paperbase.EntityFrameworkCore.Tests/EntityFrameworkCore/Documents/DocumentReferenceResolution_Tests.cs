@@ -177,7 +177,6 @@ public class DocumentReferenceResolution_Tests : PaperbaseTestBase<DocumentRefer
             docId,
             tenantId: null,
             originalFileBlobName: $"blobs/{docId:N}.pdf",
-            sourceType: SourceType.Digital,
             fileOrigin: new FileOrigin("test-user", "application/pdf", $"{Guid.NewGuid():N}{Guid.NewGuid():N}", 1024, "f.pdf"));
         typeof(Document).GetProperty(nameof(Document.DocumentTypeId))!.SetValue(doc, type.Id);
         doc.SetFields(new[] { new DocumentFieldValue(field.Id, dataType, JsonSerializer.SerializeToElement(value)) });

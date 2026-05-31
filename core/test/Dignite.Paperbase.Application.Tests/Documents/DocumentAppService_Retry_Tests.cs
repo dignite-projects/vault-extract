@@ -273,7 +273,6 @@ public class DocumentAppService_Retry_Tests
             Guid.NewGuid(),
             tenantId,
             $"blobs/{Guid.NewGuid():N}.pdf",
-            SourceType.Digital,
             new FileOrigin(
                 uploadedByUserName: "test-user",
                 contentType: "application/pdf",

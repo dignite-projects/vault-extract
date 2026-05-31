@@ -3,7 +3,7 @@ using System;
 namespace Dignite.Paperbase.Documents.Exports;
 
 /// <summary>
-/// 导出模板的一列（#207 收敛为 ExtractedField-only）。系统字段（SourceType / LifecycleStatus / ReviewStatus / Title）
+/// 导出模板的一列（#207 收敛为 ExtractedField-only）。系统字段（LifecycleStatus / ReviewStatus / Title）
 /// 由导出引擎固定输出，不在此列出。
 /// </summary>
 public class ExportColumnDto

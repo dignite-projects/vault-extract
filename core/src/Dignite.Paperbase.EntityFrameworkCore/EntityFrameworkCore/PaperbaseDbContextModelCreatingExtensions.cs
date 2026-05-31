@@ -55,7 +55,6 @@ public static class PaperbaseDbContextModelCreatingExtensions
             b.ConfigureByConvention();
 
             b.Property(x => x.OriginalFileBlobName).IsRequired().HasMaxLength(DocumentConsts.MaxOriginalFileBlobNameLength);
-            b.Property(x => x.SourceType).IsRequired();
             b.Property(x => x.LifecycleStatus).IsRequired();
             b.Property(x => x.ReviewStatus).IsRequired();
             b.Property(x => x.ClassificationReason);

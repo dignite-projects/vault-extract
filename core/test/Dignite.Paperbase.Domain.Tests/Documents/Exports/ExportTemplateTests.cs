@@ -8,7 +8,7 @@ namespace Dignite.Paperbase.Documents.Exports;
 /// <summary>
 /// ExportTemplate / ExportColumn 实体层不变量测试（#207 收敛为 ExtractedField-only）。重点：
 /// 列引用 <c>FieldDefinitionId</c>、列名控制字符过滤、列数与重名约束、按 Order 排序、DocumentTypeId 必填。
-/// 系统字段（SourceType / LifecycleStatus / ReviewStatus / Title）由导出引擎固定输出（不走列配置），故无系统列白名单测试。
+/// 系统字段（LifecycleStatus / ReviewStatus / Title）由导出引擎固定输出（不走列配置），故无系统列白名单测试。
 /// </summary>
 public class ExportTemplateTests
 {

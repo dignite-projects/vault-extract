@@ -105,7 +105,7 @@ public class DocumentPipelineRunManager : DomainService
     }
 
     /// <summary>
-    /// 记录文本提取结果、回写实际 SourceType + 语言 + provenance 元数据并完成 Run。
+    /// 记录文本提取结果、写入语言 + provenance 元数据并完成 Run。
     /// <paramref name="markdown"/> 是流水线唯一的文本载荷（数字版与 OCR 路径都已统一输出 Markdown）；
     /// 下游需要纯文本时通过 <see cref="MarkdownStripper.Strip"/> 投影。
     /// <para>
@@ -120,11 +120,9 @@ public class DocumentPipelineRunManager : DomainService
         DocumentPipelineRun run,
         string markdown,
         string? title,
-        SourceType sourceType = SourceType.Physical,
         string? language = null,
         DocumentTextExtractionMetadata? extractionMetadata = null)
     {
-        document.SetSourceType(sourceType);
         document.SetMarkdown(markdown);
         document.SetTitle(title);
         document.SetLanguage(language);

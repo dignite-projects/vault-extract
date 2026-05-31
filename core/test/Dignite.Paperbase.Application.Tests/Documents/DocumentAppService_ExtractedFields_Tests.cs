@@ -212,7 +212,6 @@ public class DocumentAppService_ExtractedFields_Tests
             Guid.NewGuid(),
             tenantId: null,
             originalFileBlobName: $"blobs/{Guid.NewGuid():N}.pdf",
-            sourceType: SourceType.Digital,
             fileOrigin: new FileOrigin(
                 uploadedByUserName: "test-user",
                 contentType: "application/pdf",

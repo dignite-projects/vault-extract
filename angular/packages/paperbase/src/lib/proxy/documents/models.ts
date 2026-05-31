@@ -1,5 +1,4 @@
 import type { EntityDto, ExtensibleObject } from '@abp/ng.core';
-import type { SourceType } from './source-type.enum';
 import type { DocumentLifecycleStatus } from './document-lifecycle-status.enum';
 import type { DocumentReviewStatus } from './document-review-status.enum';
 import type { PipelineRunStatus } from './pipeline-run-status.enum';
@@ -39,7 +38,6 @@ export interface DocumentPipelineRunDto extends ExtensibleObject {
 export interface DocumentDto extends EntityDto<string> {
   tenantId?: string;
   originalFileBlobName: string;
-  sourceType: SourceType;
   fileOrigin: FileOriginDto;
   // 所属文件柜（#194）。null = 未归类。柜名由前端用柜列表 map 显示。
   cabinetId?: string | null;
@@ -65,7 +63,6 @@ export interface DocumentDto extends EntityDto<string> {
 export interface DocumentListItemDto extends EntityDto<string> {
   tenantId?: string;
   originalFileBlobName: string;
-  sourceType: SourceType;
   fileOrigin: FileOriginDto;
   // 所属文件柜（#194）。null = 未归类。柜名由前端用柜列表 map 显示。
   cabinetId?: string | null;

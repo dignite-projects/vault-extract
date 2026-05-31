@@ -19,8 +19,6 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// <summary>BlobStore 中的 Key，写入后不可修改</summary>
     public virtual string OriginalFileBlobName { get; private set; } = default!;
 
-    public virtual SourceType SourceType { get; private set; }
-
     /// <summary>文件来源信息（不可变）</summary>
     public virtual FileOrigin FileOrigin { get; private set; } = default!;
 
@@ -135,14 +133,12 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         Guid id,
         Guid? tenantId,
         string originalFileBlobName,
-        SourceType sourceType,
         FileOrigin fileOrigin,
         Guid? cabinetId = null)
         : base(id)
     {
         TenantId = tenantId;
         OriginalFileBlobName = Check.NotNullOrWhiteSpace(originalFileBlobName, nameof(originalFileBlobName));
-        SourceType = sourceType;
         FileOrigin = Check.NotNull(fileOrigin, nameof(fileOrigin));
         CabinetId = cabinetId;
         LifecycleStatus = DocumentLifecycleStatus.Uploaded;
@@ -172,11 +168,6 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         Title = trimmed.Length <= DocumentConsts.MaxTitleLength
             ? trimmed
             : trimmed[..DocumentConsts.MaxTitleLength];
-    }
-
-    internal void SetSourceType(SourceType sourceType)
-    {
-        SourceType = sourceType;
     }
 
     /// <summary>

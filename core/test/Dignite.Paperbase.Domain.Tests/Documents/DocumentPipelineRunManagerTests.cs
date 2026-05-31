@@ -33,7 +33,6 @@ public class DocumentPipelineRunManagerTests : PaperbaseDomainTestBase<Paperbase
             id: Guid.NewGuid(),
             tenantId: null,
             originalFileBlobName: "blobs/test.pdf",
-            sourceType: SourceType.Digital,
             fileOrigin: fileOrigin);
     }
 
@@ -269,11 +268,10 @@ public class DocumentPipelineRunManagerTests : PaperbaseDomainTestBase<Paperbase
         var run = await _manager.StartAsync(doc, PaperbasePipelines.TextExtraction);
 
         await _manager.CompleteTextExtractionAsync(
-            doc, run, markdown: "# Hello\n\nbody", title: "Hello", sourceType: SourceType.Digital);
+            doc, run, markdown: "# Hello\n\nbody", title: "Hello");
 
         doc.Markdown.ShouldBe("# Hello\n\nbody");
         doc.Title.ShouldBe("Hello");
-        doc.SourceType.ShouldBe(SourceType.Digital);
         run.Status.ShouldBe(PipelineRunStatus.Succeeded);
     }
 
@@ -288,7 +286,7 @@ public class DocumentPipelineRunManagerTests : PaperbaseDomainTestBase<Paperbase
             new NativePayloadManifest("extraction-native/" + doc.Id, "application/json", 42, "abc123", "PaddleOCR/PP-StructureV3"));
 
         await _manager.CompleteTextExtractionAsync(
-            doc, run, markdown: "# Scan\n\nbody", title: "Scan", sourceType: SourceType.Physical,
+            doc, run, markdown: "# Scan\n\nbody", title: "Scan",
             language: "ja", extractionMetadata: metadata);
 
         doc.Language.ShouldBe("ja");

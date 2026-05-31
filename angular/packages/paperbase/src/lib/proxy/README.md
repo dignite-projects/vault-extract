@@ -11,8 +11,6 @@ Notable hand edits (do **not** lose these if you ever regenerate):
   - `retryPipeline(id, pipelineCode)` — endpoint added after the last regeneration
 - `http-api/documents/document-relation.service.ts`
   - `getList` query param fixed: `documentId` (matches backend `IDocumentRelationAppService.GetListAsync(Guid documentId)`)
-- `documents/source-type.enum.ts`
-  - Values fixed to `Physical = 0, Digital = 1` (matches the backend C# enum)
 - `documents/models.ts`
   - `DocumentDto.classificationConfidence`, `DocumentReviewStatus`, `pipelineRuns`
     promoted to required to match what the UI actually reads

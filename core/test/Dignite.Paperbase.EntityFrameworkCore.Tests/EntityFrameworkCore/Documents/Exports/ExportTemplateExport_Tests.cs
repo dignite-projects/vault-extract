@@ -18,7 +18,7 @@ namespace Dignite.Paperbase.EntityFrameworkCore.Documents;
 /// <summary>
 /// ExportTemplateAppService.ExportAsync 集成测试（SQLite 真实 EF，#207）：
 /// <list type="bullet">
-///   <item>固定系统字段（SourceType / LifecycleStatus / ReviewStatus / Title）始终在前，模板抽取列（按 FieldDefinitionId 匹配）在后</item>
+///   <item>固定系统字段（LifecycleStatus / ReviewStatus / Title）始终在前，模板抽取列（按 FieldDefinitionId 匹配）在后</item>
 ///   <item>typed child 行（#206）经投影 + FieldValueToString 正确渲染（含 Number / Date）</item>
 ///   <item>over-cap fail-fast（fetch Max+1，超限抛错而非静默截断）</item>
 /// </list>
@@ -105,10 +105,9 @@ public class ExportTemplateExport_Tests : PaperbaseEntityFrameworkCoreTestBase
             csv = await reader.ReadToEndAsync();
         });
 
-        // 固定系统字段列在前（SourceType / LifecycleStatus / ReviewStatus / Title），模板抽取列在后。
-        csv.ShouldContain("SourceType,LifecycleStatus,ReviewStatus,Title,金额,对方");
-        // 新建文档默认 LifecycleStatus=Uploaded、ReviewStatus=None、SourceType=Digital。
-        csv.ShouldContain("Digital,Uploaded,None,Invoice A,1000,Acme");
+        // 固定系统字段列在前（LifecycleStatus / ReviewStatus / Title），模板抽取列在后。
+        csv.ShouldContain("LifecycleStatus,ReviewStatus,Title,金额,对方");
+        csv.ShouldContain("Uploaded,None,Invoice A,1000,Acme");
     }
 
     [Fact]
@@ -283,7 +282,6 @@ public class ExportTemplateExport_Tests : PaperbaseEntityFrameworkCoreTestBase
             id,
             tenantId: null,
             originalFileBlobName: $"blobs/{id:N}.pdf",
-            sourceType: SourceType.Digital,
             fileOrigin: new FileOrigin(
                 uploadedByUserName: "test-user",
                 contentType: "application/pdf",

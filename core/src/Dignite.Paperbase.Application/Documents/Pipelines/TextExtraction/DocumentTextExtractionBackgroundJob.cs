@@ -87,7 +87,6 @@ public class DocumentTextExtractionBackgroundJob
 
             var result = await _textExtractor.ExtractAsync(blobStream, ctx);
 
-            var actualSourceType = result.UsedOcr ? SourceType.Physical : SourceType.Digital;
             var title = await TryGenerateTitleAsync(result.Markdown)
                 ?? MarkdownTitleExtractor.ExtractTitle(result.Markdown)
                 ?? FallbackTitleFromFileName(workItem.OriginalFileName);
@@ -97,7 +96,7 @@ public class DocumentTextExtractionBackgroundJob
             var extractionMetadata = await ArchiveNativePayloadAndBuildMetadataAsync(args.DocumentId, result);
 
             await CompleteRunAsync(
-                args.DocumentId, workItem.RunId, result, title, actualSourceType, extractionMetadata);
+                args.DocumentId, workItem.RunId, result, title, extractionMetadata);
         }
         catch (Exception ex)
         {
@@ -128,7 +127,6 @@ public class DocumentTextExtractionBackgroundJob
         Guid runId,
         TextExtractionResult result,
         string? title,
-        SourceType actualSourceType,
         DocumentTextExtractionMetadata extractionMetadata)
     {
         using var uow = _unitOfWorkManager.Begin(requiresNew: true);
@@ -139,7 +137,7 @@ public class DocumentTextExtractionBackgroundJob
                 document, runId, PaperbasePipelines.TextExtraction);
 
         await _pipelineRunManager.CompleteTextExtractionAsync(
-            document, run, result.Markdown, title, actualSourceType,
+            document, run, result.Markdown, title,
             language: result.DetectedLanguage,
             extractionMetadata: extractionMetadata);
 

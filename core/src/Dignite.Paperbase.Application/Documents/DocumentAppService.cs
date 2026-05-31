@@ -225,7 +225,6 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
             await _blobContainer.SaveAsync(blobName, saveStream);
         }
 
-        var sourceType = SourceType.Physical; // placeholder；提取完成后由 BackgroundJob 回写实际值
         var fileOrigin = new FileOrigin(
             CurrentUser.UserName ?? string.Empty,
             contentType,
@@ -237,7 +236,6 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
             GuidGenerator.Create(),
             CurrentTenant.Id,
             blobName,
-            sourceType,
             fileOrigin,
             cabinetId: input.CabinetId);
 

@@ -8,7 +8,7 @@ namespace Dignite.Paperbase.Documents.Exports;
 /// 导出模板的一列定义（值对象，#207 收敛为 ExtractedField-only）。每列引用一个类型绑定字段值
 /// （按不可变 <see cref="FieldDefinitionId"/>），渲染为输出文件中名为 <see cref="ColumnName"/> 的列。
 /// <para>
-/// 系统通用字段（<c>SourceType</c> / <c>LifecycleStatus</c> / <c>ReviewStatus</c> / <c>Title</c>）由导出引擎
+/// 系统通用字段（<c>LifecycleStatus</c> / <c>ReviewStatus</c> / <c>Title</c>）由导出引擎
 /// <b>固定输出</b>，不走模板列配置——它们是 Paperbase 稳定元数据契约，无需像业务字段一样配置（#207）。
 /// </para>
 /// <para>

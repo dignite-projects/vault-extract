@@ -106,7 +106,6 @@ public class CabinetAppService_Tests : PaperbaseApplicationTestBase<CabinetAppSe
             Guid.NewGuid(),
             tenantId: null,
             originalFileBlobName: $"blobs/{Guid.NewGuid():N}.pdf",
-            sourceType: SourceType.Digital,
             fileOrigin: new FileOrigin(
                 uploadedByUserName: "test-user",
                 contentType: "application/pdf",

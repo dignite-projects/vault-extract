@@ -63,7 +63,6 @@ public class DocumentPipelineRunAccessorTests
             Guid.NewGuid(),
             tenantId: Guid.NewGuid(),
             originalFileBlobName: $"blobs/{Guid.NewGuid():N}.pdf",
-            sourceType: SourceType.Digital,
             fileOrigin: new FileOrigin(
                 uploadedByUserName: "test-user",
                 contentType: "application/pdf",

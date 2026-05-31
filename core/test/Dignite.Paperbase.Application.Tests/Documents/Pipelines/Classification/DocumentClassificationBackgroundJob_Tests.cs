@@ -296,7 +296,6 @@ public class DocumentClassificationBackgroundJob_Tests
         var doc = new Document(
             Guid.NewGuid(), null,
             $"blobs/{Guid.NewGuid():N}.pdf",
-            SourceType.Digital,
             new FileOrigin(
                 uploadedByUserName: "test-user",
                 contentType: "application/pdf",

@@ -7,6 +7,5 @@ export * from './field-definition.models';
 export * from './models';
 export * from './pipeline-run-status.enum';
 export * from './slug-suggestion.models';
-export * from './source-type.enum';
 export * from './export-format.enum';
 export * from './export-template.models';

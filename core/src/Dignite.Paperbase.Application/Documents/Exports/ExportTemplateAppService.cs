@@ -17,10 +17,10 @@ namespace Dignite.Paperbase.Documents.Exports;
 [Authorize]
 public class ExportTemplateAppService : PaperbaseAppService, IExportTemplateAppService
 {
-    // 固定导出的系统字段表头（#207）——SourceType / LifecycleStatus / ReviewStatus / Title 始终输出，不走模板列配置。
+    // 固定导出的系统字段表头（#207）——LifecycleStatus / ReviewStatus / Title 始终输出，不走模板列配置。
     private static readonly IReadOnlyList<string> SystemFieldHeaders = new[]
     {
-        "SourceType", "LifecycleStatus", "ReviewStatus", "Title"
+        "LifecycleStatus", "ReviewStatus", "Title"
     };
 
     private readonly IExportTemplateRepository _templateRepository;
@@ -131,7 +131,6 @@ public class ExportTemplateAppService : PaperbaseAppService, IExportTemplateAppS
                 .OrderByDescending(d => d.CreationTime)
                 .Select(d => new ExportProjection
                 {
-                    SourceType = d.SourceType,
                     Title = d.Title,
                     LifecycleStatus = d.LifecycleStatus,
                     ReviewStatus = d.ReviewStatus,
@@ -181,10 +180,9 @@ public class ExportTemplateAppService : PaperbaseAppService, IExportTemplateAppS
             .Select(r =>
             {
                 var cells = new string?[headers.Count];
-                cells[0] = r.SourceType.ToString();
-                cells[1] = r.LifecycleStatus.ToString();
-                cells[2] = r.ReviewStatus.ToString();
-                cells[3] = r.Title;
+                cells[0] = r.LifecycleStatus.ToString();
+                cells[1] = r.ReviewStatus.ToString();
+                cells[2] = r.Title;
                 for (var i = 0; i < template.Columns.Count; i++)
                 {
                     cells[systemCount + i] = GetExtractedValue(r, template.Columns[i].FieldDefinitionId, fieldDataTypes);

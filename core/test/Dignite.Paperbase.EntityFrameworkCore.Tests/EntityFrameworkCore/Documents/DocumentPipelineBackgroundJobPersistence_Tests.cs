@@ -361,7 +361,6 @@ public class DocumentPipelineBackgroundJobPersistence_Tests
             id,
             tenantId: null,
             originalFileBlobName: "blobs/test.pdf",
-            sourceType: SourceType.Digital,
             fileOrigin: new FileOrigin(
                 uploadedByUserName: "test-user",
                 contentType: "application/pdf",

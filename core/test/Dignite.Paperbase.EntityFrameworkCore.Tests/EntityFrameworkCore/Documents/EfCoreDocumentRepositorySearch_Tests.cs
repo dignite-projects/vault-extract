@@ -515,7 +515,6 @@ public class EfCoreDocumentRepositorySearch_Tests : PaperbaseEntityFrameworkCore
             id,
             tenantId,
             originalFileBlobName: $"blobs/{id:N}.pdf",
-            sourceType: SourceType.Digital,
             fileOrigin: new FileOrigin(
                 uploadedByUserName: "test-user",
                 contentType: "application/pdf",
