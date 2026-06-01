@@ -14,6 +14,8 @@
     <PackageReference Include="Volo.Abp.Ddd.Domain" />
     <ProjectReference Include="..\Dignite.Paperbase.Abstractions\Dignite.Paperbase.Abstractions.csproj" />
     <ProjectReference Include="..\Dignite.Paperbase.Domain.Shared\Dignite.Paperbase.Domain.Shared.csproj" />
+    <!-- EFCore.Tests 需直接构造 DocumentPipelineRun（internal 构造器）以验证仓储对未 flush run 的可见性语义（#216 follow-up #1）。 -->
+    <InternalsVisibleTo Include="Dignite.Paperbase.EntityFrameworkCore.Tests" />
   </ItemGroup>
 
 </Project>

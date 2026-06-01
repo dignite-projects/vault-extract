@@ -23,9 +23,9 @@ namespace Dignite.Paperbase.Documents.Pipelines;
 /// </para>
 /// <para>
 /// #216 起 <see cref="DocumentPipelineRun"/> 是独立聚合根：状态流转通过 <see cref="IDocumentPipelineRunRepository"/>
-/// 持久化；<see cref="DeriveLifecycleAsync"/> 查仓储算最新 run，但 <b>EF Core 默认 LINQ 查 DB</b>，看不到
-/// 本 UoW 内尚未 flush 的 Insert/Modify——故每次 Manager 方法都把"刚改动的 run 实例"以 <c>runJustChanged</c>
-/// 参数传入，在 DeriveLifecycleAsync 内 in-memory override DB 结果，确保派生用的是 post-change 视图。
+/// 持久化；<see cref="DeriveLifecycleAsync"/> 查仓储算最新 run。EF Core 默认 LINQ 查 DB 看不到本 UoW 内尚未
+/// flush 的 Insert/Modify，故 <see cref="IDocumentPipelineRunRepository.GetLatestRunsByCodesAsync"/> 在仓储内
+/// 合并 change-tracker 的 Local entries 补上 post-change 视图——派生逻辑因此无需调用方传入"刚改动的 run"。
 /// </para>
 /// <para>
 /// <b>AttemptNumber 并发安全</b>（#216 D2）：拆分前 Document 主行 UPDATE 提供隐式行级锁；拆分后无此互斥。
@@ -84,7 +84,7 @@ public class DocumentPipelineRunManager : DomainService
                 // autoSave:true → 触发本 UoW 立即 SaveChanges，撞键当场抛 DbUpdateException 而非延后到外层 commit。
                 // 同 UoW / 同事务：成功的 INSERT 仍由外层 UoW commit 才真正可见给其他事务；失败 / 外层回滚一并撤销。
                 await _runRepo.InsertAsync(run, autoSave: true);
-                await DeriveLifecycleAsync(document, runJustChanged: run);
+                await DeriveLifecycleAsync(document);
                 return run;
             }
             catch (Exception ex) when (IsAttemptNumberUniqueViolation(ex)
@@ -248,6 +248,41 @@ public class DocumentPipelineRunManager : DomainService
     }
 
     /// <summary>
+    /// 取该 pipeline 最近一次 run 并校验其可重试性——仅 <see cref="PipelineRunStatus.Failed"/> 可重试。
+    /// 不存在任何 run → <c>Pipeline.NeverRan</c>；Pending/Running → <c>Pipeline.RetryInProgress</c>（并发护栏）；
+    /// Succeeded/Skipped → <c>Pipeline.NotRetryable</c>。校验通过返回该 failed run，调用方据其
+    /// <see cref="DocumentPipelineRun.AttemptNumber"/> 记审计日志后再 <see cref="QueueAsync"/> 触发重试。
+    /// <para>
+    /// retry 状态机判定是 run 聚合的 domain 关注点，集中在 manager（已持有 <see cref="IDocumentPipelineRunRepository"/>），
+    /// 让 AppService 不直接查 run 仓储（#216 follow-up #6）。PipelineCode 合法性是输入层校验，留在调用方。
+    /// </para>
+    /// </summary>
+    public virtual async Task<DocumentPipelineRun> EnsureRetryableAsync(Guid documentId, string pipelineCode)
+    {
+        var latestRun = await _runRepo.FindLatestByDocumentAndCodeAsync(documentId, pipelineCode);
+        if (latestRun == null)
+        {
+            throw new BusinessException(PaperbaseErrorCodes.Pipeline.NeverRan)
+                .WithData("PipelineCode", pipelineCode);
+        }
+
+        switch (latestRun.Status)
+        {
+            case PipelineRunStatus.Pending:
+            case PipelineRunStatus.Running:
+                throw new BusinessException(PaperbaseErrorCodes.Pipeline.RetryInProgress)
+                    .WithData("PipelineCode", pipelineCode);
+            case PipelineRunStatus.Succeeded:
+            case PipelineRunStatus.Skipped:
+                throw new BusinessException(PaperbaseErrorCodes.Pipeline.NotRetryable)
+                    .WithData("PipelineCode", pipelineCode)
+                    .WithData("Status", latestRun.Status.ToString());
+        }
+
+        return latestRun;
+    }
+
+    /// <summary>
     /// Shared tail of every state transition: persist the run via repo, optionally fire the run-completed
     /// LocalEvent, then re-derive Document.LifecycleStatus. BeginAsync skips the event (run is just starting,
     /// not completing); Complete/Fail/Skip all publish it.
@@ -264,33 +299,21 @@ public class DocumentPipelineRunManager : DomainService
             run.PublishRunCompletedEvent();
         }
 
-        await DeriveLifecycleAsync(document, runJustChanged: run);
+        await DeriveLifecycleAsync(document);
     }
 
     /// <summary>
     /// 根据所有关键流水线的最新 Run 派生 Document.LifecycleStatus。
     /// <para>
-    /// <paramref name="runJustChanged"/>：本次 Manager 调用刚 Insert/Update 的 run。EF Core 默认 LINQ 查 DB，
-    /// 看不到本 UoW 内尚未 flush 的更改——故把内存 run 实例显式 in-memory override 进结果集，
-    /// 确保派生用的是 post-change 视图。
+    /// 最新 run 由 <see cref="IDocumentPipelineRunRepository.GetLatestRunsByCodesAsync"/> 提供，该仓储已
+    /// 合并本 UoW 内尚未 flush 的 change-tracker 实体（EFCore 实现 peek Local entries；in-memory fake 因
+    /// 持有 run 引用天然可见）。故此处直接消费仓储结果即是 post-change 视图，无需调用方再传入"刚改动的 run"。
     /// </para>
     /// </summary>
-    protected virtual async Task DeriveLifecycleAsync(
-        Document document,
-        DocumentPipelineRun? runJustChanged = null)
+    protected virtual async Task DeriveLifecycleAsync(Document document)
     {
         var latestRuns = await _runRepo.GetLatestRunsByCodesAsync(
             document.Id, PaperbasePipelines.KeyPipelines);
-
-        // In-memory override：刚改动的 run 比 DB 读到的更新；按 AttemptNumber 比较接管同一 PipelineCode。
-        if (runJustChanged != null && PaperbasePipelines.KeyPipelines.Contains(runJustChanged.PipelineCode))
-        {
-            if (!latestRuns.TryGetValue(runJustChanged.PipelineCode, out var existing)
-                || runJustChanged.AttemptNumber >= existing.AttemptNumber)
-            {
-                latestRuns[runJustChanged.PipelineCode] = runJustChanged;
-            }
-        }
 
         var derivedStatus = DocumentLifecycleStatus.Processing;
         var allSucceeded = true;

@@ -148,12 +148,12 @@ public class DocumentAppService_Review_Tests
 
     private IQueryable<Document> ApplyFilterForTest(IQueryable<Document> query, GetDocumentListInput input)
     {
-        // #216：DocumentPipelineRunManager 与 DocumentAppService 都新增了 IDocumentPipelineRunRepository 依赖；
-        // 本测试只反射调 ApplyFilter（纯 LINQ 函数，不触发 manager / repo 实际调用），传 Substitute 即可。
+        // #216：DocumentPipelineRunManager 依赖 IDocumentPipelineRunRepository（AppService 自 follow-up #6 起
+        // 不再直接依赖——retry 状态机判定下沉到 manager.EnsureRetryableAsync）；本测试只反射调 ApplyFilter
+        // （纯 LINQ 函数，不触发 manager / repo 实际调用），传 Substitute 即可。
         var runRepoSubstitute = Substitute.For<Pipelines.IDocumentPipelineRunRepository>();
         var service = new DocumentAppService(
             Substitute.For<IDocumentRepository>(),
-            runRepoSubstitute,
             Substitute.For<IDocumentTypeRepository>(),
             Substitute.For<IFieldDefinitionRepository>(),
             Substitute.For<ICabinetRepository>(),

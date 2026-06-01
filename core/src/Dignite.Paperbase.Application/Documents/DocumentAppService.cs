@@ -23,7 +23,6 @@ namespace Dignite.Paperbase.Documents;
 public class DocumentAppService : PaperbaseAppService, IDocumentAppService
 {
     private readonly IDocumentRepository _documentRepository;
-    private readonly IDocumentPipelineRunRepository _runRepository;
     private readonly IDocumentTypeRepository _documentTypeRepository;
     private readonly IFieldDefinitionRepository _fieldDefinitionRepository;
     private readonly ICabinetRepository _cabinetRepository;
@@ -34,7 +33,6 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
 
     public DocumentAppService(
         IDocumentRepository documentRepository,
-        IDocumentPipelineRunRepository runRepository,
         IDocumentTypeRepository documentTypeRepository,
         IFieldDefinitionRepository fieldDefinitionRepository,
         ICabinetRepository cabinetRepository,
@@ -44,7 +42,6 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
         IDistributedEventBus distributedEventBus)
     {
         _documentRepository = documentRepository;
-        _runRepository = runRepository;
         _documentTypeRepository = documentTypeRepository;
         _fieldDefinitionRepository = fieldDefinitionRepository;
         _cabinetRepository = cabinetRepository;
@@ -385,8 +382,9 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
         }
 
         // 只需文档主行（IsDeleted / FileOrigin）+ 最近一次该 pipeline 的 run（判可重试）；不碰字段值。
-        // 租户隔离由 ambient IMultiTenant 过滤器施加，GetAsync / runRepo 查询对跨租户 / 不存在 id 行为一致。
-        // #216：PipelineRun 独立聚合根后改走 runRepo.FindLatestByDocumentAndCodeAsync。
+        // 租户隔离由 ambient IMultiTenant 过滤器施加，GetAsync 对跨租户 / 不存在 id 抛 EntityNotFound。
+        // #216 follow-up：retry 状态机判定下沉到 DocumentPipelineRunManager.EnsureRetryableAsync，
+        // AppService 不再直接依赖 IDocumentPipelineRunRepository。
         var document = await _documentRepository.GetAsync(id, includeDetails: false);
 
         if (document.IsDeleted)
@@ -395,25 +393,7 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
                 .WithData("FileName", document.FileOrigin.BlobName);
         }
 
-        var latestRun = await _runRepository.FindLatestByDocumentAndCodeAsync(id, input.PipelineCode);
-        if (latestRun == null)
-        {
-            throw new BusinessException(PaperbaseErrorCodes.Pipeline.NeverRan)
-                .WithData("PipelineCode", input.PipelineCode);
-        }
-
-        switch (latestRun.Status)
-        {
-            case PipelineRunStatus.Pending:
-            case PipelineRunStatus.Running:
-                throw new BusinessException(PaperbaseErrorCodes.Pipeline.RetryInProgress)
-                    .WithData("PipelineCode", input.PipelineCode);
-            case PipelineRunStatus.Succeeded:
-            case PipelineRunStatus.Skipped:
-                throw new BusinessException(PaperbaseErrorCodes.Pipeline.NotRetryable)
-                    .WithData("PipelineCode", input.PipelineCode)
-                    .WithData("Status", latestRun.Status.ToString());
-        }
+        var latestRun = await _pipelineRunManager.EnsureRetryableAsync(id, input.PipelineCode);
 
         Logger.LogInformation(
             "RetryPipelineAsync user={UserId} tenant={TenantId} doc={DocumentId} pipeline={PipelineCode} previousAttempt={Attempt}",

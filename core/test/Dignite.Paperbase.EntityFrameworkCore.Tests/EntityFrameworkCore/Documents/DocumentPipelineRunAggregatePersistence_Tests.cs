@@ -56,6 +56,40 @@ public class DocumentPipelineRunAggregatePersistence_Tests
         });
     }
 
+    [Fact]
+    public async Task GetLatestRunsByCodes_Surfaces_Unflushed_Run_In_Same_Uow()
+    {
+        var documentId = _guidGenerator.Create();
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            await _documentRepository.InsertAsync(CreateDocument(documentId), autoSave: true);
+        });
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            // 同一 UoW 内 Insert 一个 run 但 autoSave:false——故意不 flush。DB 端 GroupBy 查询查不到这条未落库的行
+            // （DB 里根本没有它），EF identity map 也无从物化它。唯有 GetLatestRunsByCodesAsync 合并 change-tracker
+            // 的 Added entries 才能感知它。给 #216 follow-up #1 的 ChangeTracker 合并上锁：删掉仓储里那段合并
+            // foreach，本测试即红（DeriveLifecycle 会回退到看不见同 UoW 内未 flush run 的 stale-view bug）。
+            var run = new DocumentPipelineRun(
+                _guidGenerator.Create(),
+                documentId,
+                tenantId: null,
+                PaperbasePipelines.Classification,
+                attemptNumber: 1);
+            await _runRepository.InsertAsync(run, autoSave: false);
+
+            var latest = await _runRepository.GetLatestRunsByCodesAsync(
+                documentId,
+                new[] { PaperbasePipelines.Classification });
+
+            latest.ShouldContainKey(PaperbasePipelines.Classification);
+            latest[PaperbasePipelines.Classification].Id.ShouldBe(run.Id);
+            latest[PaperbasePipelines.Classification].Status.ShouldBe(PipelineRunStatus.Pending);
+        });
+    }
+
     private static Document CreateDocument(Guid id)
     {
         return new Document(

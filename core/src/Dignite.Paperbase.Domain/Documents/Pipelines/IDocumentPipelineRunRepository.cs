@@ -30,6 +30,11 @@ public interface IDocumentPipelineRunRepository : IRepository<DocumentPipelineRu
     /// 字典 key = PipelineCode（仅返回有数据的 code）。
     /// 用于：<see cref="DocumentPipelineRunManager.DeriveLifecycleAsync"/> 算 <see cref="Document.LifecycleStatus"/>
     /// （避免 N 次 round-trip）。
+    /// <para>
+    /// <b>契约语义</b>：结果必须反映本 UoW 内尚未 flush 的修改（DeriveLifecycle 紧跟 Manager 的
+    /// <c>UpdateAsync(run, autoSave:false)</c> / Insert 调用）。EFCore 实现合并 change-tracker 的 Local entries；
+    /// in-memory fake 因直接持有 run 引用天然满足。实现方不得只返回"已落库"的陈旧视图。
+    /// </para>
     /// </summary>
     Task<Dictionary<string, DocumentPipelineRun>> GetLatestRunsByCodesAsync(
         Guid documentId,
