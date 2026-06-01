@@ -61,9 +61,16 @@ public class FieldExtractionWorkflow : ITransientDependency
             return new Dictionary<string, JsonElement?>();
         }
 
-        var truncated = markdown.Length > _behaviorOptions.MaxTextLengthPerExtraction
-            ? markdown[.._behaviorOptions.MaxTextLengthPerExtraction]
-            : markdown;
+        var truncated = markdown;
+        if (markdown.Length > _behaviorOptions.MaxTextLengthPerExtraction)
+        {
+            // 截断会丢弃文档尾部，关键字段（合同金额 / 发票号等）若位于尾部将被静默漏抽——
+            // 运营侧需要在 telemetry 看到字段抽取截断率（与分类路径 DocumentClassificationWorkflow 对齐）。
+            _logger.LogWarning(
+                "Field extraction input truncated from {OriginalLength} to {TruncatedLength} characters; fields beyond the cutoff will be missed.",
+                markdown.Length, _behaviorOptions.MaxTextLengthPerExtraction);
+            truncated = markdown[.._behaviorOptions.MaxTextLengthPerExtraction];
+        }
 
         // system role 保持**编译期常量** —— 防 prompt injection（CLAUDE.md "## 安全约定 / Description / Instructions 编译期常量"）。
         // 字段 schema（含租户用户输入的 f.Name / f.Prompt）放进 user role 第一条 message，

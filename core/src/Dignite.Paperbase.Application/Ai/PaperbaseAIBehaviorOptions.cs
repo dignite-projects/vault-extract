@@ -23,7 +23,15 @@ public class PaperbaseAIBehaviorOptions
     public int MaxTextLengthPerExtraction { get; set; } = 8000;
 
     /// <summary>
-    /// AI 交互默认语言（影响系统提示词语言）。
+    /// AI 交互默认语言。<b>仅作用于分类路径</b>（DocumentClassificationWorkflow，强制分类
+    /// 输出/reason 用此语言）。其余 LLM 路径按各自设计的语言策略，<b>不</b>消费此选项：
+    /// <list type="bullet">
+    ///   <item>分类：强制此语言（DefaultLanguage）</item>
+    ///   <item>标题：跟随文档语言（prompt 内置 "respond in the same language as the document"）</item>
+    ///   <item>字段值：保留文档原文</item>
+    ///   <item>Slug：强制英译（URL 友好）</item>
+    /// </list>
+    /// 这套「按路径分化」是预期设计，不是 bug——新增 LLM 路径前先确认其语言策略归属。
     /// </summary>
     public string DefaultLanguage { get; set; } = "ja";
 

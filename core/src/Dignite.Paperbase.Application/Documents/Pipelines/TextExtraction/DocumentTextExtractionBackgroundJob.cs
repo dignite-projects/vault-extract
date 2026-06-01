@@ -235,7 +235,8 @@ public class DocumentTextExtractionBackgroundJob
                 ? markdown[.._behaviorOptions.MaxTitleGenerationMarkdownLength]
                 : markdown;
 
-            var template = _promptProvider.GetTitleGenerationPrompt(_behaviorOptions.DefaultLanguage);
+            // 标题策略：跟随文档语言（prompt 内置），不消费 DefaultLanguage —— 故无参调用。
+            var template = _promptProvider.GetTitleGenerationPrompt();
             var messages = new List<ChatMessage>
             {
                 new(ChatRole.System, template.SystemInstructions + "\n\n" + PromptBoundary.BoundaryRule),

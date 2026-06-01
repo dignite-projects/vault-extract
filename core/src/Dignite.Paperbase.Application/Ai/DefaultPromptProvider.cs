@@ -4,7 +4,7 @@ namespace Dignite.Paperbase.Ai;
 
 /// <summary>
 /// 内置 <see cref="IPromptProvider"/> 实现。
-/// 按 <paramref name="language"/> 参数将语言指令嵌入系统提示词；
+/// 分类提示词按 language 参数将语言指令嵌入系统提示词；标题提示词跟随文档语言、不接受 language；
 /// 返回的 <see cref="PromptTemplate.SystemInstructions"/> 不含 PromptBoundary 规则，
 /// 由各 Workflow 在使用前追加。
 /// </summary>
@@ -20,7 +20,7 @@ public class DefaultPromptProvider : IPromptProvider, ITransientDependency
         $"Respond in: {language}."
     );
 
-    public virtual PromptTemplate GetTitleGenerationPrompt(string language) => new(
+    public virtual PromptTemplate GetTitleGenerationPrompt() => new(
         "You generate concise document titles. " +
         "Given a document in Markdown format, return one short descriptive title only — " +
         "the kind that appears in a file browser or search result. " +
