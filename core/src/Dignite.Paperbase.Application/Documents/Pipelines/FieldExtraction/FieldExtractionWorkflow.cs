@@ -10,7 +10,6 @@ using Dignite.Paperbase.Ai;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Volo.Abp.DependencyInjection;
 
 namespace Dignite.Paperbase.Documents.Pipelines.FieldExtraction;
@@ -35,16 +34,13 @@ namespace Dignite.Paperbase.Documents.Pipelines.FieldExtraction;
 public class FieldExtractionWorkflow : ITransientDependency
 {
     private readonly IChatClient _chatClient;
-    private readonly PaperbaseAIBehaviorOptions _behaviorOptions;
     private readonly ILogger<FieldExtractionWorkflow> _logger;
 
     public FieldExtractionWorkflow(
         [FromKeyedServices(PaperbaseAIConsts.StructuredChatClientKey)] IChatClient chatClient,
-        IOptions<PaperbaseAIBehaviorOptions> behaviorOptions,
         ILogger<FieldExtractionWorkflow> logger)
     {
         _chatClient = chatClient;
-        _behaviorOptions = behaviorOptions.Value;
         _logger = logger;
     }
 
@@ -61,17 +57,12 @@ public class FieldExtractionWorkflow : ITransientDependency
             return new Dictionary<string, JsonElement?>();
         }
 
-        var truncated = markdown;
-        if (markdown.Length > _behaviorOptions.MaxTextLengthPerExtraction)
-        {
-            // 截断会丢弃文档尾部，关键字段（合同金额 / 发票号等）若位于尾部将被静默漏抽——
-            // 运营侧需要在 telemetry 看到字段抽取截断率（与分类路径 DocumentClassificationWorkflow 对齐）。
-            _logger.LogWarning(
-                "Field extraction input truncated from {OriginalLength} to {TruncatedLength} characters; fields beyond the cutoff will be missed.",
-                markdown.Length, _behaviorOptions.MaxTextLengthPerExtraction);
-            truncated = markdown[.._behaviorOptions.MaxTextLengthPerExtraction];
-        }
-
+        // 字段抽取喂入**完整 Markdown**，绝不截断：类型绑定字段（合同金额 / 发票号 / 到期日等）
+        // 可能出现在文档任何位置，按字符数截断尾部会静默漏抽关键字段。这与分类路径有意分化——
+        // DocumentClassificationWorkflow 只需文档前段语义即可判型，故按 MaxTextLengthPerExtraction 截断；
+        // 字段抽取需要全文覆盖。超大文档的 token 成本 / 上下文窗口由 host 选用的模型 + provider 负责，
+        // 通道层不预截（预截只会把"漏抽"伪装成"抽取成功"，比直接的 provider 报错更难排查）。
+        //
         // system role 保持**编译期常量** —— 防 prompt injection（CLAUDE.md "## 安全约定 / Description / Instructions 编译期常量"）。
         // 字段 schema（含租户用户输入的 f.Name / f.Prompt）放进 user role 第一条 message，
         // 让模型把"指令"与"用户数据"分开看待——配合 PromptBoundary.WrapField + BoundaryRule。
@@ -82,7 +73,7 @@ public class FieldExtractionWorkflow : ITransientDependency
         {
             new(ChatRole.System, SystemInstructions + "\n\n" + PromptBoundary.BoundaryRule),
             new(ChatRole.User, schemaMessage),
-            new(ChatRole.User, PromptBoundary.WrapDocument(truncated))
+            new(ChatRole.User, PromptBoundary.WrapDocument(markdown))
         };
 
         var options = new ChatOptions

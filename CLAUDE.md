@@ -215,6 +215,14 @@ Paperbase 通过四种出口给下游消费方：
 | `FieldsExtractedEto` | 字段抽取完成（载荷单段 `FieldCount`；按 `Document.TenantId` 决定本文档跑哪层 schema，单桶持久化） | 否 |
 | `DocumentReadyEto` | **全流水线完成 + 拿到已确认类型（分类置信度达标或人工确认）** | **是** |
 
+**回收站 / 生命周期事件**（与多阶段管线正交，不受 Ready 闸门约束；下游据此把派生数据归档或物理删除）：
+
+| 生命周期事件 | 触发时机 |
+|------------|---------|
+| `DocumentDeletedEto` | 文档软删除（进回收站）——下游应把派生数据置为可恢复的归档状态 |
+| `DocumentRestoredEto` | 文档从回收站恢复——下游应解除归档 |
+| `DocumentPermanentlyDeletedEto` | 文档永久删除（含原文件 / 归档 blob）——下游应物理删除派生数据 |
+
 **载荷设计**：事件载荷一律薄（ID + 关键元数据），下游通过 REST/MCP 回拉详细数据。
 
 **Ready 闸门（分类置信度 + 人工审核）**：

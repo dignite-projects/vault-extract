@@ -58,6 +58,7 @@ public class DocumentClassificationWorkflow : ITransientDependency
         }
 
         // 候选集排序与数量上限由调用方（DocumentClassificationBackgroundJob）决定。
+        // 分类只需文档前段语义即可判型，故按 MaxTextLengthPerExtraction 截断前部（与字段抽取喂全文有意分化）。
         var truncatedText = markdown;
         if (markdown.Length > _options.MaxTextLengthPerExtraction)
         {
@@ -65,7 +66,7 @@ public class DocumentClassificationWorkflow : ITransientDependency
             Logger.LogWarning(
                 "Classification input truncated from {OriginalLength} to {TruncatedLength} characters; key fields beyond the cutoff will be missed.",
                 markdown.Length, _options.MaxTextLengthPerExtraction);
-            truncatedText = markdown[.._options.MaxTextLengthPerExtraction];
+            truncatedText = TruncateAtCharBoundary(markdown, _options.MaxTextLengthPerExtraction);
         }
 
         // 字段架构 v2：DocumentType.DisplayName 是 DB-resolved string，
@@ -190,6 +191,20 @@ public class DocumentClassificationWorkflow : ITransientDependency
         if (value < 0d) return 0d;
         if (value > 1d) return 1d;
         return value;
+    }
+
+    // 按 UTF-16 码元上限截断，但不切断代理对：末位若是高位代理（其低位已被切掉），一并丢弃，
+    // 避免半个码点在 UTF-8 编码送 LLM 时退化成 U+FFFD。截断点已在被丢弃的文档尾部，多退一个 char 无影响。
+    // internal 便于 Application.Tests 直接验证边界逻辑（与上面置信度 helper 同源）。
+    internal static string TruncateAtCharBoundary(string text, int maxChars)
+    {
+        if (maxChars <= 0)
+            return string.Empty;
+        if (text.Length <= maxChars)
+            return text;
+
+        var end = char.IsHighSurrogate(text[maxChars - 1]) ? maxChars - 1 : maxChars;
+        return text[..end];
     }
 
     private sealed class ClassificationResponse

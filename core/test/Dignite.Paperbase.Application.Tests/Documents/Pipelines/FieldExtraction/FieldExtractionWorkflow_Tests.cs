@@ -3,11 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Dignite.Paperbase.Ai;
 using Dignite.Paperbase.Documents.Pipelines.FieldExtraction;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using NSubstitute;
 using Shouldly;
 using Xunit;
@@ -32,7 +30,6 @@ public class FieldExtractionWorkflow_Tests
 
         return new FieldExtractionWorkflow(
             chatClient,
-            Options.Create(new PaperbaseAIBehaviorOptions()),
             NullLogger<FieldExtractionWorkflow>.Instance);
     }
 

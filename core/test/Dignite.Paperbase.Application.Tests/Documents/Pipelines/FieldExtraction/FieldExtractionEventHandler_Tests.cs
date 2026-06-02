@@ -7,7 +7,6 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Dignite.Paperbase.Abstractions.Documents;
-using Dignite.Paperbase.Ai;
 using Dignite.Paperbase.Documents;
 using Dignite.Paperbase.Documents.DocumentTypes;
 using Dignite.Paperbase.Documents.Fields;
@@ -15,7 +14,6 @@ using Dignite.Paperbase.Documents.Pipelines.FieldExtraction;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using NSubstitute;
 using Shouldly;
 using Volo.Abp.EventBus.Distributed;
@@ -38,7 +36,6 @@ public class FieldExtractionEventHandlerTestModule : AbpModule
         // 测试 case 内对 virtual ExtractAsync 设 Returns/Throws。
         var workflow = Substitute.ForPartsOf<FieldExtractionWorkflow>(
             Substitute.For<IChatClient>(),
-            Options.Create(new PaperbaseAIBehaviorOptions()),
             NullLogger<FieldExtractionWorkflow>.Instance);
         context.Services.AddSingleton(workflow);
     }

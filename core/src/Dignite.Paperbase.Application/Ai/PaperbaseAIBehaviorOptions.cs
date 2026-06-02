@@ -18,7 +18,9 @@ public class PaperbaseAIBehaviorOptions
     public int MaxDocumentTypesInClassificationPrompt { get; set; } = 50;
 
     /// <summary>
-    /// 结构化提取单次调用最大文本长度，超出时截断。
+    /// 分类提示词中文档 Markdown 的最大字符数，超出时按 UTF-16 码元截断前部（不切断代理对）。
+    /// <b>仅作用于分类路径</b>（<c>DocumentClassificationWorkflow</c>）——字段抽取（<c>FieldExtractionWorkflow</c>）
+    /// 有意喂入<b>完整</b> Markdown 不截断，因为类型绑定字段可能出现在文档任何位置，尾部截断会静默漏抽。
     /// </summary>
     public int MaxTextLengthPerExtraction { get; set; } = 8000;
 
