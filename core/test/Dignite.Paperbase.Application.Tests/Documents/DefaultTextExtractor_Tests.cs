@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Dignite.Paperbase.Abstractions.TextExtraction;
 using Dignite.Paperbase.Ocr;
@@ -47,7 +48,8 @@ public class DefaultTextExtractor_Tests : AbpIntegratedTest<DefaultTextExtractor
             Arg.Is<OcrOptions>(o =>
                 o.ContentType == "image/jpeg" &&
                 o.LanguageHints.Contains("ja") &&
-                o.LanguageHints.Contains("en")));
+                o.LanguageHints.Contains("en")),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -106,7 +108,7 @@ public class DefaultTextExtractor_Tests : AbpIntegratedTest<DefaultTextExtractor
     [Fact]
     public async Task Should_Not_Retry_Ocr_For_Image()
     {
-        _ocrProvider.RecognizeAsync(Arg.Any<Stream>(), Arg.Any<OcrOptions>())
+        _ocrProvider.RecognizeAsync(Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>())
             .Returns(new OcrResult
             {
                 Markdown = "| A | B |\n|---|---|\n| kept | table |"
@@ -126,7 +128,8 @@ public class DefaultTextExtractor_Tests : AbpIntegratedTest<DefaultTextExtractor
         // orchestrator 不做 OCR 重试——provider 只调用一次。
         await _ocrProvider.Received(1).RecognizeAsync(
             Arg.Any<Stream>(),
-            Arg.Any<OcrOptions>());
+            Arg.Any<OcrOptions>(),
+            Arg.Any<CancellationToken>());
     }
 
     // === #210 provenance：ProviderName 传播 + NativePayload 扁平字段映射 ===
@@ -187,7 +190,7 @@ public class DefaultTextExtractor_Tests : AbpIntegratedTest<DefaultTextExtractor
             // OCR provider 负责选择部署配置中的模型并输出 Markdown；orchestrator 不做 profile 重试。
             // 带扁平 NativePayload 字段 + provider 身份，覆盖 #210 provenance 组装（编排层透传 + 映射 NativePayload）。
             var fakeOcr = Substitute.For<IOcrProvider>();
-            fakeOcr.RecognizeAsync(Arg.Any<Stream>(), Arg.Any<OcrOptions>())
+            fakeOcr.RecognizeAsync(Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>())
                 .Returns(new OcrResult
                 {
                     Markdown = "fake ocr markdown",

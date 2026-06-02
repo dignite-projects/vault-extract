@@ -25,9 +25,12 @@ public class AzureDocumentIntelligenceOcrProvider : IOcrProvider, ITransientDepe
         _options = options.Value;
     }
 
-    public virtual async Task<OcrResult> RecognizeAsync(Stream fileStream, OcrOptions options)
+    public virtual async Task<OcrResult> RecognizeAsync(
+        Stream fileStream,
+        OcrOptions options,
+        CancellationToken cancellationToken = default)
     {
-        var (analyzeResult, rawResponse) = await AnalyzeAsync(fileStream, ModelId, cancellationToken: default);
+        var (analyzeResult, rawResponse) = await AnalyzeAsync(fileStream, ModelId, cancellationToken);
 
         var markdown = BuildMarkdown(analyzeResult);
 

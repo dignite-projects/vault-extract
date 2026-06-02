@@ -93,7 +93,7 @@ public class DefaultTextExtractor : ITextExtractor, ITransientDependency
             {
                 ContentType = ctx.ContentType ?? string.Empty,
                 LanguageHints = languageHints
-            });
+            }, cancellationToken);
 
             Logger.LogDebug("OCR completed using {Provider}.", result.ProviderName ?? _ocrProvider.GetType().Name);
 

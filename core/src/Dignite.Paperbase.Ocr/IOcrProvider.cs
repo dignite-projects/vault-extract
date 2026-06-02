@@ -1,4 +1,5 @@
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Dignite.Paperbase.Ocr;
@@ -31,5 +32,10 @@ namespace Dignite.Paperbase.Ocr;
 /// </remarks>
 public interface IOcrProvider
 {
-    Task<OcrResult> RecognizeAsync(Stream fileStream, OcrOptions options);
+    /// <param name="cancellationToken">
+    /// 文本提取后台作业经 ABP 后台作业取消令牌（host 关闭 / 作业取消）一路传入。
+    /// OCR 调用通常是长耗时外部 HTTP（本地 sidecar / 云 LRO 轮询），实现方<b>必须</b>把它
+    /// 透传给底层 HTTP / SDK 调用，以便作业 / host 关闭时能及时中止。
+    /// </param>
+    Task<OcrResult> RecognizeAsync(Stream fileStream, OcrOptions options, CancellationToken cancellationToken = default);
 }

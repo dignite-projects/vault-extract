@@ -15,6 +15,7 @@ using Volo.Abp.BackgroundJobs;
 using Volo.Abp.BlobStoring;
 using Volo.Abp.DependencyInjection;
 using Volo.Abp.EventBus.Distributed;
+using Volo.Abp.Threading;
 using Volo.Abp.Timing;
 using Volo.Abp.Uow;
 
@@ -38,6 +39,9 @@ public class DocumentTextExtractionBackgroundJob
     private readonly IChatClient _titleGeneratorChatClient;
     private readonly IPromptProvider _promptProvider;
     private readonly PaperbaseAIBehaviorOptions _behaviorOptions;
+    // ABP 后台作业执行器（BackgroundJobExecuter）在调用 ExecuteAsync 前用 ICancellationTokenProvider.Use(...)
+    // 把作业执行上下文的取消令牌（默认 worker 来源是 host 停机令牌）压入 ambient，外部慢工作据此可取消。
+    private readonly ICancellationTokenProvider _cancellationTokenProvider;
 
     public DocumentTextExtractionBackgroundJob(
         IDocumentRepository documentRepository,
@@ -52,7 +56,8 @@ public class DocumentTextExtractionBackgroundJob
         IClock clock,
         [FromKeyedServices(PaperbaseAIConsts.TitleGeneratorChatClientKey)] IChatClient titleGeneratorChatClient,
         IPromptProvider promptProvider,
-        IOptions<PaperbaseAIBehaviorOptions> behaviorOptions)
+        IOptions<PaperbaseAIBehaviorOptions> behaviorOptions,
+        ICancellationTokenProvider cancellationTokenProvider)
         : base(documentRepository, runRepository, pipelineRunManager, pipelineRunAccessor, unitOfWorkManager)
     {
         _pipelineJobScheduler = pipelineJobScheduler;
@@ -63,6 +68,7 @@ public class DocumentTextExtractionBackgroundJob
         _titleGeneratorChatClient = titleGeneratorChatClient;
         _promptProvider = promptProvider;
         _behaviorOptions = behaviorOptions.Value;
+        _cancellationTokenProvider = cancellationTokenProvider;
     }
 
     public override async Task ExecuteAsync(DocumentTextExtractionJobArgs args)
@@ -82,7 +88,7 @@ public class DocumentTextExtractionBackgroundJob
                 LanguageHints = { "ja", "en" }
             };
 
-            var result = await _textExtractor.ExtractAsync(blobStream, ctx);
+            var result = await _textExtractor.ExtractAsync(blobStream, ctx, _cancellationTokenProvider.Token);
 
             var title = await TryGenerateTitleAsync(result.Markdown)
                 ?? MarkdownTitleExtractor.ExtractTitle(result.Markdown)

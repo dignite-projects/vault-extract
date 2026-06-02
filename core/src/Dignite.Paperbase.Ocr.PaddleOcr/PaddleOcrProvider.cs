@@ -27,7 +27,10 @@ public class PaddleOcrProvider : IOcrProvider, ITransientDependency
         _httpClientFactory = httpClientFactory;
     }
 
-    public virtual async Task<OcrResult> RecognizeAsync(Stream fileStream, OcrOptions options)
+    public virtual async Task<OcrResult> RecognizeAsync(
+        Stream fileStream,
+        OcrOptions options,
+        CancellationToken cancellationToken = default)
     {
         var modelName = _options.ModelName;
         var rawJson = await SendAsync(
@@ -35,7 +38,7 @@ public class PaddleOcrProvider : IOcrProvider, ITransientDependency
             options.LanguageHints,
             options.ContentType,
             modelName,
-            cancellationToken: default);
+            cancellationToken);
 
         var result = JsonSerializer.Deserialize<PaddleOcrResponse>(rawJson)
             ?? throw new InvalidOperationException("PaddleOCR server returned an empty response.");
