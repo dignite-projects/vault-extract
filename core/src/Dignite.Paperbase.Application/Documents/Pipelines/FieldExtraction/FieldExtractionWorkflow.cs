@@ -57,6 +57,14 @@ public class FieldExtractionWorkflow : ITransientDependency
             return new Dictionary<string, JsonElement?>();
         }
 
+        // 可观测性：移除截断后字段抽取喂全文，这里记录输入规模（字符数 + 字段数）。补偿原"截断 warning"
+        // 消失留下的盲区——当超大文档撞 provider 上下文窗口（抛 provider 异常）时，紧邻的这条日志给出
+        // "是不是文档太大"的本地线索。Debug 级：逐文档调用不污染正常日志；真实 token 用量另由 OTel 的
+        // gen_ai.* span 记录。
+        _logger.LogDebug(
+            "Field extraction over {CharCount} characters across {FieldCount} fields (full document, no truncation).",
+            markdown.Length, fields.Count);
+
         // 字段抽取喂入**完整 Markdown**，绝不截断：类型绑定字段（合同金额 / 发票号 / 到期日等）
         // 可能出现在文档任何位置，按字符数截断尾部会静默漏抽关键字段。这与分类路径有意分化——
         // DocumentClassificationWorkflow 只需文档前段语义即可判型，故按 MaxTextLengthPerExtraction 截断；
