@@ -44,7 +44,7 @@ public class DocumentAppServiceReviewTestModule : AbpModule
 }
 
 /// <summary>
-/// <see cref="DocumentAppService.RejectReviewAsync"/> 行为 + PendingReview 列表过滤测试。
+/// <see cref="DocumentAppService.RejectReviewAsync"/> 行为（#237：落 ReviewStatus=Rejected，可恢复）+ 审核列表过滤测试。
 /// <para>
 /// #196 砍掉 OCR 置信度门槛后，进 PendingReview 的唯一来源是分类低置信度 / 无合适类型
 /// （<see cref="DocumentPipelineRunManager.CompleteClassificationWithLowConfidenceAsync"/>）；
@@ -74,14 +74,16 @@ public class DocumentAppService_Review_Tests
         await _appService.RejectReviewAsync(doc.Id, new RejectReviewInput { Reason = "scan unusable" });
 
         doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.Failed);
+        doc.ReviewStatus.ShouldBe(DocumentReviewStatus.Rejected);
         doc.ClassificationReason.ShouldBe("scan unusable");
     }
 
     [Fact]
-    public async Task PendingReview_Filter_Excludes_Failed_Rejections_By_Default()
+    public async Task PendingReview_Filter_Excludes_Rejected_Documents_By_Default()
     {
         var activePending = await CreatePendingReviewDocumentAsync("needs review");
 
+        // 被拒绝的文档落 ReviewStatus=Rejected（#237），自然不匹配 PendingReview 过滤。
         var rejected = await CreatePendingReviewDocumentAsync("low confidence");
         rejected.RejectReview("scan unusable");
 
@@ -95,18 +97,16 @@ public class DocumentAppService_Review_Tests
     }
 
     [Fact]
-    public async Task PendingReview_Filter_Allows_Failed_Rejections_When_Lifecycle_Is_Explicit()
+    public async Task RejectedDocuments_Are_Queryable_By_Rejected_ReviewStatus()
     {
+        // #237：拒绝可恢复 + 留痕——reject 把 ReviewStatus 落到 Rejected（权威信号），
+        // 操作员 / 下游据此显式查询被拒文档；LifecycleStatus 仍是 Failed 的"宏观不可用"外观。
         var rejected = await CreatePendingReviewDocumentAsync("low confidence");
         rejected.RejectReview("scan unusable");
 
         var result = ApplyFilterForTest(
                 new[] { rejected }.AsQueryable(),
-                new GetDocumentListInput
-                {
-                    ReviewStatus = DocumentReviewStatus.PendingReview,
-                    LifecycleStatus = DocumentLifecycleStatus.Failed
-                })
+                new GetDocumentListInput { ReviewStatus = DocumentReviewStatus.Rejected })
             .ToList();
 
         result.ShouldContain(rejected);

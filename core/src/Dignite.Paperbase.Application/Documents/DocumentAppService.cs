@@ -600,19 +600,11 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
         if (input.CabinetId.HasValue)
             query = query.Where(x => x.CabinetId == input.CabinetId.Value);
 
+        // 按人工审核状态过滤。被拒绝的文档现在落 ReviewStatus=Rejected（#237）——既天然不出现在
+        // PendingReview 队列，也可被调用方显式按 Rejected 查询；不再需要旧的"PendingReview 额外排除
+        // LifecycleStatus=Failed"特例（那是 reject 文档曾停在 PendingReview 时的补丁）。
         if (input.ReviewStatus.HasValue)
-        {
             query = query.Where(d => d.ReviewStatus == input.ReviewStatus.Value);
-
-            // PendingReview 队列默认只展示仍需处理的文档。RejectReview 会保留
-            // ReviewStatus=PendingReview 作为审计信号，但 lifecycle 已是 Failed；
-            // 若调用方确实要查失败审核记录，可显式传 LifecycleStatus=Failed。
-            if (input.ReviewStatus.Value == DocumentReviewStatus.PendingReview &&
-                !input.LifecycleStatus.HasValue)
-            {
-                query = query.Where(d => d.LifecycleStatus != DocumentLifecycleStatus.Failed);
-            }
-        }
 
         return query;
     }

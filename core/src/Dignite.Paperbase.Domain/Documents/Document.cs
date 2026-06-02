@@ -46,6 +46,7 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// <summary>
     /// 人工审核状态。
     /// 分类置信度不足或无法产出有效类型时自动置为 PendingReview；人工确认后置为 Reviewed；
+    /// 操作员拒绝时置为 Rejected（#237，可恢复——后续 Reclassify 会转回 Reviewed）；
     /// 新一轮自动分类成功时重置为 None。
     /// </summary>
     public virtual DocumentReviewStatus ReviewStatus { get; private set; }
@@ -254,22 +255,37 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     }
 
     /// <summary>
-    /// 操作员拒绝审核——文档落到 Failed 生命周期状态；ReviewStatus 保留以便审计。
-    /// 拒绝是"当前数字化结果不可用 / 无法归类"的终态结论：保留原文件、Markdown、OCR confidence 和拒绝原因，
-    /// 不在同一 Document 上做源文件替换或重跑；需要重试由操作员重新上传。
+    /// 操作员拒绝审核——把 <see cref="ReviewStatus"/> 置为 <see cref="DocumentReviewStatus.Rejected"/>（拒绝的权威信号），
+    /// 并把 <see cref="LifecycleStatus"/> 落到 Failed 作为"宏观不可用"外观。保留原文件、Markdown、confidence 和拒绝原因。
+    /// <para>
+    /// <b>拒绝可恢复，不是终态</b>（#237）：本方法只记录"操作员此刻拒绝"这一事实，不封死文档。操作员后续可对
+    /// 同一文档 Reclassify 指派类型——届时 <see cref="ConfirmClassification"/> 把 ReviewStatus 转回 Reviewed、
+    /// 流水线派生回 Ready、<c>DocumentReadyEto</c> 重新发布；下游按 ETO 的 <c>EventTime</c> 单调幂等吸收重发
+    /// （见 CLAUDE.md 投递语义）。"曾被拒绝 → 已复审"的轨迹由 ABP 实体审计日志承载，不在聚合根上建吸收态 / Reopen 状态机。
+    /// </para>
     /// <para>
     /// <b>lifecycle 派生规则的合法例外</b>：通常 <see cref="LifecycleStatus"/> 由
-    /// <see cref="DocumentPipelineRunManager"/> 从 pipeline run 状态派生（见类首注释 line 32-35），
-    /// 此处直接 <see cref="TransitionLifecycle"/> 到 Failed 是 review 终态语义的合法越权：
-    /// 拒绝即终态，无需等待 pipeline run 推进。
+    /// <see cref="DocumentPipelineRunManager"/> 从 pipeline run 状态派生，此处直接 <see cref="TransitionLifecycle"/>
+    /// 到 Failed 是人工审核轴的合法越权。迁移后 Failed 不再语义重载——它统一表示"宏观不可用"，<b>原因</b>由细分字段
+    /// 正交说明（pipeline run = 技术失败；<see cref="ReviewStatus"/> = Rejected = 操作员拒绝）。
     /// </para>
     /// </summary>
     public void RejectReview(string? reason = null)
     {
         ClassificationReason = TruncateReason(reason) ?? ClassificationReason;
+        ReviewStatus = DocumentReviewStatus.Rejected;
         TransitionLifecycle(DocumentLifecycleStatus.Failed);
     }
 
+    /// <summary>
+    /// 迁移 <see cref="LifecycleStatus"/> 并发 <see cref="DocumentLifecycleStatusChangedEvent"/>（仅在状态实变时）。
+    /// <para>
+    /// <b>无合法转移矩阵是有意的</b>（#237 Finding B）：除 <c>old == new</c> 短路外，任意 <c>(old, new)</c> 跳转都允许，
+    /// 包括 <c>Failed → Ready</c>（拒绝后 Reclassify 复活）与 <c>Ready → Processing → Ready</c>（已就绪文档手动重跑流水线）。
+    /// 二者都会重新派生 Ready 并重发 <c>DocumentReadyEto</c>——通道层不拦，由下游按 ETO 的 <c>EventTime</c> 单调幂等吸收
+    /// （CLAUDE.md 投递语义）。在网关聚合根上不引入硬状态机，是"通道保持简单、幂等交给下游"的有意取舍。
+    /// </para>
+    /// </summary>
     internal void TransitionLifecycle(DocumentLifecycleStatus newStatus)
     {
         if (LifecycleStatus == newStatus)

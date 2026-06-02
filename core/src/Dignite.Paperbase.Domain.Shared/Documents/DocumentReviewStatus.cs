@@ -9,5 +9,8 @@ public enum DocumentReviewStatus
     PendingReview = 10,
 
     /// <summary>已由人工确认文档类型</summary>
-    Reviewed = 20
+    Reviewed = 20,
+
+    /// <summary>操作员拒绝审核（#237）。可恢复信号：后续 Reclassify 会把状态转回 <see cref="Reviewed"/>。</summary>
+    Rejected = 30
 }
