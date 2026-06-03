@@ -17,7 +17,6 @@ WORKDIR /src
 # loops, so the lost cache cost is negligible.
 COPY common.props Directory.Packages.props Dignite.Paperbase.slnx ./
 COPY core/ core/
-COPY modules/ modules/
 COPY host/ host/
 
 RUN dotnet restore "host/src/Dignite.Paperbase.Host.csproj"
