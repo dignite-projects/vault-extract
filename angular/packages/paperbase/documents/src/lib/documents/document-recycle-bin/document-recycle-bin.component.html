@@ -59,7 +59,7 @@
                 </td>
                 <td>
                   <span class="text-muted">
-                    {{ doc.title || doc.fileOrigin?.originalFileName }}
+                    {{ doc.title || doc.fileOrigin.originalFileName }}
                   </span>
                 </td>
                 <td>
@@ -69,7 +69,7 @@
                     <span class="text-muted">—</span>
                   }
                 </td>
-                <td class="text-muted small">{{ formatFileSize(doc.fileOrigin?.fileSize ?? 0) }}</td>
+                <td class="text-muted small">{{ formatFileSize(doc.fileOrigin.fileSize ?? 0) }}</td>
                 <td class="text-muted small">
                   @if (doc.deletionTime) {
                     {{ doc.deletionTime | date:'yyyy-MM-dd HH:mm' }}

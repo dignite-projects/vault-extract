@@ -62,7 +62,7 @@
                 </td>
                 <td>
                   <span class="fw-semibold">
-                    {{ doc.title || doc.fileOrigin?.originalFileName }}
+                    {{ doc.title || doc.fileOrigin.originalFileName }}
                   </span>
                 </td>
                 <td>
@@ -153,7 +153,7 @@
         </div>
         <div class="modal-body">
           <p class="text-muted small mb-3">
-            {{ doc.title || doc.fileOrigin?.originalFileName }}
+            {{ doc.title || doc.fileOrigin.originalFileName }}
           </p>
           <label class="form-label fw-semibold">{{ '::Document:SelectDocumentType' | abpLocalization }}</label>
           <select
@@ -202,7 +202,7 @@
         </div>
         <div class="modal-body">
           <p class="text-muted small mb-3">
-            {{ doc.title || doc.fileOrigin?.originalFileName }}
+            {{ doc.title || doc.fileOrigin.originalFileName }}
           </p>
           <label class="form-label fw-semibold">{{ '::Document:Review:RejectReason' | abpLocalization }}</label>
           <textarea

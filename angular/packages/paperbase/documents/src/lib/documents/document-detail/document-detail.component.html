@@ -10,8 +10,8 @@
       {{ '::Document:Detail' | abpLocalization }}
     </h5>
     @if (document()) {
-      <span class="ms-2 fw-semibold text-truncate" style="max-width: 480px;" [title]="document()!.title || document()!.fileOrigin?.originalFileName">
-        {{ document()!.title || document()!.fileOrigin?.originalFileName }}
+      <span class="ms-2 fw-semibold text-truncate" style="max-width: 480px;" [title]="document()!.title || document()!.fileOrigin.originalFileName">
+        {{ document()!.title || document()!.fileOrigin.originalFileName }}
       </span>
       <span [class]="getDocumentStatusBadgeClass(document()!)" class="ms-2">
         @if (isProcessing()) {
@@ -78,14 +78,14 @@
               <img
                 [src]="blobUrl()"
                 (error)="onImageError()"
-                alt="{{ document()!.fileOrigin?.originalFileName }}"
+                alt="{{ document()!.fileOrigin.originalFileName }}"
                 class="img-fluid preview-image"
                 style="max-height: 600px; object-fit: contain;"
               />
             } @else if (!isImage()) {
               <div class="text-center text-muted py-4">
                 <i class="fas fa-file-pdf fa-4x text-danger mb-3 d-block"></i>
-                <p>{{ document()!.fileOrigin?.originalFileName }}</p>
+                <p>{{ document()!.fileOrigin.originalFileName }}</p>
                 <button
                   class="btn btn-outline-primary btn-sm"
                   (click)="openFile()"
@@ -108,9 +108,9 @@
           </div>
           <div class="card-footer text-muted small">
             <i class="fas fa-file me-1"></i>
-            {{ document()!.fileOrigin?.originalFileName }}
+            {{ document()!.fileOrigin.originalFileName }}
             &nbsp;·&nbsp;
-            {{ document()!.fileOrigin?.contentType }}
+            {{ document()!.fileOrigin.contentType }}
           </div>
         </div>
       </div>
@@ -160,7 +160,7 @@
                 }
 
                 <dt class="col-sm-5 text-muted">{{ '::Document:UploadedBy' | abpLocalization }}</dt>
-                <dd class="col-sm-7">{{ document()!.fileOrigin?.uploadedByUserName }}</dd>
+                <dd class="col-sm-7">{{ document()!.fileOrigin.uploadedByUserName }}</dd>
 
                 <dt class="col-sm-5 text-muted">{{ '::Document:UploadedAt' | abpLocalization }}</dt>
                 <dd class="col-sm-7">{{ document()!.creationTime | date:'yyyy-MM-dd HH:mm' }}</dd>

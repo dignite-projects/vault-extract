@@ -161,7 +161,7 @@
                 </td>
                 <td>
                   <span class="fw-semibold">
-                    {{ doc.title || doc.fileOrigin?.originalFileName }}
+                    {{ doc.title || doc.fileOrigin.originalFileName }}
                   </span>
                 </td>
                 <td>
@@ -193,7 +193,7 @@
                     {{ getDocumentStatusLabel(doc) | abpLocalization }}
                   </span>
                 </td>
-                <td class="text-muted small">{{ formatFileSize(doc.fileOrigin?.fileSize ?? 0) }}</td>
+                <td class="text-muted small">{{ formatFileSize(doc.fileOrigin.fileSize ?? 0) }}</td>
                 <td class="text-muted small">{{ doc.creationTime | date:'yyyy-MM-dd HH:mm' }}</td>
                 <td class="d-flex gap-1">
                   @if (needsConfirmation(doc) && canConfirm) {
@@ -266,7 +266,7 @@
         </div>
         <div class="modal-body">
           <p class="text-muted small mb-3">
-            {{ doc.title || doc.fileOrigin?.originalFileName }}
+            {{ doc.title || doc.fileOrigin.originalFileName }}
           </p>
           <label class="form-label fw-semibold">{{ '::Document:SelectDocumentType' | abpLocalization }}</label>
           <select
