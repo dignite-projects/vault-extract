@@ -60,4 +60,35 @@ public class DocumentTextExtractionMetadataTests
         roundtripped.ShouldNotBeNull();
         roundtripped!.ValueEquals(original).ShouldBeTrue();
     }
+
+    [Fact]
+    public void Completeness_Participates_In_Value_Equality_And_Json_Roundtrip()
+    {
+        var complete = new DocumentTextExtractionMetadata("VisionLlm", null);
+        var incomplete = new DocumentTextExtractionMetadata(
+            "VisionLlm", null, isComplete: false, incompleteReason: "2 of 5 page(s) were not fully transcribed.");
+
+        // 完整性纳入结构化相等性（即便 manifest 为 null）。
+        complete.ValueEquals(incomplete).ShouldBeFalse();
+
+        var roundtripped = JsonSerializer.Deserialize<DocumentTextExtractionMetadata>(
+            JsonSerializer.Serialize(incomplete));
+        roundtripped.ShouldNotBeNull();
+        roundtripped!.IsComplete.ShouldBeFalse();
+        roundtripped.IncompleteReason.ShouldBe("2 of 5 page(s) were not fully transcribed.");
+        roundtripped.ValueEquals(incomplete).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Legacy_Json_Without_Completeness_Deserializes_As_Complete()
+    {
+        // 向后兼容（#268）：#268 之前持久化的行没有完整性字段 → 经构造器可选参数默认值视为完整。
+        var legacyJson = "{\"ProviderName\":\"PaddleOCR\",\"NativePayloadManifest\":null}";
+
+        var metadata = JsonSerializer.Deserialize<DocumentTextExtractionMetadata>(legacyJson);
+
+        metadata.ShouldNotBeNull();
+        metadata!.IsComplete.ShouldBeTrue();
+        metadata.IncompleteReason.ShouldBeNull();
+    }
 }

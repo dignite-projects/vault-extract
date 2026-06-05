@@ -67,10 +67,11 @@ ABP stores some configuration values (e.g. tenant connection strings) encrypted 
 
 ## OCR sidecar
 
-Paperbase ships two OCR options:
+Paperbase ships three OCR options ([comparison](text-extraction.md#ocr--choosing-a-provider)):
 
-- **PaddleOCR** (default) — local sidecar, CPU, never leaves the network. Runs as a Docker container; see [text-extraction.md → PaddleOCR](text-extraction.md#paddleocr-local-sidecar).
-- **Azure Document Intelligence** — cloud option for production workloads that can leave the network. See [text-extraction.md → Azure Document Intelligence](text-extraction.md#azure-document-intelligence-cloud).
+- **PaddleOCR** (default) — local sidecar, CPU, never leaves the network. Runs as a Docker container; see [ocr-paddleocr.md](ocr-paddleocr.md).
+- **Azure Document Intelligence** — cloud option for production workloads that can leave the network. See [ocr-azure-document-intelligence.md](ocr-azure-document-intelligence.md).
+- **Vision-LLM** — cloud, `IChatClient`-based, for phone-photo / thermal-receipt inputs where layout OCR fails (#259). See [ocr-vision-llm.md](ocr-vision-llm.md).
 
 Host module wires exactly one via `[DependsOn(...)]` + matching `<ProjectReference>` in `host/src/Dignite.Paperbase.Host.csproj`.
 

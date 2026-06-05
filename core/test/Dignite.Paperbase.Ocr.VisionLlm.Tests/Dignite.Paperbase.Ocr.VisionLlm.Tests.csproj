@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="..\..\..\common.test.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Dignite.Paperbase.Ocr.VisionLlm</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Pure unit tests: mock IChatClient + IPdfRasterizer with NSubstitute. No ABP TestBase, no
+         DB, and (crucially) no native PDFium — the rasterizer is mocked, so multi-page PDF logic is
+         covered without the SkiaSharp/PDFium native dependency. -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="NSubstitute" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" />
+    <!-- For ExposedServiceExplorer in the DI-registration regression test. -->
+    <PackageReference Include="Volo.Abp.Core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Dignite.Paperbase.Ocr.VisionLlm\Dignite.Paperbase.Ocr.VisionLlm.csproj" />
+  </ItemGroup>
+
+</Project>

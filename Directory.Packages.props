@@ -68,6 +68,7 @@
 
     <ItemGroup Label="AI">
         <PackageVersion Include="Microsoft.Extensions.AI" Version="10.6.0" />
+        <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.6.0" />
         <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.6.0" />
         <PackageVersion Include="Microsoft.Agents.AI" Version="1.8.0" />
     </ItemGroup>
@@ -98,6 +99,7 @@
         <PackageVersion Include="Azure.AI.DocumentIntelligence" Version="1.0.0" />
         <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.0" />
         <PackageVersion Include="ElBruno.MarkItDotNet" Version="0.6.0" />
+        <PackageVersion Include="PDFtoImage" Version="5.2.1" />
         <PackageVersion Include="Markdig" Version="1.1.3" />
         <PackageVersion Include="ClosedXML" Version="0.104.2" />
         <PackageVersion Include="IdentityModel" Version="7.0.0" />

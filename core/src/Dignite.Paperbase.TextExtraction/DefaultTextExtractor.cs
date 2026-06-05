@@ -103,6 +103,8 @@ public class DefaultTextExtractor : ITextExtractor, ITransientDependency
                 DetectedLanguage = result.DetectedLanguage,
                 UsedOcr = true,
                 ProviderName = result.ProviderName,
+                IsComplete = result.IsComplete,
+                IncompleteReason = result.IncompleteReason,
                 NativePayload = MapNativePayload(result)
             };
         }

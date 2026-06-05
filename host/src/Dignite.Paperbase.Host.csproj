@@ -92,6 +92,10 @@
     <ProjectReference Include="..\..\core\src\Dignite.Paperbase.TextExtraction.ElBrunoMarkItDown\Dignite.Paperbase.TextExtraction.ElBrunoMarkItDown.csproj" />
     <ProjectReference Include="..\..\core\src\Dignite.Paperbase.Ocr.PaddleOcr\Dignite.Paperbase.Ocr.PaddleOcr.csproj" />
     <!-- <ProjectReference Include="..\..\core\src\Dignite.Paperbase.Ocr.AzureDocumentIntelligence\Dignite.Paperbase.Ocr.AzureDocumentIntelligence.csproj" /> -->
+    <!-- vision-LLM OCR (照片 / 热敏票据 / 图片型 PDF). 启用时同步: ① 取消下方注释; ② 在 PaperbaseHostModule
+         DependsOn 启用 PaperbaseVisionLlmOcrModule (并注释掉 PaddleOcr, IOcrProvider 只能有一个);
+         ③ 在 ConfigureAI 注册 keyed vision IChatClient. 详见 docs/ocr-vision-llm.md -->
+    <!-- <ProjectReference Include="..\..\core\src\Dignite.Paperbase.Ocr.VisionLlm\Dignite.Paperbase.Ocr.VisionLlm.csproj" /> -->
   </ItemGroup>
 
   <ItemGroup>

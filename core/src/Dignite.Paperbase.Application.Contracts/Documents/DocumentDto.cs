@@ -39,6 +39,17 @@ public class DocumentDto : EntityDto<Guid>
     public string? Language { get; set; }
 
     /// <summary>
+    /// 文本提取是否<b>完整</b>（#268）。<c>true</c> = 已捕获全部内容（默认 / 历史文档亦视为完整）；
+    /// <c>false</c> = 已知有缺失（OCR 输出被截断 / 命中重复守卫被丢弃 / 多页 PDF 有页未能转写）。
+    /// 下游消费方据此自行决定是否接收 / 降级 / 进人工复核——通道层不替下游拦截。
+    /// 注意：这是<b>质量信号</b>，与内部 extraction provenance（provider 名 / 归档 BlobName，刻意不出口）不同。
+    /// </summary>
+    public bool ExtractionIsComplete { get; set; } = true;
+
+    /// <summary>提取不完整时的简短诊断说明（<see cref="ExtractionIsComplete"/> 为 false 时）；完整时为 <c>null</c>。</summary>
+    public string? ExtractionIncompleteReason { get; set; }
+
+    /// <summary>
     /// 类型绑定字段抽取结果（字段架构 v2）。键 = FieldName（与 <see cref="FieldDefinitionDto.Name"/> 同形）。
     /// 来源层由 <see cref="TenantId"/> 决定（Host 文档 → Host 字段定义；租户文档 → 该租户字段定义）。
     /// 尚未抽取或无类型绑定字段时为 null。

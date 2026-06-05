@@ -174,7 +174,8 @@ public class DocumentTextExtractionBackgroundJob
         TextExtractionResult result)
     {
         var manifest = await TryArchiveNativePayloadAsync(documentId, result.NativePayload);
-        return new DocumentTextExtractionMetadata(result.ProviderName, manifest);
+        return new DocumentTextExtractionMetadata(
+            result.ProviderName, manifest, result.IsComplete, result.IncompleteReason);
     }
 
     private async Task<NativePayloadManifest?> TryArchiveNativePayloadAsync(Guid documentId, NativePayload? payload)

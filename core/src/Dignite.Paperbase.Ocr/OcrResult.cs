@@ -25,6 +25,16 @@ public class OcrResult
     /// <summary>OCR provider family/name for auditability.</summary>
     public string? ProviderName { get; set; }
 
+    /// <summary>
+    /// 本次识别是否<b>完整</b>（#268）。<c>true</c>（默认）= provider 认为已捕获全部内容；
+    /// <c>false</c> = 已知有内容缺失（输出被 token 上限截断、命中重复守卫被丢弃、多页 PDF 有页未能转写等）。
+    /// 不支持完整性概念的 provider（PaddleOCR / Azure DI）保持默认 <c>true</c>，行为不变。
+    /// </summary>
+    public bool IsComplete { get; set; } = true;
+
+    /// <summary>不完整时（<see cref="IsComplete"/> 为 false）的简短诊断说明；完整时为 <c>null</c>。</summary>
+    public string? IncompleteReason { get; set; }
+
     // === 扁平 native payload（#210）===
     // 原 OcrNativePayload 三字段直接上移，消除 Ocr 项目内的专用包装类。
     // 由 DefaultTextExtractor 映射到 TextExtractionResult.NativePayload（Abstractions.NativePayload）。

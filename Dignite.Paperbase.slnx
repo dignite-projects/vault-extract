@@ -15,6 +15,7 @@
         <Project Path="core/src/Dignite.Paperbase.Ocr/Dignite.Paperbase.Ocr.csproj" />
         <Project Path="core/src/Dignite.Paperbase.Mcp/Dignite.Paperbase.Mcp.csproj" />
         <Project Path="core/src/Dignite.Paperbase.Ocr.AzureDocumentIntelligence/Dignite.Paperbase.Ocr.AzureDocumentIntelligence.csproj" />
+        <Project Path="core/src/Dignite.Paperbase.Ocr.VisionLlm/Dignite.Paperbase.Ocr.VisionLlm.csproj" />
         <Project Path="core/src/Dignite.Paperbase.TextExtraction/Dignite.Paperbase.TextExtraction.csproj" />
         <Project Path="core/src/Dignite.Paperbase.TextExtraction.ElBrunoMarkItDown/Dignite.Paperbase.TextExtraction.ElBrunoMarkItDown.csproj" />
     </Folder>
@@ -25,6 +26,7 @@
         <Project Path="core/test/Dignite.Paperbase.EntityFrameworkCore.Tests/Dignite.Paperbase.EntityFrameworkCore.Tests.csproj" />
         <Project Path="core/test/Dignite.Paperbase.Application.Tests/Dignite.Paperbase.Application.Tests.csproj" />
         <Project Path="core/test/Dignite.Paperbase.Mcp.Tests/Dignite.Paperbase.Mcp.Tests.csproj" />
+        <Project Path="core/test/Dignite.Paperbase.Ocr.VisionLlm.Tests/Dignite.Paperbase.Ocr.VisionLlm.Tests.csproj" />
     </Folder>
 
     <Folder Name="/host/">

@@ -16,8 +16,9 @@ namespace Dignite.Paperbase;
 /// （#207：内部存 <see cref="Document.DocumentTypeId"/> 与 <see cref="DocumentExtractedField.FieldDefinitionId"/>），
 /// 需穿透 soft-delete 的批量 join，mapper 无法独立完成——故 <see cref="MapperIgnoreTargetAttribute"/> 忽略后由
 /// <c>DocumentAppService</c> 批量填充（无 N+1）。
-/// ExtractionMetadata 在 Document 上是 typed JSON 值对象，Mapperly 自动映射字段到 DTO 时会找不到对应的目标——
-/// DocumentDto 不透出 ExtractionMetadata，故字段不包含在 DTO 中。
+/// <c>ExtractionMetadata</c> 在 Document 上是 typed JSON 值对象，整体<b>不出口</b>（内部 provenance）；但其中的
+/// 完整性质量信号经 <c>ExtractionIsComplete</c> / <c>ExtractionIncompleteReason</c> 出口（#268），同样 ignore 后由
+/// <c>DocumentAppService</c> 填充——null metadata（历史 / 数字版）按完整处理（<c>?? true</c>）。
 /// </para>
 /// <para>
 /// #216：PipelineRuns 已从 DocumentDto 出口契约移除，<see cref="DocumentPipelineRunToDocumentPipelineRunDtoMapper"/>
@@ -29,10 +30,14 @@ public partial class DocumentToDocumentDtoMapper : MapperBase<Document, Document
 {
     [MapperIgnoreTarget(nameof(DocumentDto.DocumentTypeCode))]
     [MapperIgnoreTarget(nameof(DocumentDto.ExtractedFields))]
+    [MapperIgnoreTarget(nameof(DocumentDto.ExtractionIsComplete))]
+    [MapperIgnoreTarget(nameof(DocumentDto.ExtractionIncompleteReason))]
     public override partial DocumentDto Map(Document source);
 
     [MapperIgnoreTarget(nameof(DocumentDto.DocumentTypeCode))]
     [MapperIgnoreTarget(nameof(DocumentDto.ExtractedFields))]
+    [MapperIgnoreTarget(nameof(DocumentDto.ExtractionIsComplete))]
+    [MapperIgnoreTarget(nameof(DocumentDto.ExtractionIncompleteReason))]
     public override partial void Map(Document source, DocumentDto destination);
 }
 

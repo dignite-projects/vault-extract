@@ -129,6 +129,7 @@ namespace Dignite.Paperbase.Host;
     typeof(PaperbaseTextExtractionElBrunoMarkItDownModule),
     typeof(PaperbasePaddleOcrModule)
     // typeof(PaperbaseAzureDocumentIntelligenceModule), // 云方案（高精度），切换时同步在 .csproj 注释 / 启用 ProjectReference
+    // typeof(PaperbaseVisionLlmOcrModule), // vision-LLM OCR（照片/票据/图片型 PDF）。IOcrProvider 只能有一个：启用时注释掉 PaddleOcr，并在 ConfigureAI 注册 keyed vision IChatClient。详见 docs/ocr-vision-llm.md
 )]
 public class PaperbaseHostModule : AbpModule
 {

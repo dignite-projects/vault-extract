@@ -29,7 +29,7 @@ Upload → DocumentTextExtractionBackgroundJob
               │     └─→ IMarkdownTextProvider (e.g. ElBruno MarkItDown)
               │
               └─→ image / scan?
-                    └─→ IOcrProvider (PaddleOCR / Azure Document Intelligence)
+                    └─→ IOcrProvider (PaddleOCR / Azure Document Intelligence / Vision-LLM)
 
 Both paths write the same shape: TextExtractionResult { Markdown, DetectedLanguage, NativePayload, ... }
                                   → Document.Markdown
@@ -45,75 +45,29 @@ If a digital PDF has no text layer (scanned PDF), the digital path returns empty
 
 ## OCR — choosing a provider
 
-Paperbase ships two OCR providers. Pick one in `host/src/PaperbaseHostModule.cs` based on the deployment scenario.
+Paperbase ships three OCR providers. Pick **one** in `host/src/PaperbaseHostModule.cs` based on the deployment scenario — `IOcrProvider` has a single registration, so the providers are mutually exclusive.
 
-| | PaddleOCR (default) | Azure Document Intelligence |
-|---|---|---|
-| Where data goes | Local sidecar — never leaves the network | Cloud (Azure region) |
-| Setup cost | `docker compose up paddleocr` | Azure subscription + AI resource |
-| Best language coverage | Chinese + Japanese (PP-StructureV3 OmniDocBench) | Japanese / Chinese / English |
-| Markdown output | Native (PP-StructureV3 / VL); flat (PP-OCRv4) | Native |
-| Cold start | ~30–60 s first run (model download ~600 MB) | Instant |
-| Per-page cost | Free | F0 free tier (500 pages/month, **first 2 pages only** per request) → S0 ~$1.50 / 1000 pages |
-| Throughput | ~3.7 s/page on CPU | Subject to Azure tier (F0 ≈ 1–2 TPS) |
+| | [PaddleOCR](ocr-paddleocr.md) (default) | [Azure Document Intelligence](ocr-azure-document-intelligence.md) | [Vision-LLM](ocr-vision-llm.md) |
+|---|---|---|---|
+| Where data goes | Local sidecar — never leaves the network | Cloud (Azure region) | Cloud (your LLM provider) |
+| Setup | `docker compose up paddleocr` | Azure subscription + AI resource | Host LLM endpoint + a vision model id |
+| Markdown output | Native (PP-StructureV3 / VL); flat (PP-OCRv4) | Native | Native (LLM transcribes to Markdown) |
+| Cold start | ~30–60 s first run (model download ~600 MB) | Instant | Instant |
+| Per-page cost | Free | F0 free tier / S0 ~$1.50 / 1000 pages | Paid per token (image + output) |
+| Best at | Structured scans, CJK documents | Structured scans, forms | **Phone photos / thermal receipts** where layout OCR fails (#259); image-only PDFs |
 
-> Cloud LLM OCR (Gemini / Mistral) and Google Document AI were evaluated and rejected — see issue #79 for the rationale (Japanese-language quality, region access, dependency footprint, free-tier shape).
+> Cloud LLM OCR (Gemini / Mistral) and Google Document AI were evaluated and rejected — see issue #79 for the rationale (Japanese-language quality, region access, dependency footprint, free-tier shape). The [vision-LLM provider](ocr-vision-llm.md) (#259) is a later, vendor-agnostic `IChatClient`-based path for the photo/receipt scenario specifically.
 
-### PaddleOCR — local sidecar
+Each provider's setup lives on its own page: **[PaddleOCR](ocr-paddleocr.md)** · **[Azure Document Intelligence](ocr-azure-document-intelligence.md)** · **[Vision-LLM](ocr-vision-llm.md)**.
 
-Default for development. `PP-StructureV3` runs on CPU and emits native Markdown out of the box.
+### Provider-agnostic OCR pipeline behaviour
 
-```json
-"PaddleOcr": {
-  "Endpoint": "http://localhost:8866",
-  "ModelName": "PP-StructureV3",
-  "Languages": [ "ja", "en" ]
-}
-```
+These apply regardless of which provider is wired:
 
-| Key | Default | Description |
-| --- | --- | --- |
-| `Endpoint` | `http://localhost:8866` | PaddleOCR sidecar REST endpoint |
-| `ModelName` | `PP-StructureV3` | One of: `PP-StructureV3` (CPU + native Markdown, default), `PP-OCRv4` (lightest, no Markdown structure), `PaddleOCR-VL-1.5` (highest quality; requires GPU + ~2 GB model download; native Markdown) |
-| `Languages` | `["ja", "en"]` | Default recognition languages (BCP 47); overridden per call by `OcrOptions.LanguageHints` |
-
-Paperbase does not auto-switch OCR profiles per document. The OCR provider runs once with the host-configured model; there is no second OCR pass with a guessed specialized mode, and OCR average confidence is no longer a quality gate (#196).
-
-OCR completion always advances the document to classification. OCR average confidence was removed (#196) — it did not reliably predict real quality (skewed pages, blurry scans, layout issues are not reflected in average scores). A document reaches the review queue only via low classification confidence / no matching type, where the operator reclassifies, rejects (Paperbase keeps the original file, Markdown, and rejection reason for audit, then marks the document failed — no "rerun OCR" or source-replacement path), or re-uploads a better source.
-
-`ReviewStatus` is the current routing state, not a durable audit ledger: `None` (no human action needed), `PendingReview` (classification needs an operator), or `Reviewed` (operator confirmed a type). Automatic re-classification may reset it; pipeline history remains available if a dedicated audit/event model is later needed.
-
-**Bring up the sidecar:**
-
-```bash
-docker compose up paddleocr
-```
-
-The first run downloads ~600 MB of model weights and takes 30–60 seconds. Subsequent starts are instant.
-
-**Resource footprint** (PP-StructureV3, CPU): ~3.7 s/page on a modern Intel CPU, ~2 GB RAM working set.
-
-### Azure Document Intelligence — cloud
-
-Recommended for production workloads where data is allowed to leave the network and the team prefers not to operate a sidecar.
-
-1. Create an Azure AI Document Intelligence resource (F0 for trial, S0 for production).
-2. Copy the **Endpoint** and **API Key**.
-3. In `host/src/PaperbaseHostModule.cs`, swap `PaperbasePaddleOcrModule` for `PaperbaseAzureDocumentIntelligenceModule`. Re-enable the matching `ProjectReference` in `host/src/Dignite.Paperbase.Host.csproj`.
-4. Add to `host/src/appsettings.Development.json` (or `appsettings.Production.json`):
-
-```json
-"AzureDocumentIntelligence": {
-  "Endpoint": "https://<your-resource>.cognitiveservices.azure.com/",
-  "ApiKey": "YOUR_KEY"
-}
-```
-
-`PaperbaseAzureDocumentIntelligenceModule` binds this section automatically.
-
-Paperbase fixes the Azure model to `prebuilt-layout` and does not expose it as a config option — it emits the structured Markdown that Markdown-first requires. `prebuilt-read` (plain text only) and business prebuilts (invoice / contract) are intentionally not channel-layer OCR options.
-
-> ⚠️ **F0 limitations** — each request only processes the **first 2 pages**, only one F0 resource per subscription per region, ~1–2 TPS throughput. Suitable only for demos and short documents (≤ 2 pages). Switch to S0 for sustained development or any larger document.
+- Paperbase does not auto-switch OCR profiles per document. The OCR provider runs once with the host-configured model; there is no second OCR pass with a guessed specialized mode, and OCR average confidence is no longer a quality gate (#196).
+- OCR completion always advances the document to classification. OCR average confidence was removed (#196) — it did not reliably predict real quality (skewed pages, blurry scans, layout issues are not reflected in average scores). A document reaches the review queue only via low classification confidence / no matching type, where the operator reclassifies, rejects (Paperbase keeps the original file, Markdown, and rejection reason for audit, then marks the document failed — no "rerun OCR" or source-replacement path), or re-uploads a better source.
+- `ReviewStatus` is the current routing state, not a durable audit ledger: `None` (no human action needed), `PendingReview` (classification needs an operator), or `Reviewed` (operator confirmed a type). Automatic re-classification may reset it; pipeline history remains available if a dedicated audit/event model is later needed.
+- **Extraction completeness (#268).** A provider may report that it captured only part of a document (e.g. a vision-LLM output truncated at the token cap, or a dropped PDF page). This is carried on `TextExtractionResult.IsComplete` / `IncompleteReason`, archived into `Document.ExtractionMetadata`, and surfaced to downstream consumers on the REST `DocumentDto` as `ExtractionIsComplete` + `ExtractionIncompleteReason`. It is a **quality signal** (distinct from internal extraction provenance, which is not exposed); the channel does not gate Ready on it — consumers decide whether to accept, downgrade, or route to review. Providers that don't report it default to complete.
 
 ## Adding a custom OCR / digital provider
 
@@ -127,6 +81,7 @@ Custom OCR provider projects only need to reference `Dignite.Paperbase.Ocr` — 
 
 ## See also
 
+- OCR providers: [PaddleOCR](ocr-paddleocr.md) · [Azure Document Intelligence](ocr-azure-document-intelligence.md) · [Vision-LLM](ocr-vision-llm.md)
 - [Classification pipeline](classification.md) — how the LLM consumes the Markdown
 - [AI provider](ai-provider.md) — provider wiring for the keyed chat clients used by classification / field extraction / title generation
 - [Deployment checklist](deployment-checklist.md) — verifying OCR after a sidecar upgrade
