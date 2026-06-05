@@ -650,13 +650,16 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
     // ===== #207：Id → 外部 code/name 投影。内部存 DocumentTypeId / FieldDefinitionId，出口 DTO 仍输出 code/name；
     // 穿透 soft-delete 让历史文档引用的已归档类型 / 字段也能解析（不引入 snapshot 字段，rename 透明反映当前值）。=====
 
-    /// <summary>映射单个 Document → DocumentDto 并填充 DocumentTypeCode + ExtractedFields（Id → code/name）。</summary>
+    /// <summary>映射单个 Document → DocumentDto 并填充 DocumentTypeCode + ExtractedFields（Id → code/name）+ 提取完整性（#268）。</summary>
     protected virtual async Task<DocumentDto> MapToDtoAsync(Document document)
     {
         var dto = ObjectMapper.Map<Document, DocumentDto>(document);
         var (typeCodes, fieldNames) = await ResolveReferenceMapsAsync(new[] { document });
         dto.DocumentTypeCode = ResolveTypeCode(document.DocumentTypeId, typeCodes);
         dto.ExtractedFields = AssembleExtractedFields(document.ExtractedFieldValues, fieldNames);
+        // #268：透出提取完整性质量信号（非 provenance）。null metadata（历史 / 数字版 / 未提取）按完整处理。
+        dto.ExtractionIsComplete = document.ExtractionMetadata?.IsComplete ?? true;
+        dto.ExtractionIncompleteReason = document.ExtractionMetadata?.IncompleteReason;
         return dto;
     }
 

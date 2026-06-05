@@ -33,12 +33,26 @@ public class DocumentTextExtractionMetadata : ValueObject
     /// <summary>原生 payload 归档清单；未归档（无 payload / 超限 / 写失败）时为 <c>null</c>。</summary>
     public NativePayloadManifest? NativePayloadManifest { get; }
 
+    /// <summary>
+    /// 本次文本提取是否<b>完整</b>（#268）。<c>true</c> = 已捕获全部内容；<c>false</c> = 已知有缺失
+    /// （OCR 输出被截断 / 命中重复守卫被丢弃 / 多页 PDF 有页未能转写）。历史记录（构造时未给）默认 <c>true</c>，
+    /// 视为完整——它们先于本信号产生。
+    /// </summary>
+    public bool IsComplete { get; }
+
+    /// <summary>不完整时的简短诊断说明；完整时为 <c>null</c>。</summary>
+    public string? IncompleteReason { get; }
+
     public DocumentTextExtractionMetadata(
         string? providerName,
-        NativePayloadManifest? nativePayloadManifest)
+        NativePayloadManifest? nativePayloadManifest,
+        bool isComplete = true,
+        string? incompleteReason = null)
     {
         ProviderName = providerName;
         NativePayloadManifest = nativePayloadManifest;
+        IsComplete = isComplete;
+        IncompleteReason = incompleteReason;
     }
 
     protected override IEnumerable<object> GetAtomicValues()
@@ -48,6 +62,10 @@ public class DocumentTextExtractionMetadata : ValueObject
         // 进父序列，让父级 ValueEquals 真正结构化深比较；可空成员统一取空串/0 占位避免 null atomic + 区分
         // "manifest 缺席" 与 "manifest 各字段恰为默认值"（前缀 NULL sentinel）。
         yield return ProviderName ?? string.Empty;
+
+        // 完整性原子值在 manifest 的 yield break 之前产出——否则 manifest 为 null 时会被跳过，漏入相等性比较。
+        yield return IsComplete;
+        yield return IncompleteReason ?? string.Empty;
 
         if (NativePayloadManifest is null)
         {

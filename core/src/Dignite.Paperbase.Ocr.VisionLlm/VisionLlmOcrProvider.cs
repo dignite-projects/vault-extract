@@ -51,7 +51,7 @@ public class VisionLlmOcrProvider : IOcrProvider, ITransientDependency
     {
         var bytes = await ReadAllBytesAsync(fileStream, cancellationToken);
 
-        var markdown = DetectInputKind(options.ContentType, bytes) switch
+        var outcome = DetectInputKind(options.ContentType, bytes) switch
         {
             InputKind.Image => await RecognizeImageAsync(
                 bytes, ResolveImageMediaType(options.ContentType, bytes), cancellationToken),
@@ -61,15 +61,18 @@ public class VisionLlmOcrProvider : IOcrProvider, ITransientDependency
 
         return new OcrResult
         {
-            Markdown = markdown,
-            ProviderName = ProviderFamilyName
+            Markdown = outcome.Markdown,
+            ProviderName = ProviderFamilyName,
+            // #268: surface whether the transcription is complete (truncation / dropped pages / discarded loop).
+            IsComplete = outcome.IsComplete,
+            IncompleteReason = outcome.IncompleteReason
             // NativePayload* left null: a chat vision LLM has no out-of-band spatial model (bbox / cell).
             // DetectedLanguage left null: language detection is not this provider's responsibility.
         };
     }
 
     /// <summary>Single-image transcription: one vision-LLM call, guarded against repetition loops.</summary>
-    protected virtual async Task<string> RecognizeImageAsync(
+    protected virtual async Task<ImageTranscription> RecognizeImageAsync(
         byte[] imageBytes,
         string mediaType,
         CancellationToken cancellationToken)
@@ -95,7 +98,8 @@ public class VisionLlmOcrProvider : IOcrProvider, ITransientDependency
 
         if (text.Length == 0)
         {
-            return string.Empty;
+            // Genuinely blank (the model returned nothing) — complete: there was nothing to capture.
+            return ImageTranscription.Complete(string.Empty);
         }
 
         // Hallucination / repetition-loop guard: never persist a runaway loop as if it were real text.
@@ -111,32 +115,34 @@ public class VisionLlmOcrProvider : IOcrProvider, ITransientDependency
             Logger.LogWarning(
                 "VisionLlm OCR output tripped the repetition guard ({Length} chars, finishReason={FinishReason}); discarding to avoid persisting a hallucination loop.",
                 text.Length, response.FinishReason);
-            return string.Empty;
+            return ImageTranscription.Incomplete(string.Empty, "Output discarded as a suspected repetition loop.");
         }
 
         // Hit the token cap without a detected loop: could be a genuinely dense page. Keep the
-        // (possibly truncated) transcription but surface that it may be incomplete.
+        // (possibly truncated) transcription but mark it incomplete so downstream knows the tail may be missing.
         if (response.FinishReason == ChatFinishReason.Length)
         {
             Logger.LogWarning(
                 "VisionLlm OCR output hit MaxOutputTokens={MaxOutputTokens} (finishReason=Length); the transcription may be truncated.",
                 _options.MaxOutputTokens);
+            return ImageTranscription.Incomplete(
+                text, $"Output truncated at the token limit (MaxOutputTokens={_options.MaxOutputTokens}).");
         }
 
-        return text;
+        return ImageTranscription.Complete(text);
     }
 
     /// <summary>
     /// Scanned / image-only PDF: rasterize each page to PNG and transcribe it. A PDF exceeding
     /// <see cref="VisionLlmOcrOptions.MaxPdfPages"/> fails loudly rather than silently dropping pages.
     /// </summary>
-    protected virtual async Task<string> RecognizePdfAsync(byte[] pdfBytes, CancellationToken cancellationToken)
+    protected virtual async Task<ImageTranscription> RecognizePdfAsync(byte[] pdfBytes, CancellationToken cancellationToken)
     {
         var pageCount = _pdfRasterizer.GetPageCount(pdfBytes);
         if (pageCount <= 0)
         {
             Logger.LogWarning("VisionLlm OCR: PDF reported {PageCount} pages; nothing to transcribe.", pageCount);
-            return string.Empty;
+            return ImageTranscription.Incomplete(string.Empty, "PDF reported no pages.");
         }
 
         if (pageCount > _options.MaxPdfPages)
@@ -148,6 +154,7 @@ public class VisionLlmOcrProvider : IOcrProvider, ITransientDependency
         }
 
         var pages = new List<string>(pageCount);
+        var incompletePages = 0;
         for (var i = 0; i < pageCount; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -167,33 +174,56 @@ public class VisionLlmOcrProvider : IOcrProvider, ITransientDependency
                     ex,
                     "VisionLlm OCR: page {Page}/{PageCount} failed to rasterize; skipping it.",
                     i + 1, pageCount);
+                incompletePages++;
                 continue;
             }
 
-            var pageMarkdown = await RecognizeImageAsync(png, "image/png", cancellationToken);
-            if (!string.IsNullOrWhiteSpace(pageMarkdown))
+            var page = await RecognizeImageAsync(png, "image/png", cancellationToken);
+            if (!string.IsNullOrWhiteSpace(page.Markdown))
             {
-                pages.Add(pageMarkdown);
+                pages.Add(page.Markdown);
+                if (!page.IsComplete)
+                {
+                    // Kept but truncated at the token limit — content tail may be missing.
+                    incompletePages++;
+                }
             }
-            else
+            else if (!page.IsComplete)
             {
-                // A page that yields no usable text (empty or guard-tripped) does not fail the whole document.
+                // Empty + incomplete = discarded by the guard (a loop). Empty + complete = a genuinely
+                // blank page, which is fine and not counted against completeness.
+                incompletePages++;
                 Logger.LogWarning(
-                    "VisionLlm OCR: page {Page}/{PageCount} produced no usable text (empty or guard-tripped); skipping it.",
+                    "VisionLlm OCR: page {Page}/{PageCount} produced no usable text (discarded by the repetition guard); skipping it.",
                     i + 1, pageCount);
             }
         }
 
-        return string.Join("\n\n", pages);
+        var combined = string.Join("\n\n", pages);
+        return incompletePages == 0
+            ? ImageTranscription.Complete(combined)
+            : ImageTranscription.Incomplete(
+                combined, $"{incompletePages} of {pageCount} page(s) were not fully transcribed.");
     }
 
     /// <summary>Non-image, non-PDF input: fail open with empty Markdown + a warning (document still persists).</summary>
-    protected virtual string HandleUnsupported(string? contentType)
+    protected virtual ImageTranscription HandleUnsupported(string? contentType)
     {
         Logger.LogWarning(
             "VisionLlm OCR received unsupported input (contentType='{ContentType}'); this provider handles images and image-only PDFs only. Returning empty Markdown.",
             contentType);
-        return string.Empty;
+        return ImageTranscription.Incomplete(string.Empty, "Unsupported input type for vision-LLM OCR.");
+    }
+
+    /// <summary>
+    /// Outcome of transcribing one image (or an aggregated PDF): the Markdown plus whether it captured the
+    /// complete content. Carried out of the per-image / per-page methods so <see cref="RecognizeAsync"/> can
+    /// populate <see cref="OcrResult.IsComplete"/> / <see cref="OcrResult.IncompleteReason"/> (#268).
+    /// </summary>
+    protected readonly record struct ImageTranscription(string Markdown, bool IsComplete, string? IncompleteReason)
+    {
+        public static ImageTranscription Complete(string markdown) => new(markdown, true, null);
+        public static ImageTranscription Incomplete(string markdown, string reason) => new(markdown, false, reason);
     }
 
     private static async Task<byte[]> ReadAllBytesAsync(Stream stream, CancellationToken cancellationToken)

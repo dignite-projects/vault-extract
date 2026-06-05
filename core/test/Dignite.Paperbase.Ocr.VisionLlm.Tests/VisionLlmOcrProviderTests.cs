@@ -49,6 +49,9 @@ public class VisionLlmOcrProviderTests
         result.NativePayloadContentType.ShouldBeNull();
         result.NativePayloadSchemaName.ShouldBeNull();
         result.DetectedLanguage.ShouldBeNull();
+        // #268: a full transcription is complete.
+        result.IsComplete.ShouldBeTrue();
+        result.IncompleteReason.ShouldBeNull();
     }
 
     [Fact]
@@ -101,6 +104,10 @@ public class VisionLlmOcrProviderTests
             new OcrOptions { ContentType = "image/jpeg" });
 
         result.Markdown.ShouldBe("dense transcription that hit the cap");
+        // #268: truncated at the token cap → kept but flagged incomplete.
+        result.IsComplete.ShouldBeFalse();
+        result.IncompleteReason.ShouldNotBeNull();
+        result.IncompleteReason!.ShouldContain("truncated");
     }
 
     [Fact]
@@ -111,6 +118,8 @@ public class VisionLlmOcrProviderTests
             new OcrOptions { ContentType = "application/zip" });
 
         result.Markdown.ShouldBeEmpty();
+        // #268: an input this provider cannot handle is flagged incomplete (not a silent blank success).
+        result.IsComplete.ShouldBeFalse();
         await _chatClient.DidNotReceive().GetResponseAsync(
             Arg.Any<IEnumerable<ChatMessage>>(), Arg.Any<ChatOptions?>(), Arg.Any<CancellationToken>());
     }
@@ -126,6 +135,8 @@ public class VisionLlmOcrProviderTests
             new OcrOptions { ContentType = "image/jpeg" });
 
         result.Markdown.ShouldBeEmpty();
+        // #268: a discarded loop is flagged incomplete (the content was unusable, not genuinely blank).
+        result.IsComplete.ShouldBeFalse();
     }
 
     [Fact]
@@ -145,6 +156,8 @@ public class VisionLlmOcrProviderTests
             new OcrOptions { ContentType = "application/pdf" });
 
         result.Markdown.ShouldBe("page A\n\npage B\n\npage C");
+        // #268: every page transcribed → complete.
+        result.IsComplete.ShouldBeTrue();
         await _chatClient.Received(3).GetResponseAsync(
             Arg.Any<IEnumerable<ChatMessage>>(), Arg.Any<ChatOptions?>(), Arg.Any<CancellationToken>());
     }
@@ -167,6 +180,8 @@ public class VisionLlmOcrProviderTests
             new OcrOptions { ContentType = "application/pdf" });
 
         result.Markdown.ShouldBe("page A\n\npage C");
+        // #268: a dropped page → the document is flagged incomplete.
+        result.IsComplete.ShouldBeFalse();
     }
 
     [Fact]
@@ -204,6 +219,8 @@ public class VisionLlmOcrProviderTests
             new OcrOptions { ContentType = "application/pdf" });
 
         result.Markdown.ShouldBe("page A\n\npage C");
+        // #268: a dropped page → the document is flagged incomplete.
+        result.IsComplete.ShouldBeFalse();
         // page 1 (index 1) failed to rasterize → skipped before the LLM call, so only 2 LLM calls.
         await _chatClient.Received(2).GetResponseAsync(
             Arg.Any<IEnumerable<ChatMessage>>(), Arg.Any<ChatOptions?>(), Arg.Any<CancellationToken>());
