@@ -124,8 +124,9 @@ public class DocumentClassificationBackgroundJob
     {
         using var uow = UnitOfWorkManager.Begin(requiresNew: true);
 
+        // includeFieldValues:true——低置信度路径会清空类型绑定字段（#267 不变量），集合须在场 EF 才删得掉子行。
         var (document, run) = await LoadDocumentAndRunAsync(
-            workItem.DocumentId, workItem.RunId, PaperbasePipelines.Classification);
+            workItem.DocumentId, workItem.RunId, PaperbasePipelines.Classification, includeFieldValues: true);
 
         await ApplyClassificationResultAsync(document, run, outcome);
         await DocumentRepository.UpdateAsync(document, autoSave: true);

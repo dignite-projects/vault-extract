@@ -18,6 +18,22 @@
       </span>
     }
     <div class="ms-auto d-flex gap-2">
+      @if (canRerecognize()) {
+        <button
+          class="btn btn-outline-primary btn-sm"
+          (click)="rerecognize()"
+          [disabled]="isRerecognizing()"
+          title="{{ '::Document:Rerecognize' | abpLocalization }}"
+        >
+          @if (isRerecognizing()) {
+            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+            {{ '::Document:Rerecognizing' | abpLocalization }}
+          } @else {
+            <i class="fas fa-wand-magic-sparkles me-1"></i>
+            {{ '::Document:Rerecognize' | abpLocalization }}
+          }
+        </button>
+      }
       @if (canDelete && document()) {
         <button
           class="btn btn-outline-danger btn-sm"

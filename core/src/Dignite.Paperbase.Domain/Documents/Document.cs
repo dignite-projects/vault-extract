@@ -247,6 +247,13 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
 
     /// <summary>
     /// 标记为待人工审核：清空尚未确认的分类结果，避免历史值污染外部读模型。
+    /// <para>
+    /// 不变量「无已确认类型 ⟹ 无类型绑定字段值」：类型被收回（<see cref="DocumentTypeId"/> = null）后，
+    /// 旧的 <see cref="ExtractedFieldValues"/> 不再属于任何已确认类型，必须一并清空——否则出口 DTO / MCP /
+    /// 导出会出现「无类型却带字段」的脏读模型（#267：自动重判落到低置信度时首次暴露）。重新确认类型
+    /// （<see cref="ConfirmClassification"/> 或高置信度重判 → <c>DocumentClassifiedEto</c> → 字段重抽）会补回字段。
+    /// 在聚合根一处收敛此不变量，省得在每个读路径各自按类型过滤（避免特例堆叠）。
+    /// </para>
     /// </summary>
     internal void RequestClassificationReview(string? reason = null)
     {
@@ -254,6 +261,7 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         ClassificationConfidence = 0;
         ClassificationReason = TruncateReason(reason);
         ReviewStatus = DocumentReviewStatus.PendingReview;
+        _extractedFieldValues.Clear();
     }
 
     internal void ConfirmClassification(Guid documentTypeId)
