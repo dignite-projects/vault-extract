@@ -17,6 +17,7 @@ export * from './lib/proxy/http-api/documents/cabinets/cabinet.service';
 export * from './lib/proxy/http-api/documents/document-types/document-type.service';
 export * from './lib/proxy/http-api/documents/exports/export-template.service';
 export * from './lib/proxy/http-api/documents/fields/field-definition.service';
+export * from './lib/proxy/http-api/documents/fields/field-draft-suggestion.service';
 export * from './lib/proxy/http-api/documents/pipelines/document-pipeline-run.service';
 export * from './lib/proxy/http-api/slugging/slug-suggestion.service';
 

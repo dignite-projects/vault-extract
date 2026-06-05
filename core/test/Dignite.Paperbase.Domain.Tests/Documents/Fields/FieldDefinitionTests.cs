@@ -107,6 +107,57 @@ public class FieldDefinitionTests
             .Code.ShouldBe(PaperbaseErrorCodes.FieldDefinition.InvalidName);
     }
 
+    // ─── NormalizeDisplayName 契约（#264：起草助手预填值必能过 ValidateDisplayName） ─────────
+
+    [Theory]
+    [InlineData("Amount\nIgnore")]            // \n → 空格
+    [InlineData("Amount\r\nIgnore")]          // \r\n → 折叠空格
+    [InlineData("Tab\there")]                 // 制表符
+    [InlineData("Null\0byte")]                // \0
+    [InlineData("Vertical\vTab")]
+    [InlineData("Form\fFeed")]
+    [InlineData("  双侧空白  ")]
+    [InlineData("多   连续   空白")]
+    public void NormalizeDisplayName_Output_Should_Pass_ValidateDisplayName(string raw)
+    {
+        // 契约钉死：Normalize 的产出**必须**能过 ValidateDisplayName（经构造器触发），
+        // 防止日后收紧拒绝域时两处静默漂移、起草值一保存就 loud-fail（#264 review2 #3）。
+        var normalized = FieldDefinition.NormalizeDisplayName(raw);
+
+        var def = CreateDefinition("amount", normalized);
+
+        def.DisplayName.ShouldBe(normalized);
+        normalized.ShouldNotContain('\n');
+        normalized.ShouldNotContain('\t');
+        normalized.ShouldNotContain('\0');
+    }
+
+    [Fact]
+    public void NormalizeDisplayName_Should_Truncate_Without_Leaving_Lone_Surrogate()
+    {
+        // 第 MaxDisplayNameLength 个码元正好是某 astral 字符（emoji）的高代理项：截断不得残留孤立高代理项。
+        var raw = new string('a', FieldDefinitionConsts.MaxDisplayNameLength - 1) + "😀"; // 😀 = U+D83D U+DE00
+
+        var normalized = FieldDefinition.NormalizeDisplayName(raw);
+
+        normalized.Length.ShouldBeLessThanOrEqualTo(FieldDefinitionConsts.MaxDisplayNameLength);
+        // 末位不是孤立高代理项；要么完整保留 😀，要么整体丢弃。
+        if (normalized.Length > 0)
+        {
+            char.IsHighSurrogate(normalized[^1]).ShouldBeFalse();
+        }
+        // 仍可安全构造（不抛、可序列化）。
+        var def = CreateDefinition("amount", normalized);
+        def.DisplayName.ShouldBe(normalized);
+    }
+
+    [Fact]
+    public void NormalizeDisplayName_Should_Return_Empty_For_Blank()
+    {
+        FieldDefinition.NormalizeDisplayName(null).ShouldBe(string.Empty);
+        FieldDefinition.NormalizeDisplayName("   ").ShouldBe(string.Empty);
+    }
+
     // ─── AllowMultiple 不变量（#212：仅文本字段可多值） ───────────────────────
 
     [Fact]

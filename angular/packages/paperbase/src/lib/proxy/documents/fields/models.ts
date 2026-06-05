@@ -1,6 +1,19 @@
 import type { FieldDataType } from './field-data-type.enum';
 import type { EntityDto } from '@abp/ng.core';
 
+export interface DraftFieldDefinitionInput {
+  prompt: string;
+  forNewField?: boolean;
+}
+
+export interface FieldDefinitionDraftDto {
+  displayName?: string;
+  name?: string;
+  dataType?: FieldDataType;
+  isRequired?: boolean;
+  allowMultiple?: boolean;
+}
+
 export interface CreateFieldDefinitionDto {
   documentTypeId: string;
   name: string;

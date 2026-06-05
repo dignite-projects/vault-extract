@@ -148,6 +148,42 @@
             <button type="button" class="btn-close" (click)="closeModal()"></button>
           </div>
           <div class="modal-body">
+            <!-- #264：提示词作为主输入——admin 聚焦写抽取提示词，再用 AI 起草其余字段元数据（可改）。 -->
+            <div class="mb-3">
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <label class="form-label mb-0">{{ '::FieldDefinition:Prompt' | abpLocalization }}</label>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-outline-primary ms-auto"
+                  (click)="draft()"
+                  [disabled]="!form.controls.prompt.value.trim() || isDrafting()"
+                  title="{{ '::FieldDefinition:DraftHint' | abpLocalization }}"
+                >
+                  @if (isDrafting()) {
+                    <span class="spinner-border spinner-border-sm me-1"></span>
+                  } @else {
+                    <i class="fas fa-wand-magic-sparkles me-1"></i>
+                  }
+                  {{ '::FieldDefinition:DraftFromPrompt' | abpLocalization }}
+                </button>
+              </div>
+              <textarea
+                class="form-control"
+                rows="3"
+                formControlName="prompt"
+                [class.is-invalid]="form.controls.prompt.touched && form.controls.prompt.invalid"
+                placeholder="{{ '::FieldDefinition:PromptHint' | abpLocalization }}"
+              ></textarea>
+              <div class="form-text">{{ '::FieldDefinition:DraftHint' | abpLocalization }}</div>
+            </div>
+
+            @if (justDrafted()) {
+              <div class="alert alert-info py-2 px-3 small d-flex align-items-center gap-2" role="alert">
+                <i class="fas fa-circle-info"></i>
+                <span>{{ '::FieldDefinition:DraftReviewNotice' | abpLocalization }}</span>
+              </div>
+            }
+
             <div class="row g-3">
               <div class="col-md-6">
                 <label class="form-label">{{ '::FieldDefinition:DisplayName' | abpLocalization }}</label>
@@ -183,18 +219,7 @@
               </div>
             </div>
 
-            <div class="mb-3 mt-3">
-              <label class="form-label">{{ '::FieldDefinition:Prompt' | abpLocalization }}</label>
-              <textarea
-                class="form-control"
-                rows="3"
-                formControlName="prompt"
-                [class.is-invalid]="form.controls.prompt.touched && form.controls.prompt.invalid"
-                placeholder="{{ '::FieldDefinition:PromptHint' | abpLocalization }}"
-              ></textarea>
-            </div>
-
-            <div class="row g-3 align-items-start">
+            <div class="row g-3 align-items-start mt-3">
               <div class="col-md-5">
                 <label class="form-label">{{ '::FieldDefinition:DataType' | abpLocalization }}</label>
                 <select class="form-select" formControlName="dataType">

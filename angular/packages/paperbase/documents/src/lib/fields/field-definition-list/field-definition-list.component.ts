@@ -12,13 +12,15 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { LocalizationPipe, PermissionService } from '@abp/ng.core';
 import { Confirmation, ConfirmationService, ToasterService } from '@abp/ng.theme.shared';
-import { map } from 'rxjs';
+import { map, Subject, takeUntil } from 'rxjs';
 import {
   CreateFieldDefinitionDto,
   DocumentTypeService,
   FieldDataType,
+  FieldDefinitionDraftDto,
   FieldDefinitionDto,
   FieldDefinitionService,
+  FieldDraftSuggestionService,
   fieldDataTypeOptions,
   PAPERBASE_PERMISSIONS,
   SlugSuggestionService,
@@ -44,6 +46,7 @@ export class FieldDefinitionListComponent implements OnInit {
   private readonly service = inject(FieldDefinitionService);
   private readonly documentTypeService = inject(DocumentTypeService);
   private readonly slugService = inject(SlugSuggestionService);
+  private readonly draftService = inject(FieldDraftSuggestionService);
   private readonly fb = inject(FormBuilder);
   private readonly confirmation = inject(ConfirmationService);
   private readonly toaster = inject(ToasterService);
@@ -70,8 +73,15 @@ export class FieldDefinitionListComponent implements OnInit {
   editing = signal<FieldDefinitionDto | 'create' | null>(null);
   isSubmitting = signal(false);
   isSuggesting = signal(false);
+  // #264：「按提示词起草」进行中 / 刚完成一次起草（驱动 spinner 与「请核对草稿」提示）。
+  isDrafting = signal(false);
+  justDrafted = signal(false);
 
   private slugHandle?: SlugSuggestionHandle;
+
+  // #264：取消在飞起草请求的信号。关闭弹窗时 emit，避免迟到的草稿覆盖重新打开的（无关字段）表单。
+  // 组件级 destroyRef 不随弹窗关闭触发（弹窗只是 editing=null，组件不销毁），故需要独立的 per-modal 取消闸门。
+  private readonly draftCancelled$ = new Subject<void>();
 
   readonly form = this.fb.nonNullable.group({
     name: [
@@ -189,6 +199,8 @@ export class FieldDefinitionListComponent implements OnInit {
     // 必须在 form.reset()/enable() 之后调用：二者触发的 valueChanges 会误标"手动编辑"，
     // reset() 清掉该标记并复位建议状态（含 spinner）。
     this.slugHandle?.reset();
+    this.justDrafted.set(false);
+    this.isDrafting.set(false);
     this.editing.set('create');
   }
 
@@ -208,11 +220,70 @@ export class FieldDefinitionListComponent implements OnInit {
     this.form.controls.name.enable();
     this.applyAllowMultiplePolicy(field.dataType ?? FieldDataType.Text);
     this.slugHandle?.markManual();
+    this.justDrafted.set(false);
+    this.isDrafting.set(false);
     this.editing.set(field);
+  }
+
+  // #264：按提示词起草字段元数据。提示词为主输入，一次 LLM 调用起草其余字段，整组覆盖后用户可逐项核对 / 修改。
+  draft(): void {
+    const prompt = (this.form.controls.prompt.value ?? '').trim();
+    if (!prompt || this.isDrafting()) return;
+    // forNewField 控制后端是否额外建议机器键 Name：编辑既有字段时 Name 是契约级冻结身份键，不被起草覆盖（护栏 1）。
+    const forNewField = this.editing() === 'create';
+    this.isDrafting.set(true);
+    this.draftService.draft({ prompt, forNewField }, undefined)
+      // takeUntil(draftCancelled$)：关闭弹窗即取消，迟到响应不写入新表单（#264 review #1）。
+      .pipe(takeUntil(this.draftCancelled$), takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: draft => {
+          this.applyDraft(draft, forNewField);
+          this.isDrafting.set(false);
+        },
+        error: () => {
+          this.isDrafting.set(false);
+          // 本次未产出草稿——复位「请核对草稿」横幅，避免与「无法起草」提示同屏矛盾（#264 review2 #1，对齐空草稿分支）。
+          this.justDrafted.set(false);
+          this.toaster.warn('::FieldDefinition:DraftUnavailable', '::Warning');
+        },
+      });
+  }
+
+  // 整组覆盖对应控件（issue #264 确认的落入方式）。emitEvent:false 避免触发 displayName→slug 接线把刚起草的 name 清空。
+  private applyDraft(draft: FieldDefinitionDraftDto, forNewField: boolean): void {
+    // 后端起草失败 / 超时回退保守空草稿——DisplayName 为空即判定不可用：保留用户已填内容，仅提示手填，不覆盖。
+    if (!draft.displayName) {
+      // 复位「请核对草稿」横幅：本次未产出草稿，避免上一次成功的横幅与「无法起草」提示自相矛盾（#264 review #6）。
+      this.justDrafted.set(false);
+      this.toaster.info('::FieldDefinition:DraftUnavailable', '::Info');
+      return;
+    }
+    const dataType = draft.dataType ?? FieldDataType.Text;
+    this.form.controls.displayName.setValue(draft.displayName, { emitEvent: false });
+    this.form.controls.dataType.setValue(dataType, { emitEvent: false });
+    this.form.controls.isRequired.setValue(draft.isRequired ?? false, { emitEvent: false });
+    // setValue(dataType) 用了 emitEvent:false，valueChanges 不触发，需手动套用「多值仅文本」策略（启/禁用勾选框）。
+    this.applyAllowMultiplePolicy(dataType);
+    this.form.controls.allowMultiple.setValue(
+      dataType === FieldDataType.Text && (draft.allowMultiple ?? false),
+      { emitEvent: false },
+    );
+    if (forNewField) {
+      // 新建：整组覆盖机器键——用建议值，缺失（如纯 CJK 未翻译 sanitize 成空）时回退本地占位 field_{n}，
+      // 绝不残留基于「上一个显示名」的过期键（#264 review #2）；并标记手动保留，后续 displayName 失焦不再用 slug 覆盖
+      // 这个已起草/已核对的键（用户仍可手改 name）。
+      this.form.controls.name.setValue(draft.name || this.nextFieldSlug(), { emitEvent: false });
+      this.slugHandle?.markManual();
+    }
+    this.form.markAsDirty();
+    this.justDrafted.set(true);
   }
 
   // 显示名失焦 → 触发 slug 自动建议（实测反馈：从停顿防抖改为失焦触发）。
   onDisplayNameBlur(): void {
+    // 起草在飞时不触发失焦 slug 路径：否则两条 LLM 响应竞争写 name，最后落地者随机（#264 review #2）。
+    // 起草本身会整组覆盖并 markManual name，无需失焦路径再补。
+    if (this.isDrafting()) return;
     this.slugHandle?.notifyDisplayNameBlur();
   }
 
@@ -233,6 +304,10 @@ export class FieldDefinitionListComponent implements OnInit {
   }
 
   closeModal(): void {
+    // 取消任何在飞起草请求 + 清 spinner，避免迟到草稿污染下次打开的表单、或留下永久禁用的起草按钮（#264 review #1）。
+    this.draftCancelled$.next();
+    this.isDrafting.set(false);
+    this.justDrafted.set(false);
     this.editing.set(null);
   }
 

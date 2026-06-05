@@ -121,6 +121,41 @@ public class FieldDefinition : FullAuditedAggregateRoot<Guid>, IMultiTenant
     }
 
     /// <summary>
+    /// 把候选显示名规范化为**可安全保存**的形态：控制字符（换行 / tab / null byte 等）替为空格、折叠连续空白、
+    /// 截断到 <see cref="FieldDefinitionConsts.MaxDisplayNameLength"/>。
+    /// <para>
+    /// 供「按提示词起草」(#264) 预填表单用——刻意与 <see cref="ValidateDisplayName"/> 同处一类、共享同一控制字符
+    /// 拒绝域：起草产出经此规范化后**保证**能过 <see cref="ValidateDisplayName"/>，不会一保存就 loud-fail；
+    /// 且 display-name 的清洗 policy 单点落在实体（truth source）上，避免 app 层另起一套发散 sanitizer
+    /// （日后收紧拒绝域时二者不会静默漂移）。空白输入 → 空字符串（调用方据空判定「起草不可用」）。
+    /// </para>
+    /// </summary>
+    public static string NormalizeDisplayName(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return string.Empty;
+        }
+
+        var cleaned = new string(raw.Select(c => char.IsControl(c) ? ' ' : c).ToArray()).Trim();
+        cleaned = Regex.Replace(cleaned, @"\s+", " ");
+        if (cleaned.Length > FieldDefinitionConsts.MaxDisplayNameLength)
+        {
+            cleaned = cleaned[..FieldDefinitionConsts.MaxDisplayNameLength];
+            // 按 UTF-16 码元截断可能切断代理对，残留孤立高代理项（ValidateDisplayName 放行、却是非法配对字符，
+            // 会破坏后续 JSON 序列化 / DB 往返）——丢弃末位孤立高代理项（#264 review2 #2）。
+            if (cleaned.Length > 0 && char.IsHighSurrogate(cleaned[^1]))
+            {
+                cleaned = cleaned[..^1];
+            }
+
+            cleaned = cleaned.Trim();
+        }
+
+        return cleaned;
+    }
+
+    /// <summary>
     /// 规范化选填的抽取指令：空白（null / 纯空格）一律收敛为 null（语义"无 prompt"，留空时 LLM 仅靠 Name + DataType 推断），
     /// 非空时仅校验长度上限（<see cref="FieldDefinitionConsts.MaxPromptLength"/>）。不再 NotNullOrWhiteSpace——Prompt 已是选填项。
     /// </summary>

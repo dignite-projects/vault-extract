@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Dignite.Paperbase.Ai;
@@ -32,7 +30,7 @@ namespace Dignite.Paperbase.Slugging;
 ///   <item>**PromptBoundary**：用户派生自由文本 Label 进 prompt 前经
 ///         <see cref="PromptBoundary.WrapField"/> 包裹 + 追加 <see cref="PromptBoundary.BoundaryRule"/>。</item>
 ///   <item>**编译期常量 instructions**：<see cref="SlugSystemPrompt"/> 是 <c>const</c>，不拼接任何运行时字符串。</item>
-///   <item>**不信任 LLM 输出**：结果经 <see cref="Sanitize"/> 限定为 <c>[a-z0-9_]</c>，且仅作为 admin 可改的
+///   <item>**不信任 LLM 输出**：结果经 <see cref="SlugNormalizer.Sanitize"/> 限定为 <c>[a-z0-9_]</c>，且仅作为 admin 可改的
 ///         **建议**——最终 Create 仍走 FieldDefinition/DocumentType 的白名单校验。</item>
 /// </list>
 /// </summary>
@@ -80,39 +78,12 @@ public class SlugSuggestionAppService : PaperbaseAppService, ISlugSuggestionAppS
             new(ChatRole.User, "Label:\n" + PromptBoundary.WrapField(input.Label))
         };
 
-        var options = new ChatOptions { ResponseFormat = SlugResponseFormat };
+        // 超时 + fail-open 外壳收敛到 InteractiveLlmCall（与 FieldDraftSuggestionAppService 共用，#264 review #10）：
+        // 客户端取消原样上抛，服务端超时 / provider 故障 → null，ExtractSlug(null) 回退空 slug → 前端本地占位。
+        var rawJson = await InteractiveLlmCall.TryGetResponseTextAsync(
+            _chatClient, messages, SlugResponseFormat, SuggestTimeout, _logger, "Slug suggestion", cancellationToken);
 
-        string slug;
-        // 服务端 deadline：把调用方取消令牌（ABP 从 HttpContext.RequestAborted 注入）与 CancelAfter
-        // 链接，给 LLM 调用一个不依赖客户端的硬上限。
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(SuggestTimeout);
-        try
-        {
-            var response = await _chatClient.GetResponseAsync(messages, options, timeoutCts.Token);
-            slug = ExtractSlug(response.Text);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            // 客户端主动断开 / 取消 —— 正常情况，原样向上抛（按取消语义结束请求），不记为 LLM 失败、不产生日志噪音。
-            throw;
-        }
-        catch (OperationCanceledException)
-        {
-            // 服务端 deadline 触发（LLM 太慢 / provider 不响应取消）—— 回吐空 slug，前端回退本地占位。
-            _logger.LogWarning(
-                "Slug suggestion timed out after {TimeoutSeconds}s; returning empty slug for client-side fallback.",
-                (int)SuggestTimeout.TotalSeconds);
-            slug = string.Empty;
-        }
-        catch (Exception ex)
-        {
-            // LLM 不可用不应让 admin 卡死——回吐空 slug，前端回退到本地占位。
-            _logger.LogWarning(ex, "Slug suggestion LLM call failed; returning empty slug for client-side fallback.");
-            slug = string.Empty;
-        }
-
-        return new SlugSuggestionDto { Slug = slug };
+        return new SlugSuggestionDto { Slug = ExtractSlug(rawJson) };
     }
 
     /// <summary>
@@ -132,7 +103,7 @@ public class SlugSuggestionAppService : PaperbaseAppService, ISlugSuggestionAppS
                 doc.RootElement.TryGetProperty("slug", out var slugProp) &&
                 slugProp.ValueKind == JsonValueKind.String)
             {
-                return Sanitize(slugProp.GetString());
+                return SlugNormalizer.Sanitize(slugProp.GetString());
             }
 
             // JSON 合法但 schema 漂移（缺 slug 键 / 非字符串）——回退仍生效，但记一条便于离线分析模型行为。
@@ -171,40 +142,5 @@ public class SlugSuggestionAppService : PaperbaseAppService, ISlugSuggestionAppS
             document.RootElement.Clone(),
             schemaName: "PaperbaseSlugSuggestion",
             schemaDescription: "A single suggested Paperbase machine identifier.");
-    }
-
-    /// <summary>
-    /// 服务端兜底 sanitize：不信任 LLM 输出。小写化、非 <c>[a-z0-9]</c> 折叠成单下划线、
-    /// 去首尾下划线、截断到 <see cref="FieldDefinitionConsts.MaxNameLength"/>（64，两套白名单中较紧的上限）。
-    /// </summary>
-    private static string Sanitize(string? raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw))
-        {
-            return string.Empty;
-        }
-
-        var lowered = raw.Trim().ToLowerInvariant();
-        var sb = new StringBuilder(lowered.Length);
-        foreach (var ch in lowered)
-        {
-            if (ch is (>= 'a' and <= 'z') or (>= '0' and <= '9'))
-            {
-                sb.Append(ch);
-            }
-            else
-            {
-                // 空格 / 短横线 / 标点 / CJK 等一律折叠为下划线占位，下一步再合并。
-                sb.Append('_');
-            }
-        }
-
-        var collapsed = Regex.Replace(sb.ToString(), "_+", "_").Trim('_');
-        if (collapsed.Length > FieldDefinitionConsts.MaxNameLength)
-        {
-            collapsed = collapsed[..FieldDefinitionConsts.MaxNameLength].Trim('_');
-        }
-
-        return collapsed;
     }
 }
