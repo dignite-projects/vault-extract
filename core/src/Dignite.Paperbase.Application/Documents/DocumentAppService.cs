@@ -552,6 +552,35 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
     }
 
     /// <summary>
+    /// 改派文档所属文件柜（#257）。与 <see cref="UploadAsync"/> 的柜归属校验对称：
+    /// 指派到某柜时断言 <see cref="PaperbasePermissions.Cabinets.Default"/> + 校验柜在当前层存在
+    /// （租户隔离由 ambient IMultiTenant 过滤器施加，跨租户 FindAsync 返回 null）；移出（CabinetId == null）
+    /// 仅需方法级 <see cref="PaperbasePermissions.Documents.Default"/>。柜正交于 pipeline——不触发任何后续 Run、不发出口事件。
+    /// </summary>
+    [Authorize(PaperbasePermissions.Documents.Default)]
+    public virtual async Task<DocumentDto> UpdateCabinetAsync(Guid id, UpdateDocumentCabinetInput input)
+    {
+        var document = await _documentRepository.GetAsync(id, includeDetails: true);
+
+        if (input.CabinetId.HasValue)
+        {
+            await CheckPolicyAsync(PaperbasePermissions.Cabinets.Default);
+
+            var cabinet = await _cabinetRepository.FindAsync(input.CabinetId.Value);
+            if (cabinet == null)
+            {
+                throw new BusinessException(PaperbaseErrorCodes.Cabinet.InvalidId)
+                    .WithData("CabinetId", input.CabinetId.Value);
+            }
+        }
+
+        document.SetCabinet(input.CabinetId);
+        await _documentRepository.UpdateAsync(document, autoSave: true);
+
+        return await MapToDtoAsync(document);
+    }
+
+    /// <summary>
     /// Confirm 与 Reclassify 共享实现：按不可变 DocumentTypeId 解析类型后写入 Reviewed 状态，
     /// 发布 DocumentClassifiedEto（投射回可重命名 TypeCode 出口契约）让下游消费方重跑字段抽取。
     /// </summary>

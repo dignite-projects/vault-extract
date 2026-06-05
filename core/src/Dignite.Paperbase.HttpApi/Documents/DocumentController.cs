@@ -90,4 +90,10 @@ public class DocumentController : PaperbaseController, IDocumentAppService
     {
         return _documentAppService.UpdateExtractedFieldsAsync(id, input);
     }
+
+    [HttpPost("{id}/cabinet")]
+    public virtual Task<DocumentDto> UpdateCabinetAsync(Guid id, [FromBody] UpdateDocumentCabinetInput input)
+    {
+        return _documentAppService.UpdateCabinetAsync(id, input);
+    }
 }

@@ -178,13 +178,23 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     }
 
     /// <summary>
-    /// 删柜时把文档回退"未归类"（#194）。CabinetId 是正交组织维度——清空它不触发任何 pipeline / 领域事件，
-    /// 是原子状态变更（与 <see cref="SetFields"/> 同类，由 Application 层直接调，无需经 DomainService 中转）。
+    /// 改派 / 指派文档所属文件柜（#257）。<c>null</c> = 移出文件柜（未归类）。
+    /// CabinetId 是正交组织维度——改派<b>不</b>触发任何 pipeline / 领域事件，是原子状态变更
+    /// （与 <see cref="SetFields"/> 同类，由 Application 层直接调，无需经 DomainService 中转）。
+    /// 目标柜的存在性与当前层归属由 Application 层校验（<c>DocumentAppService.UpdateCabinetAsync</c>）。
+    /// </summary>
+    public void SetCabinet(Guid? cabinetId)
+    {
+        CabinetId = cabinetId;
+    }
+
+    /// <summary>
+    /// 删柜时把文档回退"未归类"（#194）——<see cref="SetCabinet"/> 传 <c>null</c> 的语义别名。
     /// 由 <c>CabinetAppService.DeleteAsync</c> 在删柜前对该柜全部文档调用，避免悬空指向已删柜。
     /// </summary>
     public void UnassignCabinet()
     {
-        CabinetId = null;
+        SetCabinet(null);
     }
 
     /// <summary>

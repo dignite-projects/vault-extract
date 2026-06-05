@@ -12,7 +12,7 @@ import { Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
-import { LocalizationPipe, LocalizationService, PermissionService } from '@abp/ng.core';
+import { LocalizationPipe, PermissionService } from '@abp/ng.core';
 import type { PagedResultDto } from '@abp/ng.core';
 import { ConfirmationService, ToasterService } from '@abp/ng.theme.shared';
 import { Confirmation } from '@abp/ng.theme.shared';
@@ -25,31 +25,12 @@ import {
   DocumentService,
   DocumentTypeDto,
   DocumentTypeService,
-  DocumentUploadService,
   FieldDefinitionDto,
   FieldDefinitionService,
   GetDocumentListInput,
   PAPERBASE_PERMISSIONS,
 } from '@dignite/paperbase';
 import { formatExtractedFieldValue } from '../../shared/format-field-value';
-import {
-  MAX_UPLOAD_FILE_BYTES,
-  UPLOAD_ACCEPT_ATTRIBUTE,
-  isAllowedUpload,
-} from '../upload-constraints';
-import { from, of } from 'rxjs';
-import { catchError, map, mergeMap } from 'rxjs/operators';
-
-// Mirrors document-upload.component.ts. Limits concurrent /upload requests
-// so a 50-file drop does not saturate the browser connection pool.
-const MAX_CONCURRENT_UPLOADS = 3;
-
-interface UploadResult {
-  fileName: string;
-  documentId?: string;
-  succeeded: boolean;
-  errorMessage?: string;
-}
 
 @Component({
   selector: 'lib-document-list',
@@ -60,7 +41,6 @@ interface UploadResult {
 })
 export class DocumentListComponent implements OnInit {
   private readonly documentService = inject(DocumentService);
-  private readonly documentUploadService = inject(DocumentUploadService);
   private readonly documentTypeService = inject(DocumentTypeService);
   private readonly fieldDefinitionService = inject(FieldDefinitionService);
   private readonly cabinetService = inject(CabinetService);
@@ -68,7 +48,6 @@ export class DocumentListComponent implements OnInit {
   private readonly confirmation = inject(ConfirmationService);
   private readonly toaster = inject(ToasterService);
   private readonly permissionService = inject(PermissionService);
-  private readonly localization = inject(LocalizationService);
   private readonly destroyRef = inject(DestroyRef);
 
   // Shared with the detail view so multi-value (#212) / object cells render consistently.
@@ -89,11 +68,6 @@ export class DocumentListComponent implements OnInit {
 
   documents = signal<PagedResultDto<DocumentListItemDto>>({ totalCount: 0, items: [] });
   isLoading = signal(true);
-  isBulkUploading = signal(false);
-  bulkUploadResults = signal<UploadResult[]>([]);
-
-  // Picker `accept` filter, derived from the shared whitelist (mirrors backend, #221).
-  readonly acceptAttribute = UPLOAD_ACCEPT_ATTRIBUTE;
 
   reviewStatusFilter = signal<DocumentReviewStatus | undefined>(undefined);
   typeFilter = signal<string>('');
@@ -191,9 +165,11 @@ export class DocumentListComponent implements OnInit {
       });
   }
 
-  cabinetName(doc: DocumentListItemDto): string | null {
-    if (!doc.cabinetId) return null;
-    return this.cabinets().find(c => c.id === doc.cabinetId)?.name ?? null;
+  // 列表只携带 documentTypeCode（出口契约）；映射到当前层可见类型的 displayName 展示，
+  // 跨层 / 已删类型解析不到时回退 code。cabinets() 仍保留供顶部筛选下拉使用。
+  documentTypeDisplayName(code: string | null | undefined): string | null {
+    if (!code) return null;
+    return this.documentTypes().find(t => t.typeCode === code)?.displayName ?? code;
   }
 
   // Load the selected type's field definitions and turn them into dynamic columns
@@ -250,67 +226,6 @@ export class DocumentListComponent implements OnInit {
 
   uploadNew(): void {
     this.router.navigate(['/documents/upload']);
-  }
-
-  onBulkFileChange(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    if (!input.files?.length) return;
-    const files = Array.from(input.files);
-
-    // Mirror the backend fail-closed gate (#221): pre-filter MIME + extension + size so
-    // invalid files get instant feedback instead of a round-trip rejection. The backend
-    // remains the authoritative gate; this only spares the obvious cases.
-    const valid: File[] = [];
-    const rejected: UploadResult[] = [];
-    for (const f of files) {
-      if (!isAllowedUpload(f)) {
-        rejected.push({
-          fileName: f.name,
-          succeeded: false,
-          errorMessage: this.localization.instant('::Document:UnsupportedFileType'),
-        });
-      } else if (f.size > MAX_UPLOAD_FILE_BYTES) {
-        rejected.push({
-          fileName: f.name,
-          succeeded: false,
-          errorMessage: this.localization.instant('::Document:FileTooLarge'),
-        });
-      } else {
-        valid.push(f);
-      }
-    }
-
-    if (valid.length === 0) {
-      this.bulkUploadResults.set(rejected);
-      input.value = '';
-      return;
-    }
-
-    this.isBulkUploading.set(true);
-    this.bulkUploadResults.set(rejected);
-
-    from(valid)
-      .pipe(
-        mergeMap(
-          file =>
-            this.documentUploadService.upload(file).pipe(
-              map(doc => ({ fileName: file.name, documentId: doc.id, succeeded: true } as UploadResult)),
-              catchError(err =>
-                of({ fileName: file.name, succeeded: false, errorMessage: err?.message } as UploadResult),
-              ),
-            ),
-          MAX_CONCURRENT_UPLOADS,
-        ),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe({
-        next: result => this.bulkUploadResults.update(r => [...r, result]),
-        complete: () => {
-          this.isBulkUploading.set(false);
-          this.loadList();
-          input.value = '';
-        },
-      });
   }
 
   delete(doc: DocumentListItemDto, event: Event): void {
@@ -436,11 +351,5 @@ export class DocumentListComponent implements OnInit {
 
   isImage(doc: DocumentListItemDto): boolean {
     return doc.fileOrigin?.contentType?.startsWith('image/') ?? false;
-  }
-
-  formatFileSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 }

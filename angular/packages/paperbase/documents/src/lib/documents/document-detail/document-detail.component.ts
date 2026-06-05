@@ -9,19 +9,23 @@ import {
   computed,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { forkJoin, of, switchMap } from 'rxjs';
+import { forkJoin, of, switchMap, tap } from 'rxjs';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { LocalizationPipe, LocalizationService, PermissionService } from '@abp/ng.core';
 import { DynamicFormComponent, type FormFieldConfig } from '@abp/ng.components/dynamic-form';
 import { Confirmation, ConfirmationService, ToasterService } from '@abp/ng.theme.shared';
 import {
+  CabinetDto,
+  CabinetService,
   DocumentDto,
   DocumentLifecycleStatus,
   DocumentPipelineRunDto,
   DocumentPipelineRunService,
   DocumentReviewStatus,
   DocumentService,
+  DocumentTypeDto,
   DocumentTypeService,
   FieldDataType,
   FieldDefinitionDto,
@@ -58,7 +62,7 @@ const KNOWN_PIPELINE_CODES = [
   selector: 'lib-document-detail',
   templateUrl: './document-detail.component.html',
   styleUrls: ['./document-detail.component.scss'],
-  imports: [CommonModule, RouterModule, DynamicFormComponent, LocalizationPipe],
+  imports: [CommonModule, RouterModule, FormsModule, DynamicFormComponent, LocalizationPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DocumentDetailComponent implements OnInit, OnDestroy {
@@ -68,6 +72,7 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
   private readonly documentPipelineRunService = inject(DocumentPipelineRunService);
   private readonly documentTypeService = inject(DocumentTypeService);
   private readonly fieldDefinitionService = inject(FieldDefinitionService);
+  private readonly cabinetService = inject(CabinetService);
   private readonly toaster = inject(ToasterService);
   private readonly confirmation = inject(ConfirmationService);
   private readonly permissionService = inject(PermissionService);
@@ -80,6 +85,9 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
   readonly canEditFields = this.permissionService.getGrantedPolicy(
     PAPERBASE_PERMISSIONS.Documents.ConfirmClassification,
   );
+  readonly canViewCabinets = this.permissionService.getGrantedPolicy(
+    PAPERBASE_PERMISSIONS.Cabinets.Default,
+  );
 
   document = signal<DocumentDto | null>(null);
   // #216：PipelineRun 已拆为独立聚合根，从 DocumentDto.pipelineRuns 移除——
@@ -90,11 +98,18 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
   imageError = signal(false);
   retryingPipeline = signal<string | null>(null);
   blobUrl = signal<string | null>(null);
-  isBlobLoading = signal(false);
   isEditingFields = signal(false);
   isSavingFields = signal(false);
   fieldDefinitions = signal<FieldDefinitionDto[]>([]);
   extractedFieldFormFields = signal<FormFieldConfig[]>([]);
+  // 文档所属文件柜候选：cabinetId → name 映射展示 + 改派下拉候选（#257）；需 Cabinets.Default 才加载。
+  cabinets = signal<CabinetDto[]>([]);
+  // 文件柜改派（#257）编辑态：进入编辑显示下拉；selectedCabinetId 空串 = 未归类。
+  isEditingCabinet = signal(false);
+  isSavingCabinet = signal(false);
+  selectedCabinetId = signal<string>('');
+  // 当前层可见文档类型（typeCode → displayName 映射）；随字段定义加载时一并填充。
+  documentTypes = signal<DocumentTypeDto[]>([]);
 
   readonly DocumentLifecycleStatus = DocumentLifecycleStatus;
   readonly DocumentReviewStatus = DocumentReviewStatus;
@@ -173,15 +188,37 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
     this.document()?.fileOrigin?.contentType?.startsWith('image/') ?? false
   );
 
-  // Type-bound extracted fields (field architecture v2). Key = field name; value
-  // is assembled server-side from the DocumentExtractedField rows (#206). Sorted by
-  // key for a stable display order.
-  extractedFieldEntries = computed<{ key: string; value: string }[]>(() => {
+  // 文档所属文件柜名（cabinetId → name）；未归类或解析不到（无权限 / 已删柜）返回 null。
+  cabinetName = computed<string | null>(() => {
+    const id = this.document()?.cabinetId;
+    if (!id) return null;
+    return this.cabinets().find(c => c.id === id)?.name ?? null;
+  });
+
+  // 文档类型 displayName（typeCode → displayName）；未分类返回 null，跨层 / 已删类型回退 code。
+  documentTypeDisplayName = computed<string | null>(() => {
+    const code = this.document()?.documentTypeCode;
+    if (!code) return null;
+    return this.documentTypes().find(t => t.typeCode === code)?.displayName ?? code;
+  });
+
+  // Type-bound extracted fields (field architecture v2)。只展示「当前活跃字段定义」对应的值：
+  // 后端出口 ExtractedFields 穿透 soft-delete 仍含已删字段定义的历史值（给下游"数据不丢"，#206/#207），
+  // 但操作员 UI 不再显示它们——与列表动态列（亦只用活跃定义）一致。label 用 displayName，按 displayOrder 排序。
+  extractedFieldEntries = computed<{ key: string; label: string; value: string }[]>(() => {
     const fields = this.document()?.extractedFields;
     if (!fields) return [];
+    const defByName = new Map(this.fieldDefinitions().map(d => [d.name ?? '', d]));
     return Object.keys(fields)
-      .sort((a, b) => a.localeCompare(b))
-      .map(key => ({ key, value: this.formatFieldValue(fields[key]) }));
+      .filter(key => defByName.has(key))
+      .sort((a, b) =>
+        (defByName.get(a)!.displayOrder ?? 0) - (defByName.get(b)!.displayOrder ?? 0) ||
+        a.localeCompare(b))
+      .map(key => ({
+        key,
+        label: defByName.get(key)!.displayName || key,
+        value: this.formatFieldValue(fields[key]),
+      }));
   });
 
   // 字段卡片显示条件：已有抽取值（只读展示），或可编辑且该类型有字段定义（支持补全空字段）。
@@ -218,11 +255,15 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
           if (doc.fileOrigin?.contentType?.startsWith('image/')) {
             this.loadBlob();
           }
-          // 编辑字段需要该类型的字段定义（含 LLM 漏抽的空字段）以支持补全。
-          // getList 需 ConfirmClassification 权限，仅在可编辑时拉取避免 403。
+          // 字段定义用于：① 抽取字段展示用 displayName（所有查看者）；② 可编辑时补全空字段。
+          // 后端 GetListAsync 自 #223 起对 Documents.Default 即放开，故只要有类型就加载，不再门控编辑权限。
           this.fieldDefinitions.set([]);
-          if (this.canEditFields && doc.documentTypeCode) {
+          if (doc.documentTypeCode) {
             this.loadFieldDefinitions(doc.documentTypeCode);
+          }
+          // 文件柜名映射：仅当有 Cabinets.Default 权限且尚未加载时拉取（无权限则文件柜行不显示）。
+          if (this.canViewCabinets && this.cabinets().length === 0) {
+            this.loadCabinets();
           }
         },
         error: () => {
@@ -236,6 +277,8 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
   private loadFieldDefinitions(typeCode: string): void {
     this.documentTypeService.getVisible()
       .pipe(
+        // 一次 getVisible 两用：存 documentTypes 供文档类型 displayName 映射；再解析 typeId 查字段定义。
+        tap(types => this.documentTypes.set(types)),
         switchMap(types => {
           const documentTypeId = types.find(t => t.typeCode === typeCode)?.id;
           if (!documentTypeId) return of<FieldDefinitionDto[]>([]);
@@ -251,6 +294,48 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
       });
   }
 
+  // 文件柜候选（名映射展示 + 改派下拉，#257）；仅 Cabinets.Default 权限时调用。
+  private loadCabinets(): void {
+    this.cabinetService.getList()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: list => this.cabinets.set(list),
+        error: () => this.cabinets.set([]),
+      });
+  }
+
+  // 文件柜改派（#257）——进入编辑态，预选当前柜（空串 = 未归类）。
+  startEditCabinet(): void {
+    this.selectedCabinetId.set(this.document()?.cabinetId ?? '');
+    this.isEditingCabinet.set(true);
+  }
+
+  cancelEditCabinet(): void {
+    this.isEditingCabinet.set(false);
+  }
+
+  saveCabinet(): void {
+    const doc = this.document();
+    if (!doc) return;
+    this.isSavingCabinet.set(true);
+    // 空串 → null（移出文件柜 / 未归类）。后端校验柜存在性 + 当前层归属。
+    const cabinetId = this.selectedCabinetId() || null;
+    this.documentService.updateCabinet(doc.id!, { cabinetId })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: updated => {
+          this.document.set(updated);
+          this.isSavingCabinet.set(false);
+          this.isEditingCabinet.set(false);
+          this.toaster.success('::Document:CabinetUpdated', '::Success');
+        },
+        error: () => {
+          this.isSavingCabinet.set(false);
+          this.toaster.error('::Document:UpdateFailed', '::Error');
+        },
+      });
+  }
+
   private loadBlob(): void {
     const oldUrl = this.blobUrl();
     if (oldUrl) URL.revokeObjectURL(oldUrl);
@@ -263,26 +348,10 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
       });
   }
 
+  // 打开干净路由的文件预览页（documents/:id/file）——替代旧的 blob: 新标签直开。
+  // 文件本体由预览页自己经带 token 的 getBlob 拉取内嵌，token 不进地址栏。
   openFile(): void {
-    const existing = this.blobUrl();
-    if (existing) {
-      window.open(existing, '_blank');
-      return;
-    }
-    this.isBlobLoading.set(true);
-    this.documentService.getBlob(this.documentId)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: blob => {
-          const url = URL.createObjectURL(blob);
-          this.blobUrl.set(url);
-          this.isBlobLoading.set(false);
-          window.open(url, '_blank');
-        },
-        error: () => {
-          this.isBlobLoading.set(false);
-        },
-      });
+    this.router.navigate(['/documents', this.documentId, 'file']);
   }
 
   ngOnDestroy(): void {

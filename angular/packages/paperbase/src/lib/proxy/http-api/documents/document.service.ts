@@ -1,7 +1,7 @@
 import { RestService, Rest } from '@abp/ng.core';
 import type { PagedResultDto } from '@abp/ng.core';
 import { Injectable, inject } from '@angular/core';
-import type { ConfirmClassificationInput, DocumentDto, DocumentListItemDto, GetDocumentListInput, ReclassifyDocumentInput, RejectReviewInput, RetryPipelineInput, UpdateExtractedFieldsInput, UploadDocumentInput } from '../../documents/models';
+import type { ConfirmClassificationInput, DocumentDto, DocumentListItemDto, GetDocumentListInput, ReclassifyDocumentInput, RejectReviewInput, RetryPipelineInput, UpdateDocumentCabinetInput, UpdateExtractedFieldsInput, UploadDocumentInput } from '../../documents/models';
 
 @Injectable({
   providedIn: 'root',
@@ -92,6 +92,15 @@ export class DocumentService {
     this.restService.request<any, void>({
       method: 'POST',
       url: `/api/paperbase/documents/${id}/retry-pipeline`,
+      body: input,
+    },
+    { apiName: this.apiName,...config });
+  
+
+  updateCabinet = (id: string, input: UpdateDocumentCabinetInput, config?: Partial<Rest.Config>) =>
+    this.restService.request<any, DocumentDto>({
+      method: 'POST',
+      url: `/api/paperbase/documents/${id}/cabinet`,
       body: input,
     },
     { apiName: this.apiName,...config });

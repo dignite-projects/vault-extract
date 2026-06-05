@@ -3006,6 +3006,31 @@
                     "type": "Dignite.Paperbase.Documents.DocumentDto",
                     "typeSimple": "Dignite.Paperbase.Documents.DocumentDto"
                   }
+                },
+                {
+                  "name": "UpdateCabinetAsync",
+                  "parametersOnMethod": [
+                    {
+                      "name": "id",
+                      "typeAsString": "System.Guid, System.Private.CoreLib",
+                      "type": "System.Guid",
+                      "typeSimple": "string",
+                      "isOptional": false,
+                      "defaultValue": null
+                    },
+                    {
+                      "name": "input",
+                      "typeAsString": "Dignite.Paperbase.Documents.UpdateDocumentCabinetInput, Dignite.Paperbase.Application.Contracts",
+                      "type": "Dignite.Paperbase.Documents.UpdateDocumentCabinetInput",
+                      "typeSimple": "Dignite.Paperbase.Documents.UpdateDocumentCabinetInput",
+                      "isOptional": false,
+                      "defaultValue": null
+                    }
+                  ],
+                  "returnValue": {
+                    "type": "Dignite.Paperbase.Documents.DocumentDto",
+                    "typeSimple": "Dignite.Paperbase.Documents.DocumentDto"
+                  }
                 }
               ]
             }
@@ -3660,6 +3685,64 @@
                   "jsonName": null,
                   "type": "Dignite.Paperbase.Documents.UpdateExtractedFieldsInput",
                   "typeSimple": "Dignite.Paperbase.Documents.UpdateExtractedFieldsInput",
+                  "isOptional": false,
+                  "defaultValue": null,
+                  "constraintTypes": null,
+                  "bindingSourceId": "Body",
+                  "descriptorName": ""
+                }
+              ],
+              "returnValue": {
+                "type": "Dignite.Paperbase.Documents.DocumentDto",
+                "typeSimple": "Dignite.Paperbase.Documents.DocumentDto"
+              },
+              "allowAnonymous": null,
+              "authorizeDatas": [],
+              "implementFrom": "Dignite.Paperbase.Documents.IDocumentAppService"
+            },
+            "UpdateCabinetAsyncByIdAndInput": {
+              "uniqueName": "UpdateCabinetAsyncByIdAndInput",
+              "name": "UpdateCabinetAsync",
+              "httpMethod": "POST",
+              "url": "api/paperbase/documents/{id}/cabinet",
+              "supportedVersions": [],
+              "parametersOnMethod": [
+                {
+                  "name": "id",
+                  "typeAsString": "System.Guid, System.Private.CoreLib",
+                  "type": "System.Guid",
+                  "typeSimple": "string",
+                  "isOptional": false,
+                  "defaultValue": null
+                },
+                {
+                  "name": "input",
+                  "typeAsString": "Dignite.Paperbase.Documents.UpdateDocumentCabinetInput, Dignite.Paperbase.Application.Contracts",
+                  "type": "Dignite.Paperbase.Documents.UpdateDocumentCabinetInput",
+                  "typeSimple": "Dignite.Paperbase.Documents.UpdateDocumentCabinetInput",
+                  "isOptional": false,
+                  "defaultValue": null
+                }
+              ],
+              "parameters": [
+                {
+                  "nameOnMethod": "id",
+                  "name": "id",
+                  "jsonName": null,
+                  "type": "System.Guid",
+                  "typeSimple": "string",
+                  "isOptional": false,
+                  "defaultValue": null,
+                  "constraintTypes": [],
+                  "bindingSourceId": "Path",
+                  "descriptorName": ""
+                },
+                {
+                  "nameOnMethod": "input",
+                  "name": "input",
+                  "jsonName": null,
+                  "type": "Dignite.Paperbase.Documents.UpdateDocumentCabinetInput",
+                  "typeSimple": "Dignite.Paperbase.Documents.UpdateDocumentCabinetInput",
                   "isOptional": false,
                   "defaultValue": null,
                   "constraintTypes": null,
@@ -8030,6 +8113,28 @@
           "maximum": null,
           "regex": null,
           "isNullable": false
+        }
+      ]
+    },
+    "Dignite.Paperbase.Documents.UpdateDocumentCabinetInput": {
+      "baseType": null,
+      "isEnum": false,
+      "enumNames": null,
+      "enumValues": null,
+      "genericArguments": null,
+      "properties": [
+        {
+          "name": "CabinetId",
+          "jsonName": null,
+          "type": "System.Guid?",
+          "typeSimple": "string?",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true
         }
       ]
     },

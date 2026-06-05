@@ -6,9 +6,6 @@
       <i class="fas fa-arrow-left me-1"></i>
       {{ '::Back' | abpLocalization }}
     </button>
-    <h5 class="mb-0 ms-2">
-      {{ '::Document:Detail' | abpLocalization }}
-    </h5>
     @if (document()) {
       <span class="ms-2 fw-semibold text-truncate" style="max-width: 480px;" [title]="document()!.title || document()!.fileOrigin?.originalFileName">
         {{ document()!.title || document()!.fileOrigin?.originalFileName }}
@@ -86,16 +83,8 @@
               <div class="text-center text-muted py-4">
                 <i class="fas fa-file-pdf fa-4x text-danger mb-3 d-block"></i>
                 <p>{{ document()!.fileOrigin?.originalFileName }}</p>
-                <button
-                  class="btn btn-outline-primary btn-sm"
-                  (click)="openFile()"
-                  [disabled]="isBlobLoading()"
-                >
-                  @if (isBlobLoading()) {
-                    <span class="spinner-border spinner-border-sm me-1" role="status"></span>
-                  } @else {
-                    <i class="fas fa-external-link-alt me-1"></i>
-                  }
+                <button class="btn btn-outline-primary btn-sm" (click)="openFile()">
+                  <i class="fas fa-external-link-alt me-1"></i>
                   {{ '::Document:OpenFile' | abpLocalization }}
                 </button>
               </div>
@@ -123,12 +112,51 @@
               <dl class="row mb-0 small">
                 <dt class="col-sm-5 text-muted">{{ '::Document:Type' | abpLocalization }}</dt>
                 <dd class="col-sm-7">
-                  @if (document()!.documentTypeCode) {
-                    <span class="badge bg-info text-dark">{{ document()!.documentTypeCode }}</span>
+                  @if (documentTypeDisplayName(); as typeName) {
+                    <span class="badge bg-info text-dark">{{ typeName }}</span>
                   } @else {
                     <span class="text-muted">—</span>
                   }
                 </dd>
+
+                @if (canViewCabinets) {
+                  <dt class="col-sm-5 text-muted">{{ '::Document:Cabinet' | abpLocalization }}</dt>
+                  <dd class="col-sm-7">
+                    @if (isEditingCabinet()) {
+                      <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <select class="form-select form-select-sm w-auto"
+                                [ngModel]="selectedCabinetId()"
+                                (ngModelChange)="selectedCabinetId.set($event)"
+                                [disabled]="isSavingCabinet()">
+                          <option value="">{{ '::Document:Unfiled' | abpLocalization }}</option>
+                          @for (c of cabinets(); track c.id) {
+                            <option [value]="c.id">{{ c.name }}</option>
+                          }
+                        </select>
+                        <button type="button" class="btn btn-sm btn-primary"
+                                (click)="saveCabinet()" [disabled]="isSavingCabinet()">
+                          {{ '::Save' | abpLocalization }}
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                (click)="cancelEditCabinet()" [disabled]="isSavingCabinet()">
+                          {{ '::Cancel' | abpLocalization }}
+                        </button>
+                      </div>
+                    } @else {
+                      @if (cabinetName(); as name) {
+                        <span class="badge bg-light text-dark border">
+                          <i class="fas fa-folder text-warning me-1"></i>{{ name }}
+                        </span>
+                      } @else {
+                        <span class="text-muted">{{ '::Document:Unfiled' | abpLocalization }}</span>
+                      }
+                      <button type="button" class="btn btn-sm btn-link p-0 ms-2"
+                              (click)="startEditCabinet()">
+                        {{ '::Edit' | abpLocalization }}
+                      </button>
+                    }
+                  </dd>
+                }
 
                 <dt class="col-sm-5 text-muted">{{ '::Document:ClassificationConfidence' | abpLocalization }}</dt>
                 <dd class="col-sm-7">
@@ -167,16 +195,8 @@
               </dl>
 
               <div class="mt-3">
-                <button
-                  class="btn btn-outline-primary btn-sm"
-                  (click)="openFile()"
-                  [disabled]="isBlobLoading()"
-                >
-                  @if (isBlobLoading()) {
-                    <span class="spinner-border spinner-border-sm me-1" role="status"></span>
-                  } @else {
-                    <i class="fas fa-external-link-alt me-1"></i>
-                  }
+                <button class="btn btn-outline-primary btn-sm" (click)="openFile()">
+                  <i class="fas fa-external-link-alt me-1"></i>
                   {{ '::Document:OpenFile' | abpLocalization }}
                 </button>
               </div>
@@ -202,7 +222,7 @@
                     <dl class="row mb-0 small">
                       @for (entry of extractedFieldEntries(); track entry.key) {
                         <dt class="col-sm-5 text-muted text-truncate" [title]="entry.key">
-                          <code>{{ entry.key }}</code>
+                          {{ entry.label }}
                         </dt>
                         <dd class="col-sm-7 mb-2" [title]="entry.value">{{ entry.value }}</dd>
                       }

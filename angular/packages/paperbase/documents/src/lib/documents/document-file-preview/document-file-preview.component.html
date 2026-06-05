@@ -1,0 +1,68 @@
+<div class="container-fluid py-3 d-flex flex-column" style="min-height: calc(100vh - 1rem);">
+  <!-- Header -->
+  <div class="d-flex align-items-center mb-3 gap-2">
+    <button class="btn btn-outline-secondary btn-sm" (click)="back()">
+      <i class="fas fa-arrow-left me-1"></i>
+      {{ '::Back' | abpLocalization }}
+    </button>
+    <h6 class="mb-0 ms-2 text-truncate" style="max-width: 60vw;" [title]="fileName()">
+      <i class="fas fa-file me-1"></i>{{ fileName() }}
+    </h6>
+    @if (blobUrl()) {
+      <a
+        class="btn btn-outline-primary btn-sm ms-auto"
+        [href]="blobUrl()"
+        [download]="fileName()"
+        target="_blank"
+        rel="noopener"
+      >
+        <i class="fas fa-download me-1"></i>{{ '::Document:Download' | abpLocalization }}
+      </a>
+    }
+  </div>
+
+  @if (isLoading()) {
+    <div class="flex-grow-1 d-flex align-items-center justify-content-center py-5">
+      <div class="spinner-border text-primary" role="status"></div>
+    </div>
+  } @else if (hasError()) {
+    <div class="alert alert-danger" role="alert">
+      <i class="fas fa-exclamation-triangle me-2"></i>
+      {{ '::Document:PreviewUnavailable' | abpLocalization }}
+    </div>
+  } @else if (isImage()) {
+    <div class="flex-grow-1 d-flex align-items-center justify-content-center bg-light rounded p-2">
+      <img
+        [src]="blobUrl()"
+        [alt]="fileName()"
+        class="img-fluid"
+        style="max-height: 85vh; object-fit: contain;"
+      />
+    </div>
+  } @else if (isPdf() && safeUrl()) {
+    <iframe
+      [src]="safeUrl()"
+      [title]="fileName()"
+      class="flex-grow-1 w-100 border rounded"
+      style="min-height: 80vh;"
+    ></iframe>
+  } @else {
+    <div class="card shadow-sm">
+      <div class="card-body text-center py-5 text-muted">
+        <i class="fas fa-file-arrow-down fa-3x mb-3 d-block"></i>
+        <p class="mb-3">{{ '::Document:PreviewNotSupported' | abpLocalization }}</p>
+        @if (blobUrl()) {
+          <a
+            class="btn btn-primary"
+            [href]="blobUrl()"
+            [download]="fileName()"
+            target="_blank"
+            rel="noopener"
+          >
+            <i class="fas fa-download me-1"></i>{{ '::Document:Download' | abpLocalization }}
+          </a>
+        }
+      </div>
+    </div>
+  }
+</div>

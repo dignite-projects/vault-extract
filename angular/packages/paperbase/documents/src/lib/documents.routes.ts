@@ -70,6 +70,15 @@ export const DOCUMENTS_ROUTES: Routes = [
       import('./cabinets/cabinet-list/cabinet-list.component').then(c => c.CabinetListComponent),
   },
   {
+    path: ':id/file',
+    canActivate: [authGuard, permissionGuard],
+    data: { requiredPolicy: PAPERBASE_PERMISSIONS.Documents.Default },
+    loadComponent: () =>
+      import('./documents/document-file-preview/document-file-preview.component').then(
+        c => c.DocumentFilePreviewComponent,
+      ),
+  },
+  {
     path: ':id',
     canActivate: [authGuard, permissionGuard],
     data: { requiredPolicy: PAPERBASE_PERMISSIONS.Documents.Default },

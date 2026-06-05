@@ -72,6 +72,10 @@ export interface RetryPipelineInput {
   pipelineCode: string;
 }
 
+export interface UpdateDocumentCabinetInput {
+  cabinetId?: string | null;
+}
+
 export interface UpdateExtractedFieldsInput {
   fields?: Record<string, any>;
 }

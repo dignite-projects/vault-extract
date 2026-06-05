@@ -52,4 +52,10 @@ public interface IDocumentAppService : IApplicationService
     /// 大面积错误应走重跑 text-extraction / 重新上传，而非本路径批量修补。
     /// </summary>
     Task<DocumentDto> UpdateExtractedFieldsAsync(Guid id, UpdateExtractedFieldsInput input);
+
+    /// <summary>
+    /// 改派文档所属文件柜（#257）——人工组织维度，正交于 pipeline，不触发后续 Run、不发出口事件。
+    /// <paramref name="input"/>.CabinetId 为 null 表示移出文件柜（未归类）；非 null 须为当前层已存在的柜。
+    /// </summary>
+    Task<DocumentDto> UpdateCabinetAsync(Guid id, UpdateDocumentCabinetInput input);
 }

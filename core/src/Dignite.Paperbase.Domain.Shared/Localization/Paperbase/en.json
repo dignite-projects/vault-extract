@@ -66,6 +66,8 @@
     "Document:PendingReviewMessage": "Document needs manual review. Use the reason below to choose or create a document type, or upload a better source file.",
     "Document:OpenFile": "Open File",
     "Document:PreviewUnavailable": "Preview unavailable",
+    "Document:Download": "Download",
+    "Document:PreviewNotSupported": "This file type can't be previewed inline. Download it to view.",
 
     "Document:Status:Uploaded": "Uploaded",
     "Document:Status:Processing": "Processing",
@@ -88,9 +90,6 @@
     "Document:Pipeline:RetryQueued": "Retry queued. Status will refresh shortly.",
     "Document:Pipeline:RetryFailed": "Failed to retry pipeline.",
 
-    "Document:BulkUpload": "Bulk Upload",
-    "Document:BulkUploadResults": "Upload Results",
-    "Document:BulkUploadFailed": "Bulk upload failed.",
 
 
     "DocumentReviewStatus:PendingReview": "Pending Review",
@@ -156,6 +155,7 @@
     "Cabinet:DeleteFailed": "Failed to delete the cabinet.",
     "Document:Cabinet": "Cabinet",
     "Document:Unfiled": "Unfiled",
+    "Document:CabinetUpdated": "Cabinet updated.",
     "Document:Filter:AllCabinets": "All Cabinets",
     "Document:SelectCabinet": "Cabinet (optional)",
 
