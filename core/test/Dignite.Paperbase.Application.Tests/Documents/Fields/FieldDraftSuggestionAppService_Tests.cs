@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Shouldly;
+using Volo.Abp.DependencyInjection;
 using Xunit;
 
 namespace Dignite.Paperbase.Documents.Fields;
@@ -19,6 +20,9 @@ namespace Dignite.Paperbase.Documents.Fields;
 public class FieldDraftSuggestionAppService_Tests
 {
     // 测试子类：放行权限断言（生产路径由类级 [Authorize] + CheckDraftPermissionAsync 的 Create||Update 把关）。
+    // [DisableConventionalRegistration]：阻止 ABP 把这个派生 ApplicationService 自动注册进 DI——否则 CI 跑全量
+    // 测试时容器构建会对这个 private 测试双类启用 Castle DynamicProxy 类拦截器而失败（不可访问），拖垮整个测试宿主。
+    [DisableConventionalRegistration]
     private sealed class TestableFieldDraftSuggestionAppService : FieldDraftSuggestionAppService
     {
         public TestableFieldDraftSuggestionAppService(IChatClient chatClient, ILogger<FieldDraftSuggestionAppService> logger)
