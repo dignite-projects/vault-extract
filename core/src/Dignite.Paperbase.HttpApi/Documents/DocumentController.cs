@@ -85,6 +85,12 @@ public class DocumentController : PaperbaseController, IDocumentAppService
         return _documentAppService.RetryPipelineAsync(id, input);
     }
 
+    [HttpPost("{id}/rerecognize")]
+    public virtual Task RerecognizeAsync(Guid id)
+    {
+        return _documentAppService.RerecognizeAsync(id);
+    }
+
     [HttpPost("{id}/extracted-fields")]
     public virtual Task<DocumentDto> UpdateExtractedFieldsAsync(Guid id, [FromBody] UpdateExtractedFieldsInput input)
     {

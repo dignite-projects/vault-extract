@@ -235,6 +235,22 @@ public class DocumentPipelineRunManager : DomainService
     }
 
     /// <summary>
+    /// 校验该 pipeline 当前没有正在进行的 run——Pending/Running 抛 <c>RetryInProgress</c>（并发护栏）。
+    /// 与 <see cref="EnsureRetryableAsync"/> 的本质区别：Succeeded / Skipped / Failed / 从未运行**均放行**。
+    /// 用于「按需重跑」（如 #263「重新识别」重排自动分类），而非「失败重试」——调用方据此安全地
+    /// <see cref="QueueAsync"/> 一个新 attempt（AttemptNumber 自增，不与历史已终结的 run 撞唯一索引）。
+    /// </summary>
+    public virtual async Task EnsureNotInProgressAsync(Guid documentId, string pipelineCode)
+    {
+        var latestRun = await _runRepo.FindLatestByDocumentAndCodeAsync(documentId, pipelineCode);
+        if (latestRun is { Status: PipelineRunStatus.Pending or PipelineRunStatus.Running })
+        {
+            throw new BusinessException(PaperbaseErrorCodes.Pipeline.RetryInProgress)
+                .WithData("PipelineCode", pipelineCode);
+        }
+    }
+
+    /// <summary>
     /// Shared tail of every state transition: persist the run via repo, optionally fire the run-completed
     /// LocalEvent, then re-derive Document.LifecycleStatus. BeginAsync skips the event (run is just starting,
     /// not completing); Complete/Fail/Skip all publish it.

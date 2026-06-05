@@ -45,6 +45,22 @@ public interface IDocumentAppService : IApplicationService
     Task RetryPipelineAsync(Guid id, RetryPipelineInput input);
 
     /// <summary>
+    /// 「重新识别」（#263）——让 AI 在**现有 Markdown** 上重跑「自动分类」workflow → 级联重抽字段，**不重新 OCR**。
+    /// <para>
+    /// 区别于 <see cref="ReclassifyAsync"/>（操作员**人工指定**类型、同步落库、不跑 LLM）与
+    /// <see cref="RetryPipelineAsync"/>（仅 <c>Failed</c> 的 run 可重试）：本路径对任意**已完成文本提取**的文档
+    /// 重排 classification job（LLM 依最新类型/字段说明自动重判）。高置信度发布
+    /// <see cref="Abstractions.Documents.DocumentClassifiedEto"/>（经 transactional outbox），
+    /// 由 <c>FieldExtractionEventHandler</c> 级联重抽字段；低置信度落「待人工审核」队列。
+    /// </para>
+    /// <para>
+    /// ⚠️ 会**覆盖**既有分类结果（含操作员人工确认过的类型）与级联重抽时操作员手改过的字段值——
+    /// 调用方 UI 须先确认。文档在回收站、或尚未产出 Markdown、或分类正在进行时拒绝。
+    /// </para>
+    /// </summary>
+    Task RerecognizeAsync(Guid id);
+
+    /// <summary>
     /// 操作员手改类型绑定字段抽取结果（个别纠错）。整体替换该文档的字段值集合；
     /// 每个 key 必须是该文档所属层、该 DocumentType 下已定义的 <see cref="FieldDefinition.Name"/>。
     /// 完成后复用 <see cref="Abstractions.Documents.FieldsExtractedEto"/> 重发，下游按

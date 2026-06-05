@@ -291,9 +291,15 @@ public class DocumentClassificationBackgroundJob_Tests
     private void SetupDocumentRepository(Document doc)
     {
         // #216：分类作业三处加载从 GetWithPipelineRunsAsync 改为 GetAsync(includeDetails:false)——
-        // PipelineRun 独立聚合根后通过 runRepo 单独查。
+        // PipelineRun 独立聚合根后通过 runRepo 单独查。BeginRun 仍走 GetAsync。
         _documentRepository
             .GetAsync(doc.Id, false, Arg.Any<CancellationToken>())
+            .Returns(doc);
+
+        // #267：CompleteRun 改走 FindWithFieldValuesAsync(includeFieldValues:true)——低置信度路径需带字段值
+        // 加载才能清空类型绑定字段。两处返回同一 doc 实例，断言（DocumentTypeId/ReviewStatus）不受影响。
+        _documentRepository
+            .FindWithFieldValuesAsync(doc.Id, Arg.Any<CancellationToken>())
             .Returns(doc);
     }
 

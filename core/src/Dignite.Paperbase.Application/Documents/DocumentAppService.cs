@@ -458,6 +458,44 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
     }
 
     /// <summary>
+    /// 「重新识别」（#263）——在现有 Markdown 上重跑 AI 自动分类 → 级联重抽字段，不重新 OCR。
+    /// 重排 classification job（与文本提取完成后链式触发同一路径），由后台作业跑 LLM 自动重判；
+    /// 完成后高置信度发 <see cref="DocumentClassifiedEto"/> 级联字段重抽，低置信度落待人工审核。
+    /// <para>
+    /// 与 <see cref="ReclassifyAsync"/>（人工指定类型、同步落库）和 <see cref="RetryPipelineAsync"/>
+    /// （仅 Failed 可重试）的语义边界见 <see cref="IDocumentAppService.RerecognizeAsync"/>。
+    /// </para>
+    /// </summary>
+    [Authorize(PaperbasePermissions.Documents.ConfirmClassification)]
+    public virtual async Task RerecognizeAsync(Guid id)
+    {
+        // 只需标量（IsDeleted / Markdown / FileOrigin）；不碰字段值。租户隔离由 ambient IMultiTenant 过滤器施加。
+        var document = await _documentRepository.GetAsync(id, includeDetails: false);
+
+        if (document.IsDeleted)
+        {
+            throw new BusinessException(PaperbaseErrorCodes.Document.InRecycleBin)
+                .WithData("FileName", document.FileOrigin.BlobName);
+        }
+
+        // 自动分类的输入是 Document.Markdown——文本提取尚未产出文本则无从重判。
+        if (string.IsNullOrEmpty(document.Markdown))
+        {
+            throw new BusinessException(PaperbaseErrorCodes.Document.NotTextExtracted);
+        }
+
+        // 并发护栏：classification 正 Pending/Running 时不重排（新 attempt 不撞 Running 的唯一索引，故须显式拦）。
+        await _pipelineRunManager.EnsureNotInProgressAsync(id, PaperbasePipelines.Classification);
+
+        Logger.LogInformation(
+            "RerecognizeAsync user={UserId} tenant={TenantId} doc={DocumentId}",
+            CurrentUser.Id, CurrentTenant.Id, document.Id);
+
+        // 重排自动分类——QueueAsync 内部建 Pending run + 派生 LifecycleStatus→Processing + 入队后台作业。
+        await _pipelineJobScheduler.QueueAsync(document, PaperbasePipelines.Classification);
+    }
+
+    /// <summary>
     /// 操作员手改字段抽取结果（个别纠错）。整体替换 ExtractedFields；key 必须是该文档所属层、
     /// 该 DocumentType 下已定义的字段名；完成后复用 FieldsExtractedEto 重发让下游同步。
     /// </summary>

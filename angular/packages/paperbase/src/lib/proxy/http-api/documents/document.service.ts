@@ -80,13 +80,21 @@ export class DocumentService {
     { apiName: this.apiName,...config });
   
 
+  rerecognize = (id: string, config?: Partial<Rest.Config>) =>
+    this.restService.request<any, void>({
+      method: 'POST',
+      url: `/api/paperbase/documents/${id}/rerecognize`,
+    },
+    { apiName: this.apiName,...config });
+
+
   restore = (id: string, config?: Partial<Rest.Config>) =>
     this.restService.request<any, void>({
       method: 'POST',
       url: `/api/paperbase/documents/${id}/restore`,
     },
     { apiName: this.apiName,...config });
-  
+
 
   retryPipeline = (id: string, input: RetryPipelineInput, config?: Partial<Rest.Config>) =>
     this.restService.request<any, void>({

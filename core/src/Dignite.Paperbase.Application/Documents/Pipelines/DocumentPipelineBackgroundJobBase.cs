@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Volo.Abp.BackgroundJobs;
+using Volo.Abp.Domain.Entities;
 using Volo.Abp.Uow;
 
 namespace Dignite.Paperbase.Documents.Pipelines;
@@ -41,13 +42,22 @@ public abstract class DocumentPipelineBackgroundJobBase<TArgs> : AsyncBackground
     /// Complete / Fail 阶段共享加载：取 Document（不 eager-load runs），按 <paramref name="runId"/> 定位本作业
     /// 的 run，找不到则经 <see cref="DocumentPipelineRunAccessor.BeginOrStartAsync"/> 按该 runId fallback 重建。
     /// 调用方负责在自己的短 UoW 内调用并提交。
+    /// <para>
+    /// <paramref name="includeFieldValues"/> = true 时 eager-load <see cref="Document.ExtractedFieldValues"/>——
+    /// 仅分类作业完成阶段需要：低置信度落 <c>RequestClassificationReview</c> 会清空类型绑定字段（#267），
+    /// 集合须在场 EF 才会真正删除子行。文本提取 / 失败收尾路径用默认 false，不付出多余 JOIN。
+    /// </para>
     /// </summary>
     protected virtual async Task<(Document Document, DocumentPipelineRun Run)> LoadDocumentAndRunAsync(
         Guid documentId,
         Guid runId,
-        string pipelineCode)
+        string pipelineCode,
+        bool includeFieldValues = false)
     {
-        var document = await DocumentRepository.GetAsync(documentId, includeDetails: false);
+        var document = includeFieldValues
+            ? await DocumentRepository.FindWithFieldValuesAsync(documentId)
+                ?? throw new EntityNotFoundException(typeof(Document), documentId)
+            : await DocumentRepository.GetAsync(documentId, includeDetails: false);
         var run = await RunRepository.FindAsync(runId)
             ?? await PipelineRunAccessor.BeginOrStartAsync(document, runId, pipelineCode);
         return (document, run);

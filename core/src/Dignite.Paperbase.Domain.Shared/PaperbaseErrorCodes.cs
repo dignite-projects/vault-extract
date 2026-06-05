@@ -16,6 +16,8 @@ public static class PaperbaseErrorCodes
         public const string Duplicate = "Paperbase:DocumentDuplicate";
         public const string InRecycleBin = "Paperbase:DocumentInRecycleBin";
         public const string NotClassified = "Paperbase:DocumentNotClassified";
+        // #263：「重新识别」（重跑自动分类）的前置——自动分类输入是 Document.Markdown，文本提取尚未产出文本则无从重判。
+        public const string NotTextExtracted = "Paperbase:DocumentNotTextExtracted";
         // #221：上传 fail-closed 校验失败码（大小超限 / content-type + 扩展名不在白名单）。
         public const string FileTooLarge = "Paperbase:DocumentFileTooLarge";
         public const string UnsupportedFileType = "Paperbase:DocumentUnsupportedFileType";

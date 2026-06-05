@@ -97,6 +97,7 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
   isTextExpanded = signal(false);
   imageError = signal(false);
   retryingPipeline = signal<string | null>(null);
+  isRerecognizing = signal(false);
   blobUrl = signal<string | null>(null);
   isEditingFields = signal(false);
   isSavingFields = signal(false);
@@ -182,6 +183,22 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
 
   isReady = computed(() =>
     this.document()?.lifecycleStatus === DocumentLifecycleStatus.Ready
+  );
+
+  // 关键流水线（文本提取 / 分类）有进行中的 run（Pending/Running）时为 true。
+  pipelineInProgress = computed(() =>
+    this.pipelineRows().some(r => r.isKnown && r.inProgress)
+  );
+
+  // #263「重新识别」可用性：已提取文本 + 有 ConfirmClassification 权限（同 canEditFields）+
+  // 当前无进行中的关键流水线、且不在加载中——避免对正在(重)处理的文档叠加重排。
+  // 用 pipelineInProgress 而非 !isProcessing()：后者在 needsReview() 时恒 false，会让待审核文档
+  // 在重排进行中仍露出按钮（评审 #5）。POST 在途由按钮 [disabled]="isRerecognizing()" 兜住。
+  canRerecognize = computed(() =>
+    this.canEditFields &&
+    !!this.document()?.markdown &&
+    !this.pipelineInProgress() &&
+    !this.isLoading()
   );
 
   isImage = computed(() =>
@@ -387,6 +404,33 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
             this.router.navigate(['/documents']);
           },
         });
+      });
+  }
+
+  // #263「重新识别」：让 AI 在现有 Markdown 上重跑自动分类 → 级联重抽字段（不重新 OCR）。
+  // 覆盖性操作（覆盖当前类型 + 人工改过的字段值），先确认；成功后 reload 反映 Processing 态。
+  rerecognize(): void {
+    const doc = this.document();
+    if (!doc || this.isRerecognizing()) return;
+    this.confirmation
+      .warn('::Document:Rerecognize:Confirm', '::AreYouSure')
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(status => {
+        if (status !== Confirmation.Status.confirm) return;
+        this.isRerecognizing.set(true);
+        this.documentService.rerecognize(doc.id!)
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({
+            next: () => {
+              this.isRerecognizing.set(false);
+              this.toaster.success('::Document:RerecognizeQueued', '::Success');
+              this.loadDocument();
+            },
+            error: () => {
+              this.isRerecognizing.set(false);
+              this.toaster.error('::Document:RerecognizeFailed', '::Error');
+            },
+          });
       });
   }
 

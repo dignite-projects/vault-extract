@@ -1,6 +1,8 @@
 using System;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Dignite.Paperbase.Documents;
+using Dignite.Paperbase.Documents.Fields;
 using Dignite.Paperbase.Documents.Pipelines;
 using Shouldly;
 using Volo.Abp;
@@ -154,6 +156,26 @@ public class DocumentPipelineRunManagerTests : PaperbaseDomainTestBase<Paperbase
 
         var latestRun = await _runRepo.FindLatestByDocumentAndCodeAsync(doc.Id, PaperbasePipelines.Classification);
         latestRun!.Status.ShouldBe(PipelineRunStatus.Succeeded);
+    }
+
+    // 不变量「无已确认类型 ⟹ 无类型绑定字段值」(#267)：低置信度收回类型时一并清空旧字段值，
+    // 否则出口读模型会出现「无类型却带字段」。重新识别一个已抽过字段的文档落到低置信度时暴露。
+    [Fact]
+    public async Task CompleteClassificationWithLowConfidence_Clears_ExtractedFieldValues()
+    {
+        var doc = CreateDocument();
+        // 模拟已分类 + 已抽字段的既有态。
+        doc.SetFields(new[]
+        {
+            new DocumentFieldValue(Guid.NewGuid(), FieldDataType.Text, JsonSerializer.SerializeToElement("Acme")),
+        });
+        doc.ExtractedFieldValues.ShouldNotBeEmpty();
+
+        var run = await _manager.StartAsync(doc, PaperbasePipelines.Classification);
+        await _manager.CompleteClassificationWithLowConfidenceAsync(doc, run, "AI confidence too low");
+
+        doc.DocumentTypeId.ShouldBeNull();
+        doc.ExtractedFieldValues.ShouldBeEmpty();
     }
 
     [Fact]
