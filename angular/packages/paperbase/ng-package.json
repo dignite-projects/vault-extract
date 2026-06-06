@@ -6,6 +6,7 @@
   },
   "allowedNonPeerDependencies": [
     "@abp/ng.core",
-    "@abp/ng.theme.shared"
+    "@abp/ng.theme.shared",
+    "marked"
   ]
 }

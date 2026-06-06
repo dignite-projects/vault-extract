@@ -7,10 +7,90 @@
   font-size: 0.8rem;
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 300px;
-  overflow-y: auto;
   background-color: #f8f9fa;
   padding: 0.75rem;
   border-radius: 0.25rem;
   border: 1px solid #dee2e6;
+}
+
+// Markdown 预览（#274）：marked 渲染后的 HTML 排版。内容已过 Angular DomSanitizer 消毒。
+.markdown-body {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  word-wrap: break-word;
+
+  h1, h2, h3, h4, h5, h6 {
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    line-height: 1.25;
+  }
+  h1 { font-size: 1.5rem; }
+  h2 { font-size: 1.3rem; }
+  h3 { font-size: 1.15rem; }
+  h4, h5, h6 { font-size: 1rem; }
+
+  p { margin-bottom: 0.75rem; }
+
+  ul, ol {
+    padding-left: 1.5rem;
+    margin-bottom: 0.75rem;
+  }
+
+  code {
+    background-color: #f8f9fa;
+    padding: 0.1rem 0.3rem;
+    border-radius: 0.2rem;
+    font-size: 0.85em;
+  }
+
+  pre {
+    background-color: #f8f9fa;
+    padding: 0.75rem;
+    border-radius: 0.25rem;
+    overflow-x: auto;
+    margin-bottom: 0.75rem;
+
+    code {
+      background-color: transparent;
+      padding: 0;
+    }
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin-bottom: 0.75rem;
+    font-size: 0.85rem;
+
+    th, td {
+      border: 1px solid #dee2e6;
+      padding: 0.4rem 0.6rem;
+      text-align: left;
+    }
+    th {
+      background-color: #f8f9fa;
+      font-weight: 600;
+    }
+  }
+
+  img {
+    max-width: 100%;
+    height: auto;
+  }
+
+  blockquote {
+    border-left: 3px solid #dee2e6;
+    padding-left: 0.75rem;
+    margin-bottom: 0.75rem;
+    color: #6c757d;
+  }
+
+  a {
+    color: var(--bs-primary, #0d6efd);
+  }
+
+  & > :last-child {
+    margin-bottom: 0;
+  }
 }

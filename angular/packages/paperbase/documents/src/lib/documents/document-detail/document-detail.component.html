@@ -77,51 +77,103 @@
     }
 
     <div class="row g-3">
-      <!-- LEFT: Original file preview -->
-      <div class="col-lg-5">
-        <div class="card shadow-sm h-100">
-          <div class="card-header">
-            <h6 class="mb-0">
-              <i class="fas fa-image me-2"></i>
-              {{ '::Document:OriginalFile' | abpLocalization }}
-            </h6>
-          </div>
-          <div class="card-body p-0 d-flex align-items-center justify-content-center bg-light" style="min-height: 400px;">
-            @if (isImage() && !imageError()) {
-              <img
-                [src]="blobUrl()"
-                (error)="onImageError()"
-                alt="{{ document()!.fileOrigin?.originalFileName }}"
-                class="img-fluid preview-image"
-                style="max-height: 600px; object-fit: contain;"
-              />
-            } @else if (!isImage()) {
-              <div class="text-center text-muted py-4">
-                <i class="fas fa-file-pdf fa-4x text-danger mb-3 d-block"></i>
-                <p>{{ document()!.fileOrigin?.originalFileName }}</p>
-                <button class="btn btn-outline-primary btn-sm" (click)="openFile()">
-                  <i class="fas fa-external-link-alt me-1"></i>
-                  {{ '::Document:OpenFile' | abpLocalization }}
+      <!-- LEFT: Tab 区 — Markdown 预览 / 源码 / 原文件（#274） -->
+      <div class="col-lg-6">
+        <div class="card shadow-sm h-100 d-flex flex-column">
+          <div class="card-header p-0 pt-2 bg-white">
+            <ul class="nav nav-tabs card-header-tabs mx-2 mb-0">
+              <li class="nav-item">
+                <button class="nav-link" [class.active]="activeTab() === 'preview'"
+                        (click)="selectTab('preview')">
+                  <i class="fas fa-eye me-1"></i>{{ '::Document:Tab:Preview' | abpLocalization }}
                 </button>
-              </div>
-            } @else {
-              <div class="text-center text-muted py-4">
-                <i class="fas fa-image fa-4x mb-3 d-block"></i>
-                <p>{{ '::Document:PreviewUnavailable' | abpLocalization }}</p>
-              </div>
+              </li>
+              <li class="nav-item">
+                <button class="nav-link" [class.active]="activeTab() === 'source'"
+                        (click)="selectTab('source')">
+                  <i class="fas fa-code me-1"></i>{{ '::Document:Tab:Source' | abpLocalization }}
+                </button>
+              </li>
+              <li class="nav-item">
+                <button class="nav-link" [class.active]="activeTab() === 'file'"
+                        (click)="selectTab('file')">
+                  <i class="fas fa-file me-1"></i>{{ '::Document:OriginalFile' | abpLocalization }}
+                </button>
+              </li>
+            </ul>
+          </div>
+          <div class="card-body overflow-auto" style="min-height: 400px; max-height: 80vh;">
+            @switch (activeTab()) {
+              @case ('preview') {
+                @if (document()!.markdown) {
+                  <div class="markdown-body" [innerHTML]="renderedMarkdown()"></div>
+                } @else {
+                  <div class="text-center text-muted py-5">
+                    <i class="fas fa-align-left fa-3x mb-3 d-block"></i>
+                    <p class="mb-0">{{ '::Document:Markdown:Empty' | abpLocalization }}</p>
+                  </div>
+                }
+              }
+              @case ('source') {
+                @if (document()!.markdown) {
+                  <pre class="ocr-text mb-0">{{ document()!.markdown }}</pre>
+                } @else {
+                  <div class="text-center text-muted py-5">
+                    <p class="mb-0">{{ '::Document:Markdown:Empty' | abpLocalization }}</p>
+                  </div>
+                }
+              }
+              @case ('file') {
+                @if (isBlobLoading()) {
+                  <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status"></div>
+                  </div>
+                } @else if (previewError()) {
+                  <div class="text-center text-muted py-5">
+                    <i class="fas fa-exclamation-triangle fa-3x mb-3 d-block"></i>
+                    <p class="mb-0">{{ '::Document:PreviewUnavailable' | abpLocalization }}</p>
+                  </div>
+                } @else if (isImage() && blobUrl()) {
+                  <div class="text-center">
+                    <img
+                      [src]="blobUrl()"
+                      (error)="onPreviewError()"
+                      alt="{{ document()!.fileOrigin?.originalFileName }}"
+                      class="img-fluid preview-image"
+                      style="max-height: 70vh; object-fit: contain;"
+                    />
+                  </div>
+                } @else if (isPdf() && safeBlobUrl()) {
+                  <iframe
+                    [src]="safeBlobUrl()"
+                    [title]="document()!.fileOrigin?.originalFileName"
+                    class="w-100 border rounded"
+                    style="min-height: 70vh;"
+                  ></iframe>
+                } @else {
+                  <div class="text-center text-muted py-5">
+                    <i class="fas fa-image fa-3x mb-3 d-block"></i>
+                    <p class="mb-0">{{ '::Document:PreviewUnavailable' | abpLocalization }}</p>
+                  </div>
+                }
+              }
             }
           </div>
-          <div class="card-footer text-muted small">
-            <i class="fas fa-file me-1"></i>
-            {{ document()!.fileOrigin?.originalFileName }}
-            &nbsp;·&nbsp;
-            {{ document()!.fileOrigin?.contentType }}
+          <div class="card-footer text-muted small d-flex align-items-center gap-2">
+            <i class="fas fa-file"></i>
+            <span class="text-truncate">{{ document()!.fileOrigin?.originalFileName }}</span>
+            <span>·</span>
+            <span class="flex-shrink-0">{{ document()!.fileOrigin?.contentType }}</span>
+            <a [routerLink]="['/documents', document()!.id, 'file']" target="_blank" rel="noopener"
+               class="btn btn-sm btn-link p-0 ms-auto flex-shrink-0">
+              <i class="fas fa-external-link-alt me-1"></i>{{ '::Document:OpenFile' | abpLocalization }}
+            </a>
           </div>
         </div>
       </div>
 
-      <!-- RIGHT: Document metadata, pipelines, Markdown -->
-      <div class="col-lg-7 d-flex flex-column">
+      <!-- RIGHT: Document metadata, fields, pipelines -->
+      <div class="col-lg-6 d-flex flex-column">
         <div class="d-flex flex-column gap-3">
           <div class="card shadow-sm">
             <div class="card-body">
@@ -209,13 +261,6 @@
                 <dt class="col-sm-5 text-muted">{{ '::Document:UploadedAt' | abpLocalization }}</dt>
                 <dd class="col-sm-7">{{ document()!.creationTime | date:'yyyy-MM-dd HH:mm' }}</dd>
               </dl>
-
-              <div class="mt-3">
-                <button class="btn btn-outline-primary btn-sm" (click)="openFile()">
-                  <i class="fas fa-external-link-alt me-1"></i>
-                  {{ '::Document:OpenFile' | abpLocalization }}
-                </button>
-              </div>
             </div>
           </div>
 
@@ -354,24 +399,6 @@
               }
             </ul>
           </div>
-
-          @if (document()!.markdown) {
-            <div class="card shadow-sm">
-              <div class="card-header d-flex justify-content-between align-items-center"
-                   role="button" (click)="toggleText()" style="cursor: pointer;">
-                <h6 class="mb-0">
-                  <i class="fas fa-align-left me-2"></i>
-                  {{ '::Document:Markdown' | abpLocalization }}
-                </h6>
-                <i class="fas" [class.fa-chevron-down]="!isTextExpanded()" [class.fa-chevron-up]="isTextExpanded()"></i>
-              </div>
-              @if (isTextExpanded()) {
-                <div class="card-body">
-                  <pre class="ocr-text">{{ document()!.markdown }}</pre>
-                </div>
-              }
-            </div>
-          }
         </div>
       </div>
     </div>

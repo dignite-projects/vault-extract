@@ -13,6 +13,8 @@ import { forkJoin, of, switchMap, tap } from 'rxjs';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
+import { marked } from 'marked';
 import { LocalizationPipe, LocalizationService, PermissionService } from '@abp/ng.core';
 import { DynamicFormComponent, type FormFieldConfig } from '@abp/ng.components/dynamic-form';
 import { Confirmation, ConfirmationService, ToasterService } from '@abp/ng.theme.shared';
@@ -77,6 +79,7 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
   private readonly confirmation = inject(ConfirmationService);
   private readonly permissionService = inject(PermissionService);
   private readonly localization = inject(LocalizationService);
+  private readonly sanitizer = inject(DomSanitizer);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly canDelete = this.permissionService.getGrantedPolicy(
@@ -94,11 +97,16 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
   // 改为独立 signal，loadDocument 时通过 DocumentPipelineRunService 单独拉取。
   pipelineRuns = signal<DocumentPipelineRunDto[]>([]);
   isLoading = signal(true);
-  isTextExpanded = signal(false);
-  imageError = signal(false);
+  // 左栏 3-Tab（#274）：默认 Markdown 预览；切到 'file' 才触发原文件 blob 懒加载。
+  activeTab = signal<'preview' | 'source' | 'file'>('preview');
+  isBlobLoading = signal(false);
+  // 原文件预览失败（blob 下载失败 或 <img> 渲染失败）的统一信号；进 file Tab / reload 时复位。
+  previewError = signal(false);
   retryingPipeline = signal<string | null>(null);
   isRerecognizing = signal(false);
   blobUrl = signal<string | null>(null);
+  // PDF iframe 的 resource URL 必须经 DomSanitizer 放行（自造同源 blob:，安全）。
+  safeBlobUrl = signal<SafeResourceUrl | null>(null);
   isEditingFields = signal(false);
   isSavingFields = signal(false);
   fieldDefinitions = signal<FieldDefinitionDto[]>([]);
@@ -205,6 +213,22 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
     this.document()?.fileOrigin?.contentType?.startsWith('image/') ?? false
   );
 
+  isPdf = computed(() =>
+    this.document()?.fileOrigin?.contentType === 'application/pdf'
+  );
+
+  // Markdown 源文本中间 computed（#274 review）：document() 变更但 markdown 未变时（改字段 /
+  // 文件柜等），返回相同字符串 → 下游 renderedMarkdown 凭值相等性短路，避免重复 marked.parse。
+  private markdownSource = computed(() => this.document()?.markdown ?? '');
+
+  // Markdown 预览（#274）：marked 渲染为 HTML 字符串，模板 [innerHTML] 绑定时由 Angular 内置
+  // DomSanitizer 自动消毒（剥离 <script> / on* / javascript:）。绝不 bypassSecurityTrustHtml——
+  // Markdown 是攻击者可影响内容（VLM OCR 可被图内文字 prompt-inject），消毒器必须全程开。
+  renderedMarkdown = computed<string>(() => {
+    const md = this.markdownSource();
+    return md ? (marked.parse(md, { gfm: true, async: false }) as string) : '';
+  });
+
   // 文档所属文件柜名（cabinetId → name）；未归类或解析不到（无权限 / 已删柜）返回 null。
   cabinetName = computed<string | null>(() => {
     const id = this.document()?.cabinetId;
@@ -268,9 +292,11 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
           this.document.set(doc);
           this.pipelineRuns.set(runs);
           this.isLoading.set(false);
-          // 仅图片需要立即加载（内联预览）；非图片等用户点击"打开文件"时再下载
-          if (doc.fileOrigin?.contentType?.startsWith('image/')) {
-            this.loadBlob();
+          // 原文件 blob 懒加载（#274）：默认不在加载文档时拉取，仅「原文件」Tab 才下载（见 selectTab）。
+          // 若用户已在该 Tab，reload（Refresh / rerecognize）后调一次 ensureFilePreview——blob 已缓存
+          // 则早退、上次失败则复位错误重试，避免「Refresh 对卡住的预览无效」（#274 review）。
+          if (this.activeTab() === 'file') {
+            this.ensureFilePreview();
           }
           // 字段定义用于：① 抽取字段展示用 displayName（所有查看者）；② 可编辑时补全空字段。
           // 后端 GetListAsync 自 #223 起对 Documents.Default 即放开，故只要有类型就加载，不再门控编辑权限。
@@ -353,22 +379,44 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
       });
   }
 
+  // 原文件 blob 懒加载（#274）：仅「原文件」Tab 激活时调用。已加载 / 加载中则跳过，
+  // blob 缓存至组件销毁（ngOnDestroy revoke）。
   private loadBlob(): void {
-    const oldUrl = this.blobUrl();
-    if (oldUrl) URL.revokeObjectURL(oldUrl);
-    this.blobUrl.set(null);
+    if (this.blobUrl() || this.isBlobLoading()) return;
+    this.isBlobLoading.set(true);
 
     this.documentService.getBlob(this.documentId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: blob => this.blobUrl.set(URL.createObjectURL(blob)),
+        next: blob => {
+          const url = URL.createObjectURL(blob);
+          this.blobUrl.set(url);
+          // PDF 走 iframe，resource URL 必须经 DomSanitizer 放行（自造同源 blob:，安全）。
+          if (this.isPdf()) {
+            this.safeBlobUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(url));
+          }
+          this.isBlobLoading.set(false);
+        },
+        error: () => {
+          this.isBlobLoading.set(false);
+          this.previewError.set(true);
+        },
       });
   }
 
-  // 打开干净路由的文件预览页（documents/:id/file）——替代旧的 blob: 新标签直开。
-  // 文件本体由预览页自己经带 token 的 getBlob 拉取内嵌，token 不进地址栏。
-  openFile(): void {
-    this.router.navigate(['/documents', this.documentId, 'file']);
+  // 进入「原文件」Tab 的统一入口（#274 review）：先复位上次的预览错误（给 <img> 重建一次重试、
+  // 让上次下载失败可重拉），再 loadBlob（自身防重复请求）。修复 imageError 卡死 + Refresh 无效。
+  private ensureFilePreview(): void {
+    this.previewError.set(false);
+    this.loadBlob();
+  }
+
+  // Tab 切换（#274）：切到「原文件」时确保原文件预览就绪。
+  selectTab(tab: 'preview' | 'source' | 'file'): void {
+    this.activeTab.set(tab);
+    if (tab === 'file') {
+      this.ensureFilePreview();
+    }
   }
 
   ngOnDestroy(): void {
@@ -376,12 +424,9 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
     if (url) URL.revokeObjectURL(url);
   }
 
-  onImageError(): void {
-    this.imageError.set(true);
-  }
-
-  toggleText(): void {
-    this.isTextExpanded.set(!this.isTextExpanded());
+  // <img> 渲染失败（blob 已下载但解码失败）——并入统一预览错误信号。
+  onPreviewError(): void {
+    this.previewError.set(true);
   }
 
   goBack(): void {
