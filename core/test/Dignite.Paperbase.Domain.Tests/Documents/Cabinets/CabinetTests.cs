@@ -6,9 +6,8 @@ using Xunit;
 namespace Dignite.Paperbase.Documents.Cabinets;
 
 /// <summary>
-/// Cabinet 实体层不变量测试。Name 拒绝控制字符——基础卫生（防 UI / CSV 注入），
-/// 目的不同于 <see cref="DocumentType"/> 的 prompt injection 边界（Cabinet 正交于 pipeline 不进 LLM）。
-/// 允许 Unicode 字母数字 / 空格 / 标点（中日文柜名 OK）。
+/// Cabinet 实体层不变量测试。Name / Description 拒控制字符——二者经 #265 选柜 prompt 进 LLM（WrapField 包裹），
+/// 拒控制字符兼作注入深度防御（镜像 <see cref="DocumentTypes.DocumentType"/>）。允许 Unicode 字母数字 / 空格 / 标点（中日文 OK）。
 /// </summary>
 public class CabinetTests
 {
@@ -39,5 +38,43 @@ public class CabinetTests
         var cabinet = new Cabinet(Guid.NewGuid(), null, "Legal");
         Should.Throw<BusinessException>(() => cabinet.Update("Bad\nName"))
             .Code.ShouldBe(PaperbaseErrorCodes.Cabinet.InvalidName);
+    }
+
+    [Theory]
+    [InlineData("Contracts signed with external parties.")]
+    [InlineData("存放对外签署的销售 / 采购合同")]
+    public void Should_Accept_Valid_Description(string description)
+    {
+        var cabinet = new Cabinet(Guid.NewGuid(), null, "Legal", description);
+        cabinet.Description.ShouldBe(description);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Should_Normalize_Blank_Description_To_Null(string? description)
+    {
+        var cabinet = new Cabinet(Guid.NewGuid(), null, "Legal", description);
+        cabinet.Description.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("Bad\nDescription")]
+    [InlineData("Tab\there")]
+    [InlineData("Null\0byte")]
+    public void Should_Reject_Description_With_Control_Chars(string description)
+    {
+        var ex = Should.Throw<BusinessException>(
+            () => new Cabinet(Guid.NewGuid(), null, "Legal", description));
+        ex.Code.ShouldBe(PaperbaseErrorCodes.Cabinet.InvalidDescription);
+    }
+
+    [Fact]
+    public void Update_Should_Also_Reject_Description_Control_Chars()
+    {
+        var cabinet = new Cabinet(Guid.NewGuid(), null, "Legal");
+        Should.Throw<BusinessException>(() => cabinet.Update("Legal", "Bad\nDescription"))
+            .Code.ShouldBe(PaperbaseErrorCodes.Cabinet.InvalidDescription);
     }
 }

@@ -272,6 +272,8 @@ public static class PaperbaseDbContextModelCreatingExtensions
             b.ConfigureByConvention();
 
             b.Property(x => x.Name).IsRequired().HasMaxLength(CabinetConsts.MaxNameLength);
+            // 可空：选柜辅助说明（#273），NULL = 无说明。
+            b.Property(x => x.Description).HasMaxLength(CabinetConsts.MaxDescriptionLength);
 
             // 唯一约束：(TenantId, Name)，层内不可重名（Host 与租户各自独立宇宙）。软删过滤。
             b.HasIndex(x => new { x.TenantId, x.Name })

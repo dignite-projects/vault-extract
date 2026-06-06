@@ -7,20 +7,13 @@ using Volo.Abp.MultiTenancy;
 namespace Dignite.Paperbase.Documents.Cabinets;
 
 /// <summary>
-/// 文件柜实体——人工组织归属维度（#194）。
-/// 与 <see cref="DocumentType"/> 正交：DocumentType 答"这是什么"（AI 分类），Cabinet 答"属于哪个组 / 批次"（人工指定）。
-/// 一个文档可同时"在法务部柜里" + "类型是合同"。
+/// 文件柜——人工组织归属维度（#194），与 <see cref="DocumentTypes.DocumentType"/> 正交：前者答「属于哪个组 / 批次」
+/// （人工指定），后者答「这是什么」（AI 分类）。Guid 主键 + <see cref="Name"/> 层内唯一（<c>(TenantId, Name)</c>），
+/// <c>Document.CabinetId</c> 以可空 Guid 引用。
 /// <para>
-/// 与 DocumentType 的关键区别——<b>无字符串标识码</b>：DocumentType 的 TypeCode 之所以是字符串，是因为要喂
-/// LLM 分类 prompt、被下游业务按 <c>(TenantId, TypeCode)</c> 元组路由、允许跨层同码。Cabinet 三者皆无
-/// （#194 约束：正交于<b>内容</b> pipeline，不进出口契约，只用于内部查询 / 筛选 / 分组），故用 Guid 主键
-/// + <see cref="Name"/> 层内唯一即可，<see cref="Document.CabinetId"/> 以可空 Guid 外键引用。
-/// <para>
-/// <b>#265 例外（不破坏 #194 正交）</b>：上传时若操作员留空柜，「AI 兜底选柜」会把本层柜的 <see cref="Name"/> 作为
-/// <b>候选编号列表</b>喂给 LLM 选一个（经 <c>PromptBoundary.WrapField</c> 包裹防注入）。这是<b>独立、一次性</b>的
-/// 上传时步骤，<b>分类 / 字段抽取 pipeline 仍完全不读不写 <see cref="Document.CabinetId"/></b>——柜没有退化成第二个
-/// DocumentType，AI 内容维度与人工组织维度依旧解耦（详见 <c>CabinetSuggestionWorkflow</c>）。
-/// </para>
+/// 分类 / 字段抽取 pipeline 完全不读写 <c>CabinetId</c>。唯一例外是上传留空时的「AI 兜底选柜」（#265）：把本层柜的
+/// <see cref="Name"/> + <see cref="Description"/>（#273）经 <c>PromptBoundary.WrapField</c> 包裹喂 LLM 选一个——
+/// 独立一次性的上传时步骤，不使柜退化为第二个 DocumentType（详见 <c>CabinetSuggestionWorkflow</c>）。
 /// </para>
 /// </summary>
 public class Cabinet : FullAuditedAggregateRoot<Guid>, IMultiTenant
@@ -30,25 +23,30 @@ public class Cabinet : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// <summary>柜名（运行时直接展示）。唯一约束 <c>(TenantId, Name)</c>，层内不可重名。</summary>
     public virtual string Name { get; private set; } = default!;
 
+    /// <summary>
+    /// 可选柜说明（#273）。与 <see cref="Name"/> 同列喂入 #265 选柜 prompt 辅助 AI 判归属；<c>null</c> = 无说明。
+    /// 同样经 <c>PromptBoundary.WrapField</c> 包裹进 LLM，故 <see cref="ValidateDescription"/> 拒控制字符做注入深度防御
+    /// （镜像 <c>DocumentType.Description</c>）。
+    /// </summary>
+    public virtual string? Description { get; private set; }
+
     protected Cabinet() { }
 
-    public Cabinet(Guid id, Guid? tenantId, string name)
+    public Cabinet(Guid id, Guid? tenantId, string name, string? description = null)
         : base(id)
     {
         TenantId = tenantId;
         Name = ValidateName(name);
+        Description = ValidateDescription(description);
     }
 
-    public void Update(string name)
+    public void Update(string name, string? description = null)
     {
         Name = ValidateName(name);
+        Description = ValidateDescription(description);
     }
 
-    /// <summary>
-    /// Name 卫生校验：拒绝控制字符（换行 / 制表符等）。
-    /// 不同于 <see cref="DocumentType"/> 同名校验的 prompt injection 边界目的（DocumentType 进 LLM）——
-    /// Cabinet 正交于 pipeline 不进 LLM，此处纯为防 UI / CSV 注入的基础卫生。
-    /// </summary>
+    /// <summary>Name 卫生校验：拒控制字符。Name 经 #265 选柜 prompt 进 LLM（WrapField 包裹），此处拒控制字符兼作注入深度防御。</summary>
     private static string ValidateName(string name)
     {
         Check.NotNullOrWhiteSpace(name, nameof(name), CabinetConsts.MaxNameLength);
@@ -60,5 +58,27 @@ public class Cabinet : FullAuditedAggregateRoot<Guid>, IMultiTenant
         }
 
         return name;
+    }
+
+    /// <summary>
+    /// Description 可空（null / 空白 → 归一化为 <c>null</c>，选柜 prompt 不追加该行）。有值时：长度上限 + 拒控制字符
+    /// ——与 <see cref="ValidateName"/> 同源、镜像 <c>DocumentType.ValidateDescription</c> 的注入深度防御。
+    /// </summary>
+    private static string? ValidateDescription(string? description)
+    {
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            return null;
+        }
+
+        Check.Length(description, nameof(description), CabinetConsts.MaxDescriptionLength);
+
+        if (description.Any(char.IsControl))
+        {
+            throw new BusinessException(PaperbaseErrorCodes.Cabinet.InvalidDescription)
+                .WithData("description", description);
+        }
+
+        return description;
     }
 }

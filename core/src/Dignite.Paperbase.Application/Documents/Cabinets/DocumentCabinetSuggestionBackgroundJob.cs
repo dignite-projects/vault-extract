@@ -14,28 +14,18 @@ using Volo.Abp.Uow;
 namespace Dignite.Paperbase.Documents.Cabinets;
 
 /// <summary>
-/// 「留空 AI 兜底选柜」后台作业（#265）。<b>独立、一次性、best-effort</b>——由
-/// <c>DocumentTextExtractionBackgroundJob</c> 在文本提取<b>成功</b>（Markdown 就绪）时 fan-out 一次。
+/// 「留空 AI 兜底选柜」后台作业（#265）：文本提取成功（Markdown 就绪）时由 <c>DocumentTextExtractionBackgroundJob</c>
+/// fan-out 一次。独立、一次性、best-effort——守 #194 正交护栏：是 <see cref="Document.CabinetId"/> 的唯一 AI 写入点，
+/// 不建 <c>DocumentPipelineRun</c>、不进 Ready 闸门、不可重试；分类 / 字段抽取 pipeline 仍不读写 CabinetId。
 /// <para>
-/// <b>守 #194 正交护栏</b>：本作业是文件柜（人工组织维度）的<b>唯一</b> AI 写入点，与内容 pipeline 解耦——
-/// 分类 / 字段抽取 / 文本提取的逻辑继续完全不读不写 <see cref="Document.CabinetId"/>。它<b>不</b>建
-/// <c>DocumentPipelineRun</c>、不进 <c>KeyPipelines</c>、不影响 <c>LifecycleStatus</c> / Ready 闸门、不可重试。
+/// 仅在 CabinetId 留空时填（人工优先；Begin + Complete 双重门控，后者复检 #257 改派竞态）。三阶段 UoW
+/// （Begin 加载 + 门控 + 取候选 → External 无 UoW 跑 LLM → Complete 复检 + 写回），遵循 background-jobs.md。
 /// </para>
 /// <para>
-/// <b>护栏 2（人工优先）</b>：仅在 <see cref="Document.CabinetId"/> 留空时填——Begin 段与 Complete 段各做一次
-/// <c>CabinetId == null</c> 门控（后者复检 LLM 期间操作员手动改派 #257 的竞态）。
-/// <b>护栏 3（一次性）</b>：由 Markdown write-once 不变式保证——文本提取成功路径每个文档至多命中一次，故 fan-out 至多一次。
-/// <b>Fail-open（吞下一切，含取消）</b>：本作业刻意<b>非 PipelineRun、不可重试</b>，故<b>任何</b>异常
-/// （LLM 故障 / provider 超时 <see cref="TaskCanceledException"/> / 解析失败 / 宿主停机取消）都记 warning、留「未归类」、
-/// <b>不</b> rethrow——绝不打挂主流程，也绝不进 ABP 重试机制（与 #210 归档 fail-open 同精神）。
-/// 这里<b>不</b>用 <c>when (ex is not OperationCanceledException)</c> 过滤：那会让 provider 的 per-call 超时
-/// （<see cref="TaskCanceledException"/> 派生自 <see cref="OperationCanceledException"/>）逃逸出 fail-open → 触发 ABP 重试风暴，
-/// 与本作业「不可重试」契约相悖。停机时的及时性由 <see cref="SuggestAsync"/> 传入 ambient 取消令牌保证
-/// （在飞 LLM 调用随令牌取消及时返回、不阻塞 worker），<b>取消异常本身仍被吞掉</b>——文档保持「未归类」即可。
-/// </para>
-/// <para>
-/// 三阶段 UoW 遵循 <c>.claude/rules/background-jobs.md</c>：Begin（短 UoW，加载 + 自门控 + 取候选）→
-/// External（无 UoW，LLM 调用）→ Complete（短 UoW，复检 + 写回）。
+/// <b>Fail-open 吞下一切异常（含取消）</b>：本作业非 PipelineRun、不可重试，<see cref="ExecuteAsync"/> 的 catch
+/// <b>不</b>加 <c>when (ex is not OperationCanceledException)</c> 过滤——否则 provider per-call 超时
+/// （<see cref="TaskCanceledException"/> 派生自 <see cref="OperationCanceledException"/>）会逃逸 → 触发 ABP 重试风暴，
+/// 与「不可重试」契约相悖。停机及时性由 ambient 取消令牌保证（在飞 LLM 调用随之返回），取消异常本身吞掉、留「未归类」。
 /// </para>
 /// </summary>
 [BackgroundJobName("Paperbase.DocumentCabinetSuggestion")]
@@ -87,11 +77,7 @@ public class DocumentCabinetSuggestionBackgroundJob
         }
         catch (Exception ex)
         {
-            // Fail-open（吞下一切，含取消）：本作业非 PipelineRun、不可重试，故任何异常都不 rethrow——
-            // 含 provider per-call 超时（TaskCanceledException : OperationCanceledException）与宿主停机取消。
-            // 关键：不加 `when (ex is not OperationCanceledException)` 过滤——否则 per-call 超时会逃逸 → ABP 重试风暴，
-            // 与「不可重试」契约相悖。停机及时性已由 SuggestAsync 传入 ambient 取消令牌保证（LLM 调用随之及时返回），
-            // 取消异常在此吞掉、文档保持「未归类」即可。
+            // Fail-open：吞下一切（含取消异常）——理由见类注释（不加 OperationCanceledException 过滤，避免 ABP 重试风暴）。
             Logger.LogWarning(ex,
                 "AI cabinet suggestion failed for document {DocumentId}; leaving it uncategorized.",
                 args.DocumentId);

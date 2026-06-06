@@ -155,6 +155,8 @@
     "Cabinet:Empty": "No cabinets yet. Create one to organize documents by group or batch.",
     "Cabinet:Name": "Name",
     "Cabinet:NameHint": "A cabinet groups documents by manual organization (e.g. Legal Dept, 2024 Project) — orthogonal to the AI document type.",
+    "Cabinet:Description": "Description",
+    "Cabinet:DescriptionHint": "Optional. Helps the AI pick this cabinet when an upload is left unfiled (e.g. what kinds of documents belong here). Not applied to document content.",
     "Cabinet:AreYouSureToDelete": "Delete this cabinet? Documents in it become unfiled (they are not deleted).",
     "Cabinet:CreatedSuccessfully": "Cabinet created.",
     "Cabinet:UpdatedSuccessfully": "Cabinet updated.",
@@ -293,6 +295,7 @@
     "ExportTemplate:DeletedSuccessfully": "Export template deleted.",
     "ExportTemplate:DeleteFailed": "Failed to delete the export template.",
     "Paperbase:InvalidCabinetName": "Cabinet name '{name}' contains control characters (newlines, tabs, etc.), which are not allowed.",
+    "Paperbase:InvalidCabinetDescription": "Cabinet description contains control characters (newlines, tabs, etc.), which are not allowed.",
     "Paperbase:CabinetNameAlreadyExists": "A cabinet named '{Name}' already exists in this scope.",
     "Paperbase:InvalidCabinetId": "The selected cabinet does not exist in this scope."
   }

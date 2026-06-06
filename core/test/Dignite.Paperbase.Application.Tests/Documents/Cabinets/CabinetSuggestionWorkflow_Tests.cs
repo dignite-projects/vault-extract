@@ -123,4 +123,44 @@ public class CabinetSuggestionWorkflow_Tests
     {
         CabinetSuggestionWorkflow.TruncateAtCharBoundary("hello", 10).ShouldBe("hello");
     }
+
+    [Fact]
+    public void FormatCandidates_Numbers_Are_One_Based()
+    {
+        var result = CabinetSuggestionWorkflow.FormatCandidates(Candidates("法务", "财务"));
+
+        result.ShouldContain("1. ");
+        result.ShouldContain("2. ");
+    }
+
+    [Fact]
+    public void FormatCandidates_Wraps_Name_With_PromptBoundary()
+    {
+        var result = CabinetSuggestionWorkflow.FormatCandidates(Candidates("法务"));
+
+        result.ShouldContain(PromptBoundary.WrapField("法务")!);
+    }
+
+    [Fact]
+    public void FormatCandidates_Appends_Description_When_Present()
+    {
+        var candidates = new List<Cabinet>
+        {
+            new(Guid.NewGuid(), null, "法务", "存放对外合同"),
+        };
+
+        var result = CabinetSuggestionWorkflow.FormatCandidates(candidates);
+
+        result.ShouldContain(PromptBoundary.WrapField("存放对外合同")!);
+        result.ShouldContain(" — ");
+    }
+
+    [Fact]
+    public void FormatCandidates_Omits_Description_When_Absent()
+    {
+        // 空描述（Candidates helper 不设描述）→ 只给名称，不追加 " — 描述"。
+        var result = CabinetSuggestionWorkflow.FormatCandidates(Candidates("法务"));
+
+        result.ShouldNotContain(" — ");
+    }
 }

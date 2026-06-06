@@ -77,6 +77,7 @@ public static class PaperbaseErrorCodes
     public static class Cabinet
     {
         public const string InvalidName = "Paperbase:InvalidCabinetName";
+        public const string InvalidDescription = "Paperbase:InvalidCabinetDescription";
         public const string NameAlreadyExists = "Paperbase:CabinetNameAlreadyExists";
         public const string InvalidId = "Paperbase:InvalidCabinetId";
     }

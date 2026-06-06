@@ -37,7 +37,7 @@ public class CabinetAppService : PaperbaseAppService, ICabinetAppService
     {
         await EnsureNameAvailableAsync(input.Name);
 
-        var entity = new Cabinet(GuidGenerator.Create(), CurrentTenant.Id, input.Name);
+        var entity = new Cabinet(GuidGenerator.Create(), CurrentTenant.Id, input.Name, input.Description);
         await _repository.InsertAsync(entity, autoSave: true);
         return ObjectMapper.Map<Cabinet, CabinetDto>(entity);
     }
@@ -59,7 +59,7 @@ public class CabinetAppService : PaperbaseAppService, ICabinetAppService
             await EnsureNameAvailableAsync(input.Name);
         }
 
-        entity.Update(input.Name);
+        entity.Update(input.Name, input.Description);
         await _repository.UpdateAsync(entity, autoSave: true);
         return ObjectMapper.Map<Cabinet, CabinetDto>(entity);
     }
@@ -73,11 +73,9 @@ public class CabinetAppService : PaperbaseAppService, ICabinetAppService
             throw new EntityNotFoundException(typeof(Cabinet), id);
         }
 
-        // 删柜前原子清空该柜全部当前租户文档的 CabinetId（显式 TenantId 谓词，fail-closed）——不阻止删除
-        // （区别于 DocumentTypeAppService 的 InUse 保护），但必须真正 unfile：否则文档悬空指向已删柜
-        // （API 仍返回 stale ID、按旧 ID 筛选仍命中、重建同名柜产生新 ID 而老文档无法归位）。
-        // 柜正交于 pipeline——清空 CabinetId 不影响分类 / 字段抽取。只清活跃文档：软删除文档的 stale
-        // CabinetId 无害（恢复后柜已删，前端 map 不到即显示"未归类"）。单柜文档极多时可换 ExecuteUpdateAsync。
+        // 删柜前原子清空该柜文档的 CabinetId（真正 unfile）——否则文档悬空指向已删柜（stale ID、重建同名柜无法归位）。
+        // 不阻止删除（区别于 DocumentType 的 InUse 保护）；只清活跃文档（软删文档的 stale CabinetId 无害，前端 map 不到即「未归类」）。
+        // 单柜文档极多时可换 ExecuteUpdateAsync。
         var orphans = await _documentRepository.GetListAsync(
             d => d.TenantId == CurrentTenant.Id && d.CabinetId == entity.Id);
         if (orphans.Count > 0)
