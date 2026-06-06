@@ -5,7 +5,7 @@ using Dignite.Paperbase.EntityFrameworkCore;
 using Dignite.Paperbase.Host.HealthChecks;
 using Dignite.Paperbase.Host.Localization;
 using Dignite.Paperbase.Localization;
-using Dignite.Paperbase.Ocr.PaddleOcr;
+using Dignite.Paperbase.Ocr.VisionLlm;
 using Dignite.Paperbase.TextExtraction;
 using Volo.Abp.Localization;
 using Dignite.Paperbase.TextExtraction.ElBrunoMarkItDown;
@@ -127,9 +127,9 @@ namespace Dignite.Paperbase.Host;
     // Paperbase infrastructure modules
     typeof(PaperbaseTextExtractionModule),
     typeof(PaperbaseTextExtractionElBrunoMarkItDownModule),
-    typeof(PaperbasePaddleOcrModule)
+    typeof(PaperbaseVisionLlmOcrModule)                  // vision-LLM OCR（照片/票据/图片型 PDF），当前默认 OCR provider（#259）。IOcrProvider 互斥：切换 provider 时同步 .csproj ProjectReference + ConfigureAI keyed vision IChatClient。详见 docs/ocr-vision-llm.md
+    // typeof(PaperbasePaddleOcrModule),                 // 本地 PaddleOCR sidecar（免费 CPU，PP-StructureV3）；切回时取消注释、注释掉 VisionLlm，并恢复其 .csproj ProjectReference
     // typeof(PaperbaseAzureDocumentIntelligenceModule), // 云方案（高精度），切换时同步在 .csproj 注释 / 启用 ProjectReference
-    // typeof(PaperbaseVisionLlmOcrModule), // vision-LLM OCR（照片/票据/图片型 PDF）。IOcrProvider 只能有一个：启用时注释掉 PaddleOcr，并在 ConfigureAI 注册 keyed vision IChatClient。详见 docs/ocr-vision-llm.md
 )]
 public class PaperbaseHostModule : AbpModule
 {
@@ -496,6 +496,28 @@ public class PaperbaseHostModule : AbpModule
         context.Services.AddKeyedChatClient(
             PaperbaseAIConsts.StructuredChatClientKey,
             _ => openAIClient.GetChatClient(structuredModelId).AsIChatClient())
+            .UseOpenTelemetry()
+            .UseLogging();
+
+        // Vision OCR chat client: consumed by VisionLlmOcrProvider via
+        // [FromKeyedServices(VisionLlmOcrConsts.VisionChatClientKey)] to transcribe photos / thermal
+        // receipts / image-only PDFs that layout OCR (PP-StructureV3) fails on (#259). Reuses the same
+        // OpenAIClient (endpoint/key) but REQUIRES an explicit vision-capable model id — it must NOT fall
+        // back to ChatModelId, because the main chat model (e.g. DeepSeek-V3) may have no vision support.
+        // Fail fast if unset, mirroring the provider-mandatory check above. Only wired because VisionLlm is
+        // the enabled OCR provider; a host that switches back to PaddleOCR/Azure can drop this block.
+        var visionOcrModelId = configuration["PaperbaseAI:VisionOcrModelId"];
+        if (string.IsNullOrWhiteSpace(visionOcrModelId))
+        {
+            throw new AbpException(
+                "VisionLlm is the configured OCR provider but PaperbaseAI:VisionOcrModelId is not set. " +
+                "Point it at a vision-capable model (e.g. Qwen/Qwen3-VL-8B-Instruct on SiliconFlow) in " +
+                "host/src/appsettings.Development.json (git-ignored), user-secrets, or environment variables. " +
+                "See docs/ocr-vision-llm.md.");
+        }
+        context.Services.AddKeyedChatClient(
+            VisionLlmOcrConsts.VisionChatClientKey,
+            _ => openAIClient.GetChatClient(visionOcrModelId).AsIChatClient())
             .UseOpenTelemetry()
             .UseLogging();
     }
