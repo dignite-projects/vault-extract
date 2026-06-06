@@ -10,7 +10,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin, of, switchMap, tap } from 'rxjs';
-import { ActivatedRoute, Router, RouterModule } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
@@ -64,7 +64,7 @@ const KNOWN_PIPELINE_CODES = [
   selector: 'lib-document-detail',
   templateUrl: './document-detail.component.html',
   styleUrls: ['./document-detail.component.scss'],
-  imports: [CommonModule, RouterModule, FormsModule, DynamicFormComponent, LocalizationPipe],
+  imports: [CommonModule, FormsModule, DynamicFormComponent, LocalizationPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DocumentDetailComponent implements OnInit, OnDestroy {
@@ -269,6 +269,8 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
   );
 
   private documentId!: string;
+  // 「下载文件」点击时 blob 尚未加载 → 置位，待 loadBlob 成功后触发一次下载（见 downloadFile）。
+  private pendingDownload = false;
 
   ngOnInit(): void {
     this.documentId = this.route.snapshot.paramMap.get('id')!;
@@ -379,8 +381,8 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
       });
   }
 
-  // 原文件 blob 懒加载（#274）：仅「原文件」Tab 激活时调用。已加载 / 加载中则跳过，
-  // blob 缓存至组件销毁（ngOnDestroy revoke）。
+  // 原文件 blob 懒加载（#274）：「原文件」Tab 激活或点击「下载文件」时调用。已加载 / 加载中则跳过，
+  // blob 缓存至组件销毁（ngOnDestroy revoke）；预览与下载共用同一份缓存，不重复拉取。
   private loadBlob(): void {
     if (this.blobUrl() || this.isBlobLoading()) return;
     this.isBlobLoading.set(true);
@@ -396,10 +398,15 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
             this.safeBlobUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(url));
           }
           this.isBlobLoading.set(false);
+          this.flushPendingDownload(url);
         },
         error: () => {
           this.isBlobLoading.set(false);
           this.previewError.set(true);
+          if (this.pendingDownload) {
+            this.pendingDownload = false;
+            this.toaster.error('::Document:DownloadFailed', '::Error');
+          }
         },
       });
   }
@@ -417,6 +424,36 @@ export class DocumentDetailComponent implements OnInit, OnDestroy {
     if (tab === 'file') {
       this.ensureFilePreview();
     }
+  }
+
+  // 「下载文件」（footer）：直接触发浏览器下载原文件，免去先开预览页再下载。
+  // blob 已缓存（看过「原文件」Tab 或此前下载过）则秒触发；未缓存则置 pendingDownload 复用
+  // loadBlob 拉取（共享 isBlobLoading 防重复请求），blob 到位后由 flushPendingDownload 触发。
+  downloadFile(): void {
+    const cached = this.blobUrl();
+    if (cached) {
+      this.triggerDownload(cached);
+      return;
+    }
+    this.pendingDownload = true;
+    this.loadBlob();
+  }
+
+  // loadBlob 成功后若有挂起的下载请求，触发一次下载。
+  private flushPendingDownload(url: string): void {
+    if (!this.pendingDownload) return;
+    this.pendingDownload = false;
+    this.triggerDownload(url);
+  }
+
+  // 用隐藏 <a download> 触发浏览器下载。url 是组件持有的 blob: 缓存（ngOnDestroy 统一回收），
+  // 这里不 revoke——它仍可能用于「原文件」Tab 预览的同一 URL。
+  private triggerDownload(url: string): void {
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download =
+      this.document()?.fileOrigin?.originalFileName || this.document()?.title || 'document';
+    anchor.click();
   }
 
   ngOnDestroy(): void {

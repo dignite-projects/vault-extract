@@ -164,10 +164,15 @@
             <span class="text-truncate">{{ document()!.fileOrigin?.originalFileName }}</span>
             <span>·</span>
             <span class="flex-shrink-0">{{ document()!.fileOrigin?.contentType }}</span>
-            <a [routerLink]="['/documents', document()!.id, 'file']" target="_blank" rel="noopener"
-               class="btn btn-sm btn-link p-0 ms-auto flex-shrink-0">
-              <i class="fas fa-external-link-alt me-1"></i>{{ '::Document:OpenFile' | abpLocalization }}
-            </a>
+            <button type="button" (click)="downloadFile()" [disabled]="isBlobLoading()"
+                    class="btn btn-sm btn-link p-0 ms-auto flex-shrink-0">
+              @if (isBlobLoading()) {
+                <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+              } @else {
+                <i class="fas fa-download me-1"></i>
+              }
+              {{ '::Document:DownloadFile' | abpLocalization }}
+            </button>
           </div>
         </div>
       </div>
