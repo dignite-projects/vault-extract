@@ -36,12 +36,19 @@ public class OpenIddictDataSeedContributor : OpenIddictDataSeedContributorBase, 
 
     private async Task CreateScopesAsync()
     {
-        await CreateScopesAsync(new OpenIddictScopeDescriptor 
+        // The Paperbase API is a SINGLE OpenIddict resource named "Paperbase" — this is the token
+        // audience for every client (Angular, Swagger, and MCP alike). MCP's RFC 8707 `resource`
+        // parameter does NOT introduce a second audience: the resource gates are turned off in
+        // PaperbaseHostModule (the parameter is accepted-but-ignored), so an MCP-issued token's aud
+        // stays "Paperbase", matching the validation layer's AddAudiences("Paperbase").
+        var scopeDescriptor = new OpenIddictScopeDescriptor
         {
-            Name = "Paperbase", 
-            DisplayName = "Paperbase API", 
-            Resources = { "Paperbase" }
-        });
+            Name = "Paperbase",
+            DisplayName = "Paperbase API"
+        };
+        scopeDescriptor.Resources.Add("Paperbase");
+
+        await CreateScopesAsync(scopeDescriptor);
     }
 
     private async Task CreateApplicationsAsync()
@@ -104,6 +111,86 @@ public class OpenIddictDataSeedContributor : OpenIddictDataSeedContributorBase, 
                 },
                 scopes: commonScopes,
                 redirectUris: new List<string> { $"{swaggerRootUrl}/swagger/oauth2-redirect.html" }
+            );
+        }
+
+        // MCP native client (#281): one preset public + PKCE + native client that enables Guided OAuth
+        // (Authorization Code + PKCE interactive browser login) for native MCP clients — MCP Inspector,
+        // mcp-remote, Claude Desktop / claude.ai connectors — that connect to /mcp without a token. This
+        // is the authorization-server half of the RFC 9728 discovery flow whose resource-server half was
+        // wired in #278/#280. We deliberately do NOT implement Dynamic Client Registration (RFC 7591):
+        // Paperbase is a self-hosted channel facing a knowable set of clients, so an open registration
+        // endpoint is pure attack surface. Instead the client_id is documented (docs/mcp-server.md) and
+        // operators paste it into each client's OAuth settings — every real target supports a manually
+        // specified client_id.
+        //
+        // ApplicationType MUST be Native: that is what activates OpenIddict's RFC 8252 loopback port
+        // relaxation — a redirect_uri registered WITHOUT a port (e.g. http://127.0.0.1/oauth/callback)
+        // then matches any ephemeral port http://127.0.0.1:<port>/oauth/callback (scheme/host/path/query/
+        // fragment must still be byte-equal; only the port is relaxed, and only for loopback hosts). Native
+        // desktop clients bind a random loopback port, so this single preset client covers them all.
+        // Web/default-type clients (Paperbase_App / Paperbase_Swagger above) do NOT get this relaxation.
+        //
+        // ConsentType is Explicit: this is a PUBLIC client whose client_id is published and non-secret, so
+        // any application can present it. We require an interactive consent screen rather than silently
+        // issuing tokens (OAuth 2.1 BCP for public clients). Data access stays gated fail-closed by the
+        // logged-in user's Paperbase.Documents permission — the auth-code flow logs in a user, and the
+        // client itself holds no data permission.
+        var mcpClientId = configurationSection["Paperbase_Mcp:ClientId"];
+        if (!mcpClientId.IsNullOrWhiteSpace())
+        {
+            // Operators may override the entire callback set via
+            // OpenIddict:Applications:Paperbase_Mcp:RedirectUris (replace semantics — list every URI you
+            // want, including any built-ins you still need). When unset we seed the researched defaults
+            // below. Loopback entries are registered WITHOUT a port and rely on the Native-type port
+            // relaxation to match the client's ephemeral port; 127.0.0.1 and localhost are DISTINCT host
+            // strings to OpenIddict, so both are listed. Paths are matched exactly. Verified against each
+            // client's source (#281):
+            //   http://localhost/oauth/callback        → mcp-remote (default host) + MCP Inspector auto flow (any port, incl. 6274)
+            //   http://127.0.0.1/oauth/callback         → mcp-remote --host 127.0.0.1
+            //   http://localhost/oauth/callback/debug   → MCP Inspector manual/debug flow
+            //   https://claude.ai/api/mcp/auth_callback → Claude.ai / Claude Desktop / mobile (fixed hosted callback)
+            // Cursor (custom cursor:// scheme) and Claude Code CLI (/callback path) are NOT seeded by
+            // default — add them via the config override if needed (see docs/mcp-server.md).
+            var mcpRedirectUris = configurationSection
+                .GetSection("Paperbase_Mcp:RedirectUris")
+                .Get<List<string>>();
+
+            if (mcpRedirectUris == null || mcpRedirectUris.Count == 0)
+            {
+                mcpRedirectUris = new List<string>
+                {
+                    "http://localhost/oauth/callback",
+                    "http://127.0.0.1/oauth/callback",
+                    "http://localhost/oauth/callback/debug",
+                    "https://claude.ai/api/mcp/auth_callback"
+                };
+            }
+
+            await CreateOrUpdateApplicationAsync(
+                applicationType: OpenIddictConstants.ApplicationTypes.Native,
+                name: mcpClientId,
+                type: OpenIddictConstants.ClientTypes.Public,
+                consentType: OpenIddictConstants.ConsentTypes.Explicit,
+                displayName: "Paperbase MCP (native clients)",
+                secret: null,
+                grantTypes: new List<string>
+                {
+                    OpenIddictConstants.GrantTypes.AuthorizationCode,
+                    OpenIddictConstants.GrantTypes.RefreshToken
+                },
+                // Mirror the advertised resource metadata (scopes_supported: ["Paperbase"]) plus minimal
+                // OIDC identity scopes for the interactive login. Address/Phone/Roles are intentionally
+                // omitted (least privilege + a clean Explicit-consent screen). openid is implicit in
+                // OpenIddict and needs no scope permission; offline_access is gated by the RefreshToken
+                // grant above.
+                scopes: new List<string>
+                {
+                    OpenIddictConstants.Permissions.Scopes.Profile,
+                    OpenIddictConstants.Permissions.Scopes.Email,
+                    "Paperbase"
+                },
+                redirectUris: mcpRedirectUris
             );
         }
     }

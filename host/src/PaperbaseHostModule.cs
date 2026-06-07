@@ -155,10 +155,38 @@ public class PaperbaseHostModule : AbpModule
         {
             builder.AddValidation(options =>
             {
+                // Single audience for the whole Paperbase API. REST and MCP are two exit adapters
+                // over the same OpenIddict-Bearer resource — every token's aud is "Paperbase",
+                // regardless of how it was obtained (manual static Bearer or MCP Guided OAuth).
                 options.AddAudiences("Paperbase");
                 options.UseLocalServer();
                 options.UseAspNetCore();
             });
+        });
+
+        // MCP Guided-OAuth clients (RFC 9728 + RFC 8707) MUST send a `resource` parameter naming
+        // the MCP server's canonical URI on every /authorize and /token request (docs/mcp-server.md).
+        // OpenIddict's default resource handling would reject that parameter two ways:
+        //   - ValidateResources         → ID2190 (invalid_target) unless the URI is pre-registered;
+        //   - ValidateResourcePermissions → ID2192 unless the client carries an `rsrc:<uri>` grant.
+        // Paperbase is a SINGLE protected resource (audience "Paperbase"); REST and MCP are just two
+        // exit adapters over it. The token aud is derived from the granted scope's resources during
+        // sign-in, NOT from this request parameter — verified by decompiling OpenIddict 7.2.0:
+        // nothing in OpenIddictServerHandlers narrows the principal's resources by the request
+        // `resource`, and ABP's authorize controller resolves resources from scopes alone. So the
+        // resource indicator carries no isolation value here and there is no "other resource" to gate
+        // against. We therefore turn OFF both resource gates (accept-but-ignore the parameter) rather
+        // than minting the MCP URL as a first-class resource, which would scatter URL coupling across
+        // scope resources, validation audiences, and per-client permissions. Both gates only fire for
+        // requests that actually carry a `resource` param — the Angular / Swagger clients never do, so
+        // this is a no-op for them. IgnoreResourcePermissions is flagged "NOT recommended" by
+        // OpenIddict for the general multi-resource case; it is the correct, minimal choice for a
+        // single-resource server. If Paperbase ever becomes multi-resource, revisit (re-enable the
+        // gates, RegisterResources per resource, and seed rsrc: grants per client).
+        PreConfigure<OpenIddictServerBuilder>(serverBuilder =>
+        {
+            serverBuilder.DisableResourceValidation();
+            serverBuilder.IgnoreResourcePermissions();
         });
 
         if (!hostingEnvironment.IsDevelopment())
@@ -307,11 +335,21 @@ public class PaperbaseHostModule : AbpModule
             return;
         }
 
+        var selfUrl = configuration["App:SelfUrl"]?.TrimEnd('/');
+
         context.Services.AddAuthentication().AddMcp(options =>
         {
             options.ResourceMetadata = new ProtectedResourceMetadata
             {
-                // Resource 留空：使用默认 well-known 端点时由 handler 从请求自动推断（/mcp 绝对 URL）。
+                // RFC 9728 `resource`: the MCP server's canonical URI. The MCP authorization spec
+                // says a client SHOULD use the most-specific URI it can, so we advertise the full
+                // /mcp endpoint (not the bare host origin). The client echoes this back as the
+                // RFC 8707 `resource` parameter on /authorize + /token; OpenIddict accepts-but-
+                // ignores it because both resource gates are turned off in PreConfigureServices
+                // (see the rationale there), so the issued token's aud stays "Paperbase". Set
+                // explicitly rather than left to handler inference so it remains correct behind a
+                // reverse proxy (inference derives it from request host/scheme headers).
+                Resource = string.IsNullOrWhiteSpace(selfUrl) ? null : $"{selfUrl}/mcp",
                 AuthorizationServers = new List<string> { authority },
                 ScopesSupported = new List<string> { "Paperbase" },
                 BearerMethodsSupported = new List<string> { "header" },
