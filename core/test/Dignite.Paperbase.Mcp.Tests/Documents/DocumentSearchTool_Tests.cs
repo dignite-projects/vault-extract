@@ -4,6 +4,7 @@ using System.Text.Json;
 using Dignite.Paperbase.Ai;
 using Dignite.Paperbase.Documents;
 using Microsoft.Extensions.DependencyInjection;
+using ModelContextProtocol.Server;
 using NSubstitute;
 using Shouldly;
 using System.Threading.Tasks;
@@ -39,6 +40,31 @@ public class DocumentSearchTool_Tests : PaperbaseTestBase<DocumentSearchToolTest
     }
 
     [Fact]
+    public void Mcp_input_schema_exposes_fieldFilters_and_all_llm_parameters()
+    {
+        // 必须真正经过 MCP SDK 的 schema 生成（McpServerTool.Create），而不是像其它用例那样直接调
+        // DocumentSearchTool.SearchAsync——直接调方法会绕过 ConfigureParameterBinding，永远抓不到本 bug。
+        // ABP 的 Autofac 容器把集合关系类型（IReadOnlyList<T> / ICollection<T> / 数组 等）当作可解析的 DI 服务，
+        // MCP SDK 会据此把这类参数从 inputSchema 剔除；fieldFilters 必须是具体 List<T> 才会出现在 schema 里。
+        // Services 取测试的 Autofac ServiceProvider（基类已 UseAutofac）——MS DI 下复现不出该行为。
+        var method = typeof(DocumentSearchTool).GetMethod(nameof(DocumentSearchTool.SearchAsync))!;
+        var tool = McpServerTool.Create(
+            method, target: null, new McpServerToolCreateOptions { Services = ServiceProvider });
+
+        var properties = tool.ProtocolTool.InputSchema.GetProperty("properties");
+
+        // fieldFilters 是回归守护重点：曾因声明为 IReadOnlyList<T> 被 Autofac + MCP SDK 静默剔除出 schema。
+        properties.TryGetProperty("fieldFilters", out _).ShouldBeTrue();
+        // 其余 LLM-facing 参数对照——它们是标量（IsService=false），本就正常暴露。
+        properties.TryGetProperty("documentTypeCode", out _).ShouldBeTrue();
+        properties.TryGetProperty("lifecycleStatus", out _).ShouldBeTrue();
+        properties.TryGetProperty("maxResultCount", out _).ShouldBeTrue();
+
+        // DI 注入的服务参数必须不出现在 LLM schema 中。
+        properties.TryGetProperty("documentAppService", out _).ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task Builds_input_and_maps_wrapped_result()
     {
         var docId = Guid.NewGuid();
@@ -60,7 +86,7 @@ public class DocumentSearchTool_Tests : PaperbaseTestBase<DocumentSearchToolTest
             _documentAppService,
             documentTypeCode: "contract.general",
             lifecycleStatus: "Ready",
-            fieldFilters: new[] { new DocumentFieldFilter { Name = "amount", Min = "100", Max = "200" } });
+            fieldFilters: new List<DocumentFieldFilter> { new() { Name = "amount", Min = "100", Max = "200" } });
 
         // 入参按原意组装传给 AppService（lifecycle 字符串解析 + fieldFilters 透传 + 结果上限）。
         await _documentAppService.Received(1).GetListAsync(Arg.Is<GetDocumentListInput>(i =>

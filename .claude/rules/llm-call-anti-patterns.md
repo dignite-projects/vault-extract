@@ -1,6 +1,6 @@
 # LLM call anti-patterns
 
-本文件由 `maf-workflow-reviewer` agent 在审查 PR 时引用，用于快速定位 Paperbase 内部 **LLM 调用点**的两类典型错误。规则适用于所有 LLM 入口：
+本文件由 `maf-workflow-reviewer` agent 在审查 PR 时引用，用于快速定位 Paperbase 内部 **LLM 调用点**的典型错误（反例 A / B 是安全问题，反例 C 是 MCP schema 正确性问题）。规则适用于所有 LLM 入口：
 
 - 当前已落地：`DocumentClassificationWorkflow` / `FieldExtractionWorkflow` + `FieldExtractionEventHandler`（字段架构 v2 统一 Host + 租户 (B 机制)）/ `DocumentTextExtractionBackgroundJob.TryGenerateTitleAsync`
 - 未来扩展：MCP server tool（[#170](https://github.com/dignite-projects/dignite-paperbase/issues/170)）、Webhook 触发的 LLM 路径、任何由 LLM 输出影响参数的查询路径
@@ -215,3 +215,37 @@ private static async Task<string> SearchAsync(
 - **多租户隔离**——依赖 ABP `IMultiTenant` 全局过滤器（框架级边界，含 `FromSqlRaw`）；不手写谓词，唯一纪律是 LLM 路径不得禁用该过滤器
 
 新增任何 LLM 调用点时，按这 4 条做 self-review；`maf-workflow-reviewer` agent 在 PR 审查时也按此清单核对。
+
+---
+
+## 反例 C：MCP tool / resource 的 LLM-facing 集合参数用了集合接口 / 数组类型
+
+**规则来源**：本仓库实证（`DocumentSearchTool.fieldFilters` 曾静默失效）。**这是 schema 正确性问题，不是安全问题**——但同样属于"LLM 调用点的典型错误"，故并入本文件。
+
+**背景**：ABP 用 Autofac 容器。Autofac 把**所有集合关系类型**（`IEnumerable<T>` / `IReadOnlyList<T>` / `IList<T>` / `ICollection<T>` / `IReadOnlyCollection<T>` / `T[]`）视为可隐式解析的服务——`IServiceProviderIsService.IsService(typeof(IReadOnlyList<Foo>))` 返回 `true`。而 MCP SDK（ModelContextProtocol 1.3.0）的参数绑定规则是：**`IsService(参数类型) == true` 的参数会被 `ExcludeFromSchema`**，从 LLM 看到的 inputSchema 中剔除、改为运行时从 DI 注入。
+
+**后果**：用集合接口 / 数组声明的 LLM-facing 参数**静默消失**——LLM 看不到、永不传值；tool 仍能调用（运行时被注入一个空集合），于是该参数对应的功能**永久失效且不报错**。标量参数（`string` / `int?`，`IsService=false`）不受影响。
+
+### ❌ 错误写法
+
+```csharp
+[McpServerTool(Name = "search_documents")]
+public static async Task<...> SearchAsync(
+    string documentTypeCode,                          // ✅ string → IsService=false → 进 schema
+    IReadOnlyList<FieldFilter>? fieldFilters = null,  // ❌ 集合接口 → Autofac IsService=true → 被剔除出 schema
+    FieldFilter[]? more = null)                       // ❌ 数组同样被剔除（反直觉：T[] 也是集合关系类型）
+```
+
+### ✅ 正确写法
+
+```csharp
+[McpServerTool(Name = "search_documents")]
+public static async Task<...> SearchAsync(
+    string documentTypeCode,
+    // 必须用具体 List<T>（IsService=false）；集合接口 / 数组都会被静默剔除。
+    List<FieldFilter>? fieldFilters = null)
+```
+
+**守护**：用**真正经过 MCP schema 生成**的测试——`McpServerTool.Create(method, target, new McpServerToolCreateOptions { Services = autofacServiceProvider })`，断言 `ProtocolTool.InputSchema` 的 `properties` 含该参数。**直接调用 C# 方法的单元测试抓不到此 bug——它绕过了 schema 生成**。参照 `DocumentSearchTool_Tests.Mcp_input_schema_exposes_fieldFilters_and_all_llm_parameters`。
+
+**注意**：MS DI 容器只对 `IEnumerable<T>` 返回 `IsService=true`，对其它集合接口返回 `false`——此坑是 Autofac 特有，复现 / 守护测试必须在 Autofac 容器下跑（测试基类已 `UseAutofac()`）。

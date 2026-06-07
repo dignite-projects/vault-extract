@@ -46,7 +46,12 @@ public sealed class DocumentSearchTool
         [Description("Extracted-field filters, all combined with AND (every filter must match). Each entry "
             + "names a field defined on the document type plus either an exact Value or an inclusive numeric/date "
             + "Min/Max range. Each field's data type is resolved server-side. Omit for a metadata-only search. Optional.")]
-        IReadOnlyList<DocumentFieldFilter>? fieldFilters = null,
+        // 必须是具体 List<T>——不可改成 IReadOnlyList<T> / IEnumerable<T> / ICollection<T> / 数组：ABP 用 Autofac
+        // 容器，它把所有集合关系类型当作可隐式解析的 DI 服务（IServiceProviderIsService.IsService 返回 true），
+        // MCP SDK 的参数绑定据此把该参数从 LLM 看到的 inputSchema 中剔除（ExcludeFromSchema）——LLM 永远看不到
+        // 这个参数、字段过滤静默失效。守护见 DocumentSearchTool_Tests 的 schema 测试 +
+        // .claude/rules/llm-call-anti-patterns.md 反例 C。
+        List<DocumentFieldFilter>? fieldFilters = null,
         [Description("Max rows to return (1-50). Defaults to 50.")]
         int? maxResultCount = null,
         CancellationToken cancellationToken = default)
