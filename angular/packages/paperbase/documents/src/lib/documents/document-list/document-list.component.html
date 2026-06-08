@@ -76,7 +76,7 @@
   </div>
 
   <!-- Loading spinner -->
-  @if (isLoading()) {
+  @if (isLoading() && documents().items.length === 0) {
     <div class="text-center py-5">
       <div class="spinner-border text-primary" role="status"></div>
     </div>
@@ -88,119 +88,63 @@
       <div class="card-body text-center py-5">
         <i class="fas fa-inbox fa-3x text-muted mb-3 d-block"></i>
         <p class="text-muted mb-3">{{ '::Document:NoDocuments' | abpLocalization }}</p>
-        <button class="btn btn-primary" (click)="uploadNew()">
-          <i class="fas fa-upload me-1"></i>
-          {{ '::Document:UploadFirst' | abpLocalization }}
-        </button>
+        @if (canUpload) {
+          <button class="btn btn-primary" (click)="uploadNew()">
+            <i class="fas fa-upload me-1"></i>
+            {{ '::Document:UploadFirst' | abpLocalization }}
+          </button>
+        }
       </div>
     </div>
   }
 
   <!-- Document list -->
-  @if (!isLoading() && (documents().totalCount ?? 0) > 0) {
-    <div class="card shadow-sm">
-      <div class="table-responsive">
-        <table class="table table-hover mb-0">
-          <thead class="table-light">
-            <tr>
-              <th style="width: 48px"></th>
-              <th>{{ '::Document:FileName' | abpLocalization }}</th>
-              <th>{{ '::Document:Type' | abpLocalization }}</th>
-              @for (field of extractedFieldColumns(); track field.id) {
-                <th>{{ field.displayName }}</th>
-              }
-              <th>{{ '::Document:Status' | abpLocalization }}</th>
-              <th>{{ '::Document:UploadedAt' | abpLocalization }}</th>
-              <th style="width: 60px"></th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (doc of documents().items; track doc.id) {
-              <tr class="align-middle cursor-pointer" (click)="openDetail(doc)">
-                <td>
-                  @if (isImage(doc)) {
-                    <i class="fas fa-file-image fa-lg text-primary"></i>
-                  } @else {
-                    <i class="fas fa-file-pdf fa-lg text-danger"></i>
-                  }
-                </td>
-                <td>
-                  <span class="fw-semibold">
-                    {{ doc.title || doc.fileOrigin?.originalFileName }}
-                  </span>
-                </td>
-                <td>
-                  @if (documentTypeDisplayName(doc.documentTypeCode); as typeName) {
-                    <span class="badge bg-info text-dark">{{ typeName }}</span>
-                  } @else {
-                    <span class="text-muted">—</span>
-                  }
-                </td>
-                @for (field of extractedFieldColumns(); track field.id) {
-                  <td class="small">{{ formatFieldValue(doc.extractedFields?.[field.name ?? '']) }}</td>
+  @if (documents().totalCount > 0 && tableReady()) {
+    <div class="card shadow-sm document-list-table">
+      <div class="card-body p-0">
+        <ng-template #actionsTemplate let-doc>
+          @if ((needsConfirmation(doc) && canConfirm) || canDelete) {
+            <div ngbDropdown container="body" class="d-inline-block" (click)="$event.stopPropagation()">
+              <button type="button" class="btn btn-sm btn-primary" ngbDropdownToggle>
+                {{ 'AbpUi::Actions' | abpLocalization }}
+              </button>
+              <div ngbDropdownMenu>
+                @if (needsConfirmation(doc) && canConfirm) {
+                  <button type="button" ngbDropdownItem (click)="openConfirmDialog(doc, $event)">
+                    <i class="fas fa-check me-2"></i>
+                    {{ '::Document:ConfirmClassification' | abpLocalization }}
+                  </button>
                 }
-                <td>
-                  <span [class]="getDocumentStatusBadgeClass(doc)">
-                    @if (isProcessingDocument(doc)) {
-                      <span class="spinner-border spinner-border-sm me-1" role="status"></span>
-                    }
-                    {{ getDocumentStatusLabel(doc) | abpLocalization }}
-                  </span>
-                </td>
-                <td class="text-muted small">{{ doc.creationTime | date:'yyyy-MM-dd HH:mm' }}</td>
-                <td class="d-flex gap-1">
-                  @if (needsConfirmation(doc) && canConfirm) {
-                    <button
-                      class="btn btn-sm btn-warning"
-                      (click)="openConfirmDialog(doc, $event)"
-                      title="{{ '::Document:ConfirmClassification' | abpLocalization }}"
-                    >
-                      <i class="fas fa-check"></i>
-                    </button>
-                  }
-                  @if (canDelete) {
-                    <button
-                      class="btn btn-sm btn-outline-danger"
-                      (click)="delete(doc, $event)"
-                      title="{{ '::Delete' | abpLocalization }}"
-                    >
-                      <i class="fas fa-trash"></i>
-                    </button>
-                  }
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
-      </div>
+                @if (canDelete) {
+                  <button type="button" ngbDropdownItem (click)="delete(doc, $event)">
+                    <i class="fas fa-trash me-2"></i>
+                    {{ '::Delete' | abpLocalization }}
+                  </button>
+                }
+              </div>
+            </div>
+          }
+        </ng-template>
 
-      <!-- Pagination -->
-      @if (totalPages() > 1) {
-        <div class="card-footer d-flex justify-content-between align-items-center">
-          <small class="text-muted">
-            {{ '::Document:TotalCount' | abpLocalization }} {{ documents().totalCount }}
-          </small>
-          <nav>
-            <ul class="pagination pagination-sm mb-0">
-              <li class="page-item" [class.disabled]="page() === 0">
-                <button class="page-link" (click)="navigateTo(page() - 1)">
-                  <i class="fas fa-chevron-left"></i>
-                </button>
-              </li>
-              @for (p of paginationPages(); track p) {
-                <li class="page-item" [class.active]="page() === p">
-                  <button class="page-link" (click)="navigateTo(p)">{{ p + 1 }}</button>
-                </li>
-              }
-              <li class="page-item" [class.disabled]="page() === totalPages() - 1">
-                <button class="page-link" (click)="navigateTo(page() + 1)">
-                  <i class="fas fa-chevron-right"></i>
-                </button>
-              </li>
-            </ul>
-          </nav>
-        </div>
-      }
+        @if (hasDocumentActions) {
+          <abp-extensible-table
+            [data]="documents().items"
+            [recordsTotal]="documents().totalCount"
+            [list]="list"
+            [actionsTemplate]="actionsTemplate"
+            actionsText="AbpUi::Actions"
+            [actionsColumnWidth]="150"
+            (tableActivate)="onTableActivate($event)"
+          />
+        } @else {
+          <abp-extensible-table
+            [data]="documents().items"
+            [recordsTotal]="documents().totalCount"
+            [list]="list"
+            (tableActivate)="onTableActivate($event)"
+          />
+        }
+      </div>
     </div>
   }
 </div>

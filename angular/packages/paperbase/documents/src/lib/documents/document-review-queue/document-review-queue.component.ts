@@ -2,18 +2,26 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  LOCALE_ID,
   OnInit,
-  computed,
   inject,
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { Router } from '@angular/router';
-import { CommonModule } from '@angular/common';
+import { CommonModule, formatDate } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { LocalizationPipe } from '@abp/ng.core';
-import type { PagedResultDto } from '@abp/ng.core';
+import { Router } from '@angular/router';
+import { ListService, LocalizationPipe, escapeHtmlChars } from '@abp/ng.core';
+import {
+  EntityProp,
+  EXTENSIONS_IDENTIFIER,
+  ExtensionsService,
+  ExtensibleTableComponent,
+  ePropType,
+} from '@abp/ng.components/extensible';
 import { ToasterService } from '@abp/ng.theme.shared';
+import { NgbDropdownModule } from '@ng-bootstrap/ng-bootstrap';
+import { of } from 'rxjs';
 import {
   DocumentListItemDto,
   DocumentReviewStatus,
@@ -21,12 +29,31 @@ import {
   DocumentTypeDto,
   DocumentTypeService,
 } from '@dignite/paperbase';
+import { ClientPagedResult, configureEntityTable, PAPERBASE_TABLES } from '../../shared/extensible-table';
+
+interface TableActivateEvent {
+  type?: string;
+  row?: DocumentListItemDto;
+}
 
 @Component({
   selector: 'lib-document-review-queue',
   templateUrl: './document-review-queue.component.html',
   styleUrls: ['./document-review-queue.component.scss'],
-  imports: [CommonModule, FormsModule, LocalizationPipe],
+  imports: [
+    CommonModule,
+    FormsModule,
+    LocalizationPipe,
+    ExtensibleTableComponent,
+    NgbDropdownModule,
+  ],
+  providers: [
+    ListService,
+    {
+      provide: EXTENSIONS_IDENTIFIER,
+      useValue: PAPERBASE_TABLES.DocumentReviewQueue,
+    },
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DocumentReviewQueueComponent implements OnInit {
@@ -35,16 +62,15 @@ export class DocumentReviewQueueComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly toaster = inject(ToasterService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly extensions = inject(ExtensionsService);
+  private readonly locale = inject(LOCALE_ID);
 
-  documents = signal<PagedResultDto<DocumentListItemDto>>({ totalCount: 0, items: [] });
+  readonly list = inject(ListService);
+
+  documents = signal<ClientPagedResult<DocumentListItemDto>>({ totalCount: 0, items: [] });
   documentTypes = signal<DocumentTypeDto[]>([]);
   isLoading = signal(true);
   isSubmitting = signal(false);
-
-  page = signal(0);
-  pageSize = 10;
-  totalPages = computed(() => Math.ceil((this.documents().totalCount ?? 0) / this.pageSize));
-  paginationPages = computed(() => Array.from({ length: this.totalPages() }, (_, i) => i));
 
   // Confirm/assign-classification dialog state.
   classifyingDoc = signal<DocumentListItemDto | null>(null);
@@ -54,31 +80,94 @@ export class DocumentReviewQueueComponent implements OnInit {
   rejectingDoc = signal<DocumentListItemDto | null>(null);
   rejectReason = signal('');
 
+  constructor() {
+    configureEntityTable<DocumentListItemDto>(this.extensions, PAPERBASE_TABLES.DocumentReviewQueue, [
+      EntityProp.create<DocumentListItemDto>({
+        type: ePropType.String,
+        name: 'fileName',
+        displayName: '::Document:FileName',
+        sortable: false,
+        columnWidth: 340,
+        valueResolver: data => {
+          const doc = data.record;
+          const fileName = doc.title || doc.fileOrigin?.originalFileName || '-';
+          const iconClass = this.isImage(doc)
+            ? 'fas fa-file-image fa-lg text-primary'
+            : 'fas fa-file-pdf fa-lg text-danger';
+          return of(
+            `<span class="review-file-cell"><i class="${iconClass} me-2"></i><span class="fw-semibold text-truncate">${escapeHtmlChars(fileName)}</span></span>`,
+          );
+        },
+      }),
+      EntityProp.create<DocumentListItemDto>({
+        type: ePropType.String,
+        name: 'documentTypeCode',
+        displayName: '::Document:Type',
+        sortable: false,
+        columnWidth: 180,
+        valueResolver: data => {
+          const typeCode = data.record.documentTypeCode;
+          return of(typeCode
+            ? `<span class="badge bg-info text-dark">${escapeHtmlChars(typeCode)}</span>`
+            : '<span class="text-muted">-</span>');
+        },
+      }),
+      EntityProp.create<DocumentListItemDto>({
+        type: ePropType.Number,
+        name: 'classificationConfidence',
+        displayName: '::Document:ClassificationConfidence',
+        sortable: false,
+        columnWidth: 230,
+        valueResolver: data => {
+          const percent = this.confidencePercent(data.record);
+          const cssClass = percent < 50 ? 'text-danger' : 'text-muted';
+          return of(`<span class="small ${cssClass}">${percent}%</span>`);
+        },
+      }),
+      EntityProp.create<DocumentListItemDto>({
+        type: ePropType.String,
+        name: 'creationTime',
+        displayName: '::Document:UploadedAt',
+        sortable: true,
+        columnWidth: 180,
+        valueResolver: data =>
+          of(`<span class="text-muted small">${escapeHtmlChars(this.formatDateTime(data.record.creationTime))}</span>`),
+      }),
+    ]);
+  }
+
   ngOnInit(): void {
-    this.loadList();
+    this.hookListQuery();
     this.loadDocumentTypes();
   }
 
   refresh(): void {
-    this.loadList();
+    this.list.getWithoutPageReset();
   }
 
-  private loadList(): void {
-    this.isLoading.set(true);
-    this.documentService
-      .getList({
-        reviewStatus: DocumentReviewStatus.PendingReview,
-        maxResultCount: this.pageSize,
-        skipCount: this.page() * this.pageSize,
-        sorting: 'creationTime desc',
-      })
+  private hookListQuery(): void {
+    this.list.requestStatus$
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: result => {
-          this.documents.set(result);
-          this.isLoading.set(false);
-        },
-        error: () => this.isLoading.set(false),
+      .subscribe(status => {
+        if (status === 'idle' && this.isLoading() && this.documents().items.length === 0) return;
+        this.isLoading.set(status === 'loading');
+      });
+
+    this.list
+      .hookToQuery(query =>
+        this.documentService.getList({
+          reviewStatus: DocumentReviewStatus.PendingReview,
+          maxResultCount: query.maxResultCount,
+          skipCount: query.skipCount,
+          sorting: query.sorting || 'creationTime desc',
+        }),
+      )
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(result => {
+        this.documents.set({
+          totalCount: result.totalCount ?? 0,
+          items: result.items ?? [],
+        });
       });
   }
 
@@ -92,9 +181,9 @@ export class DocumentReviewQueueComponent implements OnInit {
       });
   }
 
-  navigateTo(page: number): void {
-    this.page.set(page);
-    this.loadList();
+  onTableActivate(event: TableActivateEvent): void {
+    if (event.type !== 'click' || !event.row) return;
+    this.openDetail(event.row);
   }
 
   openDetail(doc: DocumentListItemDto): void {
@@ -128,7 +217,7 @@ export class DocumentReviewQueueComponent implements OnInit {
           this.isSubmitting.set(false);
           this.closeClassifyDialog();
           this.toaster.success('::Document:ClassificationConfirmed', '::Success');
-          this.loadList();
+          this.list.getWithoutPageReset();
         },
         error: () => {
           this.isSubmitting.set(false);
@@ -161,7 +250,7 @@ export class DocumentReviewQueueComponent implements OnInit {
           this.isSubmitting.set(false);
           this.closeRejectDialog();
           this.toaster.success('::Document:Review:RejectedSuccessfully', '::Success');
-          this.loadList();
+          this.list.getWithoutPageReset();
         },
         error: () => {
           this.isSubmitting.set(false);
@@ -176,5 +265,15 @@ export class DocumentReviewQueueComponent implements OnInit {
 
   isImage(doc: DocumentListItemDto): boolean {
     return doc.fileOrigin?.contentType?.startsWith('image/') ?? false;
+  }
+
+  private formatDateTime(value: string | undefined): string {
+    if (!value) return '-';
+
+    try {
+      return formatDate(value, 'yyyy-MM-dd HH:mm', this.locale);
+    } catch {
+      return value;
+    }
   }
 }

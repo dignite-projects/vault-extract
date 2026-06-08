@@ -1,21 +1,36 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, LOCALE_ID, OnInit, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
-import { LocalizationPipe, PermissionService } from '@abp/ng.core';
-import type { PagedResultDto } from '@abp/ng.core';
+import { CommonModule, formatDate } from '@angular/common';
+import { ListService, LocalizationPipe, PermissionService, escapeHtmlChars } from '@abp/ng.core';
+import {
+  EntityProp,
+  EXTENSIONS_IDENTIFIER,
+  ExtensionsService,
+  ExtensibleTableComponent,
+  ePropType,
+} from '@abp/ng.components/extensible';
 import { Confirmation, ConfirmationService, ToasterService } from '@abp/ng.theme.shared';
+import { NgbDropdownModule } from '@ng-bootstrap/ng-bootstrap';
+import { of } from 'rxjs';
 import {
   DocumentListItemDto,
   DocumentService,
   PAPERBASE_PERMISSIONS,
 } from '@dignite/paperbase';
+import { ClientPagedResult, configureEntityTable, PAPERBASE_TABLES } from '../../shared/extensible-table';
 
 @Component({
   selector: 'lib-document-recycle-bin',
   templateUrl: './document-recycle-bin.component.html',
   styleUrls: ['./document-recycle-bin.component.scss'],
-  imports: [CommonModule, FormsModule, LocalizationPipe],
+  imports: [CommonModule, LocalizationPipe, ExtensibleTableComponent, NgbDropdownModule],
+  providers: [
+    ListService,
+    {
+      provide: EXTENSIONS_IDENTIFIER,
+      useValue: PAPERBASE_TABLES.DocumentRecycleBin,
+    },
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DocumentRecycleBinComponent implements OnInit {
@@ -24,13 +39,13 @@ export class DocumentRecycleBinComponent implements OnInit {
   private readonly toaster = inject(ToasterService);
   private readonly permissionService = inject(PermissionService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly extensions = inject(ExtensionsService);
+  private readonly locale = inject(LOCALE_ID);
 
-  documents = signal<PagedResultDto<DocumentListItemDto>>({ totalCount: 0, items: [] });
+  readonly list = inject(ListService);
+
+  documents = signal<ClientPagedResult<DocumentListItemDto>>({ totalCount: 0, items: [] });
   isLoading = signal(true);
-  page = signal(0);
-  pageSize = 10;
-  totalPages = computed(() => Math.ceil((this.documents().totalCount ?? 0) / this.pageSize));
-  paginationPages = computed(() => Array.from({ length: this.totalPages() }, (_, i) => i));
 
   readonly canRestore = this.permissionService.getGrantedPolicy(
     PAPERBASE_PERMISSIONS.Documents.Restore,
@@ -38,36 +53,92 @@ export class DocumentRecycleBinComponent implements OnInit {
   readonly canPermanentDelete = this.permissionService.getGrantedPolicy(
     PAPERBASE_PERMISSIONS.Documents.PermanentDelete,
   );
+  readonly hasRecycleActions = this.canRestore || this.canPermanentDelete;
+
+  constructor() {
+    configureEntityTable<DocumentListItemDto>(this.extensions, PAPERBASE_TABLES.DocumentRecycleBin, [
+      EntityProp.create<DocumentListItemDto>({
+        type: ePropType.String,
+        name: 'fileName',
+        displayName: '::Document:FileName',
+        sortable: false,
+        columnWidth: 340,
+        valueResolver: data => {
+          const doc = data.record;
+          const fileName = doc.title || doc.fileOrigin?.originalFileName || '-';
+          const iconClass = this.isImage(doc)
+            ? 'fas fa-file-image fa-lg text-muted'
+            : 'fas fa-file-pdf fa-lg text-muted';
+          return of(
+            `<span class="recycle-file-cell"><i class="${iconClass} me-2"></i><span class="text-muted text-truncate">${escapeHtmlChars(fileName)}</span></span>`,
+          );
+        },
+      }),
+      EntityProp.create<DocumentListItemDto>({
+        type: ePropType.String,
+        name: 'documentTypeCode',
+        displayName: '::Document:Type',
+        sortable: false,
+        columnWidth: 180,
+        valueResolver: data => {
+          const typeCode = data.record.documentTypeCode;
+          return of(typeCode
+            ? `<span class="badge bg-secondary">${escapeHtmlChars(typeCode)}</span>`
+            : '<span class="text-muted">-</span>');
+        },
+      }),
+      EntityProp.create<DocumentListItemDto>({
+        type: ePropType.String,
+        name: 'fileSize',
+        displayName: '::Document:Size',
+        sortable: false,
+        columnWidth: 140,
+        valueResolver: data =>
+          of(`<span class="text-muted small">${escapeHtmlChars(this.formatFileSize(data.record.fileOrigin?.fileSize ?? 0))}</span>`),
+      }),
+      EntityProp.create<DocumentListItemDto>({
+        type: ePropType.String,
+        name: 'deletionTime',
+        displayName: '::Document:DeletedAt',
+        sortable: false,
+        columnWidth: 180,
+        valueResolver: data =>
+          of(`<span class="text-muted small">${escapeHtmlChars(this.formatDateTime(data.record.deletionTime))}</span>`),
+      }),
+    ]);
+  }
 
   ngOnInit(): void {
-    this.loadList();
+    this.hookListQuery();
   }
 
   refresh(): void {
-    this.loadList();
+    this.list.getWithoutPageReset();
   }
 
-  navigateTo(page: number): void {
-    this.page.set(page);
-    this.loadList();
-  }
-
-  private loadList(): void {
-    this.isLoading.set(true);
-    this.documentService
-      .getList({
-        isDeleted: true,
-        maxResultCount: this.pageSize,
-        skipCount: this.page() * this.pageSize,
-        sorting: 'creationTime desc',
-      })
+  private hookListQuery(): void {
+    this.list.requestStatus$
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: result => {
-          this.documents.set(result);
-          this.isLoading.set(false);
-        },
-        error: () => this.isLoading.set(false),
+      .subscribe(status => {
+        if (status === 'idle' && this.isLoading() && this.documents().items.length === 0) return;
+        this.isLoading.set(status === 'loading');
+      });
+
+    this.list
+      .hookToQuery(query =>
+        this.documentService.getList({
+          isDeleted: true,
+          maxResultCount: query.maxResultCount,
+          skipCount: query.skipCount,
+          sorting: query.sorting || 'creationTime desc',
+        }),
+      )
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(result => {
+        this.documents.set({
+          totalCount: result.totalCount ?? 0,
+          items: result.items ?? [],
+        });
       });
   }
 
@@ -82,7 +153,7 @@ export class DocumentRecycleBinComponent implements OnInit {
           .subscribe({
             next: () => {
               this.toaster.success('::Document:RestoredSuccessfully', '::Success');
-              this.loadList();
+              this.list.getWithoutPageReset();
             },
             error: () => this.toaster.error('::Document:RestoreFailed', '::Error'),
           });
@@ -102,7 +173,7 @@ export class DocumentRecycleBinComponent implements OnInit {
           .subscribe({
             next: () => {
               this.toaster.success('::Document:PermanentlyDeletedSuccessfully', '::Success');
-              this.loadList();
+              this.list.getWithoutPageReset();
             },
             error: () => this.toaster.error('::Document:PermanentDeleteFailed', '::Error'),
           });
@@ -117,5 +188,15 @@ export class DocumentRecycleBinComponent implements OnInit {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  private formatDateTime(value: string | null | undefined): string {
+    if (!value) return '-';
+
+    try {
+      return formatDate(value, 'yyyy-MM-dd HH:mm', this.locale);
+    } catch {
+      return value;
+    }
   }
 }

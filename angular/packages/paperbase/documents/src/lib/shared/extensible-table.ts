@@ -3,6 +3,9 @@ import type { ABP } from '@abp/ng.core';
 
 export const PAPERBASE_TABLES = {
   Cabinets: 'Paperbase.Cabinets',
+  Documents: 'Paperbase.Documents',
+  DocumentRecycleBin: 'Paperbase.DocumentRecycleBin',
+  DocumentReviewQueue: 'Paperbase.DocumentReviewQueue',
   DocumentTypes: 'Paperbase.DocumentTypes',
   ExportTemplates: 'Paperbase.ExportTemplates',
   FieldDefinitions: 'Paperbase.FieldDefinitions',

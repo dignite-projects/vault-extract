@@ -2,20 +2,34 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  LOCALE_ID,
   OnInit,
+  computed,
   inject,
   signal,
-  computed,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { Router } from '@angular/router';
-import { CommonModule } from '@angular/common';
-import { RouterModule } from '@angular/router';
+import { CommonModule, formatDate } from '@angular/common';
+import { Router, RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
-import { LocalizationPipe, PermissionService } from '@abp/ng.core';
-import type { PagedResultDto } from '@abp/ng.core';
+import {
+  ListService,
+  LocalizationPipe,
+  LocalizationService,
+  PermissionService,
+  escapeHtmlChars,
+} from '@abp/ng.core';
+import {
+  EntityProp,
+  EXTENSIONS_IDENTIFIER,
+  ExtensionsService,
+  ExtensibleTableComponent,
+  ePropType,
+} from '@abp/ng.components/extensible';
 import { ConfirmationService, ToasterService } from '@abp/ng.theme.shared';
 import { Confirmation } from '@abp/ng.theme.shared';
+import { NgbDropdownModule } from '@ng-bootstrap/ng-bootstrap';
+import { of } from 'rxjs';
 import {
   CabinetDto,
   CabinetService,
@@ -30,13 +44,33 @@ import {
   GetDocumentListInput,
   PAPERBASE_PERMISSIONS,
 } from '@dignite/paperbase';
+import { ClientPagedResult, configureEntityTable, PAPERBASE_TABLES } from '../../shared/extensible-table';
 import { formatExtractedFieldValue } from '../../shared/format-field-value';
+
+interface TableActivateEvent {
+  type?: string;
+  row?: DocumentListItemDto;
+}
 
 @Component({
   selector: 'lib-document-list',
   templateUrl: './document-list.component.html',
   styleUrls: ['./document-list.component.scss'],
-  imports: [CommonModule, RouterModule, FormsModule, LocalizationPipe],
+  imports: [
+    CommonModule,
+    RouterModule,
+    FormsModule,
+    LocalizationPipe,
+    ExtensibleTableComponent,
+    NgbDropdownModule,
+  ],
+  providers: [
+    ListService,
+    {
+      provide: EXTENSIONS_IDENTIFIER,
+      useValue: PAPERBASE_TABLES.Documents,
+    },
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DocumentListComponent implements OnInit {
@@ -49,9 +83,10 @@ export class DocumentListComponent implements OnInit {
   private readonly toaster = inject(ToasterService);
   private readonly permissionService = inject(PermissionService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly extensions = inject(ExtensionsService);
+  private readonly locale = inject(LOCALE_ID);
 
-  // Shared with the detail view so multi-value (#212) / object cells render consistently.
-  protected readonly formatFieldValue = formatExtractedFieldValue;
+  readonly list = inject(ListService);
 
   readonly canDelete = this.permissionService.getGrantedPolicy(
     PAPERBASE_PERMISSIONS.Documents.Delete,
@@ -65,9 +100,11 @@ export class DocumentListComponent implements OnInit {
   readonly canViewCabinets = this.permissionService.getGrantedPolicy(
     PAPERBASE_PERMISSIONS.Cabinets.Default,
   );
+  readonly hasDocumentActions = this.canConfirm || this.canDelete;
 
-  documents = signal<PagedResultDto<DocumentListItemDto>>({ totalCount: 0, items: [] });
+  documents = signal<ClientPagedResult<DocumentListItemDto>>({ totalCount: 0, items: [] });
   isLoading = signal(true);
+  tableReady = signal(false);
 
   reviewStatusFilter = signal<DocumentReviewStatus | undefined>(undefined);
   typeFilter = signal<string>('');
@@ -85,19 +122,26 @@ export class DocumentListComponent implements OnInit {
   selectedTypeId = signal('');
   isConfirming = signal(false);
 
-  page = signal(0);
-  pageSize = 10;
-  totalPages = computed(() => Math.ceil((this.documents().totalCount ?? 0) / this.pageSize));
-  paginationPages = computed(() => Array.from({ length: this.totalPages() }, (_, i) => i));
   pendingReviewCount = computed(() =>
-    (this.documents().items ?? []).filter(d => d.reviewStatus === DocumentReviewStatus.PendingReview).length
+    this.documents().items.filter(d => d.reviewStatus === DocumentReviewStatus.PendingReview).length,
   );
 
   readonly DocumentLifecycleStatus = DocumentLifecycleStatus;
   readonly DocumentReviewStatus = DocumentReviewStatus;
 
+  private tableRebuildHandle?: ReturnType<typeof setTimeout>;
+
+  constructor() {
+    this.rebuildTableProps([]);
+    this.destroyRef.onDestroy(() => {
+      if (this.tableRebuildHandle) {
+        clearTimeout(this.tableRebuildHandle);
+      }
+    });
+  }
+
   ngOnInit(): void {
-    this.loadList();
+    this.hookListQuery();
     // Document types drive the type filter, the dynamic extracted-field columns, and
     // the confirm-classification picker. Every Documents.Default user needs them, and
     // the read is now decoupled from schema-admin permission (#223 — GetVisible no longer
@@ -112,26 +156,61 @@ export class DocumentListComponent implements OnInit {
   }
 
   refresh(): void {
-    this.loadList();
+    this.list.getWithoutPageReset();
   }
 
   onLifecycleFilterChange(value: DocumentLifecycleStatus | undefined): void {
     this.lifecycleFilter.set(value);
-    this.page.set(0);
-    this.loadList();
+    this.refreshListFromFirstPage();
   }
 
   onTypeFilterChange(value: string): void {
     this.typeFilter.set(value);
-    this.page.set(0);
-    this.loadExtractedFieldColumns(value);
-    this.loadList();
+    this.updateExtractedFieldColumns([]);
+    if (value) {
+      this.loadExtractedFieldColumns(value);
+    }
+    this.refreshListFromFirstPage();
   }
 
   onCabinetFilterChange(value: string): void {
     this.cabinetFilter.set(value);
-    this.page.set(0);
-    this.loadList();
+    this.refreshListFromFirstPage();
+  }
+
+  private hookListQuery(): void {
+    this.list.requestStatus$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(status => {
+        if (status === 'idle' && this.isLoading() && this.documents().items.length === 0) return;
+        this.isLoading.set(status === 'loading');
+      });
+
+    this.list
+      .hookToQuery(query =>
+        this.documentService.getList({
+          ...this.buildFilter(),
+          maxResultCount: query.maxResultCount,
+          skipCount: query.skipCount,
+          sorting: query.sorting || 'creationTime desc',
+        }),
+      )
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(result => {
+        this.documents.set({
+          totalCount: result.totalCount ?? 0,
+          items: result.items ?? [],
+        });
+      });
+  }
+
+  private refreshListFromFirstPage(): void {
+    if (this.list.page === 0) {
+      this.list.get();
+      return;
+    }
+
+    this.list.page = 0;
   }
 
   private buildFilter(): Partial<GetDocumentListInput> {
@@ -143,14 +222,129 @@ export class DocumentListComponent implements OnInit {
     };
   }
 
+  private rebuildTableProps(fields: FieldDefinitionDto[] = this.extractedFieldColumns()): void {
+    this.tableReady.set(false);
+    configureEntityTable<DocumentListItemDto>(
+      this.extensions,
+      PAPERBASE_TABLES.Documents,
+      this.createTableProps(fields),
+    );
+
+    if (this.tableRebuildHandle) {
+      clearTimeout(this.tableRebuildHandle);
+    }
+    this.tableRebuildHandle = setTimeout(() => this.tableReady.set(true), 0);
+  }
+
+  private createTableProps(fields: FieldDefinitionDto[]): EntityProp<DocumentListItemDto>[] {
+    return [
+      EntityProp.create<DocumentListItemDto>({
+        type: ePropType.String,
+        name: 'fileName',
+        displayName: '::Document:FileName',
+        sortable: false,
+        columnWidth: 340,
+        valueResolver: data => {
+          const doc = data.record;
+          const fileName = doc.title || doc.fileOrigin?.originalFileName || '-';
+          const iconClass = this.isImage(doc)
+            ? 'fas fa-file-image fa-lg text-primary'
+            : 'fas fa-file-pdf fa-lg text-danger';
+          return of(
+            `<span class="document-file-cell"><i class="${iconClass} me-2"></i><span class="fw-semibold text-truncate">${escapeHtmlChars(fileName)}</span></span>`,
+          );
+        },
+      }),
+      EntityProp.create<DocumentListItemDto>({
+        type: ePropType.String,
+        name: 'documentType',
+        displayName: '::Document:Type',
+        sortable: false,
+        columnWidth: 180,
+        valueResolver: data => {
+          const typeName = this.documentTypeDisplayName(data.record.documentTypeCode);
+          return of(
+            typeName
+              ? `<span class="badge bg-info text-dark">${escapeHtmlChars(typeName)}</span>`
+              : '<span class="text-muted">-</span>',
+          );
+        },
+      }),
+      ...fields.map(field => this.createExtractedFieldProp(field)),
+      EntityProp.create<DocumentListItemDto>({
+        type: ePropType.String,
+        name: 'status',
+        displayName: '::Document:Status',
+        sortable: false,
+        columnWidth: 190,
+        valueResolver: data => {
+          const localization = data.getInjected(LocalizationService);
+          const doc = data.record;
+          const spinner = this.isProcessingDocument(doc)
+            ? '<span class="spinner-border spinner-border-sm me-1" role="status"></span>'
+            : '';
+          return of(
+            `<span class="${this.getDocumentStatusBadgeClass(doc)}">${spinner}${escapeHtmlChars(localization.instant(this.getDocumentStatusLabel(doc)))}</span>`,
+          );
+        },
+      }),
+      EntityProp.create<DocumentListItemDto>({
+        type: ePropType.String,
+        name: 'creationTime',
+        displayName: '::Document:UploadedAt',
+        sortable: true,
+        columnWidth: 180,
+        valueResolver: data =>
+          of(`<span class="text-muted small">${escapeHtmlChars(this.formatCreationTime(data.record.creationTime))}</span>`),
+      }),
+    ];
+  }
+
+  private createExtractedFieldProp(field: FieldDefinitionDto): EntityProp<DocumentListItemDto> {
+    const fieldName = field.name ?? '';
+    const propName = `extracted_${field.id || fieldName}`.replace(/[^A-Za-z0-9_]/g, '_');
+    return EntityProp.create<DocumentListItemDto>({
+      type: ePropType.String,
+      name: propName,
+      displayName: field.displayName || field.name || '',
+      sortable: false,
+      columnWidth: 220,
+      valueResolver: data => {
+        const text = formatExtractedFieldValue(data.record.extractedFields?.[fieldName]);
+        const value = escapeHtmlChars(text);
+        return of(`<span class="document-field-cell" title="${value}">${value}</span>`);
+      },
+    });
+  }
+
+  private formatCreationTime(value: string | undefined): string {
+    if (!value) return '-';
+
+    try {
+      return formatDate(value, 'yyyy-MM-dd HH:mm', this.locale);
+    } catch {
+      return value;
+    }
+  }
+
   // Visible document types for the current layer (Host admin → Host types;
   // tenant admin → that tenant's types). Drives the confirm-classification picker.
   private loadDocumentTypes(): void {
     this.documentTypeService.getVisible()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: types => this.documentTypes.set(types),
-        error: () => this.documentTypes.set([]),
+        next: types => {
+          this.documentTypes.set(types);
+          if (this.typeFilter()) {
+            this.loadExtractedFieldColumns(this.typeFilter());
+            return;
+          }
+          this.rebuildTableProps([]);
+        },
+        error: () => {
+          this.documentTypes.set([]);
+          this.updateExtractedFieldColumns([]);
+        },
       });
   }
 
@@ -181,43 +375,35 @@ export class DocumentListComponent implements OnInit {
   private loadExtractedFieldColumns(typeCode: string): void {
     const documentTypeId = this.documentTypes().find(t => t.typeCode === typeCode)?.id;
     if (!documentTypeId) {
-      this.extractedFieldColumns.set([]);
+      if (this.typeFilter() === typeCode) {
+        this.updateExtractedFieldColumns([]);
+      }
       return;
     }
     this.fieldDefinitionService.getList({ documentTypeId })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: fields =>
-          this.extractedFieldColumns.set(
+        next: fields => {
+          if (this.typeFilter() !== typeCode) return;
+          this.updateExtractedFieldColumns(
             [...fields].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0)),
-          ),
-        error: () => this.extractedFieldColumns.set([]),
+          );
+        },
+        error: () => {
+          if (this.typeFilter() !== typeCode) return;
+          this.updateExtractedFieldColumns([]);
+        },
       });
   }
 
-  private loadList(): void {
-    this.isLoading.set(true);
-    this.documentService.getList({
-      ...this.buildFilter(),
-      maxResultCount: this.pageSize,
-      skipCount: this.page() * this.pageSize,
-      sorting: 'creationTime desc',
-    })
-    .pipe(takeUntilDestroyed(this.destroyRef))
-    .subscribe({
-      next: result => {
-        this.documents.set(result);
-        this.isLoading.set(false);
-      },
-      error: () => {
-        this.isLoading.set(false);
-      },
-    });
+  private updateExtractedFieldColumns(fields: FieldDefinitionDto[]): void {
+    this.extractedFieldColumns.set(fields);
+    this.rebuildTableProps(fields);
   }
 
-  navigateTo(page: number): void {
-    this.page.set(page);
-    this.loadList();
+  onTableActivate(event: TableActivateEvent): void {
+    if (event.type !== 'click' || !event.row) return;
+    this.openDetail(event.row);
   }
 
   openDetail(doc: DocumentListItemDto): void {
@@ -240,7 +426,7 @@ export class DocumentListComponent implements OnInit {
             .subscribe({
             next: () => {
               this.toaster.success('::Document:DeletedSuccessfully', '::Success');
-              this.loadList();
+              this.list.getWithoutPageReset();
             },
             error: () => this.toaster.error('::Document:DeleteFailed', '::Error'),
           });
@@ -252,8 +438,7 @@ export class DocumentListComponent implements OnInit {
     this.reviewStatusFilter.update(v =>
       v === DocumentReviewStatus.PendingReview ? undefined : DocumentReviewStatus.PendingReview
     );
-    this.page.set(0);
-    this.loadList();
+    this.refreshListFromFirstPage();
   }
 
   needsConfirmation(doc: DocumentListItemDto): boolean {
@@ -294,7 +479,7 @@ export class DocumentListComponent implements OnInit {
         this.isConfirming.set(false);
         this.closeConfirmDialog();
         this.toaster.success('::Document:ClassificationConfirmed', '::Success');
-        this.loadList();
+        this.list.getWithoutPageReset();
       },
       error: () => {
         this.isConfirming.set(false);

@@ -4,7 +4,7 @@
     <h4 class="mb-0">
       <i class="fas fa-user-edit me-2"></i>
       {{ '::Document:Review:QueueTitle' | abpLocalization }}
-      @if ((documents().totalCount ?? 0) > 0) {
+      @if (documents().totalCount > 0) {
         <span class="badge bg-danger ms-2">{{ documents().totalCount }}</span>
       }
     </h4>
@@ -19,7 +19,7 @@
   </div>
 
   <!-- Loading spinner -->
-  @if (isLoading()) {
+  @if (isLoading() && documents().items.length === 0) {
     <div class="text-center py-5">
       <div class="spinner-border text-primary" role="status"></div>
     </div>
@@ -36,105 +36,47 @@
   }
 
   <!-- Review queue -->
-  @if (!isLoading() && (documents().totalCount ?? 0) > 0) {
-    <div class="card shadow-sm">
-      <div class="table-responsive">
-        <table class="table table-hover mb-0">
-          <thead class="table-light">
-            <tr>
-              <th style="width: 48px"></th>
-              <th>{{ '::Document:FileName' | abpLocalization }}</th>
-              <th>{{ '::Document:Type' | abpLocalization }}</th>
-              <th>{{ '::Document:ClassificationConfidence' | abpLocalization }}</th>
-              <th>{{ '::Document:UploadedAt' | abpLocalization }}</th>
-              <th style="width: 150px"></th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (doc of documents().items; track doc.id) {
-              <tr class="align-middle cursor-pointer" (click)="openDetail(doc)">
-                <td>
-                  @if (isImage(doc)) {
-                    <i class="fas fa-file-image fa-lg text-primary"></i>
-                  } @else {
-                    <i class="fas fa-file-pdf fa-lg text-danger"></i>
-                  }
-                </td>
-                <td>
-                  <span class="fw-semibold">
-                    {{ doc.title || doc.fileOrigin?.originalFileName }}
-                  </span>
-                </td>
-                <td>
-                  @if (doc.documentTypeCode) {
-                    <span class="badge bg-info text-dark">{{ doc.documentTypeCode }}</span>
-                  } @else {
-                    <span class="text-muted">—</span>
-                  }
-                </td>
-                <td>
-                  <span
-                    class="small"
-                    [class.text-danger]="confidencePercent(doc) < 50"
-                    [class.text-muted]="confidencePercent(doc) >= 50"
-                  >
-                    {{ confidencePercent(doc) }}%
-                  </span>
-                </td>
-                <td class="text-muted small">{{ doc.creationTime | date:'yyyy-MM-dd HH:mm' }}</td>
-                <td (click)="$event.stopPropagation()">
-                  <div class="d-flex gap-1 justify-content-end">
-                    <button
-                      class="btn btn-sm btn-warning"
-                      (click)="openClassifyDialog(doc, $event)"
-                      [disabled]="isSubmitting()"
-                      title="{{ '::Document:ConfirmClassification' | abpLocalization }}"
-                    >
-                      <i class="fas fa-tags"></i>
-                    </button>
-                    <button
-                      class="btn btn-sm btn-outline-danger"
-                      (click)="openRejectDialog(doc, $event)"
-                      [disabled]="isSubmitting()"
-                      title="{{ '::Document:Review:Reject' | abpLocalization }}"
-                    >
-                      <i class="fas fa-ban"></i>
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
-      </div>
+  @if (documents().totalCount > 0) {
+    <div class="card shadow-sm document-review-table">
+      <div class="card-body p-0">
+        <ng-template #actionsTemplate let-doc>
+          <div ngbDropdown container="body" class="d-inline-block" (click)="$event.stopPropagation()">
+            <button type="button" class="btn btn-sm btn-primary" ngbDropdownToggle [disabled]="isSubmitting()">
+              {{ 'AbpUi::Actions' | abpLocalization }}
+            </button>
+            <div ngbDropdownMenu>
+              <button
+                type="button"
+                ngbDropdownItem
+                (click)="openClassifyDialog(doc, $event)"
+                [disabled]="isSubmitting()"
+              >
+                <i class="fas fa-tags me-2"></i>
+                {{ '::Document:ConfirmClassification' | abpLocalization }}
+              </button>
+              <button
+                type="button"
+                ngbDropdownItem
+                (click)="openRejectDialog(doc, $event)"
+                [disabled]="isSubmitting()"
+              >
+                <i class="fas fa-ban me-2"></i>
+                {{ '::Document:Review:Reject' | abpLocalization }}
+              </button>
+            </div>
+          </div>
+        </ng-template>
 
-      <!-- Pagination -->
-      @if (totalPages() > 1) {
-        <div class="card-footer d-flex justify-content-between align-items-center">
-          <small class="text-muted">
-            {{ '::Document:TotalCount' | abpLocalization }} {{ documents().totalCount }}
-          </small>
-          <nav>
-            <ul class="pagination pagination-sm mb-0">
-              <li class="page-item" [class.disabled]="page() === 0">
-                <button class="page-link" (click)="navigateTo(page() - 1)">
-                  <i class="fas fa-chevron-left"></i>
-                </button>
-              </li>
-              @for (p of paginationPages(); track p) {
-                <li class="page-item" [class.active]="page() === p">
-                  <button class="page-link" (click)="navigateTo(p)">{{ p + 1 }}</button>
-                </li>
-              }
-              <li class="page-item" [class.disabled]="page() === totalPages() - 1">
-                <button class="page-link" (click)="navigateTo(page() + 1)">
-                  <i class="fas fa-chevron-right"></i>
-                </button>
-              </li>
-            </ul>
-          </nav>
-        </div>
-      }
+        <abp-extensible-table
+          [data]="documents().items"
+          [recordsTotal]="documents().totalCount"
+          [list]="list"
+          [actionsTemplate]="actionsTemplate"
+          actionsText="AbpUi::Actions"
+          [actionsColumnWidth]="150"
+          (tableActivate)="onTableActivate($event)"
+        />
+      </div>
     </div>
   }
 </div>

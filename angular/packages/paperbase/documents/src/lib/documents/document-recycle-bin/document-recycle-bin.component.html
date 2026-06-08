@@ -16,7 +16,7 @@
   </div>
 
   <!-- Loading spinner -->
-  @if (isLoading()) {
+  @if (isLoading() && documents().items.length === 0) {
     <div class="text-center py-5">
       <div class="spinner-border text-primary" role="status"></div>
     </div>
@@ -33,103 +33,50 @@
   }
 
   <!-- List -->
-  @if (!isLoading() && (documents().totalCount ?? 0) > 0) {
-    <div class="card shadow-sm">
-      <div class="table-responsive">
-        <table class="table table-hover mb-0">
-          <thead class="table-light">
-            <tr>
-              <th style="width: 48px"></th>
-              <th>{{ '::Document:FileName' | abpLocalization }}</th>
-              <th>{{ '::Document:Type' | abpLocalization }}</th>
-              <th>{{ '::Document:Size' | abpLocalization }}</th>
-              <th>{{ '::Document:DeletedAt' | abpLocalization }}</th>
-              <th style="width: 120px"></th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (doc of documents().items; track doc.id) {
-              <tr class="align-middle">
-                <td>
-                  @if (isImage(doc)) {
-                    <i class="fas fa-file-image fa-lg text-muted"></i>
-                  } @else {
-                    <i class="fas fa-file-pdf fa-lg text-muted"></i>
-                  }
-                </td>
-                <td>
-                  <span class="text-muted">
-                    {{ doc.title || doc.fileOrigin?.originalFileName }}
-                  </span>
-                </td>
-                <td>
-                  @if (doc.documentTypeCode) {
-                    <span class="badge bg-secondary">{{ doc.documentTypeCode }}</span>
-                  } @else {
-                    <span class="text-muted">—</span>
-                  }
-                </td>
-                <td class="text-muted small">{{ formatFileSize(doc.fileOrigin?.fileSize ?? 0) }}</td>
-                <td class="text-muted small">
-                  @if (doc.deletionTime) {
-                    {{ doc.deletionTime | date:'yyyy-MM-dd HH:mm' }}
-                  } @else {
-                    —
-                  }
-                </td>
-                <td class="d-flex gap-1">
-                  @if (canRestore) {
-                    <button
-                      class="btn btn-sm btn-outline-success"
-                      (click)="restore(doc)"
-                      title="{{ '::Document:Restore' | abpLocalization }}"
-                    >
-                      <i class="fas fa-rotate-left"></i>
-                    </button>
-                  }
-                  @if (canPermanentDelete) {
-                    <button
-                      class="btn btn-sm btn-outline-danger"
-                      (click)="permanentDelete(doc)"
-                      title="{{ '::Document:PermanentDelete' | abpLocalization }}"
-                    >
-                      <i class="fas fa-times"></i>
-                    </button>
-                  }
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
-      </div>
+  @if (documents().totalCount > 0) {
+    <div class="card shadow-sm document-recycle-table">
+      <div class="card-body p-0">
+        <ng-template #actionsTemplate let-doc>
+          @if (hasRecycleActions) {
+            <div ngbDropdown container="body" class="d-inline-block">
+              <button type="button" class="btn btn-sm btn-primary" ngbDropdownToggle>
+                {{ 'AbpUi::Actions' | abpLocalization }}
+              </button>
+              <div ngbDropdownMenu>
+                @if (canRestore) {
+                  <button type="button" ngbDropdownItem (click)="restore(doc)">
+                    <i class="fas fa-rotate-left me-2"></i>
+                    {{ '::Document:Restore' | abpLocalization }}
+                  </button>
+                }
+                @if (canPermanentDelete) {
+                  <button type="button" ngbDropdownItem (click)="permanentDelete(doc)">
+                    <i class="fas fa-times me-2"></i>
+                    {{ '::Document:PermanentDelete' | abpLocalization }}
+                  </button>
+                }
+              </div>
+            </div>
+          }
+        </ng-template>
 
-      <!-- Pagination -->
-      @if (totalPages() > 1) {
-        <div class="card-footer d-flex justify-content-between align-items-center">
-          <small class="text-muted">
-            {{ '::Document:TotalCount' | abpLocalization }} {{ documents().totalCount }}
-          </small>
-          <nav>
-            <ul class="pagination pagination-sm mb-0">
-              <li class="page-item" [class.disabled]="page() === 0">
-                <button class="page-link" (click)="navigateTo(page() - 1)">
-                  <i class="fas fa-chevron-left"></i>
-                </button>
-              </li>
-              @for (p of paginationPages(); track p) {
-                <li class="page-item" [class.active]="page() === p">
-                  <button class="page-link" (click)="navigateTo(p)">{{ p + 1 }}</button>
-                </li>
-              }
-              <li class="page-item" [class.disabled]="page() === totalPages() - 1">
-                <button class="page-link" (click)="navigateTo(page() + 1)">
-                  <i class="fas fa-chevron-right"></i>
-                </button>
-              </li>
-            </ul>
-          </nav>
-        </div>
-      }
+        @if (hasRecycleActions) {
+          <abp-extensible-table
+            [data]="documents().items"
+            [recordsTotal]="documents().totalCount"
+            [list]="list"
+            [actionsTemplate]="actionsTemplate"
+            actionsText="AbpUi::Actions"
+            [actionsColumnWidth]="150"
+          />
+        } @else {
+          <abp-extensible-table
+            [data]="documents().items"
+            [recordsTotal]="documents().totalCount"
+            [list]="list"
+          />
+        }
+      </div>
     </div>
   }
 </div>

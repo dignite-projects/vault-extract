@@ -2,6 +2,27 @@
   cursor: pointer;
 }
 
-tbody tr:hover {
+:host ::ng-deep .document-list-table .datatable-body-row {
+  cursor: pointer;
+}
+
+:host ::ng-deep .document-list-table .datatable-body-row:hover {
   background-color: rgba(0, 0, 0, 0.025);
+}
+
+:host ::ng-deep .document-file-cell {
+  align-items: center;
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+}
+
+:host ::ng-deep .document-file-cell .text-truncate,
+:host ::ng-deep .document-field-cell {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
 }

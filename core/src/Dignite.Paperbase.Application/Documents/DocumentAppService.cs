@@ -678,9 +678,10 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
 
     protected virtual IQueryable<Document> ApplySorting(IQueryable<Document> query, string? sorting)
     {
-        return sorting switch
+        return sorting?.Trim().ToLowerInvariant() switch
         {
-            "creationTime" => query.OrderBy(x => x.CreationTime),
+            "creationtime" or "creationtime asc" => query.OrderBy(x => x.CreationTime),
+            "creationtime desc" => query.OrderByDescending(x => x.CreationTime),
             _ => query.OrderByDescending(x => x.CreationTime)
         };
     }

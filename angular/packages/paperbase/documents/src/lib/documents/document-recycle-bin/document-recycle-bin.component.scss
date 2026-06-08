@@ -1,2 +1,17 @@
 // Recycle bin list: deliberately muted styling vs. main document list
 // so users perceive it as a secondary / disposable view.
+:host ::ng-deep .recycle-file-cell {
+  align-items: center;
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+}
+
+:host ::ng-deep .recycle-file-cell .text-truncate {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}

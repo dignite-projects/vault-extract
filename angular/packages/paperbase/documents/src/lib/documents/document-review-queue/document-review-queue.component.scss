@@ -1,3 +1,27 @@
 .cursor-pointer {
   cursor: pointer;
 }
+
+:host ::ng-deep .document-review-table .datatable-body-row {
+  cursor: pointer;
+}
+
+:host ::ng-deep .document-review-table .datatable-body-row:hover {
+  background-color: rgba(0, 0, 0, 0.025);
+}
+
+:host ::ng-deep .review-file-cell {
+  align-items: center;
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+}
+
+:host ::ng-deep .review-file-cell .text-truncate {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
