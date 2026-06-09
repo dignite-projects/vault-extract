@@ -11,6 +11,12 @@ export const PAPERBASE_PERMISSIONS = {
       Default: 'Paperbase.Documents.Pipelines',
       Retry: 'Paperbase.Documents.Pipelines.Retry',
     },
+    // Batch reprocessing of existing documents (#289) — admin-level.
+    Reprocessing: {
+      Default: 'Paperbase.Documents.Reprocessing',
+      FieldExtraction: 'Paperbase.Documents.Reprocessing.FieldExtraction',
+      Reclassification: 'Paperbase.Documents.Reprocessing.Reclassification',
+    },
     Templates: {
       Default: 'Paperbase.Documents.Templates',
       Create: 'Paperbase.Documents.Templates.Create',

@@ -28,6 +28,12 @@
         <i class="fas fa-trash-can me-1"></i>
         {{ '::FieldDefinition:ShowDeleted' | abpLocalization }}
       </button>
+      @if (canReextractFields && !showDeleted()) {
+        <button class="btn btn-outline-primary" (click)="openReextractFields()" [disabled]="isLoading() || !documentTypeId">
+          <i class="fas fa-wand-magic-sparkles me-1"></i>
+          {{ '::Document:Reprocess:FieldExtraction:Action' | abpLocalization }}
+        </button>
+      }
       @if (canManage && !showDeleted()) {
         <button class="btn btn-primary" (click)="openCreate()">
           <i class="fas fa-plus me-1"></i>
@@ -245,4 +251,13 @@
       </div>
     </div>
   </div>
+}
+
+<!-- 批量字段重抽模态（#289）——作用于当前文档类型 -->
+@if (showReextract()) {
+  <lib-field-reextraction-modal
+    [documentTypeId]="documentTypeId"
+    [documentTypeDisplayName]="documentTypeDisplayName()"
+    (closed)="showReextract.set(false)"
+  />
 }

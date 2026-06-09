@@ -10,6 +10,10 @@ import {
 } from './proxy/documents/document-review-reasons.enum';
 import { DocumentLifecycleStatus } from './proxy/documents/document-lifecycle-status.enum';
 import { PipelineRunStatus } from './proxy/documents/pipelines/pipeline-run-status.enum';
+import {
+  ReclassificationScope,
+  reclassificationScopeOptions,
+} from './proxy/documents/reprocessing/reclassification-scope.enum';
 
 // Contract smoke test for generator-produced enums (`nx g @abp/ng.schematics:proxy-add`).
 // Lives OUTSIDE proxy/ so it survives regeneration (the generator overwrites proxy/ and
@@ -44,5 +48,12 @@ describe('proxy enum contract (smoke)', () => {
     expect(PipelineRunStatus.Succeeded).toBe(30);
     expect(PipelineRunStatus.Failed).toBe(90);
     expect(PipelineRunStatus.Skipped).toBe(95);
+  });
+
+  it('ReclassificationScope matches backend values (#289)', () => {
+    expect(ReclassificationScope.OnlyCurrentType).toBe(0);
+    expect(ReclassificationScope.AllDocuments).toBe(10);
+    expect(ReclassificationScope.PendingReviewQueue).toBe(20);
+    expect(reclassificationScopeOptions).toHaveLength(3);
   });
 });

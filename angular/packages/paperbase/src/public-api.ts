@@ -19,6 +19,7 @@ export * from './lib/proxy/http-api/documents/exports/export-template.service';
 export * from './lib/proxy/http-api/documents/fields/field-definition.service';
 export * from './lib/proxy/http-api/documents/fields/field-draft-suggestion.service';
 export * from './lib/proxy/http-api/documents/pipelines/document-pipeline-run.service';
+export * from './lib/proxy/http-api/documents/reprocessing/document-reprocessing.service';
 export * from './lib/proxy/http-api/slugging/slug-suggestion.service';
 
 // --- generated proxy: models ---
@@ -28,6 +29,7 @@ export * from './lib/proxy/documents/document-types/models';
 export * from './lib/proxy/documents/exports/models';
 export * from './lib/proxy/documents/fields/models';
 export * from './lib/proxy/documents/pipelines/models';
+export * from './lib/proxy/documents/reprocessing/models';
 export * from './lib/proxy/slugging/models';
 // NOTE: './lib/proxy/system/text/json/models' is intentionally NOT exported. The generator
 // emits invalid TS there (`interface any extends any {}`) for the backend
@@ -44,3 +46,4 @@ export * from './lib/proxy/documents/document-review-reasons.enum';
 export * from './lib/proxy/documents/exports/export-format.enum';
 export * from './lib/proxy/documents/fields/field-data-type.enum';
 export * from './lib/proxy/documents/pipelines/pipeline-run-status.enum';
+export * from './lib/proxy/documents/reprocessing/reclassification-scope.enum';

@@ -90,6 +90,21 @@
                     {{ '::Delete' | abpLocalization }}
                   </button>
                 }
+                @if (canReextractFields || canReclassify) {
+                  <div class="dropdown-divider"></div>
+                }
+                @if (canReextractFields) {
+                  <button type="button" ngbDropdownItem (click)="openReextractFields(type)">
+                    <i class="fas fa-wand-magic-sparkles me-2"></i>
+                    {{ '::Document:Reprocess:FieldExtraction:Action' | abpLocalization }}
+                  </button>
+                }
+                @if (canReclassify) {
+                  <button type="button" ngbDropdownItem class="text-danger" (click)="openReclassify(type)">
+                    <i class="fas fa-shuffle me-2"></i>
+                    {{ '::Document:Reprocess:Reclassification:Action' | abpLocalization }}
+                  </button>
+                }
               </div>
             </div>
           }
@@ -205,4 +220,22 @@
       </div>
     </div>
   </div>
+}
+
+<!-- 批量字段重抽模态（#289） -->
+@if (reextractTarget(); as t) {
+  <lib-field-reextraction-modal
+    [documentTypeId]="t.id!"
+    [documentTypeDisplayName]="t.displayName ?? ''"
+    (closed)="reextractTarget.set(null)"
+  />
+}
+
+<!-- 批量重新分类模态（#289） -->
+@if (reclassifyTarget(); as t) {
+  <lib-reclassification-modal
+    [documentTypeId]="t.id!"
+    [documentTypeDisplayName]="t.displayName ?? ''"
+    (closed)="reclassifyTarget.set(null)"
+  />
 }

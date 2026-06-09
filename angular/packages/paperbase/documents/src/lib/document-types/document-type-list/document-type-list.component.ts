@@ -37,6 +37,8 @@ import {
   SortAccessors,
 } from '../../shared/extensible-table';
 import { SlugSuggestionHandle, wireSlugSuggestion } from '../../shared/slug-suggestion';
+import { FieldReextractionModalComponent } from '../../reprocessing/field-reextraction-modal/field-reextraction-modal.component';
+import { ReclassificationModalComponent } from '../../reprocessing/reclassification-modal/reclassification-modal.component';
 
 // Mirrors DocumentTypeConsts (Domain.Shared): TypeCode whitelist + length cap.
 const TYPE_CODE_PATTERN = /^[A-Za-z0-9_\-]+(\.[A-Za-z0-9_\-]+)*$/;
@@ -62,6 +64,8 @@ const DOCUMENT_TYPE_SORTS: SortAccessors<DocumentTypeDto> = {
     LocalizationPipe,
     ExtensibleTableComponent,
     NgbDropdownModule,
+    FieldReextractionModalComponent,
+    ReclassificationModalComponent,
   ],
   providers: [
     ListService,
@@ -90,6 +94,18 @@ export class DocumentTypeListComponent implements OnInit {
   readonly canManage = this.permissionService.getGrantedPolicy(
     `${PAPERBASE_PERMISSIONS.DocumentTypes.Create} || ${PAPERBASE_PERMISSIONS.DocumentTypes.Update} || ${PAPERBASE_PERMISSIONS.DocumentTypes.Delete}`,
   );
+
+  // 批量重处理入口（#289）——admin 级、独立于类型 CRUD 权限。
+  readonly canReextractFields = this.permissionService.getGrantedPolicy(
+    PAPERBASE_PERMISSIONS.Documents.Reprocessing.FieldExtraction,
+  );
+  readonly canReclassify = this.permissionService.getGrantedPolicy(
+    PAPERBASE_PERMISSIONS.Documents.Reprocessing.Reclassification,
+  );
+
+  // 打开的重处理模态目标（null = 关闭）。
+  reextractTarget = signal<DocumentTypeDto | null>(null);
+  reclassifyTarget = signal<DocumentTypeDto | null>(null);
 
   allTypes = signal<DocumentTypeDto[]>([]);
   types = signal<ClientPagedResult<DocumentTypeDto>>({ totalCount: 0, items: [] });
@@ -344,5 +360,13 @@ export class DocumentTypeListComponent implements OnInit {
 
   manageFields(type: DocumentTypeDto): void {
     this.router.navigate(['/documents/types', type.id, 'fields']);
+  }
+
+  openReextractFields(type: DocumentTypeDto): void {
+    this.reextractTarget.set(type);
+  }
+
+  openReclassify(type: DocumentTypeDto): void {
+    this.reclassifyTarget.set(type);
   }
 }

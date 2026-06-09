@@ -1,0 +1,100 @@
+<div
+  class="modal d-block"
+  tabindex="-1"
+  style="background:rgba(0,0,0,.4);"
+  (mousedown)="onBackdropMouseDown($event)"
+  (click)="onBackdropClick($event)"
+>
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="fas fa-shuffle me-2"></i>
+          {{ '::Document:Reprocess:Reclassification:Title' | abpLocalization }}
+        </h5>
+        <button type="button" class="btn-close" (click)="close()" [disabled]="isSubmitting()"></button>
+      </div>
+
+      <div class="modal-body" [formGroup]="form">
+        <!-- 范围选择：由人按意图选，系统不预设默认 -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">{{ '::Document:Reprocess:Reclassification:Scope' | abpLocalization }}</label>
+
+          @if (hasType) {
+            <div class="form-check">
+              <input class="form-check-input" type="radio" formControlName="scope" id="scope-type"
+                     [value]="Scope.OnlyCurrentType" />
+              <label class="form-check-label" for="scope-type">
+                {{ '::Document:Reprocess:Reclassification:Scope:OnlyCurrentType' | abpLocalization: documentTypeDisplayName }}
+                <span class="d-block small text-muted">{{ '::Document:Reprocess:Reclassification:Scope:OnlyCurrentType:Hint' | abpLocalization }}</span>
+              </label>
+            </div>
+          }
+
+          <div class="form-check">
+            <input class="form-check-input" type="radio" formControlName="scope" id="scope-all"
+                   [value]="Scope.AllDocuments" />
+            <label class="form-check-label" for="scope-all">
+              {{ '::Document:Reprocess:Reclassification:Scope:AllDocuments' | abpLocalization }}
+              <span class="d-block small text-muted">{{ '::Document:Reprocess:Reclassification:Scope:AllDocuments:Hint' | abpLocalization }}</span>
+            </label>
+          </div>
+
+          <div class="form-check">
+            <input class="form-check-input" type="radio" formControlName="scope" id="scope-pending"
+                   [value]="Scope.PendingReviewQueue" />
+            <label class="form-check-label" for="scope-pending">
+              {{ '::Document:Reprocess:Reclassification:Scope:PendingReviewQueue' | abpLocalization }}
+              <span class="d-block small text-muted">{{ '::Document:Reprocess:Reclassification:Scope:PendingReviewQueue:Hint' | abpLocalization }}</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- 保护人工确认（默认开启）：勾选才连人工确认的也重分 -->
+        <div class="form-check mb-3" [class.opacity-50]="!includeToggleApplies">
+          <input class="form-check-input" type="checkbox" formControlName="includeManuallyConfirmed"
+                 id="include-confirmed" [disabled]="!includeToggleApplies" />
+          <label class="form-check-label" for="include-confirmed">
+            {{ '::Document:Reprocess:Reclassification:IncludeConfirmed' | abpLocalization }}
+            <span class="d-block small text-muted">{{ '::Document:Reprocess:Reclassification:IncludeConfirmed:Hint' | abpLocalization }}</span>
+          </label>
+        </div>
+
+        <!-- 受影响文档数预览 -->
+        <div class="alert alert-secondary py-2">
+          @if (isLoadingPreview()) {
+            <span class="spinner-border spinner-border-sm me-2"></span>
+            {{ '::Document:Reprocess:Counting' | abpLocalization }}
+          } @else if (previewFailed()) {
+            <span class="text-danger">{{ '::Document:Reprocess:PreviewFailed' | abpLocalization }}</span>
+          } @else {
+            <span class="fw-semibold">{{ '::Document:Reprocess:AffectedCount' | abpLocalization: (((documentCount() ?? 0) | number) ?? '') }}</span>
+          }
+        </div>
+
+        <!-- 重警告：级联 + 破坏性 -->
+        <div class="alert alert-danger mb-0 small">
+          <i class="fas fa-triangle-exclamation me-1"></i>
+          {{ '::Document:Reprocess:Reclassification:Warning' | abpLocalization }}
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" (click)="close()" [disabled]="isSubmitting()">
+          {{ '::Cancel' | abpLocalization }}
+        </button>
+        <button
+          type="button"
+          class="btn btn-danger"
+          (click)="confirm()"
+          [disabled]="isLoadingPreview() || previewFailed() || isSubmitting() || (documentCount() ?? 0) === 0"
+        >
+          @if (isSubmitting()) {
+            <span class="spinner-border spinner-border-sm me-1"></span>
+          }
+          {{ '::Document:Reprocess:Reclassification:Start' | abpLocalization }}
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

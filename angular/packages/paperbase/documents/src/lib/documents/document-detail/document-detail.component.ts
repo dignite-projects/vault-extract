@@ -206,6 +206,18 @@ export class DocumentDetailComponent implements OnInit {
     !this.isLoading()
   );
 
+  isReextracting = signal(false);
+
+  // #289「仅重抽字段」可用性：与「重新识别」同前置，外加**已分类**（有 documentTypeCode）——
+  // 字段抽取挂在类型下，未分类无从抽取（后端 NotClassified 守卫的前置镜像）。
+  canReextractFields = computed(() =>
+    this.canEditFields &&
+    !!this.document()?.documentTypeCode &&
+    !!this.document()?.markdown &&
+    !this.pipelineInProgress() &&
+    !this.isLoading()
+  );
+
   isImage = computed(() =>
     isImageContentType(this.document()?.fileOrigin?.contentType)
   );
@@ -477,6 +489,33 @@ export class DocumentDetailComponent implements OnInit {
             error: () => {
               this.isRerecognizing.set(false);
               this.toaster.error('::Document:RerecognizeFailed', '::Error');
+            },
+          });
+      });
+  }
+
+  // #289「仅重抽字段」：在现有分类上只重跑 field-extraction pipeline（不重排分类、不重 OCR）。
+  // 安全叶子操作，仅覆盖字段值（含人工校正）——先确认；生命周期中性，不打回已 Ready 文档。
+  reextractFields(): void {
+    const doc = this.document();
+    if (!doc || this.isReextracting()) return;
+    this.confirmation
+      .warn('::Document:ReextractFields:Confirm', '::AreYouSure')
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(status => {
+        if (status !== Confirmation.Status.confirm) return;
+        this.isReextracting.set(true);
+        this.documentService.reextractFields(doc.id!)
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({
+            next: () => {
+              this.isReextracting.set(false);
+              this.toaster.success('::Document:ReextractFieldsQueued', '::Success');
+              this.loadDocument();
+            },
+            error: () => {
+              this.isReextracting.set(false);
+              this.toaster.error('::Document:ReextractFieldsFailed', '::Error');
             },
           });
       });

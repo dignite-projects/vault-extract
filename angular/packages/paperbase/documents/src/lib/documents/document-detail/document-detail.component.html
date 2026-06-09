@@ -34,6 +34,22 @@
           }
         </button>
       }
+      @if (canReextractFields()) {
+        <button
+          class="btn btn-outline-secondary btn-sm"
+          (click)="reextractFields()"
+          [disabled]="isReextracting()"
+          title="{{ '::Document:ReextractFields' | abpLocalization }}"
+        >
+          @if (isReextracting()) {
+            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+            {{ '::Document:ReextractFieldsInProgress' | abpLocalization }}
+          } @else {
+            <i class="fas fa-list-check me-1"></i>
+            {{ '::Document:ReextractFields' | abpLocalization }}
+          }
+        </button>
+      }
       @if (canDelete && document()) {
         <button
           class="btn btn-outline-danger btn-sm"

@@ -46,9 +46,10 @@ using Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite;
 using Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite.Bundling;
 using Volo.Abp.AspNetCore.Mvc.UI.Theme.Shared;
 using Volo.Abp.AspNetCore.Serilog;
+using Hangfire;
 using Volo.Abp.AuditLogging.EntityFrameworkCore;
 using Volo.Abp.Autofac;
-using Volo.Abp.BackgroundJobs.EntityFrameworkCore;
+using Volo.Abp.BackgroundJobs.Hangfire;
 using Volo.Abp.BlobStoring;
 using Volo.Abp.BlobStoring.FileSystem;
 using Volo.Abp.Caching;
@@ -127,7 +128,10 @@ namespace Dignite.Paperbase.Host;
     typeof(AbpFeatureManagementEntityFrameworkCoreModule),
     typeof(AbpPermissionManagementEntityFrameworkCoreModule),
     typeof(AbpSettingManagementEntityFrameworkCoreModule),
-    typeof(AbpBackgroundJobsEntityFrameworkCoreModule),
+    // #292：后台作业执行改用 Hangfire（并发 worker + 持久化续跑），取代默认 EF 单线程串行管理器。
+    // EF 背景作业表映射（DbContext.ConfigureBackgroundJobs）保留以避免 model 漂移 / 多余迁移——
+    // 该表自此闲置，Hangfire 用自己的存储表（HangfireJob / Set / State 等，首启自建）。
+    typeof(AbpBackgroundJobsHangfireModule),
     typeof(AbpBlobStoringFileSystemModule),
     typeof(AbpEntityFrameworkCoreSqlServerModule),
 
@@ -270,6 +274,37 @@ public class PaperbaseHostModule : AbpModule
         ConfigureAI(context, configuration);
         ConfigureOpenTelemetry(context, configuration);
         ConfigureRequestLimits(context);
+        ConfigureHangfire(context, configuration);
+    }
+
+    /// <summary>
+    /// #292：Hangfire 后台作业执行——并发 worker + SqlServer 持久化续跑。取代 ABP 默认 EF 单线程串行管理器，
+    /// 让 #289 的批量重处理（链式分发 + 单篇幂等底座）真正并发跑。core 不动——仅 host 部署层切换执行引擎。
+    /// <para>
+    /// <b>并发上限是关键约束</b>：所有后台作业（文本提取 / 分类 / 字段抽取）都走外部 LLM provider。Hangfire 默认
+    /// WorkerCount = ProcessorCount × 5 会瞬间打爆 provider 限速 / 配额。故 worker 数由 <c>Hangfire:WorkerCount</c>
+    /// 配置（默认保守值 5），生产按 provider 并发额度 + DB 连接池容量调。外部 LLM 调用绝不在长 UoW 内
+    /// （core 的 <c>FieldExtractionService</c> / pipeline 作业已是三段式短 UoW——切 Hangfire 后该纪律仍成立）。
+    /// </para>
+    /// <para>
+    /// 续跑语义：Hangfire 成功态永不重跑；at-least-once（崩溃瞬间在跑的会被重跑一遍，单作业异常自动重试默认
+    /// 10 次后落 Failed）——这个「重跑一次」因单篇 <c>SetFields</c> / <c>SetClassification</c> 整组替换幂等而无害。
+    /// </para>
+    /// </summary>
+    private void ConfigureHangfire(ServiceConfigurationContext context, IConfiguration configuration)
+    {
+        context.Services.AddHangfire(config =>
+        {
+            config.UseSqlServerStorage(configuration.GetConnectionString("Default"));
+        });
+
+        // 保守默认 5：宁可串行慢、不可打爆 LLM provider。生产经 appsettings "Hangfire:WorkerCount" 上调，
+        // 并同步上调 DB 连接池（每个 worker 在短 UoW 期间占一个连接）。
+        var workerCount = configuration.GetValue<int?>("Hangfire:WorkerCount") ?? 5;
+        context.Services.AddHangfireServer(options =>
+        {
+            options.WorkerCount = workerCount;
+        });
     }
 
     // #221：上传请求体上限作为 Kestrel / Form 层 backstop。真正的 fail-closed 友好错误在

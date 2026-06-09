@@ -29,6 +29,9 @@
         <PackageVersion Include="Volo.Abp.EntityFrameworkCore.Sqlite" Version="10.2.0" />
         <PackageVersion Include="Volo.Abp.BackgroundJobs" Version="10.2.0" />
         <PackageVersion Include="Volo.Abp.BackgroundJobs.EntityFrameworkCore" Version="10.2.0" />
+        <PackageVersion Include="Volo.Abp.BackgroundJobs.Hangfire" Version="10.2.0" />
+        <PackageVersion Include="Hangfire.AspNetCore" Version="1.8.21" />
+        <PackageVersion Include="Hangfire.SqlServer" Version="1.8.21" />
         <PackageVersion Include="Volo.Abp.BlobStoring" Version="10.2.0" />
         <PackageVersion Include="Volo.Abp.BlobStoring.FileSystem" Version="10.2.0" />
         <PackageVersion Include="Volo.Abp.Auditing" Version="10.2.0" />

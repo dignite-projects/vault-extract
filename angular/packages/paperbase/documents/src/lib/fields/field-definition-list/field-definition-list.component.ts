@@ -41,6 +41,7 @@ import {
   PAPERBASE_TABLES,
   SortAccessors,
 } from '../../shared/extensible-table';
+import { FieldReextractionModalComponent } from '../../reprocessing/field-reextraction-modal/field-reextraction-modal.component';
 import { SlugSuggestionHandle, wireSlugSuggestion } from '../../shared/slug-suggestion';
 
 // Mirrors FieldDefinitionConsts (Domain.Shared): Name whitelist + length caps.
@@ -68,6 +69,7 @@ const FIELD_DEFINITION_SORTS: SortAccessors<FieldDefinitionDto> = {
     LocalizationPipe,
     ExtensibleTableComponent,
     NgbDropdownModule,
+    FieldReextractionModalComponent,
   ],
   providers: [
     ListService,
@@ -99,6 +101,12 @@ export class FieldDefinitionListComponent implements OnInit {
   readonly canManage = this.permissionService.getGrantedPolicy(
     `${PAPERBASE_PERMISSIONS.FieldDefinitions.Create} || ${PAPERBASE_PERMISSIONS.FieldDefinitions.Update} || ${PAPERBASE_PERMISSIONS.FieldDefinitions.Delete}`,
   );
+  // 批量字段重抽入口（#289）——admin 级、独立于字段 CRUD 权限。
+  readonly canReextractFields = this.permissionService.getGrantedPolicy(
+    PAPERBASE_PERMISSIONS.Documents.Reprocessing.FieldExtraction,
+  );
+  // null/false = 关闭重抽模态。
+  showReextract = signal(false);
   readonly dataTypeOptions = fieldDataTypeOptions;
   readonly FieldDataType = FieldDataType;
 
@@ -275,6 +283,12 @@ export class FieldDefinitionListComponent implements OnInit {
 
   goBack(): void {
     this.router.navigate(['/documents/types']);
+  }
+
+  openReextractFields(): void {
+    if (this.documentTypeId) {
+      this.showReextract.set(true);
+    }
   }
 
   private load(): void {

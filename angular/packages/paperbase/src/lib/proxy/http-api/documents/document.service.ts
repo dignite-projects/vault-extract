@@ -69,7 +69,15 @@ export class DocumentService {
       body: input,
     },
     { apiName: this.apiName,...config });
-  
+
+
+  reextractFields = (id: string, config?: Partial<Rest.Config>) =>
+    this.restService.request<any, void>({
+      method: 'POST',
+      url: `/api/paperbase/documents/${id}/reextract-fields`,
+    },
+    { apiName: this.apiName,...config });
+
 
   rejectReview = (id: string, input: RejectReviewInput, config?: Partial<Rest.Config>) =>
     this.restService.request<any, DocumentDto>({
