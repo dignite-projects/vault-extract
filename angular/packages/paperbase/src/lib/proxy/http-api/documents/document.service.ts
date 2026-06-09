@@ -49,7 +49,7 @@ export class DocumentService {
     this.restService.request<any, PagedResultDto<DocumentListItemDto>>({
       method: 'GET',
       url: '/api/paperbase/documents',
-      params: { lifecycleStatus: input.lifecycleStatus, documentTypeCode: input.documentTypeCode, reviewStatus: input.reviewStatus, isDeleted: input.isDeleted, cabinetId: input.cabinetId, fieldFilters: input.fieldFilters, sorting: input.sorting, skipCount: input.skipCount, maxResultCount: input.maxResultCount },
+      params: { lifecycleStatus: input.lifecycleStatus, documentTypeCode: input.documentTypeCode, reviewDisposition: input.reviewDisposition, hasReviewReasons: input.hasReviewReasons, isDeleted: input.isDeleted, cabinetId: input.cabinetId, fieldFilters: input.fieldFilters, sorting: input.sorting, skipCount: input.skipCount, maxResultCount: input.maxResultCount },
     },
     { apiName: this.apiName,...config });
   
@@ -86,7 +86,7 @@ export class DocumentService {
       url: `/api/paperbase/documents/${id}/rerecognize`,
     },
     { apiName: this.apiName,...config });
-
+  
 
   restore = (id: string, config?: Partial<Rest.Config>) =>
     this.restService.request<any, void>({
@@ -94,7 +94,7 @@ export class DocumentService {
       url: `/api/paperbase/documents/${id}/restore`,
     },
     { apiName: this.apiName,...config });
-
+  
 
   retryPipeline = (id: string, input: RetryPipelineInput, config?: Partial<Rest.Config>) =>
     this.restService.request<any, void>({

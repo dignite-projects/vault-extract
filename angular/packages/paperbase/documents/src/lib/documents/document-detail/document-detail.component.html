@@ -240,24 +240,43 @@
                   }
                 </dd>
 
-                @if (document()!.reviewStatus !== DocumentReviewStatus.None) {
+                @if (document()!.reviewDisposition === DocumentReviewDisposition.Confirmed || document()!.reviewDisposition === DocumentReviewDisposition.Rejected) {
                   <dt class="col-sm-5 text-muted">{{ '::Document:ReviewStatus' | abpLocalization }}</dt>
                   <dd class="col-sm-7">
-                    @if (document()!.reviewStatus === DocumentReviewStatus.PendingReview) {
-                      <span class="badge bg-warning text-dark">
-                        {{ '::DocumentReviewStatus:PendingReview' | abpLocalization }}
+                    @if (document()!.reviewDisposition === DocumentReviewDisposition.Confirmed) {
+                      <span class="badge bg-success">
+                        {{ '::Document:ReviewDisposition:Confirmed' | abpLocalization }}
                       </span>
                     } @else {
-                      <span class="badge bg-success">
-                        {{ '::DocumentReviewStatus:Reviewed' | abpLocalization }}
+                      <span class="badge bg-danger">
+                        {{ '::Document:ReviewDisposition:Rejected' | abpLocalization }}
                       </span>
                     }
                   </dd>
                 }
 
-                @if (document()!.classificationReason) {
-                  <dt class="col-sm-5 text-muted">{{ '::Document:ClassificationReason' | abpLocalization }}</dt>
-                  <dd class="col-sm-7 text-muted fst-italic small">{{ document()!.classificationReason }}</dd>
+                @if (document()!.reviewReasonDetails?.length) {
+                  <dt class="col-sm-5 text-muted">{{ '::Document:NeedsReview' | abpLocalization }}</dt>
+                  <dd class="col-sm-7">
+                    @for (detail of document()!.reviewReasonDetails; track detail.reason) {
+                      <div class="small mb-1">
+                        <span class="badge"
+                          [class.bg-danger]="detail.isBlocking"
+                          [class.bg-warning]="!detail.isBlocking"
+                          [class.text-dark]="!detail.isBlocking">
+                          {{ reviewReasonLabel(detail.reason) | abpLocalization }}
+                        </span>
+                        @if (detail.missingFieldNames?.length) {
+                          <span class="text-muted ms-1">{{ detail.missingFieldNames!.join('、') }}</span>
+                        }
+                      </div>
+                    }
+                  </dd>
+                }
+
+                @if (document()!.rejectionReason) {
+                  <dt class="col-sm-5 text-muted">{{ '::Document:RejectionReason' | abpLocalization }}</dt>
+                  <dd class="col-sm-7 text-muted fst-italic small">{{ document()!.rejectionReason }}</dd>
                 }
 
                 <dt class="col-sm-5 text-muted">{{ '::Document:UploadedBy' | abpLocalization }}</dt>

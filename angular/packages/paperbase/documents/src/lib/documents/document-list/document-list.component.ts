@@ -35,7 +35,7 @@ import {
   CabinetService,
   DocumentLifecycleStatus,
   DocumentListItemDto,
-  DocumentReviewStatus,
+  DocumentReviewReasons,
   DocumentService,
   DocumentTypeDto,
   DocumentTypeService,
@@ -109,7 +109,7 @@ export class DocumentListComponent implements OnInit {
   // track key) to force a fresh instance — deterministic, no setTimeout/flicker.
   tableKey = signal(0);
 
-  reviewStatusFilter = signal<DocumentReviewStatus | undefined>(undefined);
+  hasReviewReasonsFilter = signal<boolean | undefined>(undefined);
   typeFilter = signal<string>('');
   cabinetFilter = signal<string>('');
   lifecycleFilter = signal<DocumentLifecycleStatus | undefined>(undefined);
@@ -125,12 +125,12 @@ export class DocumentListComponent implements OnInit {
   selectedTypeId = signal('');
   isConfirming = signal(false);
 
-  pendingReviewCount = computed(() =>
-    this.documents().items.filter(d => d.reviewStatus === DocumentReviewStatus.PendingReview).length,
+  reviewNeededCount = computed(() =>
+    this.documents().items.filter(d => d.requiresReview).length,
   );
 
   readonly DocumentLifecycleStatus = DocumentLifecycleStatus;
-  readonly DocumentReviewStatus = DocumentReviewStatus;
+  readonly DocumentReviewReasons = DocumentReviewReasons;
 
   constructor() {
     this.rebuildTableProps([]);
@@ -214,7 +214,7 @@ export class DocumentListComponent implements OnInit {
       documentTypeCode: this.typeFilter() || undefined,
       cabinetId: this.cabinetFilter() || undefined,
       lifecycleStatus: this.lifecycleFilter(),
-      reviewStatus: this.reviewStatusFilter(),
+      hasReviewReasons: this.hasReviewReasonsFilter(),
     };
   }
 
@@ -277,9 +277,12 @@ export class DocumentListComponent implements OnInit {
           const spinner = this.isProcessingDocument(doc)
             ? '<span class="spinner-border spinner-border-sm me-1" role="status"></span>'
             : '';
-          return of(
-            `<span class="${this.getDocumentStatusBadgeClass(doc)}">${spinner}${escapeHtmlChars(localization.instant(this.getDocumentStatusLabel(doc)))}</span>`,
-          );
+          // #284：双 badge 可叠加——生命周期(可用性轴) + 条件 review badge(审核轴)，互不覆盖。
+          const lifecycle = `<span class="${this.getStatusBadgeClass(doc.lifecycleStatus)}">${spinner}${escapeHtmlChars(localization.instant(this.getStatusLabel(doc.lifecycleStatus)))}</span>`;
+          const review = doc.requiresReview
+            ? ` <span class="badge bg-warning text-dark">${escapeHtmlChars(localization.instant(this.reviewBadgeLabel(doc)))}</span>`
+            : '';
+          return of(lifecycle + review);
         },
       }),
       EntityProp.create<DocumentListItemDto>({
@@ -429,20 +432,22 @@ export class DocumentListComponent implements OnInit {
   }
 
   toggleManualReviewFilter(): void {
-    this.reviewStatusFilter.update(v =>
-      v === DocumentReviewStatus.PendingReview ? undefined : DocumentReviewStatus.PendingReview
-    );
+    this.hasReviewReasonsFilter.update(v => (v ? undefined : true));
     this.refreshListFromFirstPage();
   }
 
+  // #284：只有仍"需关注"(requiresReview，服务端已含 disposition 判据——已拒绝文档不再需关注)
+  // 且"分类未定"(UnresolvedClassification)才显示确认分类按钮；必填缺失走详情页补录。
   needsConfirmation(doc: DocumentListItemDto): boolean {
-    return doc.reviewStatus === DocumentReviewStatus.PendingReview;
+    return doc.requiresReview === true &&
+      ((doc.reviewReasons ?? DocumentReviewReasons.None) & DocumentReviewReasons.UnresolvedClassification)
+        !== DocumentReviewReasons.None;
   }
 
+  // #284：纯可用性轴——去掉旧的 review 混判（双轴正交后两个 badge 各自渲染，不再互斥）。
   isProcessingDocument(doc: DocumentListItemDto): boolean {
-    return doc.reviewStatus !== DocumentReviewStatus.PendingReview &&
-      (doc.lifecycleStatus === DocumentLifecycleStatus.Processing ||
-       doc.lifecycleStatus === DocumentLifecycleStatus.Uploaded);
+    return doc.lifecycleStatus === DocumentLifecycleStatus.Processing ||
+      doc.lifecycleStatus === DocumentLifecycleStatus.Uploaded;
   }
 
   openConfirmDialog(doc: DocumentListItemDto, event: Event): void {
@@ -497,12 +502,16 @@ export class DocumentListComponent implements OnInit {
     }
   }
 
-  getDocumentStatusBadgeClass(doc: DocumentListItemDto): string {
-    if (doc.reviewStatus === DocumentReviewStatus.PendingReview) {
-      return 'badge bg-warning text-dark';
+  // #284：review badge 文案按原因——待分类确认 / 必填待补。客户端只渲染服务端给的 reviewReasons。
+  reviewBadgeLabel(doc: DocumentListItemDto): string {
+    const reasons = doc.reviewReasons ?? DocumentReviewReasons.None;
+    if ((reasons & DocumentReviewReasons.UnresolvedClassification) !== DocumentReviewReasons.None) {
+      return '::Document:ReviewReason:UnresolvedClassification';
     }
-
-    return this.getStatusBadgeClass(doc.lifecycleStatus);
+    if ((reasons & DocumentReviewReasons.MissingRequiredFields) !== DocumentReviewReasons.None) {
+      return '::Document:ReviewReason:MissingRequiredFields';
+    }
+    return '::Document:NeedsReview';
   }
 
   getStatusLabel(status: DocumentLifecycleStatus | undefined): string {
@@ -518,14 +527,6 @@ export class DocumentListComponent implements OnInit {
       default:
         return '::Document:Status:Unknown';
     }
-  }
-
-  getDocumentStatusLabel(doc: DocumentListItemDto): string {
-    if (doc.reviewStatus === DocumentReviewStatus.PendingReview) {
-      return '::DocumentReviewStatus:PendingReview';
-    }
-
-    return this.getStatusLabel(doc.lifecycleStatus);
   }
 
   isImage(doc: DocumentListItemDto): boolean {

@@ -26,7 +26,7 @@ public interface IDocumentAppService : IApplicationService
 
     /// <summary>
     /// 操作员主动修正分类——任意状态下都允许覆写到新类型。
-    /// 行为：写入 DocumentTypeCode/ReviewStatus=Reviewed/Confidence=1.0，发布
+    /// 行为：写入 DocumentTypeCode、ReviewDisposition=Confirmed、Confidence=1.0、清 UnresolvedClassification 原因，发布
     /// <see cref="Abstractions.Documents.DocumentClassifiedEto"/>（经 ABP transactional outbox 投递）。
     /// 下游业务消费方可订阅 DocumentClassifiedEto 来重跑各自的字段抽取——按
     /// <c>(DocumentId, EventType, EventTime)</c> 自行幂等以处理 at-least-once 重投。
@@ -34,10 +34,11 @@ public interface IDocumentAppService : IApplicationService
     Task<DocumentDto> ReclassifyAsync(Guid id, ReclassifyDocumentInput input);
 
     /// <summary>
-    /// 操作员拒绝待审核文档——文档落到 Failed 生命周期。
+    /// 操作员拒绝待审核文档（#284：理由<b>必填</b>）——把 ReviewDisposition 置 Rejected、写入 RejectionReason、
+    /// 文档落到 Failed 生命周期。保留原始文件、已提取 Markdown、字段值与客观待审原因用于审计。
     /// <para>
-    /// 拒绝是"当前数字化结果不可用 / 无法归类"的终态结论：保留原始文件、已提取 Markdown、OCR confidence 与拒绝原因用于审计；
-    /// 不在本路径提供重跑或替换源文件能力，需要重试由操作员重新上传。
+    /// <b>拒绝可恢复，非终态</b>（#237）：操作员后续可对同一文档 Reclassify 指派类型 → 转回 Confirmed、派生回 Ready、
+    /// 重发 <see cref="Abstractions.Documents.DocumentReadyEto"/>。本路径不提供重跑 / 替换源文件能力，重试由操作员重新上传。
     /// </para>
     /// </summary>
     Task<DocumentDto> RejectReviewAsync(Guid id, RejectReviewInput input);

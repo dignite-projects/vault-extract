@@ -18,7 +18,7 @@ namespace Dignite.Paperbase.EntityFrameworkCore.Documents;
 /// <summary>
 /// ExportTemplateAppService.ExportAsync 集成测试（SQLite 真实 EF，#207）：
 /// <list type="bullet">
-///   <item>固定系统字段（LifecycleStatus / ReviewStatus / Title）始终在前，模板抽取列（按 FieldDefinitionId 匹配）在后</item>
+///   <item>固定系统字段（LifecycleStatus / ReviewStatus / ReviewReasons / Title）始终在前，模板抽取列（按 FieldDefinitionId 匹配）在后</item>
 ///   <item>typed child 行（#206）经投影 + FieldValueToString 正确渲染（含 Number / Date）</item>
 ///   <item>over-cap fail-fast（fetch Max+1，超限抛错而非静默截断）</item>
 /// </list>
@@ -47,17 +47,18 @@ public class ExportTemplateExport_Tests : PaperbaseEntityFrameworkCoreTestBase
     // FK RESTRICT 真实生效（#207）：Document.DocumentTypeId / ExportTemplate.DocumentTypeId → DocumentType，
     // DocumentExtractedField.FieldDefinitionId → FieldDefinition。插入前先 seed 父行（ExportColumn 内的 FieldDefinitionId
     // 在序列化 JSON 内无 FK，但文档字段值有，故按文档字段值 seed）。
-    private async Task SeedSchemaAsync(Guid typeId, params DocumentFieldValue[] fields)
+    private async Task SeedSchemaAsync(Guid typeId, params (DocumentFieldValue Field, string DisplayName)[] columns)
     {
         await _documentTypeRepository.InsertAsync(
             new DocumentType(typeId, null, "t" + typeId.ToString("N"), "Type"), autoSave: true);
-        foreach (var f in fields)
+        foreach (var (f, displayName) in columns)
         {
+            // #207：导出列标题取 FieldDefinition.DisplayName（不在 ExportColumn 上配置）——seed 真实 DisplayName 以验证表头映射。
             await _fieldDefinitionRepository.InsertAsync(
                 new FieldDefinition(
                     f.FieldDefinitionId, null, typeId,
                     name: "f" + f.FieldDefinitionId.ToString("N"),
-                    displayName: "field", prompt: "extract", dataType: f.DataType),
+                    displayName: displayName, prompt: "extract", dataType: f.DataType),
                 autoSave: true);
         }
     }
@@ -72,14 +73,11 @@ public class ExportTemplateExport_Tests : PaperbaseEntityFrameworkCoreTestBase
 
         await WithUnitOfWorkAsync(async () =>
         {
-            var fields = new[]
-            {
-                new DocumentFieldValue(amountFieldId, FieldDataType.Text, Json("1000")),
-                new DocumentFieldValue(partnerFieldId, FieldDataType.Text, Json("Acme")),
-            };
-            await SeedSchemaAsync(typeId, fields);
+            var amount = new DocumentFieldValue(amountFieldId, FieldDataType.Text, Json("1000"));
+            var partner = new DocumentFieldValue(partnerFieldId, FieldDataType.Text, Json("Acme"));
+            await SeedSchemaAsync(typeId, (amount, "金额"), (partner, "对方"));
             await _documentRepository.InsertAsync(
-                CreateDocument(_guidGenerator.Create(), typeId, "Invoice A", fields),
+                CreateDocument(_guidGenerator.Create(), typeId, "Invoice A", new[] { amount, partner }),
                 autoSave: true);
 
             await _templateRepository.InsertAsync(
@@ -91,8 +89,8 @@ public class ExportTemplateExport_Tests : PaperbaseEntityFrameworkCoreTestBase
                     documentTypeId: typeId,
                     new[]
                     {
-                        new ExportColumn(amountFieldId, "金额", 0),
-                        new ExportColumn(partnerFieldId, "对方", 1),
+                        new ExportColumn(amountFieldId, 0),
+                        new ExportColumn(partnerFieldId, 1),
                     }),
                 autoSave: true);
         });
@@ -105,9 +103,51 @@ public class ExportTemplateExport_Tests : PaperbaseEntityFrameworkCoreTestBase
             csv = await reader.ReadToEndAsync();
         });
 
-        // 固定系统字段列在前（LifecycleStatus / ReviewStatus / Title），模板抽取列在后。
-        csv.ShouldContain("LifecycleStatus,ReviewStatus,Title,金额,对方");
-        csv.ShouldContain("Uploaded,None,Invoice A,1000,Acme");
+        // 固定系统字段列在前（LifecycleStatus / ReviewStatus / ReviewReasons / Title），模板抽取列在后。
+        csv.ShouldContain("LifecycleStatus,ReviewStatus,ReviewReasons,Title,金额,对方");
+        // #284：ReviewStatus 列值取 ReviewDisposition（DB 列名保持 "ReviewStatus" 不变以稳定导出 schema），默认 NotReviewed。
+        // #287：ReviewReasons 列 None → 空单元格（此处即 NotReviewed 与 Invoice A 之间的 ",,"）。
+        // UC（分类未定）文档 DocumentTypeId=null，被类型绑定导出过滤掉、不会出现在此处。
+        csv.ShouldContain("Uploaded,NotReviewed,,Invoice A,1000,Acme");
+    }
+
+    [Fact]
+    public async Task Export_Exposes_MissingRequiredFields_In_ReviewReasons_Column()
+    {
+        // #287：non-blocking 的 MissingRequiredFields 文档照常进类型绑定导出（DocumentTypeId 非空、Ready）。
+        // ReviewReasons 系统列透出 "MissingRequiredFields" 质量信号，区别于处置轴 ReviewStatus（仍是 NotReviewed）。
+        var templateId = _guidGenerator.Create();
+        var typeId = _guidGenerator.Create();
+        var amountFieldId = _guidGenerator.Create();
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var amount = new DocumentFieldValue(amountFieldId, FieldDataType.Text, Json("1000"));
+            await SeedSchemaAsync(typeId, (amount, "金额"));
+            await _documentRepository.InsertAsync(
+                CreateDocument(_guidGenerator.Create(), typeId, "Invoice MRF", new[] { amount },
+                    reviewReasons: DocumentReviewReasons.MissingRequiredFields),
+                autoSave: true);
+
+            await _templateRepository.InsertAsync(
+                new ExportTemplate(
+                    templateId, tenantId: null, name: "MRF Export", format: ExportFormat.Csv,
+                    documentTypeId: typeId,
+                    new[] { new ExportColumn(amountFieldId, 0) }),
+                autoSave: true);
+        });
+
+        string csv = null!;
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var content = await _appService.ExportAsync(new ExportDocumentsInput { TemplateId = templateId });
+            using var reader = new StreamReader(content.GetStream());
+            csv = await reader.ReadToEndAsync();
+        });
+
+        csv.ShouldContain("LifecycleStatus,ReviewStatus,ReviewReasons,Title,金额");
+        // ReviewReasons 列 = "MissingRequiredFields"（处置轴 ReviewStatus 仍是 NotReviewed）。
+        csv.ShouldContain("Uploaded,NotReviewed,MissingRequiredFields,Invoice MRF,1000");
     }
 
     [Fact]
@@ -121,14 +161,11 @@ public class ExportTemplateExport_Tests : PaperbaseEntityFrameworkCoreTestBase
 
         await WithUnitOfWorkAsync(async () =>
         {
-            var fields = new[]
-            {
-                new DocumentFieldValue(amountFieldId, FieldDataType.Number, JsonSerializer.SerializeToElement(1234.5m)),
-                new DocumentFieldValue(issuedFieldId, FieldDataType.Date, JsonSerializer.SerializeToElement("2024-03-09")),
-            };
-            await SeedSchemaAsync(typeId, fields);
+            var amount = new DocumentFieldValue(amountFieldId, FieldDataType.Number, JsonSerializer.SerializeToElement(1234.5m));
+            var issued = new DocumentFieldValue(issuedFieldId, FieldDataType.Date, JsonSerializer.SerializeToElement("2024-03-09"));
+            await SeedSchemaAsync(typeId, (amount, "金额"), (issued, "日期"));
             await _documentRepository.InsertAsync(
-                CreateDocument(_guidGenerator.Create(), typeId, "Invoice T", fields),
+                CreateDocument(_guidGenerator.Create(), typeId, "Invoice T", new[] { amount, issued }),
                 autoSave: true);
 
             await _templateRepository.InsertAsync(
@@ -140,8 +177,8 @@ public class ExportTemplateExport_Tests : PaperbaseEntityFrameworkCoreTestBase
                     documentTypeId: typeId,
                     new[]
                     {
-                        new ExportColumn(amountFieldId, "金额", 0),
-                        new ExportColumn(issuedFieldId, "日期", 1),
+                        new ExportColumn(amountFieldId, 0),
+                        new ExportColumn(issuedFieldId, 1),
                     }),
                 autoSave: true);
         });
@@ -193,7 +230,7 @@ public class ExportTemplateExport_Tests : PaperbaseEntityFrameworkCoreTestBase
                 new ExportTemplate(
                     templateId, tenantId: null, name: "Tags Export", format: ExportFormat.Csv,
                     documentTypeId: typeId,
-                    new[] { new ExportColumn(tagsFieldId, "标签", 0) }),
+                    new[] { new ExportColumn(tagsFieldId, 0) }),
                 autoSave: true);
         });
 
@@ -236,7 +273,7 @@ public class ExportTemplateExport_Tests : PaperbaseEntityFrameworkCoreTestBase
                         name: "Capped",
                         format: ExportFormat.Csv,
                         documentTypeId: typeId,
-                        new[] { new ExportColumn(_guidGenerator.Create(), "T", 0) }),
+                        new[] { new ExportColumn(_guidGenerator.Create(), 0) }),
                     autoSave: true);
             });
 
@@ -325,7 +362,8 @@ public class ExportTemplateExport_Tests : PaperbaseEntityFrameworkCoreTestBase
         Guid id,
         Guid documentTypeId,
         string title,
-        IEnumerable<DocumentFieldValue>? fields)
+        IEnumerable<DocumentFieldValue>? fields,
+        DocumentReviewReasons reviewReasons = DocumentReviewReasons.None)
     {
         var document = new Document(
             id,
@@ -341,6 +379,12 @@ public class ExportTemplateExport_Tests : PaperbaseEntityFrameworkCoreTestBase
         // DocumentTypeId / Title 为 private setter——测试用反射模拟"已分类 + 已提取标题"。
         typeof(Document).GetProperty(nameof(Document.DocumentTypeId))!.SetValue(document, documentTypeId);
         typeof(Document).GetProperty(nameof(Document.Title))!.SetValue(document, title);
+
+        if (reviewReasons != DocumentReviewReasons.None)
+        {
+            // #287：模拟字段抽取阶段在已分类文档上物化的 non-blocking 原因（如 MissingRequiredFields）。
+            document.SetReviewReason(reviewReasons, present: true);
+        }
 
         if (fields != null)
         {

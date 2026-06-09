@@ -4,6 +4,7 @@ import * as Exports from './exports';
 import * as Fields from './fields';
 import * as Pipelines from './pipelines';
 export * from './document-lifecycle-status.enum';
-export * from './document-review-status.enum';
+export * from './document-review-disposition.enum';
+export * from './document-review-reasons.enum';
 export * from './models';
 export { Cabinets, DocumentTypes, Exports, Fields, Pipelines };

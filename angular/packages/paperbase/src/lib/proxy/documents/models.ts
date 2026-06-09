@@ -1,6 +1,7 @@
 import type { EntityDto, PagedAndSortedResultRequestDto } from '@abp/ng.core';
 import type { DocumentLifecycleStatus } from './document-lifecycle-status.enum';
-import type { DocumentReviewStatus } from './document-review-status.enum';
+import type { DocumentReviewDisposition } from './document-review-disposition.enum';
+import type { DocumentReviewReasons } from './document-review-reasons.enum';
 import type { IRemoteStreamContent } from '../volo/abp/content/models';
 
 export interface ConfirmClassificationInput {
@@ -13,12 +14,17 @@ export interface DocumentDto extends EntityDto<string> {
   cabinetId?: string | null;
   documentTypeCode?: string | null;
   lifecycleStatus?: DocumentLifecycleStatus;
-  reviewStatus?: DocumentReviewStatus;
+  reviewDisposition?: DocumentReviewDisposition;
+  reviewReasons?: DocumentReviewReasons;
+  requiresReview?: boolean;
+  reviewReasonDetails?: ReviewReasonDetailDto[] | null;
+  rejectionReason?: string | null;
   classificationConfidence?: number;
-  classificationReason?: string | null;
   title?: string | null;
   markdown?: string | null;
   language?: string | null;
+  extractionIsComplete?: boolean;
+  extractionIncompleteReason?: string | null;
   extractedFields?: Record<string, any> | null;
   creationTime?: string;
 }
@@ -36,7 +42,9 @@ export interface DocumentListItemDto extends EntityDto<string> {
   cabinetId?: string | null;
   documentTypeCode?: string | null;
   lifecycleStatus?: DocumentLifecycleStatus;
-  reviewStatus?: DocumentReviewStatus;
+  reviewDisposition?: DocumentReviewDisposition;
+  reviewReasons?: DocumentReviewReasons;
+  requiresReview?: boolean;
   classificationConfidence?: number;
   title?: string | null;
   creationTime?: string;
@@ -54,7 +62,8 @@ export interface FileOriginDto {
 export interface GetDocumentListInput extends PagedAndSortedResultRequestDto {
   lifecycleStatus?: DocumentLifecycleStatus | null;
   documentTypeCode?: string | null;
-  reviewStatus?: DocumentReviewStatus | null;
+  reviewDisposition?: DocumentReviewDisposition | null;
+  hasReviewReasons?: boolean | null;
   isDeleted?: boolean | null;
   cabinetId?: string | null;
   fieldFilters?: DocumentFieldFilter[] | null;
@@ -65,11 +74,17 @@ export interface ReclassifyDocumentInput {
 }
 
 export interface RejectReviewInput {
-  reason?: string | null;
+  reason: string;
 }
 
 export interface RetryPipelineInput {
   pipelineCode: string;
+}
+
+export interface ReviewReasonDetailDto {
+  reason?: DocumentReviewReasons;
+  isBlocking?: boolean;
+  missingFieldNames?: string[] | null;
 }
 
 export interface UpdateDocumentCabinetInput {

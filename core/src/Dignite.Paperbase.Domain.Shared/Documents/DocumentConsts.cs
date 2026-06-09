@@ -6,7 +6,8 @@ namespace Dignite.Paperbase.Documents;
 public static class DocumentConsts
 {
     public static int MaxTitleLength { get; set; } = 256;
-    public static int MaxClassificationReasonLength { get; set; } = 2048;
+    /// <summary>操作员拒绝审核时必填的拒绝理由长度上限（#284：从已删除的 ClassificationReason 独立出来）。</summary>
+    public static int MaxRejectionReasonLength { get; set; } = 2048;
 
     /// <summary>
     /// 上传文件大小硬上限（字节，默认 20 MiB，#221）。fail-closed 安全门：

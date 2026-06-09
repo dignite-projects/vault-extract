@@ -16,15 +16,15 @@
       </button>
       <button
         class="btn"
-        [class.btn-warning]="reviewStatusFilter() === DocumentReviewStatus.PendingReview"
-        [class.btn-outline-warning]="reviewStatusFilter() !== DocumentReviewStatus.PendingReview"
+        [class.btn-warning]="hasReviewReasonsFilter()"
+        [class.btn-outline-warning]="!hasReviewReasonsFilter()"
         (click)="toggleManualReviewFilter()"
-        title="{{ '::DocumentReviewStatus:PendingReview' | abpLocalization }}"
+        title="{{ '::Document:NeedsReview' | abpLocalization }}"
       >
         <i class="fas fa-user-edit me-1"></i>
-        {{ '::DocumentReviewStatus:PendingReview' | abpLocalization }}
-        @if (pendingReviewCount() > 0) {
-          <span class="badge bg-danger ms-1">{{ pendingReviewCount() }}</span>
+        {{ '::Document:NeedsReview' | abpLocalization }}
+        @if (reviewNeededCount() > 0) {
+          <span class="badge bg-danger ms-1">{{ reviewNeededCount() }}</span>
         }
       </button>
       @if (canUpload) {

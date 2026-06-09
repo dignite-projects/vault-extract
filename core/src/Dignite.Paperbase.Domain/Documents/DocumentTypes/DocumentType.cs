@@ -39,7 +39,7 @@ public class DocumentType : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// </summary>
     public virtual string? Description { get; private set; }
 
-    /// <summary>分类置信度阈值（低于此值进入 PendingReview 队列）。</summary>
+    /// <summary>分类置信度阈值（低于此值进入待人工审核队列：置 UnresolvedClassification 原因）。</summary>
     public virtual double ConfidenceThreshold { get; private set; }
 
     /// <summary>类型匹配优先级（数字越大优先级越高；fallback / 通用型通常为 0）。</summary>

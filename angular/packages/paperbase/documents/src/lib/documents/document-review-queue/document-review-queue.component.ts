@@ -24,7 +24,6 @@ import { NgbDropdownModule } from '@ng-bootstrap/ng-bootstrap';
 import { of } from 'rxjs';
 import {
   DocumentListItemDto,
-  DocumentReviewStatus,
   DocumentService,
   DocumentTypeDto,
   DocumentTypeService,
@@ -156,7 +155,7 @@ export class DocumentReviewQueueComponent implements OnInit {
     this.list
       .hookToQuery(query =>
         this.documentService.getList({
-          reviewStatus: DocumentReviewStatus.PendingReview,
+          hasReviewReasons: true,
           maxResultCount: query.maxResultCount,
           skipCount: query.skipCount,
           sorting: query.sorting || 'creationTime desc',
@@ -240,10 +239,15 @@ export class DocumentReviewQueueComponent implements OnInit {
   submitReject(): void {
     const doc = this.rejectingDoc();
     if (!doc) return;
-    this.isSubmitting.set(true);
     const reason = this.rejectReason().trim();
+    // #284：拒绝理由必填（后端 RejectReviewInput.Reason [Required]）——空则不提交。
+    if (!reason) {
+      this.toaster.warn('::Document:Review:RejectReasonRequired');
+      return;
+    }
+    this.isSubmitting.set(true);
     this.documentService
-      .rejectReview(doc.id!, { reason: reason || undefined })
+      .rejectReview(doc.id!, { reason })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => {

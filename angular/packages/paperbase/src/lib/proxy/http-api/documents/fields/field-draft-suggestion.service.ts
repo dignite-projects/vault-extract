@@ -8,7 +8,7 @@ import type { DraftFieldDefinitionInput, FieldDefinitionDraftDto } from '../../.
 export class FieldDraftSuggestionService {
   private restService = inject(RestService);
   apiName = 'Default';
-
+  
 
   draft = (input: DraftFieldDefinitionInput, cancellationToken: any, config?: Partial<Rest.Config>) =>
     this.restService.request<any, FieldDefinitionDraftDto>({

@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Dignite.Paperbase.Abstractions.Documents;
 using Dignite.Paperbase.Documents;
 using Dignite.Paperbase.Documents.Pipelines;
+using Dignite.Paperbase.Documents.Review;
 using Dignite.Paperbase.Permissions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging;
@@ -30,6 +31,7 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
     private readonly DocumentPipelineRunManager _pipelineRunManager;
     private readonly DocumentPipelineJobScheduler _pipelineJobScheduler;
     private readonly IDistributedEventBus _distributedEventBus;
+    private readonly ReviewStateEvaluator _reviewEvaluator;
 
     public DocumentAppService(
         IDocumentRepository documentRepository,
@@ -39,7 +41,8 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
         IBlobContainer<PaperbaseDocumentContainer> blobContainer,
         DocumentPipelineRunManager pipelineRunManager,
         DocumentPipelineJobScheduler pipelineJobScheduler,
-        IDistributedEventBus distributedEventBus)
+        IDistributedEventBus distributedEventBus,
+        ReviewStateEvaluator reviewEvaluator)
     {
         _documentRepository = documentRepository;
         _documentTypeRepository = documentTypeRepository;
@@ -49,6 +52,7 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
         _pipelineRunManager = pipelineRunManager;
         _pipelineJobScheduler = pipelineJobScheduler;
         _distributedEventBus = distributedEventBus;
+        _reviewEvaluator = reviewEvaluator;
     }
 
     public virtual async Task<DocumentDto> GetAsync(Guid id)
@@ -174,7 +178,7 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
         // 前置检查：当前层至少要有一个 DocumentType（CLAUDE.md "两层文档类型体系" 单层精确匹配）。
         // Host 启动期 seed 入口已删除（HostDocumentTypeDataSeedContributor / DocumentTypeOptions），
         // DocumentType 现在只能通过 IDocumentTypeAppService 运行时创建——所以新部署 / 新租户必须先建类型才能上传。
-        // 不做这个 fail-fast 检查的话，上传成功 → 分类候选集为空 → 文档永远卡 PendingReview。
+        // 不做这个 fail-fast 检查的话，上传成功 → 分类候选集为空 → 文档永远卡在待人工审核队列。
         var hasType = await _documentTypeRepository.GetCountAsync() > 0;
         if (!hasType)
         {
@@ -549,6 +553,15 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
 
         // 整组替换（与 FieldExtractionEventHandler 一致：空则清空全部字段行）。
         document.SetFields(fieldValues);
+
+        // #284：操作员补录后重新评估必填缺失——补齐则 clear MissingRequiredFields（退出审核队列闭环），
+        // 仍缺则保持。复用已加载的 definitions（筛 IsRequired）+ 写入后的 ExtractedFieldValues。
+        var requiredIds = definitions.Where(d => d.IsRequired).Select(d => d.Id).ToList();
+        var extractedIds = document.ExtractedFieldValues.Select(f => f.FieldDefinitionId).Distinct().ToList();
+        document.SetReviewReason(
+            DocumentReviewReasons.MissingRequiredFields,
+            _reviewEvaluator.MissingRequiredFieldsPresent(requiredIds, extractedIds));
+
         await _documentRepository.UpdateAsync(document, autoSave: true);
 
         // FieldsExtractedEto.FieldCount 是逻辑字段数（产生 ≥1 个值的不同字段个数），非展开后的行数——
@@ -619,7 +632,7 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
     }
 
     /// <summary>
-    /// Confirm 与 Reclassify 共享实现：按不可变 DocumentTypeId 解析类型后写入 Reviewed 状态，
+    /// Confirm 与 Reclassify 共享实现：按不可变 DocumentTypeId 解析类型后写入 ReviewDisposition=Confirmed（清 UnresolvedClassification 原因），
     /// 发布 DocumentClassifiedEto（投射回可重命名 TypeCode 出口契约）让下游消费方重跑字段抽取。
     /// </summary>
     protected virtual async Task<DocumentDto> ApplyManualClassificationAsync(Guid id, Guid documentTypeId)
@@ -667,11 +680,15 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
         if (input.CabinetId.HasValue)
             query = query.Where(x => x.CabinetId == input.CabinetId.Value);
 
-        // 按人工审核状态过滤。被拒绝的文档现在落 ReviewStatus=Rejected（#237）——既天然不出现在
-        // PendingReview 队列，也可被调用方显式按 Rejected 查询；不再需要旧的"PendingReview 额外排除
-        // LifecycleStatus=Failed"特例（那是 reject 文档曾停在 PendingReview 时的补丁）。
-        if (input.ReviewStatus.HasValue)
-            query = query.Where(d => d.ReviewStatus == input.ReviewStatus.Value);
+        // 按人工审核处置阶段过滤（#284）。被拒绝的文档落 ReviewDisposition=Rejected，可显式查询。
+        if (input.ReviewDisposition.HasValue)
+            query = query.Where(d => d.ReviewDisposition == input.ReviewDisposition.Value);
+
+        // 操作员审核队列（#284）：有任一未解决待审原因（分类未定 + 必填缺失，单队列）且未被拒绝
+        // ——已拒绝的文档操作员已处置过，不在待办队列（仍可按 ReviewDisposition=Rejected 单独查）。
+        if (input.HasReviewReasons == true)
+            query = query.Where(d => d.ReviewReasons != DocumentReviewReasons.None
+                                  && d.ReviewDisposition != DocumentReviewDisposition.Rejected);
 
         return query;
     }
@@ -699,6 +716,10 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
         // #268：透出提取完整性质量信号（非 provenance）。null metadata（历史 / 数字版 / 未提取）按完整处理。
         dto.ExtractionIsComplete = document.ExtractionMetadata?.IsComplete ?? true;
         dto.ExtractionIncompleteReason = document.ExtractionMetadata?.IncompleteReason;
+        // #284：审核轴——RequiresReview 派生 + 详情厚明细（含缺失必填字段名）。服务端算，客户端纯渲染。
+        // 统一判据（含 disposition）：已拒绝文档虽保留客观原因也不算"需关注"，明细同步置空，避免"已拒绝 + 待审"自相矛盾。
+        dto.RequiresReview = ReviewReasonPolicy.RequiresAttention(document.ReviewReasons, document.ReviewDisposition);
+        dto.ReviewReasonDetails = await BuildReviewReasonDetailsAsync(document);
         return dto;
     }
 
@@ -716,7 +737,78 @@ public class DocumentAppService : PaperbaseAppService, IDocumentAppService
         {
             dtos[i].DocumentTypeCode = ResolveTypeCode(documents[i].DocumentTypeId, typeCodes);
             dtos[i].ExtractedFields = AssembleExtractedFields(documents[i].ExtractedFieldValues, fieldNames);
+            // #284：列表薄——只出 RequiresReview（badge 用），不组装明细（详情页才有，避免列表 N+1）。
+            dtos[i].RequiresReview = ReviewReasonPolicy.RequiresAttention(documents[i].ReviewReasons, documents[i].ReviewDisposition);
         }
+    }
+
+    /// <summary>
+    /// 组装待审原因结构化明细（#284，仅详情页调用——详情厚）。每个 set 的原因位生成一条：IsBlocking 按 policy 填；
+    /// MissingRequiredFields 额外算缺失必填字段的 DisplayName。无未解决原因 → null。
+    /// </summary>
+    protected virtual async Task<List<ReviewReasonDetailDto>?> BuildReviewReasonDetailsAsync(Document document)
+    {
+        // 与 RequiresReview 同源判据：无未解决原因 / 已拒绝（操作员已处置）→ 不组装明细。
+        if (!ReviewReasonPolicy.RequiresAttention(document.ReviewReasons, document.ReviewDisposition))
+        {
+            return null;
+        }
+
+        var details = new List<ReviewReasonDetailDto>();
+
+        if ((document.ReviewReasons & DocumentReviewReasons.UnresolvedClassification) != DocumentReviewReasons.None)
+        {
+            details.Add(new ReviewReasonDetailDto
+            {
+                Reason = DocumentReviewReasons.UnresolvedClassification,
+                IsBlocking = ReviewReasonPolicy.IsBlocking(DocumentReviewReasons.UnresolvedClassification)
+            });
+        }
+
+        if ((document.ReviewReasons & DocumentReviewReasons.MissingRequiredFields) != DocumentReviewReasons.None)
+        {
+            // MRF 位与缺失字段名可能短暂不一致（in-flight 改 schema / 重抽未落）：字段名为空时跳过该明细，
+            // 不渲染"缺失必填：0 项"的空壳条目。MRF flag 本身仍由字段抽取阶段权威维护。
+            var missingFieldNames = await BuildMissingRequiredFieldNamesAsync(document);
+            if (missingFieldNames.Count > 0)
+            {
+                details.Add(new ReviewReasonDetailDto
+                {
+                    Reason = DocumentReviewReasons.MissingRequiredFields,
+                    IsBlocking = ReviewReasonPolicy.IsBlocking(DocumentReviewReasons.MissingRequiredFields),
+                    MissingFieldNames = missingFieldNames
+                });
+            }
+        }
+
+        // 全部原因位的明细都被跳过（如 MRF 唯一原因但字段名暂空）→ 返回 null 而非空数组，
+        // 与"无明细"语义统一（前端 reviewReasonDetails?.length 判定一致）。RequiresReview 仍由上游独立判据决定。
+        return details.Count > 0 ? details : null;
+    }
+
+    /// <summary>
+    /// 缺失必填字段的 DisplayName（该类型当前 IsRequired 定义中未出现在已抽到值集合里的）。
+    /// <para>
+    /// #284：这里<b>故意不复用</b> <see cref="ResolveReferenceMapsAsync"/>，二者在 soft-delete 轴上语义相反、键也不同——
+    /// <c>ResolveReferenceMaps</c> 用 <c>Disable&lt;ISoftDelete&gt;</c> 按<b>已抽值的 FieldDefinitionId</b> 查，为的是让历史文档
+    /// 引用的已归档字段仍能在出口解析出字段名（值不成孤儿）；而本方法要找的是「当前仍必填却<b>缺失</b>的字段」，必须只看
+    /// <b>active</b> 定义、按 <b>DocumentTypeId</b> 全量查（缺失项天然不在 by-id 映射里）。已软删的字段不再必填，绝不能误报为待补录。
+    /// 本方法仅详情页单文档调用一次（非列表、非 N+1），无合并的性能动机。
+    /// </para>
+    /// </summary>
+    protected virtual async Task<List<string>> BuildMissingRequiredFieldNamesAsync(Document document)
+    {
+        if (!document.DocumentTypeId.HasValue)
+        {
+            return new List<string>();
+        }
+
+        var definitions = await _fieldDefinitionRepository.GetListAsync(document.DocumentTypeId.Value);
+        var extractedIds = document.ExtractedFieldValues.Select(f => f.FieldDefinitionId).ToHashSet();
+        return definitions
+            .Where(d => d.IsRequired && !extractedIds.Contains(d.Id))
+            .Select(d => d.DisplayName)
+            .ToList();
     }
 
     /// <summary>

@@ -139,7 +139,7 @@ public class DocumentPipelineBackgroundJobPersistence_Tests
 
             allRuns.Single(r => r.Id == textExtractionRunId).Status.ShouldBe(PipelineRunStatus.Succeeded);
             allRuns.Count(x => x.PipelineCode == PaperbasePipelines.Classification).ShouldBe(1);
-            document.ReviewStatus.ShouldBe(DocumentReviewStatus.None);
+            document.ReviewDisposition.ShouldBe(DocumentReviewDisposition.NotReviewed);
         });
 
         await _backgroundJobManager.Received(1).EnqueueAsync(

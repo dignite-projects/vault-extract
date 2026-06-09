@@ -106,7 +106,7 @@ public class DocumentClassificationBackgroundJob
             catch (Exception ex) when (IsSchemaDeserializationError(ex))
             {
                 Logger.LogWarning(ex,
-                    "AI classification response failed JSON deserialization for document {DocumentId}; routing to PendingReview.",
+                    "AI classification response failed JSON deserialization for document {DocumentId}; routing to manual review.",
                     workItem.DocumentId);
                 return new DocumentClassificationOutcome
                 {

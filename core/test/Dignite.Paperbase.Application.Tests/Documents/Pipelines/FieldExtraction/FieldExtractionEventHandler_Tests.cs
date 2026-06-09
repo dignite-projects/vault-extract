@@ -478,6 +478,86 @@ public class FieldExtractionEventHandler_Tests
             Arg.Any<bool>(), Arg.Any<bool>());
     }
 
+    [Fact]
+    public async Task Missing_Required_Field_Sets_MissingRequiredFields_Reason()
+    {
+        // #284：required 字段没抽到 → 抽取完成那一刻物化 MissingRequiredFields（non-blocking，进操作员队列）。
+        var doc = CreateDocument(tenantId: null, typeCode: "contract.general");
+        SetupType("contract.general");
+        _documentRepository.FindAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(doc);
+        _documentRepository.FindWithFieldValuesAsync(doc.Id, Arg.Any<CancellationToken>()).Returns(doc);
+
+        var defs = new List<FieldDefinition>
+        {
+            CreateFieldDefinition("contract.general", "amount", FieldDataType.Number, isRequired: true),
+            CreateFieldDefinition("contract.general", "party", FieldDataType.Text)
+        };
+        _fieldDefinitionRepository
+            .GetListAsync(TypeId("contract.general"), Arg.Any<CancellationToken>())
+            .Returns(defs);
+        _workflow
+            .ExtractAsync(
+                Arg.Any<IReadOnlyList<FieldExtractionDescriptor>>(),
+                Arg.Any<string>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<string, JsonElement?>
+            {
+                ["amount"] = null,   // required 缺
+                ["party"] = JsonDocument.Parse("\"Acme\"").RootElement
+            });
+
+        await _handler.HandleEventAsync(new DocumentClassifiedEto
+        {
+            DocumentId = doc.Id,
+            TenantId = null,
+            EventTime = DateTime.UtcNow,
+            DocumentTypeCode = "contract.general",
+            ClassificationConfidence = 0.92
+        });
+
+        (doc.ReviewReasons & DocumentReviewReasons.MissingRequiredFields)
+            .ShouldBe(DocumentReviewReasons.MissingRequiredFields);
+    }
+
+    [Fact]
+    public async Task All_Required_Fields_Present_Does_Not_Set_MissingRequiredFields()
+    {
+        // #284：required 字段都抽到 → 不置 MissingRequiredFields（不进必填队列）。
+        var doc = CreateDocument(tenantId: null, typeCode: "contract.general");
+        SetupType("contract.general");
+        _documentRepository.FindAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(doc);
+        _documentRepository.FindWithFieldValuesAsync(doc.Id, Arg.Any<CancellationToken>()).Returns(doc);
+
+        var defs = new List<FieldDefinition>
+        {
+            CreateFieldDefinition("contract.general", "amount", FieldDataType.Number, isRequired: true)
+        };
+        _fieldDefinitionRepository
+            .GetListAsync(TypeId("contract.general"), Arg.Any<CancellationToken>())
+            .Returns(defs);
+        _workflow
+            .ExtractAsync(
+                Arg.Any<IReadOnlyList<FieldExtractionDescriptor>>(),
+                Arg.Any<string>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<string, JsonElement?>
+            {
+                ["amount"] = JsonDocument.Parse("1500").RootElement
+            });
+
+        await _handler.HandleEventAsync(new DocumentClassifiedEto
+        {
+            DocumentId = doc.Id,
+            TenantId = null,
+            EventTime = DateTime.UtcNow,
+            DocumentTypeCode = "contract.general",
+            ClassificationConfidence = 0.92
+        });
+
+        (doc.ReviewReasons & DocumentReviewReasons.MissingRequiredFields)
+            .ShouldBe(DocumentReviewReasons.None);
+    }
+
     // ─── helpers ───────────────────────────────────────────────────────────
 
     private void SetupType(string code, Guid? tenantId = null, Guid? typeId = null)
@@ -522,12 +602,12 @@ public class FieldExtractionEventHandler_Tests
 
     private static FieldDefinition CreateFieldDefinition(
         string documentTypeCode, string name,
-        FieldDataType dataType = FieldDataType.Text, Guid? tenantId = null) =>
-        CreateFieldDefinition(TypeId(documentTypeCode), name, dataType, tenantId);
+        FieldDataType dataType = FieldDataType.Text, Guid? tenantId = null, bool isRequired = false) =>
+        CreateFieldDefinition(TypeId(documentTypeCode), name, dataType, tenantId, isRequired);
 
     private static FieldDefinition CreateFieldDefinition(
         Guid documentTypeId, string name,
-        FieldDataType dataType = FieldDataType.Text, Guid? tenantId = null) =>
+        FieldDataType dataType = FieldDataType.Text, Guid? tenantId = null, bool isRequired = false) =>
         new(
             id: FieldId(name),
             tenantId: tenantId,
@@ -535,7 +615,9 @@ public class FieldExtractionEventHandler_Tests
             name: name,
             displayName: name,
             prompt: $"Extract the {name}.",
-            dataType: dataType);
+            dataType: dataType,
+            displayOrder: 0,
+            isRequired: isRequired);
 
     private static Guid TypeId(string code) => new(MD5.HashData(Encoding.UTF8.GetBytes("type:" + code)));
     private static Guid FieldId(string name) => new(MD5.HashData(Encoding.UTF8.GetBytes("field:" + name)));

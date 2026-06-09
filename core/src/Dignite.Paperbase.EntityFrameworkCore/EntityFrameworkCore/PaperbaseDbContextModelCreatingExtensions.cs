@@ -60,8 +60,11 @@ public static class PaperbaseDbContextModelCreatingExtensions
             b.ConfigureByConvention();
 
             b.Property(x => x.LifecycleStatus).IsRequired();
-            b.Property(x => x.ReviewStatus).IsRequired();
-            b.Property(x => x.ClassificationReason).HasMaxLength(DocumentConsts.MaxClassificationReasonLength);
+            // #284：处置轴 ReviewDisposition 复用旧 DB 列名 ReviewStatus（int 值不变，迁移不重命名列）。
+            b.Property(x => x.ReviewDisposition).HasColumnName("ReviewStatus").IsRequired();
+            // #284：待审原因集合（[Flags] int 单列，跨库可移植 #206）+ 独立拒绝理由。
+            b.Property(x => x.ReviewReasons).IsRequired();
+            b.Property(x => x.RejectionReason).HasMaxLength(DocumentConsts.MaxRejectionReasonLength);
             b.Property(x => x.Markdown);
             b.Property(x => x.Title).HasMaxLength(DocumentConsts.MaxTitleLength);
 
@@ -120,7 +123,7 @@ public static class PaperbaseDbContextModelCreatingExtensions
                 .OnDelete(DeleteBehavior.Restrict);
 
             b.HasIndex(x => x.LifecycleStatus);
-            b.HasIndex(x => x.ReviewStatus);
+            b.HasIndex(x => x.ReviewDisposition);
             // 列表页高频路径：按 (租户层, 文档类型) 过滤。FK 另自动建 DocumentTypeId 单列索引（硬删 RESTRICT 检查用）。
             b.HasIndex(x => new { x.TenantId, x.DocumentTypeId });
             b.HasIndex(x => x.CreationTime);

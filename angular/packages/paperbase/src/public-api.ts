@@ -39,7 +39,8 @@ export * from './lib/proxy/volo/abp/content/models';
 
 // --- generated proxy: enums ---
 export * from './lib/proxy/documents/document-lifecycle-status.enum';
-export * from './lib/proxy/documents/document-review-status.enum';
+export * from './lib/proxy/documents/document-review-disposition.enum';
+export * from './lib/proxy/documents/document-review-reasons.enum';
 export * from './lib/proxy/documents/exports/export-format.enum';
 export * from './lib/proxy/documents/fields/field-data-type.enum';
 export * from './lib/proxy/documents/pipelines/pipeline-run-status.enum';

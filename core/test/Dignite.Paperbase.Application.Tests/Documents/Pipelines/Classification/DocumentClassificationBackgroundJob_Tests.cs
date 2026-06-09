@@ -111,7 +111,7 @@ public class DocumentClassificationBackgroundJob_Tests
 
         doc.DocumentTypeId.ShouldBe(DocumentClassificationJobTestModule.ContractTypeId);
         doc.ClassificationConfidence.ShouldBe(0.92);
-        doc.ReviewStatus.ShouldBe(DocumentReviewStatus.None);
+        doc.ReviewDisposition.ShouldBe(DocumentReviewDisposition.NotReviewed);
 
         await _eventBus.Received(1).PublishAsync(
             Arg.Is<DocumentClassifiedEto>(e =>
@@ -147,7 +147,7 @@ public class DocumentClassificationBackgroundJob_Tests
 
         doc.DocumentTypeId.ShouldBeNull();
         doc.ClassificationConfidence.ShouldBe(0);
-        doc.ReviewStatus.ShouldBe(DocumentReviewStatus.PendingReview);
+        doc.ReviewReasons.ShouldBe(DocumentReviewReasons.UnresolvedClassification);
 
         await _eventBus.DidNotReceive().PublishAsync(
             Arg.Any<DocumentClassifiedEto>(), Arg.Any<bool>());
@@ -176,7 +176,7 @@ public class DocumentClassificationBackgroundJob_Tests
         run.ShouldNotBeNull();
         run.Status.ShouldBe(PipelineRunStatus.Succeeded);
         doc.DocumentTypeId.ShouldBeNull();
-        doc.ReviewStatus.ShouldBe(DocumentReviewStatus.PendingReview);
+        doc.ReviewReasons.ShouldBe(DocumentReviewReasons.UnresolvedClassification);
     }
 
     [Fact]
@@ -206,7 +206,7 @@ public class DocumentClassificationBackgroundJob_Tests
 
         doc.DocumentTypeId.ShouldBeNull();
         doc.ClassificationConfidence.ShouldBe(0);
-        doc.ReviewStatus.ShouldBe(DocumentReviewStatus.PendingReview);
+        doc.ReviewReasons.ShouldBe(DocumentReviewReasons.UnresolvedClassification);
 
         await _eventBus.DidNotReceive().PublishAsync(
             Arg.Any<DocumentClassifiedEto>(), Arg.Any<bool>());
@@ -257,7 +257,7 @@ public class DocumentClassificationBackgroundJob_Tests
 
         doc.DocumentTypeId.ShouldBeNull();
         doc.ClassificationConfidence.ShouldBe(0);
-        doc.ReviewStatus.ShouldBe(DocumentReviewStatus.PendingReview);
+        doc.ReviewReasons.ShouldBe(DocumentReviewReasons.UnresolvedClassification);
 
         await _eventBus.DidNotReceive().PublishAsync(
             Arg.Any<DocumentClassifiedEto>(), Arg.Any<bool>());
@@ -282,7 +282,7 @@ public class DocumentClassificationBackgroundJob_Tests
         await _job.ExecuteAsync(new DocumentClassificationJobArgs { DocumentId = doc.Id });
 
         doc.DocumentTypeId.ShouldBeNull();
-        doc.ReviewStatus.ShouldBe(DocumentReviewStatus.PendingReview);
+        doc.ReviewReasons.ShouldBe(DocumentReviewReasons.UnresolvedClassification);
 
         await _eventBus.DidNotReceive().PublishAsync(
             Arg.Any<DocumentClassifiedEto>(), Arg.Any<bool>());

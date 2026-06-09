@@ -38,7 +38,13 @@
     "Document:UploadedBy": "Uploaded By",
     "Document:ClassificationConfidence": "Confidence",
     "Document:ReviewStatus": "Review Status",
-    "Document:ClassificationReason": "Classification Reason",
+    "Document:NeedsReview": "Needs Review",
+    "Document:RejectionReason": "Rejection Reason",
+    "Document:ReviewDisposition:Confirmed": "Confirmed",
+    "Document:ReviewDisposition:Rejected": "Rejected",
+    "Document:ReviewReason:UnresolvedClassification": "Classification unresolved",
+    "Document:ReviewReason:MissingRequiredFields": "Missing required fields",
+    "Document:Review:RejectReasonRequired": "Rejection reason is required.",
     "Document:TotalCount": "Total:",
     "Document:AreYouSureToDelete": "Are you sure you want to delete this document?",
     "Document:DeletedSuccessfully": "Document deleted.",
@@ -101,8 +107,6 @@
 
 
 
-    "DocumentReviewStatus:PendingReview": "Pending Review",
-    "DocumentReviewStatus:Reviewed": "Reviewed",
     "Document:ConfirmClassification": "Confirm Classification",
     "Document:SelectDocumentType": "Select Document Type",
     "Document:DocumentTypeCode": "Document Type Code",
@@ -113,7 +117,7 @@
     "Document:Review:Empty": "The review queue is empty.",
     "Document:Review:Reject": "Reject",
     "Document:Review:RejectReason": "Rejection Reason",
-    "Document:Review:RejectReasonHint": "Optional. Recorded on the document for audit.",
+    "Document:Review:RejectReasonHint": "Required. Recorded on the document for audit.",
     "Document:Review:RejectedSuccessfully": "Document rejected.",
     "Document:Review:ActionFailed": "Action failed.",
     "Document:Filter:AllStatuses": "All Statuses",

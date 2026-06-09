@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  DocumentReviewStatus,
-  documentReviewStatusOptions,
-} from './proxy/documents/document-review-status.enum';
+  DocumentReviewDisposition,
+  documentReviewDispositionOptions,
+} from './proxy/documents/document-review-disposition.enum';
+import {
+  DocumentReviewReasons,
+  documentReviewReasonsOptions,
+} from './proxy/documents/document-review-reasons.enum';
 import { DocumentLifecycleStatus } from './proxy/documents/document-lifecycle-status.enum';
 import { PipelineRunStatus } from './proxy/documents/pipelines/pipeline-run-status.enum';
 
@@ -13,12 +17,18 @@ import { PipelineRunStatus } from './proxy/documents/pipelines/pipeline-run-stat
 // sync with the backend Domain.Shared enums — a renumbered or dropped member fails here
 // loudly instead of silently mis-rendering a badge or mis-gating an action.
 describe('proxy enum contract (smoke)', () => {
-  it('DocumentReviewStatus matches backend values', () => {
-    expect(DocumentReviewStatus.None).toBe(0);
-    expect(DocumentReviewStatus.PendingReview).toBe(10);
-    expect(DocumentReviewStatus.Reviewed).toBe(20);
-    expect(DocumentReviewStatus.Rejected).toBe(30);
-    expect(documentReviewStatusOptions).toHaveLength(4);
+  it('DocumentReviewDisposition matches backend values', () => {
+    expect(DocumentReviewDisposition.NotReviewed).toBe(0);
+    expect(DocumentReviewDisposition.Confirmed).toBe(20);
+    expect(DocumentReviewDisposition.Rejected).toBe(30);
+    expect(documentReviewDispositionOptions).toHaveLength(3);
+  });
+
+  it('DocumentReviewReasons matches backend values', () => {
+    expect(DocumentReviewReasons.None).toBe(0);
+    expect(DocumentReviewReasons.UnresolvedClassification).toBe(1);
+    expect(DocumentReviewReasons.MissingRequiredFields).toBe(2);
+    expect(documentReviewReasonsOptions).toHaveLength(3);
   });
 
   it('DocumentLifecycleStatus matches backend values', () => {

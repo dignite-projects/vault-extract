@@ -15,16 +15,16 @@ Document.Markdown ──► DocumentClassificationBackgroundJob ──► Docume
                                                                          ▼
                                             ConfidenceScore ≥ Type.ConfidenceThreshold ?
                                                 ├─ yes ─► DocumentClassifiedEto + enqueue Host / tenant field extraction
-                                                └─ no  ─► PendingReview (human triage)
+                                                └─ no  ─► review queue (ReviewReasons += UnresolvedClassification)
 
                               transient LLM error          ──► rethrow → ABP Job retry (MaxTryCount)
-                              schema deserialization error ──► PendingReview (no retry)
+                              schema deserialization error ──► review queue (no retry)
 ```
 
 Two design properties matter:
 
 - **The LLM consumes Markdown directly.** For structured documents (contracts, reports, layout-aware OCR output), headings, tables and lists in `Document.Markdown` are kept as **real semantic signals** the LLM exploits. The system prompt explicitly tells the model "input is Markdown". For unstructured content (loose OCR paragraphs, plain text), the Markdown wrapper is a container name — it keeps the classifier on one prompt template, but no extra signal is being conveyed beyond what plain paragraphs would carry.
-- **Transient LLM failures rely on ABP Job retry, not a keyword fallback.** Network errors, timeouts and cancellations bubble out of `DocumentClassificationBackgroundJob`; the `PipelineRun` is marked `Failed` for operator visibility, and ABP reschedules the job per `BackgroundJobOptions.JobTypes` retry policy. When the LLM recovers, the next attempt produces a real classification — far better than freezing a document on a low-confidence keyword guess. Schema deserialization errors short-circuit straight to `PendingReview` because retrying the same malformed output wastes quota.
+- **Transient LLM failures rely on ABP Job retry, not a keyword fallback.** Network errors, timeouts and cancellations bubble out of `DocumentClassificationBackgroundJob`; the `PipelineRun` is marked `Failed` for operator visibility, and ABP reschedules the job per `BackgroundJobOptions.JobTypes` retry policy. When the LLM recovers, the next attempt produces a real classification — far better than freezing a document on a low-confidence keyword guess. Schema deserialization errors short-circuit straight to the review queue (`ReviewReasons` gets `UnresolvedClassification`) because retrying the same malformed output wastes quota.
 
 ## Registering document types
 
@@ -35,7 +35,7 @@ Both Host deployers and tenants create their `DocumentType` rows through the adm
 | `TypeCode` | Downstream consumers (DistributedEventBus subscribers) match on this code; `FieldDefinition` rows also key on it. Convention: `<owner>.<sub-type>` (e.g. `host.general`, `tenant-acme.case-file`). |
 | `DisplayName` (`string`) | Sent to the LLM as the candidate name. Stored as a plain string on the entity — the admin UI presents it directly without any `IStringLocalizerFactory` lookup, since each tenant edits their own row. |
 | `Priority` | Higher = appears earlier in the LLM prompt; tie-break when truncated to `MaxDocumentTypesInClassificationPrompt`. |
-| `ConfidenceThreshold` | LLM result must clear this to auto-classify; below it the document goes to `PendingReview`. |
+| `ConfidenceThreshold` | LLM result must clear this to auto-classify; below it the document enters the review queue (`ReviewReasons` gets `UnresolvedClassification`, `ReviewDisposition` stays `NotReviewed`). |
 
 ## Configuration
 
@@ -58,10 +58,10 @@ The prompt language follows `PaperbaseAIBehavior:DefaultLanguage` (see [ai-provi
 | Outcome | Pipeline state | What happens next |
 |---|---|---|
 | LLM result, confidence ≥ threshold | `DocumentPipelineRun` completes | `DocumentClassifiedEto` published; Host & tenant field extraction enqueued; downstream `DistributedEventBus` subscribers (in their own repos) receive the event |
-| LLM result, confidence < threshold | `PendingReview` | `PipelineRunExtraPropertyNames.ClassificationCandidates` is populated for the UI ([pipeline-runs.md](pipeline-runs.md)) |
-| No suitable `DocumentType` / `DocumentTypeCode == null` | `PendingReview` | The UI shows `ClassificationReason`; the operator creates a matching `DocumentType` then reclassifies (`ReclassifyAsync`), rejects (`RejectReviewAsync`), or re-uploads a better source document |
+| LLM result, confidence < threshold | review queue (`ReviewReasons` = `UnresolvedClassification`; `DocumentTypeId` cleared, lifecycle stays `Processing`) | `PipelineRunExtraPropertyNames.ClassificationCandidates` is populated for the UI ([pipeline-runs.md](pipeline-runs.md)) |
+| No suitable `DocumentType` / `DocumentTypeCode == null` | review queue (`UnresolvedClassification`) | The operator uses the `ClassificationCandidates` payload ([pipeline-runs.md](pipeline-runs.md)) to create a matching `DocumentType`, then reclassifies (`ReclassifyAsync`), rejects (`RejectReviewAsync`, reason required), or re-uploads a better source document |
 | LLM unreachable (transient) | `Failed`, exception rethrown | ABP retries the job per `BackgroundJobOptions.JobTypes` `MaxTryCount`. Next attempt does a fresh LLM classification once the provider recovers. |
-| LLM returned malformed JSON | `PendingReview` | No retry — a human resolves the type code in the UI |
+| LLM returned malformed JSON | review queue (`UnresolvedClassification`) | No retry — a human resolves the type code in the UI |
 
 ## See also
 

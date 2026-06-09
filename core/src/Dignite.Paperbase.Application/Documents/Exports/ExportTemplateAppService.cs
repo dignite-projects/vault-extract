@@ -17,10 +17,11 @@ namespace Dignite.Paperbase.Documents.Exports;
 [Authorize]
 public class ExportTemplateAppService : PaperbaseAppService, IExportTemplateAppService
 {
-    // 固定导出的系统字段表头（#207）——LifecycleStatus / ReviewStatus / Title 始终输出，不走模板列配置。
+    // 固定导出的系统字段表头（#207 / #287）——LifecycleStatus / ReviewStatus(处置轴) / ReviewReasons(原因轴) / Title
+    // 始终输出，不走模板列配置。ReviewStatus 列名稳定（DB 列名亦为 ReviewStatus），值取 ReviewDisposition。
     private static readonly IReadOnlyList<string> SystemFieldHeaders = new[]
     {
-        "LifecycleStatus", "ReviewStatus", "Title"
+        "LifecycleStatus", "ReviewStatus", "ReviewReasons", "Title"
     };
 
     private readonly IExportTemplateRepository _templateRepository;
@@ -142,7 +143,8 @@ public class ExportTemplateAppService : PaperbaseAppService, IExportTemplateAppS
                 {
                     Title = d.Title,
                     LifecycleStatus = d.LifecycleStatus,
-                    ReviewStatus = d.ReviewStatus,
+                    ReviewDisposition = d.ReviewDisposition,
+                    ReviewReasons = d.ReviewReasons,
                     // typed child 行随文档一并投影（单查询相关子查询，非逐文档 N+1）；按 FieldDefinitionId 匹配模板列。
                     ExtractedFields = d.ExtractedFieldValues
                         .Select(f => new ExtractedFieldProjection
@@ -197,8 +199,11 @@ public class ExportTemplateAppService : PaperbaseAppService, IExportTemplateAppS
             {
                 var cells = new string?[headers.Count];
                 cells[0] = r.LifecycleStatus.ToString();
-                cells[1] = r.ReviewStatus.ToString();
-                cells[2] = r.Title;
+                cells[1] = r.ReviewDisposition.ToString();
+                // #287：原因轴——None → 空单元格（无未解决原因），否则 [Flags].ToString()（如 "MissingRequiredFields"）。
+                // 空 vs 非空 比依赖"缺失字段单元格留空"更明确（后者无法区分非必填空 vs 必填缺失）。
+                cells[2] = r.ReviewReasons == DocumentReviewReasons.None ? null : r.ReviewReasons.ToString();
+                cells[3] = r.Title;
                 for (var i = 0; i < template.Columns.Count; i++)
                 {
                     cells[systemCount + i] = GetExtractedValue(r, template.Columns[i].FieldDefinitionId, fieldDataTypes);

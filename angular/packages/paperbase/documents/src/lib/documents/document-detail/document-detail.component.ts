@@ -24,7 +24,8 @@ import {
   DocumentLifecycleStatus,
   DocumentPipelineRunDto,
   DocumentPipelineRunService,
-  DocumentReviewStatus,
+  DocumentReviewDisposition,
+  DocumentReviewReasons,
   DocumentService,
   DocumentTypeDto,
   DocumentTypeService,
@@ -118,7 +119,8 @@ export class DocumentDetailComponent implements OnInit {
   documentTypes = signal<DocumentTypeDto[]>([]);
 
   readonly DocumentLifecycleStatus = DocumentLifecycleStatus;
-  readonly DocumentReviewStatus = DocumentReviewStatus;
+  readonly DocumentReviewDisposition = DocumentReviewDisposition;
+  readonly DocumentReviewReasons = DocumentReviewReasons;
   readonly PipelineRunStatus = PipelineRunStatus;
 
   pipelineRows = computed<PipelineRow[]>(() => {
@@ -174,13 +176,11 @@ export class DocumentDetailComponent implements OnInit {
     return this.getElapsedMs(run) === null ? null : this.formatElapsed(run);
   }
 
-  needsReview = computed(() =>
-    this.document()?.reviewStatus === DocumentReviewStatus.PendingReview
-  );
+  // #284：需要操作员关注（任一未解决待审原因）= 服务端给的 requiresReview，客户端不自推断。
+  needsReview = computed(() => this.document()?.requiresReview ?? false);
 
+  // #284：纯可用性轴——双轴正交后审核横幅与"处理中"横幅各自独立判断（模板 @if needsReview 优先于 isProcessing）。
   isProcessing = computed(() => {
-    if (this.needsReview()) return false;
-
     const status = this.document()?.lifecycleStatus;
     return status === DocumentLifecycleStatus.Uploaded ||
            status === DocumentLifecycleStatus.Processing;
@@ -492,11 +492,8 @@ export class DocumentDetailComponent implements OnInit {
     }
   }
 
+  // #284：header badge 只表生命周期（可用性轴）；审核态由横幅 + 详情区 reviewReasonDetails 表达，不重复。
   getDocumentStatusBadgeClass(doc: DocumentDto): string {
-    if (doc.reviewStatus === DocumentReviewStatus.PendingReview) {
-      return 'badge bg-warning text-dark';
-    }
-
     return this.getStatusBadgeClass(doc.lifecycleStatus);
   }
 
@@ -511,11 +508,19 @@ export class DocumentDetailComponent implements OnInit {
   }
 
   getDocumentStatusLabel(doc: DocumentDto): string {
-    if (doc.reviewStatus === DocumentReviewStatus.PendingReview) {
-      return '::DocumentReviewStatus:PendingReview';
-    }
-
     return this.getStatusLabel(doc.lifecycleStatus);
+  }
+
+  // #284：待审原因 → 本地化 key（详情区 reviewReasonDetails 明细渲染用）。
+  reviewReasonLabel(reason: DocumentReviewReasons | undefined): string {
+    switch (reason) {
+      case DocumentReviewReasons.UnresolvedClassification:
+        return '::Document:ReviewReason:UnresolvedClassification';
+      case DocumentReviewReasons.MissingRequiredFields:
+        return '::Document:ReviewReason:MissingRequiredFields';
+      default:
+        return '::Document:NeedsReview';
+    }
   }
 
   getRunStatusBadgeClass(status: PipelineRunStatus | undefined): string {

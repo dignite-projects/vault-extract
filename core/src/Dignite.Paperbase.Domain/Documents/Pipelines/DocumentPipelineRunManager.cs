@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Dignite.Paperbase.Documents;
 using Dignite.Paperbase.Documents.DocumentTypes;
 using Volo.Abp;
@@ -131,7 +132,7 @@ public class DocumentPipelineRunManager : DomainService
 
     /// <summary>
     /// 记录分类结果并完成 Run（高置信度路径）。
-    /// <see cref="Document.ClassificationReason"/> 在此路径下固定为 null；
+    /// 此路径清除 <see cref="DocumentReviewReasons.UnresolvedClassification"/>（分类已定）；
     /// AI 的分类理由仅在低置信度路径（<see cref="CompleteClassificationWithLowConfidenceAsync"/>）写入。
     /// <para>
     /// 调用方负责传入已加载的 <paramref name="typeDef"/>（来自 <c>IDocumentTypeRepository.FindByTypeCodeAsync</c>），
@@ -151,10 +152,10 @@ public class DocumentPipelineRunManager : DomainService
 
     /// <summary>
     /// 分类置信度不足：完成 Run 并将文档标记为待人工审核。
-    /// <see cref="Document.ClassificationReason"/> 写入 AI 的分类理由（reason）；
+    /// AI 的分类理由（reason）#284 起不再持久化，仅记日志；
     /// Run.StatusMessage 保持 null（<see cref="DocumentPipelineRun.MarkSucceeded"/> 不写 StatusMessage），
     /// 避免与技术错误信息混淆。
-    /// 置信度信号由 <see cref="Document.ReviewStatus"/> = PendingReview 表达，不再记录在 Run 上。
+    /// 待审信号由 <see cref="DocumentReviewReasons.UnresolvedClassification"/> 表达，不再记录在 Run 上。
     /// </summary>
     public virtual Task CompleteClassificationWithLowConfidenceAsync(
         Document document,
@@ -162,7 +163,16 @@ public class DocumentPipelineRunManager : DomainService
         string? reason = null,
         IReadOnlyList<PipelineRunCandidate>? candidates = null)
     {
-        document.RequestClassificationReview(reason);
+        // #284：分类理由不再持久化到 Document（ClassificationReason 已删）；仅记日志便于排查。
+        // 操作员所需"为什么没分类"由 run 候选类型（ClassificationCandidates）+ 前端通用文案承载。
+        if (!string.IsNullOrWhiteSpace(reason))
+        {
+            Logger.LogInformation(
+                "Document {DocumentId} routed to classification review (low confidence / unclassifiable): {Reason}",
+                document.Id, reason);
+        }
+
+        document.RequestClassificationReview();
 
         if (candidates is { Count: > 0 })
         {
@@ -176,7 +186,7 @@ public class DocumentPipelineRunManager : DomainService
 
     /// <summary>
     /// 人工确认文档类型：写入分类结果、标记已审核、完成 Run。置信度固定为 1.0。
-    /// 人工覆盖信号由 <see cref="Document.ReviewStatus"/> = Reviewed 表达。
+    /// 人工覆盖信号由 <see cref="Document.ReviewDisposition"/> = Confirmed 表达。
     /// 该字面量与 Domain.Shared 层 <c>ClassificationDefaults.ManualClassificationConfidence</c>
     /// 同步维护（Domain 不依赖 Abstractions，故此处硬编码）。
     /// <para>
@@ -307,9 +317,12 @@ public class DocumentPipelineRunManager : DomainService
             }
         }
 
+        // #284：Ready 闸门判据从"有已确认类型"升级为"无 blocking 待审原因"。等价性：低置信度路径
+        // 同步 set UnresolvedClassification(blocking) + 清 DocumentTypeId，故 !HasValue ⟺ UC set；
+        // 收益是闸门可扩展——未来加 blocking 原因零成本，non-blocking(如必填缺失)天然不挡 Ready。
         if (derivedStatus != DocumentLifecycleStatus.Failed &&
             allSucceeded &&
-            document.DocumentTypeId.HasValue)
+            !ReviewReasonPolicy.HasBlocking(document.ReviewReasons))
         {
             derivedStatus = DocumentLifecycleStatus.Ready;
         }

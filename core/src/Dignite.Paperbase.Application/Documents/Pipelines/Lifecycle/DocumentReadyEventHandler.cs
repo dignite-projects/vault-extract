@@ -13,7 +13,7 @@ namespace Dignite.Paperbase.Documents.Pipelines.Lifecycle;
 /// <see cref="DocumentLifecycleStatus.Ready"/> 时发布 <see cref="DocumentReadyEto"/>——
 /// CLAUDE.md "出口事件契约" 中下游消费方默认订阅的可信信号。
 /// <para>
-/// Ready 闸门由分类阶段执行：自动分类置信度不足 / 无合适类型的文档被路由到 PendingReview，
+/// Ready 闸门由分类阶段执行：自动分类置信度不足 / 无合适类型的文档被置 blocking 原因 UnresolvedClassification（进待人工审核队列），
 /// <c>DocumentTypeCode</c> 为空时 <c>DeriveLifecycle</c> 不会跃迁到 Ready。因此本 handler
 /// 不需要额外校验，<c>NewStatus == Ready</c> 即隐含通过分类 / 人工审核闸门。
 /// </para>

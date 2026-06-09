@@ -7,8 +7,8 @@ namespace Dignite.Paperbase.Documents.Exports;
 /// 导出查询投影——只取导出需要的字段，<strong>排除 Markdown</strong>（大 OCR/正文载荷）。
 /// 投影到非实体类型时 EF 自动不 SELECT 未引用列、也不进 change tracker，避免为上万文档把 Markdown 拉进内存。
 /// <para>
-/// 固定系统字段（#207）：<see cref="LifecycleStatus"/> / <see cref="ReviewStatus"/> /
-/// <see cref="Title"/> 由导出引擎固定输出（不走模板列配置）。<see cref="ExtractedFields"/> 是
+/// 固定系统字段（#207 / #287）：<see cref="LifecycleStatus"/> / <see cref="ReviewDisposition"/> /
+/// <see cref="ReviewReasons"/> / <see cref="Title"/> 由导出引擎固定输出（不走模板列配置）。<see cref="ExtractedFields"/> 是
 /// <see cref="DocumentExtractedField"/> child 行的 typed 投影（随文档一并 SELECT，相关子查询 / JOIN，非逐文档 N+1），
 /// 模板列按 <see cref="ExtractedFieldProjection.FieldDefinitionId"/> 匹配。
 /// </para>
@@ -17,7 +17,11 @@ internal sealed class ExportProjection
 {
     public string? Title { get; init; }
     public DocumentLifecycleStatus LifecycleStatus { get; init; }
-    public DocumentReviewStatus ReviewStatus { get; init; }
+    public DocumentReviewDisposition ReviewDisposition { get; init; }
+
+    /// <summary>原因轴（#287）——non-blocking 的 MissingRequiredFields 文档照常进类型绑定导出，需透出"缺必填"质量信号（处置轴的 ReviewDisposition 不暴露它）。</summary>
+    public DocumentReviewReasons ReviewReasons { get; init; }
+
     public List<ExtractedFieldProjection> ExtractedFields { get; init; } = new();
 }
 

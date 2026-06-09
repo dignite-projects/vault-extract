@@ -2983,6 +2983,23 @@
                   }
                 },
                 {
+                  "name": "RerecognizeAsync",
+                  "parametersOnMethod": [
+                    {
+                      "name": "id",
+                      "typeAsString": "System.Guid, System.Private.CoreLib",
+                      "type": "System.Guid",
+                      "typeSimple": "string",
+                      "isOptional": false,
+                      "defaultValue": null
+                    }
+                  ],
+                  "returnValue": {
+                    "type": "System.Void",
+                    "typeSimple": "System.Void"
+                  }
+                },
+                {
                   "name": "UpdateExtractedFieldsAsync",
                   "parametersOnMethod": [
                     {
@@ -3117,10 +3134,22 @@
                 },
                 {
                   "nameOnMethod": "input",
-                  "name": "ReviewStatus",
+                  "name": "ReviewDisposition",
                   "jsonName": null,
-                  "type": "Dignite.Paperbase.Documents.DocumentReviewStatus?",
+                  "type": "Dignite.Paperbase.Documents.DocumentReviewDisposition?",
                   "typeSimple": "enum?",
+                  "isOptional": false,
+                  "defaultValue": null,
+                  "constraintTypes": null,
+                  "bindingSourceId": "ModelBinding",
+                  "descriptorName": "input"
+                },
+                {
+                  "nameOnMethod": "input",
+                  "name": "HasReviewReasons",
+                  "jsonName": null,
+                  "type": "System.Boolean?",
+                  "typeSimple": "boolean?",
                   "isOptional": false,
                   "defaultValue": null,
                   "constraintTypes": null,
@@ -3631,6 +3660,44 @@
                   "defaultValue": null,
                   "constraintTypes": null,
                   "bindingSourceId": "Body",
+                  "descriptorName": ""
+                }
+              ],
+              "returnValue": {
+                "type": "System.Void",
+                "typeSimple": "System.Void"
+              },
+              "allowAnonymous": null,
+              "authorizeDatas": [],
+              "implementFrom": "Dignite.Paperbase.Documents.IDocumentAppService"
+            },
+            "RerecognizeAsyncById": {
+              "uniqueName": "RerecognizeAsyncById",
+              "name": "RerecognizeAsync",
+              "httpMethod": "POST",
+              "url": "api/paperbase/documents/{id}/rerecognize",
+              "supportedVersions": [],
+              "parametersOnMethod": [
+                {
+                  "name": "id",
+                  "typeAsString": "System.Guid, System.Private.CoreLib",
+                  "type": "System.Guid",
+                  "typeSimple": "string",
+                  "isOptional": false,
+                  "defaultValue": null
+                }
+              ],
+              "parameters": [
+                {
+                  "nameOnMethod": "id",
+                  "name": "id",
+                  "jsonName": null,
+                  "type": "System.Guid",
+                  "typeSimple": "string",
+                  "isOptional": false,
+                  "defaultValue": null,
+                  "constraintTypes": [],
+                  "bindingSourceId": "Path",
                   "descriptorName": ""
                 }
               ],
@@ -4749,6 +4816,95 @@
               "allowAnonymous": null,
               "authorizeDatas": [],
               "implementFrom": "Dignite.Paperbase.Documents.Fields.IFieldDefinitionAppService"
+            }
+          }
+        },
+        "Dignite.Paperbase.HttpApi.Documents.Fields.FieldDraftSuggestionController": {
+          "controllerName": "FieldDraftSuggestion",
+          "controllerGroupName": "FieldDraftSuggestion",
+          "isRemoteService": true,
+          "isIntegrationService": false,
+          "apiVersion": null,
+          "type": "Dignite.Paperbase.HttpApi.Documents.Fields.FieldDraftSuggestionController",
+          "interfaces": [
+            {
+              "type": "Dignite.Paperbase.Documents.Fields.IFieldDraftSuggestionAppService",
+              "name": "IFieldDraftSuggestionAppService",
+              "methods": [
+                {
+                  "name": "DraftAsync",
+                  "parametersOnMethod": [
+                    {
+                      "name": "input",
+                      "typeAsString": "Dignite.Paperbase.Documents.Fields.DraftFieldDefinitionInput, Dignite.Paperbase.Application.Contracts",
+                      "type": "Dignite.Paperbase.Documents.Fields.DraftFieldDefinitionInput",
+                      "typeSimple": "Dignite.Paperbase.Documents.Fields.DraftFieldDefinitionInput",
+                      "isOptional": false,
+                      "defaultValue": null
+                    },
+                    {
+                      "name": "cancellationToken",
+                      "typeAsString": "System.Threading.CancellationToken, System.Private.CoreLib",
+                      "type": "System.Threading.CancellationToken",
+                      "typeSimple": "System.Threading.CancellationToken",
+                      "isOptional": true,
+                      "defaultValue": null
+                    }
+                  ],
+                  "returnValue": {
+                    "type": "Dignite.Paperbase.Documents.Fields.FieldDefinitionDraftDto",
+                    "typeSimple": "Dignite.Paperbase.Documents.Fields.FieldDefinitionDraftDto"
+                  }
+                }
+              ]
+            }
+          ],
+          "actions": {
+            "DraftAsyncByInputAndCancellationToken": {
+              "uniqueName": "DraftAsyncByInputAndCancellationToken",
+              "name": "DraftAsync",
+              "httpMethod": "POST",
+              "url": "api/paperbase/field-draft-suggestion/draft",
+              "supportedVersions": [],
+              "parametersOnMethod": [
+                {
+                  "name": "input",
+                  "typeAsString": "Dignite.Paperbase.Documents.Fields.DraftFieldDefinitionInput, Dignite.Paperbase.Application.Contracts",
+                  "type": "Dignite.Paperbase.Documents.Fields.DraftFieldDefinitionInput",
+                  "typeSimple": "Dignite.Paperbase.Documents.Fields.DraftFieldDefinitionInput",
+                  "isOptional": false,
+                  "defaultValue": null
+                },
+                {
+                  "name": "cancellationToken",
+                  "typeAsString": "System.Threading.CancellationToken, System.Private.CoreLib",
+                  "type": "System.Threading.CancellationToken",
+                  "typeSimple": "System.Threading.CancellationToken",
+                  "isOptional": false,
+                  "defaultValue": null
+                }
+              ],
+              "parameters": [
+                {
+                  "nameOnMethod": "input",
+                  "name": "input",
+                  "jsonName": null,
+                  "type": "Dignite.Paperbase.Documents.Fields.DraftFieldDefinitionInput",
+                  "typeSimple": "Dignite.Paperbase.Documents.Fields.DraftFieldDefinitionInput",
+                  "isOptional": false,
+                  "defaultValue": null,
+                  "constraintTypes": null,
+                  "bindingSourceId": "Body",
+                  "descriptorName": ""
+                }
+              ],
+              "returnValue": {
+                "type": "Dignite.Paperbase.Documents.Fields.FieldDefinitionDraftDto",
+                "typeSimple": "Dignite.Paperbase.Documents.Fields.FieldDefinitionDraftDto"
+              },
+              "allowAnonymous": null,
+              "authorizeDatas": [],
+              "implementFrom": "Dignite.Paperbase.Documents.Fields.IFieldDraftSuggestionAppService"
             }
           }
         },
@@ -6279,6 +6435,19 @@
           "maximum": null,
           "regex": null,
           "isNullable": false
+        },
+        {
+          "name": "Description",
+          "jsonName": null,
+          "type": "System.String",
+          "typeSimple": "string",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true
         }
       ]
     },
@@ -6301,6 +6470,19 @@
           "maximum": null,
           "regex": null,
           "isNullable": false
+        },
+        {
+          "name": "Description",
+          "jsonName": null,
+          "type": "System.String",
+          "typeSimple": "string",
+          "isRequired": false,
+          "minLength": 0,
+          "maxLength": 512,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true
         }
       ]
     },
@@ -6323,6 +6505,19 @@
           "maximum": null,
           "regex": null,
           "isNullable": false
+        },
+        {
+          "name": "Description",
+          "jsonName": null,
+          "type": "System.String",
+          "typeSimple": "string",
+          "isRequired": false,
+          "minLength": 0,
+          "maxLength": 512,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true
         }
       ]
     },
@@ -6421,9 +6616,9 @@
           "isNullable": false
         },
         {
-          "name": "ReviewStatus",
+          "name": "ReviewDisposition",
           "jsonName": null,
-          "type": "Dignite.Paperbase.Documents.DocumentReviewStatus",
+          "type": "Dignite.Paperbase.Documents.DocumentReviewDisposition",
           "typeSimple": "enum",
           "isRequired": false,
           "minLength": null,
@@ -6432,6 +6627,58 @@
           "maximum": null,
           "regex": null,
           "isNullable": false
+        },
+        {
+          "name": "ReviewReasons",
+          "jsonName": null,
+          "type": "Dignite.Paperbase.Documents.DocumentReviewReasons",
+          "typeSimple": "enum",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "RequiresReview",
+          "jsonName": null,
+          "type": "System.Boolean",
+          "typeSimple": "boolean",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "ReviewReasonDetails",
+          "jsonName": null,
+          "type": "[Dignite.Paperbase.Documents.ReviewReasonDetailDto]",
+          "typeSimple": "[Dignite.Paperbase.Documents.ReviewReasonDetailDto]",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true
+        },
+        {
+          "name": "RejectionReason",
+          "jsonName": null,
+          "type": "System.String",
+          "typeSimple": "string",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true
         },
         {
           "name": "ClassificationConfidence",
@@ -6445,19 +6692,6 @@
           "maximum": null,
           "regex": null,
           "isNullable": false
-        },
-        {
-          "name": "ClassificationReason",
-          "jsonName": null,
-          "type": "System.String",
-          "typeSimple": "string",
-          "isRequired": false,
-          "minLength": null,
-          "maxLength": null,
-          "minimum": null,
-          "maximum": null,
-          "regex": null,
-          "isNullable": true
         },
         {
           "name": "Title",
@@ -6487,6 +6721,32 @@
         },
         {
           "name": "Language",
+          "jsonName": null,
+          "type": "System.String",
+          "typeSimple": "string",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true
+        },
+        {
+          "name": "ExtractionIsComplete",
+          "jsonName": null,
+          "type": "System.Boolean",
+          "typeSimple": "boolean",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "ExtractionIncompleteReason",
           "jsonName": null,
           "type": "System.String",
           "typeSimple": "string",
@@ -6678,10 +6938,36 @@
           "isNullable": false
         },
         {
-          "name": "ReviewStatus",
+          "name": "ReviewDisposition",
           "jsonName": null,
-          "type": "Dignite.Paperbase.Documents.DocumentReviewStatus",
+          "type": "Dignite.Paperbase.Documents.DocumentReviewDisposition",
           "typeSimple": "enum",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "ReviewReasons",
+          "jsonName": null,
+          "type": "Dignite.Paperbase.Documents.DocumentReviewReasons",
+          "typeSimple": "enum",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "RequiresReview",
+          "jsonName": null,
+          "type": "System.Boolean",
+          "typeSimple": "boolean",
           "isRequired": false,
           "minLength": null,
           "maxLength": null,
@@ -6757,20 +7043,34 @@
         }
       ]
     },
-    "Dignite.Paperbase.Documents.DocumentReviewStatus": {
+    "Dignite.Paperbase.Documents.DocumentReviewDisposition": {
       "baseType": "System.Enum",
       "isEnum": true,
       "enumNames": [
-        "None",
-        "PendingReview",
-        "Reviewed",
+        "NotReviewed",
+        "Confirmed",
         "Rejected"
       ],
       "enumValues": [
         0,
-        10,
         20,
         30
+      ],
+      "genericArguments": null,
+      "properties": null
+    },
+    "Dignite.Paperbase.Documents.DocumentReviewReasons": {
+      "baseType": "System.Enum",
+      "isEnum": true,
+      "enumNames": [
+        "None",
+        "UnresolvedClassification",
+        "MissingRequiredFields"
+      ],
+      "enumValues": [
+        0,
+        1,
+        2
       ],
       "genericArguments": null,
       "properties": null
@@ -6807,6 +7107,19 @@
           "maximum": null,
           "regex": null,
           "isNullable": false
+        },
+        {
+          "name": "Description",
+          "jsonName": null,
+          "type": "System.String",
+          "typeSimple": "string",
+          "isRequired": false,
+          "minLength": 0,
+          "maxLength": 512,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true
         },
         {
           "name": "ConfidenceThreshold",
@@ -6883,6 +7196,19 @@
           "isNullable": false
         },
         {
+          "name": "Description",
+          "jsonName": null,
+          "type": "System.String",
+          "typeSimple": "string",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true
+        },
+        {
           "name": "ConfidenceThreshold",
           "jsonName": null,
           "type": "System.Double",
@@ -6942,6 +7268,19 @@
           "maximum": null,
           "regex": null,
           "isNullable": false
+        },
+        {
+          "name": "Description",
+          "jsonName": null,
+          "type": "System.String",
+          "typeSimple": "string",
+          "isRequired": false,
+          "minLength": 0,
+          "maxLength": 512,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true
         },
         {
           "name": "ConfidenceThreshold",
@@ -7053,19 +7392,6 @@
           "isNullable": false
         },
         {
-          "name": "ColumnName",
-          "jsonName": null,
-          "type": "System.String",
-          "typeSimple": "string",
-          "isRequired": false,
-          "minLength": null,
-          "maxLength": null,
-          "minimum": null,
-          "maximum": null,
-          "regex": null,
-          "isNullable": false
-        },
-        {
           "name": "Order",
           "jsonName": null,
           "type": "System.Int32",
@@ -7095,19 +7421,6 @@
           "isRequired": true,
           "minLength": null,
           "maxLength": null,
-          "minimum": null,
-          "maximum": null,
-          "regex": null,
-          "isNullable": false
-        },
-        {
-          "name": "ColumnName",
-          "jsonName": null,
-          "type": "System.String",
-          "typeSimple": "string",
-          "isRequired": true,
-          "minLength": 0,
-          "maxLength": 128,
           "minimum": null,
           "maximum": null,
           "regex": null,
@@ -7166,6 +7479,45 @@
           "jsonName": null,
           "type": "Dignite.Paperbase.Documents.DocumentLifecycleStatus?",
           "typeSimple": "enum?",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true
+        },
+        {
+          "name": "CabinetId",
+          "jsonName": null,
+          "type": "System.Guid?",
+          "typeSimple": "string?",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true
+        },
+        {
+          "name": "CreationTimeMin",
+          "jsonName": null,
+          "type": "System.DateTime?",
+          "typeSimple": "string?",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true
+        },
+        {
+          "name": "CreationTimeMax",
+          "jsonName": null,
+          "type": "System.DateTime?",
+          "typeSimple": "string?",
           "isRequired": false,
           "minLength": null,
           "maxLength": null,
@@ -7438,6 +7790,41 @@
         }
       ]
     },
+    "Dignite.Paperbase.Documents.Fields.DraftFieldDefinitionInput": {
+      "baseType": null,
+      "isEnum": false,
+      "enumNames": null,
+      "enumValues": null,
+      "genericArguments": null,
+      "properties": [
+        {
+          "name": "Prompt",
+          "jsonName": null,
+          "type": "System.String",
+          "typeSimple": "string",
+          "isRequired": true,
+          "minLength": 0,
+          "maxLength": 1024,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "ForNewField",
+          "jsonName": null,
+          "type": "System.Boolean",
+          "typeSimple": "boolean",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        }
+      ]
+    },
     "Dignite.Paperbase.Documents.Fields.FieldDataType": {
       "baseType": "System.Enum",
       "isEnum": true,
@@ -7459,6 +7846,80 @@
       ],
       "genericArguments": null,
       "properties": null
+    },
+    "Dignite.Paperbase.Documents.Fields.FieldDefinitionDraftDto": {
+      "baseType": null,
+      "isEnum": false,
+      "enumNames": null,
+      "enumValues": null,
+      "genericArguments": null,
+      "properties": [
+        {
+          "name": "DisplayName",
+          "jsonName": null,
+          "type": "System.String",
+          "typeSimple": "string",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "Name",
+          "jsonName": null,
+          "type": "System.String",
+          "typeSimple": "string",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "DataType",
+          "jsonName": null,
+          "type": "Dignite.Paperbase.Documents.Fields.FieldDataType",
+          "typeSimple": "enum",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "IsRequired",
+          "jsonName": null,
+          "type": "System.Boolean",
+          "typeSimple": "boolean",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "AllowMultiple",
+          "jsonName": null,
+          "type": "System.Boolean",
+          "typeSimple": "boolean",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        }
+      ]
     },
     "Dignite.Paperbase.Documents.Fields.FieldDefinitionDto": {
       "baseType": "Volo.Abp.Application.Dtos.EntityDto<System.Guid>",
@@ -7816,10 +8277,23 @@
           "isNullable": true
         },
         {
-          "name": "ReviewStatus",
+          "name": "ReviewDisposition",
           "jsonName": null,
-          "type": "Dignite.Paperbase.Documents.DocumentReviewStatus?",
+          "type": "Dignite.Paperbase.Documents.DocumentReviewDisposition?",
           "typeSimple": "enum?",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true
+        },
+        {
+          "name": "HasReviewReasons",
+          "jsonName": null,
+          "type": "System.Boolean?",
+          "typeSimple": "boolean?",
           "isRequired": false,
           "minLength": null,
           "maxLength": null,
@@ -8084,13 +8558,13 @@
           "jsonName": null,
           "type": "System.String",
           "typeSimple": "string",
-          "isRequired": false,
+          "isRequired": true,
           "minLength": 0,
           "maxLength": 2048,
           "minimum": null,
           "maximum": null,
           "regex": null,
-          "isNullable": true
+          "isNullable": false
         }
       ]
     },
@@ -8113,6 +8587,54 @@
           "maximum": null,
           "regex": null,
           "isNullable": false
+        }
+      ]
+    },
+    "Dignite.Paperbase.Documents.ReviewReasonDetailDto": {
+      "baseType": null,
+      "isEnum": false,
+      "enumNames": null,
+      "enumValues": null,
+      "genericArguments": null,
+      "properties": [
+        {
+          "name": "Reason",
+          "jsonName": null,
+          "type": "Dignite.Paperbase.Documents.DocumentReviewReasons",
+          "typeSimple": "enum",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "IsBlocking",
+          "jsonName": null,
+          "type": "System.Boolean",
+          "typeSimple": "boolean",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "MissingFieldNames",
+          "jsonName": null,
+          "type": "[System.String]",
+          "typeSimple": "[string]",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true
         }
       ]
     },

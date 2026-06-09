@@ -14,7 +14,11 @@ public class GetDocumentListInput : PagedAndSortedResultRequestDto
     [DynamicStringLength(typeof(DocumentTypeConsts), nameof(DocumentTypeConsts.MaxTypeCodeLength))]
     public string? DocumentTypeCode { get; set; }
 
-    public DocumentReviewStatus? ReviewStatus { get; set; }
+    /// <summary>按人工审核<b>处置阶段</b>过滤（#284；查"已确认 / 已拒绝"等）。</summary>
+    public DocumentReviewDisposition? ReviewDisposition { get; set; }
+
+    /// <summary>true = 仅返回有任一未解决待审原因的文档（操作员审核队列，#284；含分类未定 + 必填缺失，单队列）。</summary>
+    public bool? HasReviewReasons { get; set; }
 
     /// <summary>
     /// 软删除过滤：null 或 false = 仅返回未删除文档（默认行为，依赖 EF DataFilter）；

@@ -29,7 +29,7 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
 
     /// <summary>
     /// 文档类型内部关联（由分类流水线 Run 成功后写入）。引用 <see cref="DocumentType"/>.Id（DDD reference-by-id，无导航属性）。
-    /// null 表示当前没有已确认/可用的文档类型；是否等待人工确认由 <see cref="ReviewStatus"/> 表达。
+    /// null 表示当前没有已确认/可用的文档类型；是否等待人工确认由 <see cref="ReviewDisposition"/> / <see cref="ReviewReasons"/> 表达。
     /// <para>
     /// 内部用不可变 Id 关联（#207）——外部 wire-format（REST / MCP / ETO）仍输出 <c>DocumentTypeCode</c> 字符串，
     /// 由读路径 join <see cref="DocumentType"/> 解析当前（或软删后最后已知）TypeCode。TypeCode rename 不再级联本表。
@@ -44,12 +44,22 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     public virtual DocumentLifecycleStatus LifecycleStatus { get; private set; }
 
     /// <summary>
-    /// 人工审核状态。
-    /// 分类置信度不足或无法产出有效类型时自动置为 PendingReview；人工确认后置为 Reviewed；
-    /// 操作员拒绝时置为 Rejected（#237，可恢复——后续 Reclassify 会转回 Reviewed）；
-    /// 新一轮自动分类成功时重置为 None。
+    /// 人工审核<b>处置阶段</b>（操作员动作轴，#284）。NotReviewed（默认）/ Confirmed（人工确认类型）/
+    /// Rejected（操作员拒绝，可恢复——后续 Reclassify 会转回 Confirmed）。
+    /// 与<b>待审原因</b>（<see cref="ReviewReasons"/>）正交：本字段只由操作员动作写。
+    /// "是否需操作员关注"由 <see cref="ReviewReasonPolicy.RequiresAttention(DocumentReviewReasons, DocumentReviewDisposition)"/>
+    /// 派生（<c>ReviewReasons != None 且本字段 != Rejected</c>）——Rejected 抑制需关注（操作员已处置），其余仅由原因轴驱动。
     /// </summary>
-    public virtual DocumentReviewStatus ReviewStatus { get; private set; }
+    public virtual DocumentReviewDisposition ReviewDisposition { get; private set; }
+
+    /// <summary>
+    /// 待审原因集合（客观未解决问题轴，#284）——为什么需要操作员关注。每个 bit 由唯一一个 pipeline 阶段维护
+    /// （UnresolvedClassification←分类阶段、MissingRequiredFields←字段抽取阶段，按位 set/clear 互不覆盖）。
+    /// blocking 原因（见 <see cref="ReviewReasonPolicy"/>）经
+    /// <see cref="Pipelines.DocumentPipelineRunManager.DeriveLifecycleAsync"/> 挡住 Ready；
+    /// non-blocking 只进操作员队列、不阻断下游。
+    /// </summary>
+    public virtual DocumentReviewReasons ReviewReasons { get; private set; }
 
     /// <summary>
     /// 提取的结构化 Markdown 内容（文本提取流水线 Run 成功后写入，不可变）。
@@ -66,19 +76,17 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
 
     /// <summary>
     /// 文档分类置信度（0.0 ~ 1.0），为最后一次成功分类 Run 的快照。
-    /// 当 <see cref="DocumentTypeCode"/> 为 null 时此值为 0；是否等待人工确认由 <see cref="ReviewStatus"/> 表达。
-    /// 人工确认（<see cref="DocumentReviewStatus.Reviewed"/>）时固定写入 1.0。
+    /// 当 <see cref="DocumentTypeCode"/> 为 null 时此值为 0；是否等待人工确认由 <see cref="ReviewDisposition"/> / <see cref="ReviewReasons"/> 表达。
+    /// 人工确认（<see cref="DocumentReviewDisposition.Confirmed"/>）时固定写入 1.0。
     /// </summary>
     public virtual double ClassificationConfidence { get; private set; }
 
     /// <summary>
-    /// AI 对当前分类决策的业务解释（分类理由）。
-    /// 仅在 <see cref="RequestClassificationReview"/> 路径（置信度不足或无法分类）时写入；
-    /// 高置信度 <see cref="ApplyAutomaticClassificationResult"/> 时为 null；
-    /// 人工确认（<see cref="ConfirmClassification"/>）后清空。
-    /// 与 <see cref="DocumentPipelineRun.StatusMessage"/>（流水线技术错误信息）语义不同。
+    /// 操作员拒绝审核时填写的拒绝理由（#284：从原 ClassificationReason 独立出来，拒绝时<b>必填</b>）。
+    /// 仅在 <see cref="ReviewDisposition"/> = Rejected 时有值；语义单一——人工输入的拒绝说明，
+    /// 不再兼做 AI 分类解释。长度受 <see cref="DocumentConsts.MaxRejectionReasonLength"/> 约束。
     /// </summary>
-    public virtual string? ClassificationReason { get; private set; }
+    public virtual string? RejectionReason { get; private set; }
 
     // === 字段架构 v2：系统通用字段（顶层 typed columns，由 pipeline 各阶段填充） ===
 
@@ -234,33 +242,50 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         }
     }
 
-    // 高置信度路径：ClassificationReason 必须为 null，与 RequestClassificationReview 路径区分。
+    /// <summary>
+    /// 按位 set / clear 单个待审原因（#284）——原因写入的<b>唯一</b>入口。每个 bit 由唯一一个阶段维护
+    /// （UnresolvedClassification←分类阶段，内联于本类方法；MissingRequiredFields←字段抽取阶段，由 Application 层
+    /// handler / appservice 在写字段同一 UoW 内评估后调用），用按位操作保证两阶段互不覆盖
+    /// （聚合根不暴露整体 setter，防一个阶段误覆盖另一阶段的判定）。
+    /// <c>public</c> 是因 MRF 维度的写入点在 Application 层（跨程序集）；可见性放宽但仍约定"每 bit 单阶段维护"。
+    /// </summary>
+    public void SetReviewReason(DocumentReviewReasons reason, bool present)
+    {
+        ReviewReasons = present ? (ReviewReasons | reason) : (ReviewReasons & ~reason);
+    }
+
+    // 高置信度路径：分类已定 → 清 UnresolvedClassification、处置回 NotReviewed。
     internal void ApplyAutomaticClassificationResult(
         Guid documentTypeId,
         double classificationConfidence)
     {
         DocumentTypeId = Check.NotDefaultOrNull<Guid>(documentTypeId, nameof(documentTypeId));
         ClassificationConfidence = Check.Range(classificationConfidence, nameof(classificationConfidence), 0d, 1d);
-        ClassificationReason = null;
-        ReviewStatus = DocumentReviewStatus.None;
+        SetReviewReason(DocumentReviewReasons.UnresolvedClassification, present: false);
+        ReviewDisposition = DocumentReviewDisposition.NotReviewed;
+        RejectionReason = null; // #284 review-fix：离开 Rejected 处置 → 清陈旧拒绝理由（仅 Rejected 时该有值）
     }
 
     /// <summary>
-    /// 标记为待人工审核：清空尚未确认的分类结果，避免历史值污染外部读模型。
+    /// 标记分类未定（待人工确认类型）：收回未确认的分类结果，置
+    /// <see cref="DocumentReviewReasons.UnresolvedClassification"/>（blocking），避免历史值污染外部读模型。
     /// <para>
     /// 不变量「无已确认类型 ⟹ 无类型绑定字段值」：类型被收回（<see cref="DocumentTypeId"/> = null）后，
     /// 旧的 <see cref="ExtractedFieldValues"/> 不再属于任何已确认类型，必须一并清空——否则出口 DTO / MCP /
     /// 导出会出现「无类型却带字段」的脏读模型（#267：自动重判落到低置信度时首次暴露）。重新确认类型
     /// （<see cref="ConfirmClassification"/> 或高置信度重判 → <c>DocumentClassifiedEto</c> → 字段重抽）会补回字段。
     /// 在聚合根一处收敛此不变量，省得在每个读路径各自按类型过滤（避免特例堆叠）。
+    /// 同时清 <see cref="DocumentReviewReasons.MissingRequiredFields"/>——无类型则必填维度不可判定，归零。
     /// </para>
     /// </summary>
-    internal void RequestClassificationReview(string? reason = null)
+    internal void RequestClassificationReview()
     {
         DocumentTypeId = null;
         ClassificationConfidence = 0;
-        ClassificationReason = TruncateReason(reason);
-        ReviewStatus = DocumentReviewStatus.PendingReview;
+        SetReviewReason(DocumentReviewReasons.UnresolvedClassification, present: true);
+        SetReviewReason(DocumentReviewReasons.MissingRequiredFields, present: false);
+        ReviewDisposition = DocumentReviewDisposition.NotReviewed;
+        RejectionReason = null; // #284 review-fix：离开 Rejected 处置 → 清陈旧拒绝理由
         _extractedFieldValues.Clear();
     }
 
@@ -268,30 +293,34 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     {
         DocumentTypeId = Check.NotDefaultOrNull<Guid>(documentTypeId, nameof(documentTypeId));
         ClassificationConfidence = 1.0;
-        ReviewStatus = DocumentReviewStatus.Reviewed;
-        ClassificationReason = null;
+        // 人工确认类型 → 清 UC；MRF 由随后的字段重抽重算（此处先清，避免旧 schema 的必填判定残留）。
+        SetReviewReason(DocumentReviewReasons.UnresolvedClassification, present: false);
+        SetReviewReason(DocumentReviewReasons.MissingRequiredFields, present: false);
+        ReviewDisposition = DocumentReviewDisposition.Confirmed;
+        RejectionReason = null; // #284 review-fix：拒绝可恢复——Reclassify/Confirm 后清陈旧拒绝理由
     }
 
     /// <summary>
-    /// 操作员拒绝审核——把 <see cref="ReviewStatus"/> 置为 <see cref="DocumentReviewStatus.Rejected"/>（拒绝的权威信号），
-    /// 并把 <see cref="LifecycleStatus"/> 落到 Failed 作为"宏观不可用"外观。保留原文件、Markdown、confidence 和拒绝原因。
+    /// 操作员拒绝审核（#284：理由<b>必填</b>）——把 <see cref="ReviewDisposition"/> 置为 Rejected（拒绝的权威信号）、
+    /// 写入 <see cref="RejectionReason"/>，并把 <see cref="LifecycleStatus"/> 落到 Failed 作为"宏观不可用"外观。
+    /// 保留原文件、Markdown、confidence、字段值与待审原因（<see cref="ReviewReasons"/> 不动）。
     /// <para>
     /// <b>拒绝可恢复，不是终态</b>（#237）：本方法只记录"操作员此刻拒绝"这一事实，不封死文档。操作员后续可对
-    /// 同一文档 Reclassify 指派类型——届时 <see cref="ConfirmClassification"/> 把 ReviewStatus 转回 Reviewed、
+    /// 同一文档 Reclassify 指派类型——届时 <see cref="ConfirmClassification"/> 把 ReviewDisposition 转回 Confirmed、
     /// 流水线派生回 Ready、<c>DocumentReadyEto</c> 重新发布；下游按 ETO 的 <c>EventTime</c> 单调幂等吸收重发
     /// （见 CLAUDE.md 投递语义）。"曾被拒绝 → 已复审"的轨迹由 ABP 实体审计日志承载，不在聚合根上建吸收态 / Reopen 状态机。
     /// </para>
     /// <para>
     /// <b>lifecycle 派生规则的合法例外</b>：通常 <see cref="LifecycleStatus"/> 由
     /// <see cref="DocumentPipelineRunManager"/> 从 pipeline run 状态派生，此处直接 <see cref="TransitionLifecycle"/>
-    /// 到 Failed 是人工审核轴的合法越权。迁移后 Failed 不再语义重载——它统一表示"宏观不可用"，<b>原因</b>由细分字段
-    /// 正交说明（pipeline run = 技术失败；<see cref="ReviewStatus"/> = Rejected = 操作员拒绝）。
+    /// 到 Failed 是人工审核轴的合法越权。Failed 统一表示"宏观不可用"，<b>原因</b>由细分字段正交说明
+    /// （pipeline run = 技术失败；<see cref="ReviewDisposition"/> = Rejected = 操作员拒绝）。
     /// </para>
     /// </summary>
-    public void RejectReview(string? reason = null)
+    public void RejectReview(string reason)
     {
-        ClassificationReason = TruncateReason(reason) ?? ClassificationReason;
-        ReviewStatus = DocumentReviewStatus.Rejected;
+        RejectionReason = Check.NotNullOrWhiteSpace(reason, nameof(reason), DocumentConsts.MaxRejectionReasonLength);
+        ReviewDisposition = DocumentReviewDisposition.Rejected;
         TransitionLifecycle(DocumentLifecycleStatus.Failed);
     }
 
@@ -314,8 +343,4 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         AddLocalEvent(new DocumentLifecycleStatusChangedEvent(Id, oldStatus, newStatus));
     }
 
-    private static string? TruncateReason(string? value) =>
-        value is null || value.Length <= DocumentConsts.MaxClassificationReasonLength
-            ? value
-            : value[..DocumentConsts.MaxClassificationReasonLength];
 }
