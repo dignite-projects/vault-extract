@@ -30,6 +30,7 @@ public sealed class DocumentTypeResources
     [McpServerResource(
         UriTemplate = DocumentTypeResourceUri.Template,
         Name = "DocumentAI Document Type",
+        Title = "Document Type",
         MimeType = "application/json")]
     [Description("Read a DocumentAI document type's field schema by type code: its fields (name, data type, "
         + "allowMultiple, display name, required) plus the type display name. Use this to discover which field names and data "

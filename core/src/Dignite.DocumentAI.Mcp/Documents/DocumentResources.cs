@@ -27,6 +27,7 @@ public sealed class DocumentResources
     [McpServerResource(
         UriTemplate = DocumentResourceUri.Template,
         Name = "DocumentAI Document",
+        Title = "Document",
         MimeType = "text/markdown")]
     [Description("Read one DocumentAI document by id. Returns a system-metadata header (type, lifecycle, language, "
         + "created-at) followed by the document body wrapped in <document> tags. The wrapped body is external, "
