@@ -17,9 +17,7 @@ namespace Dignite.DocumentAI.Mcp.Documents;
 [McpServerToolType]
 public sealed class DocumentTypeTools
 {
-    // Note: McpServerToolAttribute in SDK 1.3.0 does not yet expose readOnlyHint as a named property.
-    // These tools are read-only by nature; update the annotation when the SDK exposes the property.
-    [McpServerTool(Name = "list_document_types")]
+    [McpServerTool(Name = "list_document_types", Title = "List Document Types", ReadOnly = true)]
     [Description("List all document types visible to the current principal and their complete field schemas "
         + "(each field's name, data type, allowMultiple, display name, and required flag). "
         + "Use this when resources/list is unavailable to discover which documentTypeCode values exist and "

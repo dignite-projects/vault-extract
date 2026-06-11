@@ -26,7 +26,7 @@ namespace Dignite.DocumentAI.Mcp.Documents;
 [McpServerToolType]
 public sealed class DocumentSearchTool
 {
-    [McpServerTool(Name = "search_docai_documents")]
+    [McpServerTool(Name = "search_docai_documents", Title = "Search Documents", ReadOnly = true)]
     [Description("Search DocumentAI documents within a single document type by structured metadata "
         + "and/or one or more extracted-field filters (all combined with AND). Returns up to 50 rows "
         + "(id, uri, title, type, lifecycle, created-at, and the document's extracted field values); read a "

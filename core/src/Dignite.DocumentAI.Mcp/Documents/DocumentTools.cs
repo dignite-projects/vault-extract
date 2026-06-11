@@ -18,9 +18,7 @@ namespace Dignite.DocumentAI.Mcp.Documents;
 [McpServerToolType]
 public sealed class DocumentTools
 {
-    // Note: McpServerToolAttribute in SDK 1.3.0 does not yet expose readOnlyHint as a named property.
-    // These tools are read-only by nature; update the annotation when the SDK exposes the property.
-    [McpServerTool(Name = "get_document")]
+    [McpServerTool(Name = "get_document", Title = "Get Document", ReadOnly = true)]
     [Description("Read a DocumentAI document's full content by id: title, type, lifecycle, language, "
         + "created-at, the full Markdown body, and all extracted field values. "
         + "Use this when resources/read is unavailable to follow up on a search result's id. "
