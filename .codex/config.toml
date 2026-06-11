@@ -1,6 +1,12 @@
-[mcp_servers."microsoft-learn"]
+[mcp_servers.microsoft-learn]
 url = "https://learn.microsoft.com/api/mcp"
 
-[mcp_servers."abp-studio"]
+[mcp_servers.abp-studio]
 command = "abp"
 args = ["mcp-studio"]
+
+[shell_environment_policy]
+inherit = "core"
+
+[shell_environment_policy.set]
+NODE_TLS_REJECT_UNAUTHORIZED = "0"
