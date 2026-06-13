@@ -129,7 +129,7 @@ jobs:
             echo "::notice::NPM_TOKEN secret is not configured; skipping npm publish."
             exit 0
           fi
-          npm publish dist/document-ai --access public
+          npm publish ./dist/document-ai --access public
         working-directory: angular
 
       # Extract this version's section from CHANGELOG.md as the draft release body. The heading
