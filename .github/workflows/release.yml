@@ -4,7 +4,8 @@
 # only build / pack / upload artifacts and do not create a GitHub Release.
 #
 # Note: NuGet package versions come from <Version> in common.props. Tags do not drive
-# the version number, so confirm common.props is updated before tagging.
+# the version number; a guard step fails the run when the pushed tag does not match
+# common.props, or the npm package version falls out of lockstep.
 #
 # npm package (@dignite/document-ai) publishing is not automated yet. Manual flow:
 #   cd angular
@@ -31,6 +32,24 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      # Fail fast when the tag, common.props <Version>, and the npm package version disagree.
+      # common.props is the truth source; CONTRIBUTING.md ("Where the version lives") requires
+      # the npm version to stay in lockstep with it.
+      - name: Verify tag and version lockstep
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION=$(sed -n 's/.*<Version>\(.*\)<\/Version>.*/\1/p' common.props | head -n1)
+          TAG="${GITHUB_REF#refs/tags/}"
+          if [ "v$VERSION" != "$TAG" ]; then
+            echo "::error::Tag $TAG does not match <Version>$VERSION</Version> in common.props."
+            exit 1
+          fi
+          NPM_VERSION=$(node -p "require('./angular/packages/document-ai/package.json').version")
+          if [ "$NPM_VERSION" != "$VERSION" ]; then
+            echo "::error::npm version $NPM_VERSION (angular/packages/document-ai/package.json) is not in lockstep with common.props $VERSION."
+            exit 1
+          fi
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -91,11 +110,27 @@ jobs:
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
 
+      # Extract this version's section from CHANGELOG.md as the draft release body. The heading
+      # line is dropped (the release title already carries the version). Missing section is a
+      # warning, not an error: the draft is reviewed by a human who can still write the body.
+      - name: Extract release notes from CHANGELOG
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          awk -v ver="$VERSION" '
+            /^## \[/ { if (found) exit; if (index($0, "[" ver "]") > 0) found = 1; next }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "::warning::CHANGELOG.md has no section for $VERSION; the draft release body will be empty - fill it in before publishing."
+          fi
+
       # Create a draft Release only on tag pushes (workflow_dispatch has no tag context).
-      # Review the draft release notes manually before publishing.
+      # The body is pre-filled from CHANGELOG.md; review the draft before publishing.
       - name: Create draft GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           draft: true
+          body_path: release-notes.md
           files: artifacts/*.nupkg

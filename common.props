@@ -2,6 +2,9 @@
     <PropertyGroup>
         <LangVersion>latest</LangVersion>
         <Version>0.1.0</Version>
+        <!-- Pinned explicitly: without this the SDK derives AssemblyVersion from <Version>,
+             moving it on every MINOR/PATCH — see CONTRIBUTING.md "Where the version lives". -->
+        <AssemblyVersion>0.1.0.0</AssemblyVersion>
         <!--
           CS1591: missing XML docs (we document public APIs with rich /// comments where it matters
                   but don't require it everywhere).
