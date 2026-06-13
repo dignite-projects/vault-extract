@@ -95,6 +95,11 @@
          host-selected IOcrProvider (#301). Coexists with ElBruno; claims .pdf. Omit it and .pdf falls
          back to ElBruno. -->
     <ProjectReference Include="..\..\core\src\Dignite.DocumentAI.TextExtraction.Pdf\Dignite.DocumentAI.TextExtraction.Pdf.csproj" />
+    <!-- OpenXML Markdown provider: PPTX slide text / charts / tables / speaker notes + embedded-image
+         transcription via the host-selected IOcrProvider (#307). Claims .pptx. REQUIRED for .pptx text:
+         ElBruno (catch-all) has no PresentationML converter, so without this module .pptx yields empty
+         Markdown (no OCR fallback). Shared stack for the later DOCX phase (#308). -->
+    <ProjectReference Include="..\..\core\src\Dignite.DocumentAI.TextExtraction.OpenXml\Dignite.DocumentAI.TextExtraction.OpenXml.csproj" />
     <ProjectReference Include="..\..\core\src\Dignite.DocumentAI.TextExtraction.ElBrunoMarkItDown\Dignite.DocumentAI.TextExtraction.ElBrunoMarkItDown.csproj" />
     <!-- OCR provider — IOcrProvider implementations are mutually exclusive; enable only one.
          Current default: VisionLlm (photos / thermal receipts / image-only PDFs, #259).

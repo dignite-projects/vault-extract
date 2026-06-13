@@ -103,6 +103,10 @@
              Pinned to the exact version ElBruno.MarkItDotNet 0.6.0 pulls transitively, so the host process
              resolves a single PdfPig (no upgrade/downgrade conflict between the two providers). -->
         <PackageVersion Include="PdfPig" Version="0.1.14" />
+        <!-- OpenXML SDK: PPTX (#307) / DOCX (#308) structural extraction for the OpenXmlExtractor stack.
+             Pinned to the exact version ElBruno.MarkItDotNet 0.6.0 pulls transitively (3.3.0), so the host
+             process resolves a single DocumentFormat.OpenXml (no conflict between the two providers). -->
+        <PackageVersion Include="DocumentFormat.OpenXml" Version="3.3.0" />
         <PackageVersion Include="PDFtoImage" Version="5.2.1" />
         <!-- Must exactly match the SkiaSharp main package version transitively used by PDFtoImage 5.2.1 (3.119.2). -->
         <PackageVersion Include="SkiaSharp.NativeAssets.Linux" Version="3.119.2" />

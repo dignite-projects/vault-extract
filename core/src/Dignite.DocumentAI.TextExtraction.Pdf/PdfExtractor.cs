@@ -68,7 +68,7 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
         TextExtractionContext context,
         CancellationToken cancellationToken = default)
     {
-        var bytes = await ReadAllBytesAsync(fileStream, cancellationToken);
+        var bytes = await TextExtractionStreams.ReadAllBytesAsync(fileStream, cancellationToken);
 
         PdfDocument document;
         try
@@ -335,25 +335,6 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
         }
 
         return parts.Count == 0 ? null : string.Join("; ", parts) + ".";
-    }
-
-    private static async Task<byte[]> ReadAllBytesAsync(Stream stream, CancellationToken cancellationToken)
-    {
-        // The orchestrator (DefaultTextExtractor) already buffers the upload into a seekable MemoryStream,
-        // so a single ToArray() copy suffices on the production path. Only re-buffer a non-MemoryStream.
-        if (stream is MemoryStream memoryStream)
-        {
-            return memoryStream.ToArray();
-        }
-
-        if (stream.CanSeek)
-        {
-            stream.Position = 0;
-        }
-
-        using var copy = new MemoryStream();
-        await stream.CopyToAsync(copy, cancellationToken);
-        return copy.ToArray();
     }
 
     private readonly record struct PageContent(Page Page, IReadOnlyList<Word> Words);

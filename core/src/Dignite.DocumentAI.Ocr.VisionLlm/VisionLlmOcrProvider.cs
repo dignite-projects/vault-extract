@@ -280,47 +280,11 @@ public class VisionLlmOcrProvider : IOcrProvider, ITransientDependency
     private static string NormalizeContentType(string? contentType)
         => contentType?.Split(';')[0].Trim().ToLowerInvariant() ?? string.Empty;
 
-    private static bool IsPdfMagic(byte[] b)
-        => b.Length >= 5 && b[0] == 0x25 && b[1] == 0x50 && b[2] == 0x44 && b[3] == 0x46 && b[4] == 0x2D; // "%PDF-"
+    // Magic-byte detection lives in the shared Ocr-contract helper so the signature table is defined once
+    // across all providers (was previously duplicated here / in PdfImagePayload / in PptxImagePayload).
+    private static bool IsPdfMagic(byte[] b) => ImageSignature.IsPdf(b);
 
-    private static string? SniffImageMediaType(byte[] b)
-    {
-        if (b.Length >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF)
-        {
-            return "image/jpeg";
-        }
-
-        if (b.Length >= 8 && b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4E && b[3] == 0x47
-            && b[4] == 0x0D && b[5] == 0x0A && b[6] == 0x1A && b[7] == 0x0A)
-        {
-            return "image/png";
-        }
-
-        if (b.Length >= 4 && b[0] == 0x47 && b[1] == 0x49 && b[2] == 0x46 && b[3] == 0x38) // "GIF8"
-        {
-            return "image/gif";
-        }
-
-        if (b.Length >= 2 && b[0] == 0x42 && b[1] == 0x4D) // "BM"
-        {
-            return "image/bmp";
-        }
-
-        if (b.Length >= 12 && b[0] == 0x52 && b[1] == 0x49 && b[2] == 0x46 && b[3] == 0x46 // "RIFF"
-            && b[8] == 0x57 && b[9] == 0x45 && b[10] == 0x42 && b[11] == 0x50) // "WEBP"
-        {
-            return "image/webp";
-        }
-
-        if (b.Length >= 4
-            && ((b[0] == 0x49 && b[1] == 0x49 && b[2] == 0x2A && b[3] == 0x00)   // "II*\0" little-endian TIFF
-                || (b[0] == 0x4D && b[1] == 0x4D && b[2] == 0x00 && b[3] == 0x2A))) // "MM\0*" big-endian TIFF
-        {
-            return "image/tiff";
-        }
-
-        return null;
-    }
+    private static string? SniffImageMediaType(byte[] b) => ImageSignature.SniffMediaType(b);
 
     private enum InputKind
     {

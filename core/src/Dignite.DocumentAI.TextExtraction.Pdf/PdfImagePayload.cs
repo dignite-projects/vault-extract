@@ -1,4 +1,4 @@
-using System;
+using Dignite.DocumentAI.Ocr;
 using UglyToad.PdfPig.Content;
 
 namespace Dignite.DocumentAI.TextExtraction.Pdf;
@@ -22,30 +22,19 @@ internal static class PdfImagePayload
         }
 
         // PdfPig does not decode DCT (JPEG) without an external filter; for those, the raw stream IS a
-        // valid JPEG file. TryGetBytesAsMemory reverses non-DCT filters; otherwise use the raw bytes.
+        // valid image file. TryGetBytesAsMemory reverses non-DCT filters; otherwise use the raw bytes.
         var raw = image.TryGetBytesAsMemory(out var decoded) ? decoded : image.RawMemory;
 
-        // Inspect the signature on the span first; only materialize a byte[] when we will actually return
-        // it (an unsupported/headerless image otherwise pays a full-buffer copy just to be discarded).
-        var span = raw.Span;
-        if (LooksLikeJpeg(span))
+        // Inspect the signature on the span first (via the shared Ocr-contract sniffer); only materialize a
+        // byte[] when we will actually return it (an unsupported/headerless image otherwise pays a
+        // full-buffer copy just to be discarded).
+        var contentType = ImageSignature.SniffMediaType(raw.Span);
+        if (contentType is not null)
         {
-            return (raw.ToArray(), "image/jpeg");
-        }
-
-        if (LooksLikePng(span))
-        {
-            return (raw.ToArray(), "image/png");
+            return (raw.ToArray(), contentType);
         }
 
         // Unsupported codec (JBIG2 / JPX / CCITT) or undecoded raw samples without a file header.
         return null;
     }
-
-    private static bool LooksLikeJpeg(ReadOnlySpan<byte> b)
-        => b.Length >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF;
-
-    private static bool LooksLikePng(ReadOnlySpan<byte> b)
-        => b.Length >= 8 && b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4E && b[3] == 0x47
-           && b[4] == 0x0D && b[5] == 0x0A && b[6] == 0x1A && b[7] == 0x0A;
 }
