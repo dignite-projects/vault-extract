@@ -91,6 +91,12 @@ internal static class DocxFixtures
     /// <summary>A single-cell table whose cell contains an embedded image (to exercise figure-in-cell extraction).</summary>
     public sealed record TableImageCellSpec(ImageSpec Image) : BlockSpec;
 
+    /// <summary>A block-level content control (w:sdt) wrapping a paragraph (to exercise sdt recursion).</summary>
+    public sealed record ContentControlSpec(string Text) : BlockSpec;
+
+    /// <summary>A paragraph carrying a legacy VML raster image (w:pict/v:imagedata) instead of DrawingML.</summary>
+    public sealed record VmlImageSpec(ImageSpec Image) : BlockSpec;
+
     public sealed class DocSpec
     {
         public List<BlockSpec> Blocks { get; } = new();
@@ -193,6 +199,18 @@ internal static class DocxFixtures
             Blocks.Add(new TableImageCellSpec(image));
             return this;
         }
+
+        public DocSpec ContentControl(string text)
+        {
+            Blocks.Add(new ContentControlSpec(text));
+            return this;
+        }
+
+        public DocSpec VmlImage(ImageSpec image)
+        {
+            Blocks.Add(new VmlImageSpec(image));
+            return this;
+        }
     }
 
     public static byte[] Build(DocSpec spec)
@@ -275,6 +293,14 @@ internal static class DocxFixtures
 
                     case TableImageCellSpec tableImage:
                         body.Append(TableImageCellXml(tableImage.Image, AddImage(mainPart, tableImage.Image, ref imageRel)));
+                        break;
+
+                    case ContentControlSpec contentControl:
+                        body.Append(ContentControlXml(contentControl.Text));
+                        break;
+
+                    case VmlImageSpec vmlImage:
+                        body.Append(VmlImageXml(AddImage(mainPart, vmlImage.Image, ref imageRel)));
                         break;
                 }
             }
@@ -399,6 +425,12 @@ internal static class DocxFixtures
     /// <summary>A Heading1 paragraph anchoring a text box: a heading run followed by the text-box AlternateContent run.</summary>
     private static string HeadingTextBoxXml(string heading, string textBox) =>
         $"<w:p><w:pPr><w:pStyle w:val=\"Heading1\"/></w:pPr><w:r><w:t xml:space=\"preserve\">{Escape(heading)}</w:t></w:r>{AltTextBoxRunXml(textBox)}</w:p>";
+
+    private static string ContentControlXml(string text) =>
+        $"<w:sdt><w:sdtPr/><w:sdtContent><w:p><w:r><w:t xml:space=\"preserve\">{Escape(text)}</w:t></w:r></w:p></w:sdtContent></w:sdt>";
+
+    private static string VmlImageXml(string relId) =>
+        $"<w:p><w:r><w:pict><v:shape id=\"vml{relId}\" style=\"width:100pt;height:100pt\"><v:imagedata r:id=\"{relId}\"/></v:shape></w:pict></w:r></w:p>";
 
     private static string TableImageCellXml(ImageSpec image, string relId) =>
         $"<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w=\"4000\"/></w:tblGrid><w:tr><w:tc><w:tcPr/><w:p><w:r>{InlineDrawingXml(image, relId)}</w:r></w:p></w:tc></w:tr></w:tbl>";

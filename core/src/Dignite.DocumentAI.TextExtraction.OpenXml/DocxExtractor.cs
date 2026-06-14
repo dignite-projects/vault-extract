@@ -61,7 +61,9 @@ namespace Dignite.DocumentAI.TextExtraction.OpenXml;
 /// <para>
 /// <b>Current scope.</b> Headings, flowing paragraph text with inline formatting (bold/italic) and
 /// hyperlinks, lists (<c>w:numPr</c> → bullet/ordered with nesting), text boxes (<c>w:txbxContent</c> →
-/// text block), embedded raster image transcription, tables (<c>w:tbl</c> → Markdown table), and charts
+/// text block), block-level content controls (<c>w:sdt</c>) and custom-XML wrappers (recursed), embedded
+/// raster image transcription (DrawingML <c>a:blip</c> and legacy VML <c>v:imagedata</c>), tables
+/// (<c>w:tbl</c> → Markdown table, with in-cell figures extracted after the table), and charts
 /// (<c>ChartPart</c> backing data → Markdown table, reusing <see cref="ChartRenderer"/>). This completes the
 /// structural rebuild for #308.
 /// </para>
@@ -218,9 +220,9 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
     /// <summary>
     /// Renders one top-level body element into <paramref name="blocks"/>. Handles paragraphs (headings via
     /// <see cref="WordStyleMap"/> + flowing text + embedded images) and tables
-    /// (<see cref="WordTableRenderer"/>). Charts and images ride the paragraph's drawings (handled in
-    /// <see cref="ProcessParagraphAsync"/>); content-control (<c>w:sdt</c>) recursion is a later step, and
-    /// other top-level elements are skipped.
+    /// (<see cref="WordTableRenderer"/>). Block-level content controls (<c>w:sdt</c>) and custom-XML wrappers
+    /// recurse into their content; charts and images ride the paragraph's / table's drawings. A non-paragraph
+    /// block that still carries visible text trips the #268 signal rather than being silently dropped.
     /// </summary>
     protected virtual async Task RenderBlockAsync(
         DocumentFormat.OpenXml.OpenXmlElement element,
@@ -247,19 +249,34 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
                 }
 
                 // A Markdown table cell can't host a multi-line transcription / chart block, so a figure
-                // (image or chart) inside a cell is extracted as its own block AFTER the table — content is
-                // preserved (over its exact in-cell position) and a failure still trips the #268 signal,
-                // rather than being silently dropped. WordTableRenderer only emits the cells' w:t text.
-                foreach (var drawing in table.Descendants<W.Drawing>())
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    await HandleDrawingAsync(drawing, mainPart, blocks, state, cancellationToken);
-                }
-
+                // inside a cell is extracted as its own block AFTER the table — content preserved (over its
+                // exact in-cell position), a failure still trips #268, rather than being silently dropped.
+                await ExtractContainerFiguresAsync(table, mainPart, blocks, state, cancellationToken);
                 break;
             }
 
-            // TODO(#308 later step): W.SdtBlock -> recurse into content controls.
+            case W.SdtBlock sdt:
+                // Block-level content control (a form / template field wrapping paragraphs, tables, etc.).
+                // Recurse into its content so the wrapped body is not silently dropped.
+                await RenderChildBlocksAsync(sdt.SdtContentBlock, mainPart, blocks, state, cancellationToken);
+                break;
+
+            case W.CustomXmlBlock customXml:
+                // Block-level custom-XML wrapper around body content — recurse the same way.
+                await RenderChildBlocksAsync(customXml, mainPart, blocks, state, cancellationToken);
+                break;
+
+            default:
+                // sectPr / bookmark / proofErr and similar markers carry no body text and are correctly
+                // skipped. But if an unhandled block carries visible text, do NOT drop it silently — trip the
+                // #268 signal so downstream knows content was lost.
+                if (!string.IsNullOrWhiteSpace(element.InnerText))
+                {
+                    Logger.LogWarning("Skipping an unsupported body block <{Name}> that carries text.", element.LocalName);
+                    state.FailedBlocks++;
+                }
+
+                break;
         }
     }
 
@@ -336,10 +353,59 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
             }
         }
 
-        foreach (var drawing in paragraph.Descendants<W.Drawing>())
+        await ExtractContainerFiguresAsync(paragraph, mainPart, blocks, state, cancellationToken);
+    }
+
+    /// <summary>
+    /// Transcribes a container's (paragraph or table) embedded images and renders its chart drawings.
+    /// Covers both DrawingML images (<c>a:blip</c> in <c>w:drawing</c>) and legacy VML raster images
+    /// (<c>v:imagedata</c> in <c>w:pict</c>), so a compatibility-mode / legacy DOCX does not silently drop
+    /// figures. Used for both body paragraphs and table cells (a Markdown cell can't host a transcription).
+    /// </summary>
+    private async Task ExtractContainerFiguresAsync(
+        DocumentFormat.OpenXml.OpenXmlElement container,
+        MainDocumentPart mainPart,
+        List<string> blocks,
+        ExtractionState state,
+        CancellationToken cancellationToken)
+    {
+        foreach (var drawing in container.Descendants<W.Drawing>())
         {
             cancellationToken.ThrowIfCancellationRequested();
             await HandleDrawingAsync(drawing, mainPart, blocks, state, cancellationToken);
+        }
+
+        // Legacy VML raster images (w:pict/v:imagedata) are not W.Drawing, so the DrawingML walk above
+        // misses them. They reference PNG/JPEG bytes via an r:id (or o:relid) relationship — transcribe them
+        // too rather than silently dropping the figure. (A vector-only VML shape has no imagedata relationship.)
+        foreach (var imageData in container.Descendants().Where(e => e.LocalName == "imagedata"))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var relationshipId = VmlImageRelationshipId(imageData);
+            if (!string.IsNullOrEmpty(relationshipId))
+            {
+                await TranscribeEmbeddedImageAsync(relationshipId!, caption: null, mainPart, blocks, state, cancellationToken);
+            }
+        }
+    }
+
+    /// <summary>Recursively renders the block-level children of a content-control / custom-XML wrapper.</summary>
+    private async Task RenderChildBlocksAsync(
+        DocumentFormat.OpenXml.OpenXmlElement? container,
+        MainDocumentPart mainPart,
+        List<string> blocks,
+        ExtractionState state,
+        CancellationToken cancellationToken)
+    {
+        if (container is null)
+        {
+            return;
+        }
+
+        foreach (var child in container.ChildElements)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await RenderBlockAsync(child, mainPart, blocks, state, cancellationToken);
         }
     }
 
@@ -365,6 +431,25 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
             return;
         }
 
+        // Native alt-text (wp:docPr/@descr, fallback @title) is a real caption signal — strictly better than
+        // PDF's nearest-text heuristic.
+        await TranscribeEmbeddedImageAsync(embed, AltTextOf(drawing), mainPart, blocks, state, cancellationToken);
+    }
+
+    /// <summary>
+    /// Resolves an embedded image relationship to its bytes and transcribes it via the host-selected
+    /// <see cref="IOcrProvider"/>, appending the transcription (optionally captioned) as a block. Shared by
+    /// the DrawingML (<c>a:blip</c>) and legacy VML (<c>v:imagedata</c>) image paths. Honors the per-file
+    /// image budget and trips the #268 counters on cap / oversize / undecodable / OCR-failure / truncation.
+    /// </summary>
+    private async Task TranscribeEmbeddedImageAsync(
+        string relationshipId,
+        string? caption,
+        MainDocumentPart mainPart,
+        List<string> blocks,
+        ExtractionState state,
+        CancellationToken cancellationToken)
+    {
         if (state.ImageBudget <= 0)
         {
             state.DroppedByCap++;
@@ -374,7 +459,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         OpenXmlImagePayload.ResolvedImage resolved;
         try
         {
-            var part = mainPart.GetPartById(embed);
+            var part = mainPart.GetPartById(relationshipId);
             resolved = part is ImagePart imagePart
                 ? OpenXmlImagePayload.TryResolve(imagePart, _options.MaxImageBytesPerImage)
                 // A dangling relationship / non-image part: treat as undecodable.
@@ -450,15 +535,39 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
             return;
         }
 
-        // Native alt-text (wp:docPr/@descr, fallback @title) is a real caption signal. Alt-text is
-        // author-controlled free text (often multi-line), so collapse newlines via MarkdownCell.Inline so
-        // the bold caption can't break the OCR block (often a table) directly below it.
-        var caption = AltTextOf(drawing);
+        // Caption (alt-text) is author-controlled free text (often multi-line), so collapse newlines via
+        // MarkdownCell.Inline so the bold caption can't break the OCR block (often a table) directly below it.
         var markdown = string.IsNullOrWhiteSpace(caption)
             ? transcription
             : "**" + MarkdownCell.Inline(caption) + "**\n\n" + transcription;
 
         blocks.Add(markdown);
+    }
+
+    /// <summary>
+    /// The embedded-image relationship id of a VML <c>v:imagedata</c> element: <c>r:id</c> (the
+    /// officeDocument relationships namespace) or, as a fallback, <c>o:relid</c>. Read by attribute (not a
+    /// strong type) because VML descendants are often left untyped by the SDK.
+    /// </summary>
+    private static string? VmlImageRelationshipId(DocumentFormat.OpenXml.OpenXmlElement imageData)
+    {
+        foreach (var attribute in imageData.GetAttributes())
+        {
+            if (attribute.LocalName == "id" && attribute.NamespaceUri.Contains("relationships"))
+            {
+                return attribute.Value;
+            }
+        }
+
+        foreach (var attribute in imageData.GetAttributes())
+        {
+            if (attribute.LocalName == "relid")
+            {
+                return attribute.Value;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

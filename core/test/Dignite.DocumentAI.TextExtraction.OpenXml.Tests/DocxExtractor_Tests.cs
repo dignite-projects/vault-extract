@@ -622,6 +622,38 @@ public class DocxExtractor_Tests
             Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task Extracts_content_control_body()
+    {
+        // A block-level content control (w:sdt) — common in Word forms/templates — must not silently drop
+        // its wrapped paragraph; it should appear in the Markdown and the result stays complete.
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .ContentControl("FORM_FIELD_TEXT"));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        result.Markdown.ShouldContain("FORM_FIELD_TEXT");
+        result.IsComplete.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Transcribes_a_legacy_vml_raster_image()
+    {
+        StubOcr("VML_FIGURE");
+
+        // A compatibility-mode / legacy DOCX can carry a PNG/JPEG via VML (w:pict/v:imagedata) instead of
+        // DrawingML; it must still be OCR'd through the IOcrProvider, not silently dropped.
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .Paragraph("Body text")
+            .VmlImage(Png(alt: null)));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        result.Markdown.ShouldContain("VML_FIGURE");
+        await _ocr.Received(1).RecognizeAsync(
+            Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
+    }
+
     private static int CountOccurrences(string haystack, string needle)
     {
         var count = 0;
