@@ -696,6 +696,39 @@ public class DocxExtractor_Tests
         result.IsComplete.ShouldBeFalse();
     }
 
+    [Fact]
+    public async Task Transcribes_a_text_box_image_only_once()
+    {
+        StubOcr("BOX_FIGURE");
+
+        // An image embedded inside a text box must be OCR'd exactly once — the recursive drawing walk must
+        // not transcribe both the text-box drawing and the nested image drawing (double cost + double budget
+        // + duplicate block). The text box's own text is still emitted.
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .TextBoxWithImage("box text", Png(alt: null)));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        CountOccurrences(result.Markdown, "BOX_FIGURE").ShouldBe(1);
+        result.Markdown.ShouldContain("box text");
+        await _ocr.Received(1).RecognizeAsync(
+            Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Clamps_an_extreme_list_level()
+    {
+        // A malformed / attacker w:ilvl must not blow up the indent string (level * 3 could overflow or
+        // allocate hundreds of MB). The level is clamped; the item still renders and the result stays complete.
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .BulletItem("Item", level: int.MaxValue));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        result.Markdown.ShouldContain("- Item");
+        result.IsComplete.ShouldBeTrue();
+    }
+
     private static int CountOccurrences(string haystack, string needle)
     {
         var count = 0;

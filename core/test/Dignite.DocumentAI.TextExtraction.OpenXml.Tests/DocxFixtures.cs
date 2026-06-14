@@ -106,6 +106,9 @@ internal static class DocxFixtures
     /// <summary>A stack of nested content controls (w:sdt) Depth levels deep wrapping one paragraph (to exercise the depth cap).</summary>
     public sealed record DeeplyNestedSdtSpec(int Depth, string Text) : BlockSpec;
 
+    /// <summary>A modern DrawingML text box (wps:txbx) containing a paragraph of text AND an embedded image.</summary>
+    public sealed record TextBoxImageSpec(string Text, ImageSpec Image) : BlockSpec;
+
     public sealed class DocSpec
     {
         public List<BlockSpec> Blocks { get; } = new();
@@ -238,6 +241,12 @@ internal static class DocxFixtures
             Blocks.Add(new DeeplyNestedSdtSpec(depth, text));
             return this;
         }
+
+        public DocSpec TextBoxWithImage(string text, ImageSpec image)
+        {
+            Blocks.Add(new TextBoxImageSpec(text, image));
+            return this;
+        }
     }
 
     public static byte[] Build(DocSpec spec)
@@ -340,6 +349,10 @@ internal static class DocxFixtures
 
                     case DeeplyNestedSdtSpec deepSdt:
                         body.Append(DeeplyNestedSdtXml(deepSdt.Depth, deepSdt.Text));
+                        break;
+
+                    case TextBoxImageSpec textBoxImage:
+                        body.Append(TextBoxImageXml(textBoxImage.Text, textBoxImage.Image, AddImage(mainPart, textBoxImage.Image, ref imageRel)));
                         break;
                 }
             }
@@ -470,6 +483,27 @@ internal static class DocxFixtures
 
     private static string TableContentControlCellXml(string text) =>
         $"<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w=\"4000\"/></w:tblGrid><w:tr><w:tc><w:tcPr/><w:sdt><w:sdtPr/><w:sdtContent><w:p><w:r><w:t xml:space=\"preserve\">{Escape(text)}</w:t></w:r></w:p></w:sdtContent></w:sdt></w:tc></w:tr></w:tbl>";
+
+    private static string TextBoxImageXml(string text, ImageSpec image, string relId) =>
+        $"""
+         <w:p><w:r><w:drawing>
+           <wp:inline>
+             <wp:extent cx="2000000" cy="2000000"/>
+             <wp:docPr id="60" name="TextBox 60"/>
+             <a:graphic>
+               <a:graphicData uri="{WpsUri}">
+                 <wps:wsp>
+                   <wps:txbx><w:txbxContent>
+                     <w:p><w:r><w:t xml:space="preserve">{Escape(text)}</w:t></w:r></w:p>
+                     <w:p><w:r>{InlineDrawingXml(image, relId)}</w:r></w:p>
+                   </w:txbxContent></wps:txbx>
+                   <wps:bodyPr/>
+                 </wps:wsp>
+               </a:graphicData>
+             </a:graphic>
+           </wp:inline>
+         </w:drawing></w:r></w:p>
+         """;
 
     private static string DeeplyNestedSdtXml(int depth, string text)
     {

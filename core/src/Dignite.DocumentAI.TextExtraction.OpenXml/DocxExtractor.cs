@@ -94,6 +94,13 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
     private const int MaxBlockNestingDepth = 32;
 
     /// <summary>
+    /// Hard cap on list nesting depth (w:ilvl) applied when indenting a Markdown list item. Word supports at
+    /// most nine levels; a malformed / attacker w:ilvl would otherwise allocate a huge indent string (or
+    /// overflow on <c>level * IndentSpacesPerListLevel</c>).
+    /// </summary>
+    private const int MaxListIndentLevels = 9;
+
+    /// <summary>
     /// Open settings that collapse OOXML markup-compatibility (<c>mc:AlternateContent</c>) to its single
     /// selected branch <b>before</b> parsing. Under the default <see cref="MarkupCompatibilityProcessMode.NoProcess"/>
     /// both branches stay in the tree, so a <c>Descendants</c> walk would read the SAME content twice: a
@@ -328,7 +335,10 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
                 var list = WordListNumbering.Resolve(paragraph, mainPart.NumberingDefinitionsPart);
                 if (list is { } listInfo)
                 {
-                    var indent = new string(' ', listInfo.Level * IndentSpacesPerListLevel);
+                    // Clamp the nesting level: a malformed / attacker w:ilvl would otherwise allocate a huge
+                    // indent string (level * 3) or overflow. Word supports at most nine list levels.
+                    var clampedLevel = Math.Clamp(listInfo.Level, 0, MaxListIndentLevels);
+                    var indent = new string(' ', clampedLevel * IndentSpacesPerListLevel);
                     markdown = indent + (listInfo.Ordered ? "1. " : "- ") + markdown;
                 }
 
@@ -378,7 +388,11 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         ExtractionState state,
         CancellationToken cancellationToken)
     {
-        foreach (var drawing in container.Descendants<W.Drawing>())
+        // Skip drawings nested inside a text box (txbxContent): the text box's own (outer) drawing is
+        // processed once and its recursive blip lookup transcribes the inner image a single time. Without
+        // this skip the recursive Descendants walk visits BOTH the outer text-box drawing AND the nested
+        // image drawing and OCRs the same image twice (double cost + double budget + duplicate block).
+        foreach (var drawing in container.Descendants<W.Drawing>().Where(d => !HasTextBoxAncestor(d)))
         {
             cancellationToken.ThrowIfCancellationRequested();
             await HandleDrawingAsync(drawing, mainPart, blocks, state, cancellationToken);
@@ -390,7 +404,8 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         // Known limitation: VML images are NOT decorative-size-filtered (a VML shape's size lives in its style
         // attribute, not wp:extent), so a tiny VML icon may be transcribed where its DrawingML equivalent
         // would be skipped by IsDecorative. VML in modern DOCX is rare, so this is accepted (see #318-area).
-        foreach (var imageData in container.Descendants().Where(e => e.LocalName == "imagedata"))
+        foreach (var imageData in container.Descendants()
+                     .Where(e => e.LocalName == "imagedata" && !HasTextBoxAncestor(e)))
         {
             cancellationToken.ThrowIfCancellationRequested();
             var relationshipId = VmlImageRelationshipId(imageData);
@@ -643,10 +658,21 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
             return false;
         }
 
+        var cx = extent.Cx.Value;
+        var cy = extent.Cy.Value;
+
+        // A degenerate (zero/negative) or attacker-large extent is not a small decorative image, so don't
+        // skip it — and bounding the dimensions here keeps the area multiplication below long-overflow (real
+        // extents are far under the bound, so the area math below stays exact).
+        const long MaxSaneExtentEmu = 100L * 914400; // 100 inches — larger than any real page dimension
+        if (cx <= 0 || cy <= 0 || cx > MaxSaneExtentEmu || cy > MaxSaneExtentEmu)
+        {
+            return false;
+        }
+
         // Compute the area before dividing so neither dimension is truncated toward zero first (which would
-        // shrink a borderline figure below the threshold and drop it). EMU values are well within long range
-        // for any real document, so the product cannot overflow.
-        var pixelArea = extent.Cx.Value * extent.Cy.Value / (EmuPerPixel96 * EmuPerPixel96);
+        // shrink a borderline figure below the threshold and drop it).
+        var pixelArea = cx * cy / (EmuPerPixel96 * EmuPerPixel96);
         return pixelArea < _options.MinImagePixels;
     }
 
