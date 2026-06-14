@@ -64,6 +64,21 @@ internal static class DocxFixtures
     /// <summary>A native table: rows of cells (first row is the header).</summary>
     public sealed record TableSpec(IReadOnlyList<IReadOnlyList<string>> Rows) : BlockSpec;
 
+    /// <summary>A run with optional bold/italic, for building a formatted paragraph.</summary>
+    public sealed record RunSpec(string Text, bool Bold = false, bool Italic = false);
+
+    /// <summary>A paragraph composed of explicitly-formatted runs (to exercise inline emphasis rendering).</summary>
+    public sealed record RichParagraphSpec(IReadOnlyList<RunSpec> Runs) : BlockSpec;
+
+    /// <summary>A paragraph containing a single external hyperlink (text + URL).</summary>
+    public sealed record HyperlinkParagraphSpec(string Text, string Url) : BlockSpec;
+
+    /// <summary>A paragraph with a normal run, an inserted-revision run (w:ins), and a deleted-revision run (w:del).</summary>
+    public sealed record TrackedParagraphSpec(string Before, string Inserted, string Deleted) : BlockSpec;
+
+    /// <summary>A Heading1 paragraph that also anchors an mc:AlternateContent text box (heading text + text-box text).</summary>
+    public sealed record HeadingTextBoxSpec(string Heading, string TextBox) : BlockSpec;
+
     public sealed class DocSpec
     {
         public List<BlockSpec> Blocks { get; } = new();
@@ -118,6 +133,30 @@ internal static class DocxFixtures
             Blocks.Add(new TableSpec(rows));
             return this;
         }
+
+        public DocSpec Runs(params RunSpec[] runs)
+        {
+            Blocks.Add(new RichParagraphSpec(runs));
+            return this;
+        }
+
+        public DocSpec HyperlinkParagraph(string text, string url)
+        {
+            Blocks.Add(new HyperlinkParagraphSpec(text, url));
+            return this;
+        }
+
+        public DocSpec TrackedChangesParagraph(string before, string inserted, string deleted)
+        {
+            Blocks.Add(new TrackedParagraphSpec(before, inserted, deleted));
+            return this;
+        }
+
+        public DocSpec HeadingWithTextBox(string heading, string textBox)
+        {
+            Blocks.Add(new HeadingTextBoxSpec(heading, textBox));
+            return this;
+        }
     }
 
     public static byte[] Build(DocSpec spec)
@@ -129,6 +168,7 @@ internal static class DocxFixtures
 
             var body = new StringBuilder();
             var imageRel = 0;
+            var hyperlinkRel = 0;
             foreach (var block in spec.Blocks)
             {
                 switch (block)
@@ -155,6 +195,24 @@ internal static class DocxFixtures
 
                     case TableSpec tableSpec:
                         body.Append(TableXml(tableSpec));
+                        break;
+
+                    case RichParagraphSpec richParagraph:
+                        body.Append(RichParagraphXml(richParagraph));
+                        break;
+
+                    case HyperlinkParagraphSpec hyperlink:
+                        var hlRelId = $"rIdHl{hyperlinkRel++}";
+                        mainPart.AddHyperlinkRelationship(new System.Uri(hyperlink.Url), isExternal: true, hlRelId);
+                        body.Append(HyperlinkParagraphXml(hyperlink.Text, hlRelId));
+                        break;
+
+                    case TrackedParagraphSpec tracked:
+                        body.Append(TrackedParagraphXml(tracked));
+                        break;
+
+                    case HeadingTextBoxSpec headingTextBox:
+                        body.Append(HeadingTextBoxXml(headingTextBox.Heading, headingTextBox.TextBox));
                         break;
                 }
             }
@@ -241,12 +299,13 @@ internal static class DocxFixtures
          """;
 
     /// <summary>
-    /// An AlternateContent text box: the same text appears in the DrawingML Choice (wps:txbx) and the legacy
-    /// VML Fallback (v:textbox). With MC collapsing the SDK keeps only the Choice, so the text appears once.
+    /// An AlternateContent text box RUN: the same text appears in the DrawingML Choice (wps:txbx) and the
+    /// legacy VML Fallback (v:textbox). With MC collapsing the SDK keeps only one branch, so the text appears
+    /// once. Shared by the standalone-paragraph and heading-paragraph text-box fixtures.
     /// </summary>
-    private static string AlternateContentTextBoxXml(string text) =>
+    private static string AltTextBoxRunXml(string text) =>
         $"""
-         <w:p><w:r>
+         <w:r>
            <mc:AlternateContent>
              <mc:Choice Requires="wps">
                <w:drawing>
@@ -270,8 +329,14 @@ internal static class DocxFixtures
                </w:pict>
              </mc:Fallback>
            </mc:AlternateContent>
-         </w:r></w:p>
+         </w:r>
          """;
+
+    private static string AlternateContentTextBoxXml(string text) => $"<w:p>{AltTextBoxRunXml(text)}</w:p>";
+
+    /// <summary>A Heading1 paragraph anchoring a text box: a heading run followed by the text-box AlternateContent run.</summary>
+    private static string HeadingTextBoxXml(string heading, string textBox) =>
+        $"<w:p><w:pPr><w:pStyle w:val=\"Heading1\"/></w:pPr><w:r><w:t xml:space=\"preserve\">{Escape(heading)}</w:t></w:r>{AltTextBoxRunXml(textBox)}</w:p>";
 
     private static string TableXml(TableSpec table)
     {
@@ -286,6 +351,31 @@ internal static class DocxFixtures
 
         return $"<w:tbl><w:tblPr/><w:tblGrid>{grid}</w:tblGrid>{rows}</w:tbl>";
     }
+
+    private static string RichParagraphXml(RichParagraphSpec spec)
+    {
+        var runs = string.Concat(spec.Runs.Select(r =>
+        {
+            var rPr = r.Bold || r.Italic
+                ? $"<w:rPr>{(r.Bold ? "<w:b/>" : string.Empty)}{(r.Italic ? "<w:i/>" : string.Empty)}</w:rPr>"
+                : string.Empty;
+            return $"<w:r>{rPr}<w:t xml:space=\"preserve\">{Escape(r.Text)}</w:t></w:r>";
+        }));
+
+        return $"<w:p>{runs}</w:p>";
+    }
+
+    private static string HyperlinkParagraphXml(string text, string relId) =>
+        $"<w:p><w:hyperlink r:id=\"{relId}\"><w:r><w:t xml:space=\"preserve\">{Escape(text)}</w:t></w:r></w:hyperlink></w:p>";
+
+    private static string TrackedParagraphXml(TrackedParagraphSpec spec) =>
+        $"""
+         <w:p>
+           <w:r><w:t xml:space="preserve">{Escape(spec.Before)}</w:t></w:r>
+           <w:ins w:id="1" w:author="t" w:date="2024-01-01T00:00:00Z"><w:r><w:t xml:space="preserve">{Escape(spec.Inserted)}</w:t></w:r></w:ins>
+           <w:del w:id="2" w:author="t" w:date="2024-01-01T00:00:00Z"><w:r><w:delText xml:space="preserve">{Escape(spec.Deleted)}</w:delText></w:r></w:del>
+         </w:p>
+         """;
 
     private static string Escape(string text) => new System.Xml.Linq.XText(text).ToString();
 }

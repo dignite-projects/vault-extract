@@ -418,6 +418,116 @@ public class DocxExtractor_Tests
         result.Markdown.ShouldContain("| A | B | C |");
     }
 
+    [Fact]
+    public async Task Renders_bold_and_italic_runs()
+    {
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .Runs(
+                new DocxFixtures.RunSpec("normal "),
+                new DocxFixtures.RunSpec("bold", Bold: true),
+                new DocxFixtures.RunSpec(" and "),
+                new DocxFixtures.RunSpec("italic", Italic: true)));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        result.Markdown.ShouldContain("normal **bold** and *italic*");
+    }
+
+    [Fact]
+    public async Task Merges_consecutive_same_format_runs()
+    {
+        // Word often splits a styled span across several runs; the renderer must not emit **Hel****lo**.
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .Runs(
+                new DocxFixtures.RunSpec("Hel", Bold: true),
+                new DocxFixtures.RunSpec("lo", Bold: true)));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        result.Markdown.ShouldContain("**Hello**");
+        result.Markdown.ShouldNotContain("****");
+    }
+
+    [Fact]
+    public async Task Renders_combined_bold_italic()
+    {
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .Runs(new DocxFixtures.RunSpec("both", Bold: true, Italic: true)));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        result.Markdown.ShouldContain("***both***");
+    }
+
+    [Fact]
+    public async Task Moves_whitespace_outside_emphasis_markers()
+    {
+        // CommonMark does not render "** mid **"; the spaces must sit outside the markers.
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .Runs(
+                new DocxFixtures.RunSpec("a"),
+                new DocxFixtures.RunSpec(" mid ", Bold: true),
+                new DocxFixtures.RunSpec("b")));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        result.Markdown.ShouldContain("a **mid** b");
+    }
+
+    [Fact]
+    public async Task Renders_a_hyperlink_as_a_markdown_link()
+    {
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .HyperlinkParagraph("Anthropic", "https://www.anthropic.com/"));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        result.Markdown.ShouldContain("[Anthropic](https://www.anthropic.com/)");
+    }
+
+    [Fact]
+    public async Task Renders_a_hyperlink_with_spaces_in_the_url_using_angle_brackets()
+    {
+        // System.Uri.ToString() decodes %20 back to a literal space; the bare (url) form would then NOT
+        // render as a link in CommonMark, so a URL with whitespace must use the angle-bracket form.
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .HyperlinkParagraph("docs", "https://e.com/a b"));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        result.Markdown.ShouldContain("[docs](<https://e.com/a b>)");
+    }
+
+    [Fact]
+    public async Task Keeps_inserted_revision_text_and_drops_deleted_revision_text()
+    {
+        // Accepted view of tracked changes: w:ins runs are kept, w:del runs (w:delText) are excluded.
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .TrackedChangesParagraph(before: "Kept ", inserted: "added", deleted: "removed"));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        result.Markdown.ShouldContain("Kept");
+        result.Markdown.ShouldContain("added");
+        result.Markdown.ShouldNotContain("removed");
+    }
+
+    [Fact]
+    public async Task Heading_with_a_text_box_does_not_duplicate_or_glue_the_text_box_text()
+    {
+        // A text box anchored to a heading paragraph must not be folded into the heading line (which would
+        // glue it on as "# HEAD_TITLETB_CONTENT") and must not be emitted both in the heading and as its own
+        // block. The heading stays clean; the text box appears exactly once (as its own block).
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .HeadingWithTextBox("HEAD_TITLE", "TB_CONTENT"));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        result.Markdown.ShouldContain("# HEAD_TITLE");
+        result.Markdown.ShouldNotContain("HEAD_TITLETB_CONTENT");
+        CountOccurrences(result.Markdown, "TB_CONTENT").ShouldBe(1);
+    }
+
     private static int CountOccurrences(string haystack, string needle)
     {
         var count = 0;

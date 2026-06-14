@@ -19,8 +19,8 @@ namespace Dignite.DocumentAI.TextExtraction.OpenXml;
 
 /// <summary>
 /// OpenXML-based Markdown provider for Word documents (#308, Phase 3 of #299). Owns the full <c>.docx</c>
-/// parsing pass so it can rebuild the document's structure (headings, tables, and — in later #308
-/// build-order steps — lists, inline formatting, hyperlinks) <b>and</b> extract embedded raster images,
+/// parsing pass so it can rebuild the document's structure (headings, tables, inline formatting,
+/// hyperlinks, and — in a later #308 build-order step — lists) <b>and</b> extract embedded raster images,
 /// transcribe each through the host-selected <see cref="IOcrProvider"/>, and inline the transcription into
 /// the Markdown at its reading position. This closes the silent-image-loss gap where embedded figures in
 /// Word documents were degraded to a constant <c>![image](embedded-image)</c> placeholder — the exact
@@ -58,10 +58,11 @@ namespace Dignite.DocumentAI.TextExtraction.OpenXml;
 /// hatch — it is <b>not</b> silently re-routed to ElBruno at runtime.
 /// </para>
 /// <para>
-/// <b>Current scope.</b> Headings, flowing paragraph text, embedded raster image transcription, and tables
-/// (<c>w:tbl</c> → Markdown table). Subsequent #308 steps add: lists (<c>w:numPr</c> → bullet/ordered with
-/// nesting), inline formatting (bold/italic), hyperlinks, and charts (<c>ChartPart</c> → Markdown table,
-/// reusing <see cref="ChartRenderer"/>).
+/// <b>Current scope.</b> Headings, flowing paragraph text with inline formatting (bold/italic) and
+/// hyperlinks, text boxes (<c>w:txbxContent</c> → text block), embedded raster image transcription, and
+/// tables (<c>w:tbl</c> → Markdown table). Subsequent #308 steps add: lists (<c>w:numPr</c> →
+/// bullet/ordered with nesting) and charts (<c>ChartPart</c> → Markdown table, reusing
+/// <see cref="ChartRenderer"/>).
 /// </para>
 /// </summary>
 [ExposeServices(typeof(IMarkdownTextProvider))]
@@ -243,10 +244,12 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
     }
 
     /// <summary>
-    /// Emits a paragraph's text block (a heading or flowing text), then transcribes each embedded image in
-    /// the paragraph inline after that text — document order for a flow format. Run-level interleaving of
-    /// text and images within a single paragraph is deferred; in practice a Word image occupies its own
-    /// paragraph (so the text block is empty and only the figure block is emitted).
+    /// Emits a paragraph's text block — a heading (plain collapsed text) or a body paragraph rendered with
+    /// inline formatting (bold/italic) and hyperlinks via <see cref="WordParagraphRenderer"/> — then
+    /// transcribes each embedded image in the paragraph inline after that text (document order for a flow
+    /// format). Run-level interleaving of text and images within a single paragraph is deferred; in practice
+    /// a Word image occupies its own paragraph (so the text block is empty and only the figure block is
+    /// emitted).
     /// </summary>
     protected virtual async Task ProcessParagraphAsync(
         W.Paragraph paragraph,
@@ -255,11 +258,12 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         ExtractionState state,
         CancellationToken cancellationToken)
     {
-        var text = ParagraphText(paragraph);
-        if (!string.IsNullOrWhiteSpace(text))
+        var headingLevel = WordStyleMap.HeadingLevel(paragraph);
+        if (headingLevel is int level)
         {
-            var headingLevel = WordStyleMap.HeadingLevel(paragraph);
-            if (headingLevel is int level)
+            // Headings render as plain collapsed text (no inline emphasis markup inside an ATX heading).
+            var text = ParagraphText(paragraph);
+            if (!string.IsNullOrWhiteSpace(text))
             {
                 // Collapse internal line breaks so a multi-line heading renders as one clean ATX heading.
                 var oneLine = string.Join(
@@ -267,9 +271,40 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
                     text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
                 blocks.Add(new string('#', level) + " " + oneLine);
             }
-            else
+        }
+        else
+        {
+            // Body paragraphs render with inline formatting (bold/italic) and hyperlinks.
+            var markdown = WordParagraphRenderer.Render(paragraph, mainPart);
+            if (!string.IsNullOrWhiteSpace(markdown))
             {
-                blocks.Add(text);
+                blocks.Add(markdown);
+            }
+        }
+
+        // Text boxes (a DrawingML wps:txbx inside a w:drawing, or a VML v:textbox inside a w:pict) -> a text
+        // block. Matched by LocalName "txbxContent" (not a strong type) so it works whichever
+        // markup-compatibility branch survived collapsing — the SDK leaves a VML fallback's descendants as
+        // untyped elements, which a strong-typed Descendants would miss. Only top-level text boxes are
+        // processed (a text box nested inside another is folded into its parent's block) to avoid emitting
+        // the nested text twice. MC collapsing on open normally drops the VML fallback; as a
+        // belt-and-suspenders guard (a malformed package, or a future relaxation of the open settings) we
+        // also skip a text box whose nearest mc:AlternateContent fork already contributed a sibling branch,
+        // so a text box is never emitted twice regardless of MC processing.
+        var seenForks = new HashSet<DocumentFormat.OpenXml.OpenXmlElement>();
+        foreach (var textBox in paragraph.Descendants()
+                     .Where(e => e.LocalName == "txbxContent" && !HasTextBoxAncestor(e)))
+        {
+            var fork = textBox.Ancestors().FirstOrDefault(a => a.LocalName == "AlternateContent");
+            if (fork is not null && !seenForks.Add(fork))
+            {
+                continue;
+            }
+
+            var textBoxMarkdown = TextBoxText(textBox);
+            if (!string.IsNullOrWhiteSpace(textBoxMarkdown))
+            {
+                blocks.Add(textBoxMarkdown);
             }
         }
 
@@ -426,8 +461,52 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         var sb = new System.Text.StringBuilder();
         foreach (var element in paragraph.Descendants<DocumentFormat.OpenXml.OpenXmlElement>())
         {
+            // A text box's content is emitted as its own block by the txbxContent loop in
+            // ProcessParagraphAsync, so it must not also be folded into a heading's plain text here —
+            // otherwise a heading that anchors a text box both absorbs that text (gluing it onto the heading
+            // line) and duplicates it as a separate block.
+            if (HasTextBoxAncestor(element))
+            {
+                continue;
+            }
+
             switch (element.LocalName)
             {
+                case "t":
+                    sb.Append(element.InnerText);
+                    break;
+                case "tab":
+                    sb.Append(' ');
+                    break;
+                case "br":
+                case "cr":
+                    sb.Append('\n');
+                    break;
+            }
+        }
+
+        return sb.ToString().Trim();
+    }
+
+    private static bool HasTextBoxAncestor(DocumentFormat.OpenXml.OpenXmlElement element)
+        => element.Ancestors().Any(a => a.LocalName == "txbxContent");
+
+    /// <summary>
+    /// Extracts a text box's text by LocalName (so it works for both the DrawingML <c>wps:txbx</c> and the
+    /// untyped VML fallback): <c>w:t</c> → text, <c>w:tab</c> → space, <c>w:br</c>/<c>w:cr</c> → newline,
+    /// <c>w:p</c> → paragraph break. <c>w:delText</c> is not matched, so deleted-revision text is excluded
+    /// (the accepted view). Inline emphasis is not applied inside a text box this step.
+    /// </summary>
+    private static string TextBoxText(DocumentFormat.OpenXml.OpenXmlElement textBoxContent)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var element in textBoxContent.Descendants())
+        {
+            switch (element.LocalName)
+            {
+                case "p":
+                    sb.Append("\n\n");
+                    break;
                 case "t":
                     sb.Append(element.InnerText);
                     break;
