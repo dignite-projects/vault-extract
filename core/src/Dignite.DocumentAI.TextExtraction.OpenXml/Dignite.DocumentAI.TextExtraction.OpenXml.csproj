@@ -6,7 +6,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <RootNamespace>Dignite.DocumentAI.TextExtraction.OpenXml</RootNamespace>
-    <Description>OpenXML Markdown text provider for Dignite Document AI: owns the full PPTX parsing pass (slide text + native alt-text + speaker notes), extracts embedded raster images and transcribes each through the host-selected IOcrProvider, renders ChartPart backing data as Markdown tables, and inlines everything into the Markdown at its slide/shape reading position. EMF/WMF vector images are an accepted blind spot. Shared OpenXML stack for the later DOCX phase (#308).</Description>
+    <Description>OpenXML Markdown text providers for Dignite Document AI: PptxExtractor owns the full PPTX parsing pass (slide text + native alt-text + speaker notes + charts/tables), and DocxExtractor owns the full DOCX parsing pass (headings + flowing text + embedded images, with tables/lists/inline-formatting/charts landing across #308). Both extract embedded raster images and transcribe each through the host-selected IOcrProvider, inlining everything into the Markdown at its reading position. EMF/WMF vector images are an accepted blind spot.</Description>
   </PropertyGroup>
 
   <ItemGroup>

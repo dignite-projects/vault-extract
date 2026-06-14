@@ -6,8 +6,9 @@ namespace Dignite.DocumentAI.TextExtraction.OpenXml;
 
 /// <summary>
 /// Resolves an embedded <see cref="ImagePart"/> into image-file bytes + MIME type suitable for feeding
-/// to <c>IOcrProvider.RecognizeAsync</c>. Unlike the PDF path, PPTX stores each image as a self-contained
-/// image file (PNG/JPEG/GIF/BMP/TIFF/WebP), so the bytes pass straight through with no re-encoding.
+/// to <c>IOcrProvider.RecognizeAsync</c>. An OOXML package (PPTX/DOCX) stores each image as a
+/// self-contained image file (PNG/JPEG/GIF/BMP/TIFF/WebP), so the bytes pass straight through with no
+/// re-encoding (unlike the PDF path, which reconstructs an image from raw samples).
 /// <para>
 /// The media type is taken from the <b>bytes' own signature</b> (<see cref="ImageSignature.SniffMediaType"/>),
 /// not the part's declared content type — a mislabeled part (e.g. an EMF renamed to <c>.png</c>) or a
@@ -18,10 +19,10 @@ namespace Dignite.DocumentAI.TextExtraction.OpenXml;
 /// The part stream is read with a <b>hard byte cap</b> and aborts as soon as the cap is exceeded, so a
 /// ZIP-decompression-bomb image part can never be fully inflated into managed memory — it reports
 /// <see cref="ImageOutcome.Oversized"/> instead. The caller trips the completeness signal (#268) for both
-/// non-OK outcomes.
+/// non-OK outcomes. Shared by <see cref="PptxExtractor"/> (#307) and <see cref="DocxExtractor"/> (#308).
 /// </para>
 /// </summary>
-internal static class PptxImagePayload
+internal static class OpenXmlImagePayload
 {
     internal enum ImageOutcome
     {

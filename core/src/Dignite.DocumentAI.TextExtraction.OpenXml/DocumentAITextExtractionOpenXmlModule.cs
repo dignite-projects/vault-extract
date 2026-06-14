@@ -4,13 +4,15 @@ using Volo.Abp.Modularity;
 namespace Dignite.DocumentAI.TextExtraction.OpenXml;
 
 /// <summary>
-/// Registers the OpenXML-based Markdown providers. This round ships <see cref="PptxExtractor"/>, which
-/// claims the <c>.pptx</c> extension; the DOCX phase (#308) adds a Word provider to the same module.
-/// Markdown providers coexist and are dispatched per file by extension, so a host that includes this
-/// module routes <c>.pptx</c> to <see cref="PptxExtractor"/>. <b>This module is required for <c>.pptx</c></b>:
-/// the catch-all ElBruno provider does not support PresentationML, so omitting this module makes
-/// <c>.pptx</c> fall through to ElBruno and yield empty Markdown (and, being non-<c>.pdf</c>, it gets no
-/// whole-page OCR fallback either) — there was no prior <c>.pptx</c> capability to preserve.
+/// Registers the OpenXML-based Markdown providers: <see cref="PptxExtractor"/> (claims <c>.pptx</c>, #307)
+/// and <see cref="DocxExtractor"/> (claims <c>.docx</c>, #308). Markdown providers coexist and are
+/// dispatched per file by extension, so a host that includes this module routes <c>.pptx</c> /
+/// <c>.docx</c> to the respective provider. <b>This module is required for <c>.pptx</c></b>: the catch-all
+/// ElBruno provider does not support PresentationML, so omitting this module makes <c>.pptx</c> fall
+/// through to ElBruno and yield empty Markdown (and, being non-<c>.pdf</c>, it gets no whole-page OCR
+/// fallback either) — there was no prior <c>.pptx</c> capability to preserve. For <c>.docx</c>, ElBruno
+/// <i>can</i> convert the file, so omitting this module degrades <c>.docx</c> gracefully to ElBruno's
+/// prior output (a genuine module-composition fallback).
 /// <para>
 /// Depends only on the text-extraction orchestrator module, which transitively brings the OCR contract
 /// (<c>IOcrProvider</c>) consumed for embedded-image transcription. The concrete OCR provider is chosen

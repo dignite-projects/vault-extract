@@ -306,36 +306,36 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
             return;
         }
 
-        PptxImagePayload.ResolvedImage resolved;
+        OpenXmlImagePayload.ResolvedImage resolved;
         try
         {
             var part = slidePart.GetPartById(embed);
             resolved = part is ImagePart imagePart
-                ? PptxImagePayload.TryResolve(imagePart, _options.MaxImageBytesPerImage)
+                ? OpenXmlImagePayload.TryResolve(imagePart, _options.MaxImageBytesPerImage)
                 // A dangling relationship / non-image part: treat as undecodable.
-                : new PptxImagePayload.ResolvedImage(PptxImagePayload.ImageOutcome.Undecodable, null, null);
+                : new OpenXmlImagePayload.ResolvedImage(OpenXmlImagePayload.ImageOutcome.Undecodable, null, null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Logger.LogWarning(ex, "Failed to resolve/decode an embedded PPTX image; skipping it.");
-            resolved = new PptxImagePayload.ResolvedImage(PptxImagePayload.ImageOutcome.Undecodable, null, null);
+            resolved = new OpenXmlImagePayload.ResolvedImage(OpenXmlImagePayload.ImageOutcome.Undecodable, null, null);
         }
 
         switch (resolved.Outcome)
         {
-            case PptxImagePayload.ImageOutcome.Oversized:
+            case OpenXmlImagePayload.ImageOutcome.Oversized:
                 // A single image larger than the per-image byte cap (e.g. a ZIP-decompression bomb). Skipped
                 // before full materialization; trips the completeness signal but never OOMs the worker.
                 Logger.LogWarning("Skipped an embedded image exceeding the {Cap}-byte per-image cap.", _options.MaxImageBytesPerImage);
                 state.OversizedImages++;
                 return;
 
-            case PptxImagePayload.ImageOutcome.Undecodable:
+            case OpenXmlImagePayload.ImageOutcome.Undecodable:
                 // Vector (EMF/WMF), dangling relationship, or undecodable/mislabeled bytes.
                 state.Undecodable++;
                 return;
 
-            case PptxImagePayload.ImageOutcome.Ok:
+            case OpenXmlImagePayload.ImageOutcome.Ok:
                 break;
 
             default:
