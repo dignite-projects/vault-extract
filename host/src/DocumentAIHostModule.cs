@@ -142,7 +142,7 @@ namespace Dignite.DocumentAI.Host;
     // DocumentAI infrastructure modules
     typeof(DocumentAITextExtractionModule),
     typeof(DocumentAITextExtractionPdfModule),             // PdfPig: digital-PDF text layer + embedded-image transcription (#301). Claims .pdf; coexists with ElBruno (catch-all). Omitting it makes .pdf fall back to ElBruno.
-    typeof(DocumentAITextExtractionOpenXmlModule),         // OpenXML: PPTX slide text/charts/tables/notes + embedded-image transcription (#307). Claims .pptx. REQUIRED for .pptx text: ElBruno (catch-all) has no PresentationML converter, so omitting this module makes .pptx yield empty Markdown (no OCR fallback, .pptx != .pdf).
+    typeof(DocumentAITextExtractionOpenXmlModule),         // OpenXML: PPTX (slide text/notes, #307) + DOCX (headings/tables/lists/inline formatting/hyperlinks/text boxes, #308), each with charts/tables + embedded-image transcription. Claims .pptx and .docx. REQUIRED for .pptx (ElBruno has no PresentationML converter -> empty Markdown, no OCR fallback since .pptx != .pdf); .docx degrades gracefully to ElBruno if this module is omitted.
     typeof(DocumentAITextExtractionElBrunoMarkItDownModule),
     typeof(DocumentAIVisionLlmOcrModule)                  // Vision-LLM OCR for photos, receipts, and image PDFs; current default OCR provider (#259). IOcrProvider implementations are mutually exclusive: when switching providers, update the .csproj ProjectReference and ConfigureAI keyed vision IChatClient together. See docs/ocr-vision-llm.md.
     // typeof(DocumentAIPaddleOcrModule),                 // Local PaddleOCR sidecar (free CPU, PP-StructureV3); to switch back, uncomment this, comment VisionLlm, and restore its .csproj ProjectReference

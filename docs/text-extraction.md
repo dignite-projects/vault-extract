@@ -28,6 +28,7 @@ Upload → DocumentTextExtractionBackgroundJob
               ├─→ digital text layer? (PDF / DOCX / HTML / TXT / CSV / RTF / EPUB …)
               │     └─→ IMarkdownTextProvider, dispatched per file by extension:
               │           • .pdf → PdfExtractor (PdfPig: text layer + embedded-image OCR, inlined)
+              │           • .pptx / .docx → OpenXmlExtractor (structure + charts/tables + embedded-image OCR, inlined)
               │           • everything else → ElBruno MarkItDown (catch-all)
               │
               └─→ image / scan?
@@ -46,11 +47,14 @@ The image/scan path is dispatched by file kind. The digital path is dispatched *
 | Provider | Owns | Notes |
 |---|---|---|
 | **PdfExtractor** (`Dignite.DocumentAI.TextExtraction.Pdf`, PdfPig) | `.pdf` | Extracts the digital text layer **and** embedded raster images. Each image is transcribed through the host-selected `IOcrProvider` and inlined into the Markdown at its reading position (#301), so embedded figures are no longer silently dropped. Vector-only graphics are an accepted blind spot (`GetImages()` does not see them). |
-| **ElBruno MarkItDown** (`Dignite.DocumentAI.TextExtraction.ElBrunoMarkItDown`) | catch-all (DOCX / HTML / TXT / CSV / RTF / EPUB, and `.pdf` when the Pdf module is absent) | Default fallback; enabled by the host module, no configuration. |
+| **OpenXmlExtractor** (`Dignite.DocumentAI.TextExtraction.OpenXml`, OpenXML SDK) | `.pptx`, `.docx` | Owns the whole PowerPoint / Word pass: rebuilds structure (PPTX slide text + speaker notes, #307; DOCX headings / tables / lists / inline formatting / hyperlinks / text boxes, #308) **and** transcribes embedded raster images through the host-selected `IOcrProvider`, renders `ChartPart` backing data as Markdown tables, inlining everything at reading position. EMF/WMF vector images are an accepted blind spot. |
+| **ElBruno MarkItDown** (`Dignite.DocumentAI.TextExtraction.ElBrunoMarkItDown`) | catch-all (HTML / TXT / CSV / RTF / EPUB; also `.docx` when the OpenXml module is absent, and `.pdf` when the Pdf module is absent) | Default fallback; enabled by the host module, no configuration. |
 
 **Embedded images in digital PDFs (#301).** PdfExtractor reuses the host-selected `IOcrProvider` for figure transcription — no separate vision client is wired at the Markdown-provider layer, and the semantics are transcription only (no chart/describe modes). Image-heavy PDFs are bounded by `PdfExtractorOptions` (`MaxImagesPerPdf`, `MinImagePixels` — tiny decorative images are skipped). When images are dropped (cap reached / undecodable codec such as JBIG2/JPX) or a figure's OCR is truncated, the result is marked incomplete via the #268 completeness signal.
 
 **Scanned / no-text-layer PDF.** If a PDF has no digital text layer, the Markdown provider returns empty Markdown — PdfExtractor does **not** OCR its images in that case — and the pipeline falls through to the whole-page `IOcrProvider` path. There is no double OCR.
+
+**OpenXML PPTX / DOCX (#307 / #308).** OpenXmlExtractor owns the full PowerPoint / Word pass so the image↔text position linkage is preserved: it rebuilds the document structure itself and reuses the host-selected `IOcrProvider` for embedded-image transcription (no separate vision client, transcription only), renders charts and tables directly from the OpenXML (no OCR, no vector blind spot), and uses native alt-text (`docPr/@descr`) as the figure caption. DOCX collapses markup-compatibility (`mc:AlternateContent`) on open so a modern text box / picture is not read twice, and applies the accepted view of tracked changes (insertions kept, deletions dropped). Image caps live in `OpenXmlExtractorOptions`; dropped / undecodable images, truncated figure OCR, image-cap hits, unrenderable charts, and per-block parse failures trip the #268 completeness signal. Unlike PDF there is no whole-page OCR fallback, so once the module owns an extension an unopenable file reports empty + incomplete. **Required for `.pptx`** (ElBruno has no PresentationML converter); `.docx` degrades gracefully to ElBruno when the module is absent.
 
 ## OCR — choosing a provider
 
