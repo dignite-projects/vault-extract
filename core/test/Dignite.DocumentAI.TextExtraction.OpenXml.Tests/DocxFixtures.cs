@@ -79,6 +79,9 @@ internal static class DocxFixtures
     /// <summary>A Heading1 paragraph that also anchors an mc:AlternateContent text box (heading text + text-box text).</summary>
     public sealed record HeadingTextBoxSpec(string Heading, string TextBox) : BlockSpec;
 
+    /// <summary>A list item: text, zero-based nesting level, and whether the list is ordered (vs a bullet).</summary>
+    public sealed record ListItemSpec(string Text, int Level, bool Ordered) : BlockSpec;
+
     public sealed class DocSpec
     {
         public List<BlockSpec> Blocks { get; } = new();
@@ -157,6 +160,18 @@ internal static class DocxFixtures
             Blocks.Add(new HeadingTextBoxSpec(heading, textBox));
             return this;
         }
+
+        public DocSpec BulletItem(string text, int level = 0)
+        {
+            Blocks.Add(new ListItemSpec(text, level, Ordered: false));
+            return this;
+        }
+
+        public DocSpec OrderedItem(string text, int level = 0)
+        {
+            Blocks.Add(new ListItemSpec(text, level, Ordered: true));
+            return this;
+        }
     }
 
     public static byte[] Build(DocSpec spec)
@@ -165,6 +180,15 @@ internal static class DocxFixtures
         using (var document = WordprocessingDocument.Create(stream, WordprocessingDocumentType.Document))
         {
             var mainPart = document.AddMainDocumentPart();
+
+            // A list item references a numbering definition; create one (numId 1 = bullet, numId 2 = ordered)
+            // only when the document actually contains list items.
+            if (spec.Blocks.OfType<ListItemSpec>().Any())
+            {
+                var numberingPart = mainPart.AddNewPart<NumberingDefinitionsPart>();
+                numberingPart.Numbering = new Numbering(NumberingXml());
+                numberingPart.Numbering.Save();
+            }
 
             var body = new StringBuilder();
             var imageRel = 0;
@@ -213,6 +237,10 @@ internal static class DocxFixtures
 
                     case HeadingTextBoxSpec headingTextBox:
                         body.Append(HeadingTextBoxXml(headingTextBox.Heading, headingTextBox.TextBox));
+                        break;
+
+                    case ListItemSpec listItem:
+                        body.Append(ListItemXml(listItem));
                         break;
                 }
             }
@@ -376,6 +404,29 @@ internal static class DocxFixtures
            <w:del w:id="2" w:author="t" w:date="2024-01-01T00:00:00Z"><w:r><w:delText xml:space="preserve">{Escape(spec.Deleted)}</w:delText></w:r></w:del>
          </w:p>
          """;
+
+    private static string NumberingXml()
+    {
+        // Two abstract definitions: id 0 = bullet, id 1 = decimal (ordered); each defines levels 0-8.
+        // numId 1 maps to the bullet definition, numId 2 to the ordered one.
+        string Levels(string fmt) => string.Concat(Enumerable.Range(0, 9)
+            .Select(i => $"<w:lvl w:ilvl=\"{i}\"><w:numFmt w:val=\"{fmt}\"/></w:lvl>"));
+
+        return $"""
+                <w:numbering xmlns:w="{NsW}">
+                  <w:abstractNum w:abstractNumId="0">{Levels("bullet")}</w:abstractNum>
+                  <w:abstractNum w:abstractNumId="1">{Levels("decimal")}</w:abstractNum>
+                  <w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>
+                  <w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num>
+                </w:numbering>
+                """;
+    }
+
+    private static string ListItemXml(ListItemSpec item)
+    {
+        var numId = item.Ordered ? 2 : 1;
+        return $"<w:p><w:pPr><w:numPr><w:ilvl w:val=\"{item.Level}\"/><w:numId w:val=\"{numId}\"/></w:numPr></w:pPr><w:r><w:t xml:space=\"preserve\">{Escape(item.Text)}</w:t></w:r></w:p>";
+    }
 
     private static string Escape(string text) => new System.Xml.Linq.XText(text).ToString();
 }

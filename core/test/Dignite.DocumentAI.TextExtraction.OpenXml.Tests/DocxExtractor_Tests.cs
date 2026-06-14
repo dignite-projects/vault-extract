@@ -528,6 +528,48 @@ public class DocxExtractor_Tests
         CountOccurrences(result.Markdown, "TB_CONTENT").ShouldBe(1);
     }
 
+    [Fact]
+    public async Task Renders_bullet_list_items()
+    {
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .BulletItem("First")
+            .BulletItem("Second"));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        result.Markdown.ShouldContain("- First");
+        result.Markdown.ShouldContain("- Second");
+    }
+
+    [Fact]
+    public async Task Renders_ordered_list_items()
+    {
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .OrderedItem("Step one")
+            .OrderedItem("Step two"));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        result.Markdown.ShouldContain("1. Step one");
+        result.Markdown.ShouldContain("1. Step two");
+    }
+
+    [Fact]
+    public async Task Indents_nested_list_items_by_level()
+    {
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .BulletItem("Top", level: 0)
+            .BulletItem("Nested", level: 1)
+            .BulletItem("Deeper", level: 2));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        // Two spaces of indentation per nesting level.
+        result.Markdown.ShouldContain("- Top");
+        result.Markdown.ShouldContain("  - Nested");
+        result.Markdown.ShouldContain("    - Deeper");
+    }
+
     private static int CountOccurrences(string haystack, string needle)
     {
         var count = 0;

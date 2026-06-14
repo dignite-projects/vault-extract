@@ -20,7 +20,7 @@ namespace Dignite.DocumentAI.TextExtraction.OpenXml;
 /// <summary>
 /// OpenXML-based Markdown provider for Word documents (#308, Phase 3 of #299). Owns the full <c>.docx</c>
 /// parsing pass so it can rebuild the document's structure (headings, tables, inline formatting,
-/// hyperlinks, and — in a later #308 build-order step — lists) <b>and</b> extract embedded raster images,
+/// hyperlinks, lists) <b>and</b> extract embedded raster images,
 /// transcribe each through the host-selected <see cref="IOcrProvider"/>, and inline the transcription into
 /// the Markdown at its reading position. This closes the silent-image-loss gap where embedded figures in
 /// Word documents were degraded to a constant <c>![image](embedded-image)</c> placeholder — the exact
@@ -59,10 +59,9 @@ namespace Dignite.DocumentAI.TextExtraction.OpenXml;
 /// </para>
 /// <para>
 /// <b>Current scope.</b> Headings, flowing paragraph text with inline formatting (bold/italic) and
-/// hyperlinks, text boxes (<c>w:txbxContent</c> → text block), embedded raster image transcription, and
-/// tables (<c>w:tbl</c> → Markdown table). Subsequent #308 steps add: lists (<c>w:numPr</c> →
-/// bullet/ordered with nesting) and charts (<c>ChartPart</c> → Markdown table, reusing
-/// <see cref="ChartRenderer"/>).
+/// hyperlinks, lists (<c>w:numPr</c> → bullet/ordered with nesting), text boxes (<c>w:txbxContent</c> →
+/// text block), embedded raster image transcription, and tables (<c>w:tbl</c> → Markdown table). The
+/// remaining #308 step adds charts (<c>ChartPart</c> → Markdown table, reusing <see cref="ChartRenderer"/>).
 /// </para>
 /// </summary>
 [ExposeServices(typeof(IMarkdownTextProvider))]
@@ -73,6 +72,9 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
 
     /// <summary>EMU per pixel at 96 DPI (914400 EMU/inch ÷ 96). Used to size images for the decorative threshold.</summary>
     private const long EmuPerPixel96 = 9525;
+
+    /// <summary>Spaces of indentation per list-nesting level (w:ilvl) in the Markdown output.</summary>
+    private const int IndentSpacesPerListLevel = 2;
 
     /// <summary>
     /// Open settings that collapse OOXML markup-compatibility (<c>mc:AlternateContent</c>) to its single
@@ -278,6 +280,14 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
             var markdown = WordParagraphRenderer.Render(paragraph, mainPart);
             if (!string.IsNullOrWhiteSpace(markdown))
             {
+                // A list item (w:numPr) gets a Markdown bullet / ordered marker, indented by nesting level.
+                var list = WordListNumbering.Resolve(paragraph, mainPart.NumberingDefinitionsPart);
+                if (list is { } listInfo)
+                {
+                    var indent = new string(' ', listInfo.Level * IndentSpacesPerListLevel);
+                    markdown = indent + (listInfo.Ordered ? "1. " : "- ") + markdown;
+                }
+
                 blocks.Add(markdown);
             }
         }
