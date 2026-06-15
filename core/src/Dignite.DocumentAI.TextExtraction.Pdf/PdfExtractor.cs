@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using UglyToad.PdfPig;
 using UglyToad.PdfPig.Content;
+using UglyToad.PdfPig.Core;
 using Volo.Abp.DependencyInjection;
 
 namespace Dignite.DocumentAI.TextExtraction.Pdf;
@@ -167,6 +168,17 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
                         continue;
                     }
 
+                    if (IsFullPageScanBackground(pageContent.Page, image, pageContent.Words))
+                    {
+                        // Searchable / "sandwich" PDF (#309): this image is the full-page scan raster and the
+                        // page's text layer is its OCR transcription. Re-OCRing it would duplicate text already
+                        // extracted and burn a redundant (paid) vision call. Skip it WITHOUT OCR, WITHOUT
+                        // emitting a figure, and WITHOUT tripping the completeness signal — an intentional,
+                        // non-lossy skip (the text layer is retained), not a dropped figure. The guard is
+                        // high-precision and errs toward keeping, so a real full-page figure is never dropped.
+                        continue;
+                    }
+
                     if (imageBudget <= 0)
                     {
                         droppedByCap++;
@@ -278,6 +290,153 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
     {
         var pixels = (long)image.WidthInSamples * image.HeightInSamples;
         return pixels < _options.MinImagePixels;
+    }
+
+    /// <summary>
+    /// High-precision guard for the searchable / "sandwich" PDF case (#309): a full-page scan raster whose
+    /// content is already present as the page's (often invisible) OCR text layer. Returns <c>true</c> only
+    /// on a strong redundancy signal so a real full-page figure (figure + caption / infographic / photo) is
+    /// never dropped — <b>when unsure it returns <c>false</c></b> (keep + OCR), because dropping a real
+    /// figure is lossy and unacceptable whereas an occasional missed skip is merely a wasted OCR call.
+    /// <para>Two signals must BOTH hold:</para>
+    /// <list type="number">
+    /// <item><b>Full-page placement.</b> The image's placement bbox (<c>image.BoundingBox</c>, NOT pixel
+    /// <c>WidthInSamples × HeightInSamples</c>) covers at least
+    /// <see cref="PdfExtractorOptions.FullPageScanCoverageThreshold"/> of the page box on both width and
+    /// height.</item>
+    /// <item><b>Redundant text layer.</b> The page's text over the image region reads as a whole-page
+    /// transcription: it spans at least <see cref="PdfExtractorOptions.FullPageScanMinTextVerticalCoverage"/>
+    /// of the image height (rejecting a thin edge caption band — the primary anti-false-positive guard) AND
+    /// it is either many lines (<see cref="PdfExtractorOptions.FullPageScanMinTextLines"/>) or a
+    /// predominantly invisible <c>Tr 3</c> layer (<see cref="PdfExtractorOptions.FullPageScanMinInvisibleTextRatio"/>
+    /// — the canonical sandwich signature; a bonus that is sufficient but not necessary).</item>
+    /// </list>
+    /// Out of scope (left to double-OCR for now, #309): tiled multi-image scan pages, heavily
+    /// margined/cropped scans whose single image does not clear the coverage bar, and rotated placements
+    /// (PdfPig's PdfRectangle edge accessors are not rotation-aware, so the geometry math no-ops). All fail
+    /// safe — they re-OCR rather than ever dropping a figure.
+    /// </summary>
+    protected virtual bool IsFullPageScanBackground(Page page, IPdfImage image, IReadOnlyList<Word> words)
+    {
+        if (!_options.SkipFullPageScanBackground)
+        {
+            return false;
+        }
+
+        var imageBox = image.BoundingBox;
+        var imageWidth = Math.Abs(imageBox.Width);
+        var imageHeight = Math.Abs(imageBox.Height);
+        if (imageWidth <= 0 || imageHeight <= 0)
+        {
+            return false;
+        }
+
+        // --- Signal 1: the image's placement bbox ≈ the whole page ---
+        // Prefer the visible CropBox; fall back to the MediaBox when it is degenerate.
+        var pageBox = page.CropBox.Bounds;
+        if (Math.Abs(pageBox.Width) <= 0 || Math.Abs(pageBox.Height) <= 0)
+        {
+            pageBox = page.MediaBox.Bounds;
+        }
+
+        var pageWidth = Math.Abs(pageBox.Width);
+        var pageHeight = Math.Abs(pageBox.Height);
+        if (pageWidth <= 0 || pageHeight <= 0)
+        {
+            return false;
+        }
+
+        var widthCoverage = imageWidth / pageWidth;
+        var heightCoverage = imageHeight / pageHeight;
+        if (widthCoverage < _options.FullPageScanCoverageThreshold ||
+            heightCoverage < _options.FullPageScanCoverageThreshold)
+        {
+            return false;
+        }
+
+        // --- Signal 2: the text layer densely covers the image region ---
+        // After signal 1 the image ≈ the page, but scope to the image region so the test stays correct when
+        // the image is only ~the threshold size. A bare full-page figure/photo has no text here → kept
+        // (this is exactly the content #301 exists to capture).
+        var regionWords = words.Where(w => CentroidInside(w.BoundingBox, imageBox)).ToList();
+        if (regionWords.Count == 0)
+        {
+            return false;
+        }
+
+        // Re-group the in-region words into lines here rather than reusing the per-page `lines` already built
+        // in ExtractAsync: passing that list in would force this `protected virtual` method (kept overridable
+        // for module extensibility) to expose the internal PdfReadingOrder.TextLine type (CS0051). The
+        // re-group runs only for full-page-sized images (≈one per sandwich page) and is cheap relative to the
+        // OCR/IO it gates, so the duplicated clustering is an accepted trade-off.
+        var regionLines = PdfReadingOrder.GroupWordsIntoLines(regionWords);
+        if (regionLines.Count == 0)
+        {
+            return false;
+        }
+
+        // Vertical span of the text block relative to the image height — the PRIMARY guard against dropping
+        // a full-page figure whose only text is an edge caption (a caption band spans little of the height).
+        var topMost = regionLines.Max(l => l.Bounds.Top);
+        var bottomMost = regionLines.Min(l => l.Bounds.Bottom);
+        var verticalCoverage = (topMost - bottomMost) / imageHeight;
+        if (verticalCoverage < _options.FullPageScanMinTextVerticalCoverage)
+        {
+            return false;
+        }
+
+        // A whole-page transcription is many distributed lines. The invisible-text (Tr 3) ratio is the
+        // canonical sandwich signature — sufficient on its own (an OCR layer is invisible by construction)
+        // but NOT required, so a visible-but-dense layer still qualifies on line count alone.
+        var hasManyLines = regionLines.Count >= _options.FullPageScanMinTextLines;
+        var invisibleRatio = InvisibleTextRatio(regionWords);
+        var looksInvisibleSandwich = invisibleRatio >= _options.FullPageScanMinInvisibleTextRatio;
+        if (!hasManyLines && !looksInvisibleSandwich)
+        {
+            return false;
+        }
+
+        Logger.LogDebug(
+            "Skipping a full-page scan background on page {Page}: image covers {Width:P0}×{Height:P0} of the " +
+            "page, text spans {Vertical:P0} of the image over {Lines} line(s), invisible-text ratio {Invisible:P0}.",
+            page.Number, widthCoverage, heightCoverage, verticalCoverage, regionLines.Count, invisibleRatio);
+
+        return true;
+    }
+
+    /// <summary>Whether <paramref name="inner"/>'s centroid falls inside <paramref name="outer"/> (robust to flipped rectangles).</summary>
+    private static bool CentroidInside(PdfRectangle inner, PdfRectangle outer)
+    {
+        var centroid = inner.Centroid;
+        var left = Math.Min(outer.Left, outer.Right);
+        var right = Math.Max(outer.Left, outer.Right);
+        var bottom = Math.Min(outer.Bottom, outer.Top);
+        var top = Math.Max(outer.Bottom, outer.Top);
+        return centroid.X >= left && centroid.X <= right && centroid.Y >= bottom && centroid.Y <= top;
+    }
+
+    /// <summary>
+    /// Fraction of letters drawn in the invisible text-rendering mode (<see cref="TextRenderingMode.Neither"/>,
+    /// PDF "Tr 3") across the given words — the canonical signature of a scan-sandwich OCR layer. Returns 0
+    /// when there are no letters.
+    /// </summary>
+    private static double InvisibleTextRatio(IReadOnlyList<Word> words)
+    {
+        long total = 0;
+        long invisible = 0;
+        foreach (var word in words)
+        {
+            foreach (var letter in word.Letters)
+            {
+                total++;
+                if (letter.RenderingMode == TextRenderingMode.Neither)
+                {
+                    invisible++;
+                }
+            }
+        }
+
+        return total == 0 ? 0.0 : (double)invisible / total;
     }
 
     private static TextExtractionResult Empty()

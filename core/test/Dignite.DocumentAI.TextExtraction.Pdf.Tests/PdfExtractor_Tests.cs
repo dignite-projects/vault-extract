@@ -21,16 +21,39 @@ public class PdfExtractor_Tests
     private PdfExtractor CreateExtractor(
         int minImagePixels = 0,
         int maxImagesPerPdf = 50,
+        bool skipFullPageScanBackground = true,
         DocumentAIOcrOptions? ocrOptions = null)
         => new(
             _ocr,
             Options.Create(new PdfExtractorOptions
             {
                 MinImagePixels = minImagePixels,
-                MaxImagesPerPdf = maxImagesPerPdf
+                MaxImagesPerPdf = maxImagesPerPdf,
+                // Defaults to true in production; kept explicit here so each test states the behavior it
+                // exercises. The remaining FullPageScan* thresholds use their production defaults.
+                SkipFullPageScanBackground = skipFullPageScanBackground
             }),
             // Default to empty hints so unrelated tests don't get defaults injected unexpectedly.
             Options.Create(ocrOptions ?? new DocumentAIOcrOptions { DefaultLanguageHints = new List<string>() }));
+
+    // A full-page raster inset 10pt inside the fixture page — clears the coverage bar on both axes
+    // (~0.97). Derived from PdfFixtures' page size so a fixture page-size change can't silently flip the
+    // skip/keep outcome of these geometry-sensitive tests.
+    private static readonly PdfRectangle FullPageRect = new(
+        10, 10, PdfFixtures.PageWidth - 10, PdfFixtures.PageHeight - 10);
+
+    // N text baselines spread evenly across the page height — a whole-page transcription, not a caption.
+    private static (string Text, double BaselineY)[] SpreadLines(int count, double topY = 800, double bottomY = 60)
+    {
+        var lines = new (string, double)[count];
+        var step = count > 1 ? (topY - bottomY) / (count - 1) : 0;
+        for (var i = 0; i < count; i++)
+        {
+            lines[i] = ($"LINE{i:D2} scanned body text", topY - (i * step));
+        }
+
+        return lines;
+    }
 
     private static TextExtractionContext PdfContext()
         => new() { ContentType = "application/pdf", FileExtension = ".pdf" };
@@ -227,5 +250,125 @@ public class PdfExtractor_Tests
         result.Markdown.ShouldBeNullOrEmpty();
         await _ocr.DidNotReceive().RecognizeAsync(
             Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Skips_the_full_page_scan_background_of_a_sandwich_pdf()
+    {
+        // Searchable / "sandwich" PDF (#309): a full-page scan raster + a whole-page OCR text layer. The
+        // raster must NOT be re-OCR'd (it would duplicate the text and burn a paid vision call); the text
+        // layer is kept and the result stays complete (intentional skip ≠ lost figure).
+        StubOcr("SHOULD_NOT_BE_OCRED");
+
+        var png = TinyPng.CreateSolid(120, 160);
+        var pdf = PdfFixtures.Build(
+            texts: SpreadLines(20), // ≥ FullPageScanMinTextLines (15) → a whole-page (visible) transcription
+            images: new[] { (png, FullPageRect) });
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(pdf), PdfContext());
+
+        await _ocr.DidNotReceive().RecognizeAsync(
+            Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
+        result.Markdown.ShouldNotContain("SHOULD_NOT_BE_OCRED");
+        result.Markdown.ShouldContain("LINE00 scanned body text"); // text layer preserved
+        result.Markdown.ShouldContain("LINE19 scanned body text");
+        // A deliberate skip is non-lossy — it must NOT trip the #268 completeness signal.
+        result.IsComplete.ShouldBeTrue();
+        result.IncompleteReason.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Skips_a_sparse_invisible_sandwich_via_the_tr3_signal()
+    {
+        // The Tr 3 bonus: even with only a few lines (below FullPageScanMinTextLines), a predominantly
+        // invisible text layer over a full-page raster is the canonical sandwich signature → still skipped.
+        StubOcr("SHOULD_NOT_BE_OCRED");
+
+        var png = TinyPng.CreateSolid(120, 160);
+        var pdf = PdfFixtures.Build(
+            texts: SpreadLines(3),                       // 3 lines < FullPageScanMinTextLines (5)
+            images: new[] { (png, FullPageRect) },
+            textRenderingMode: TextRenderingMode.Neither); // invisible OCR layer (Tr 3)
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(pdf), PdfContext());
+
+        await _ocr.DidNotReceive().RecognizeAsync(
+            Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
+        result.Markdown.ShouldContain("LINE00 scanned body text"); // invisible text is still extracted
+        result.IsComplete.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Transcribes_a_full_page_figure_with_a_caption_block()
+    {
+        // A digital PDF whose full-page image is a real figure with only a caption block looks identical to
+        // a sandwich under "big image + has text", but the text is a thin band at one edge — it does NOT
+        // span the image vertically → the figure must be kept and transcribed (NOT dropped). This is the
+        // false-positive the guard must avoid.
+        StubOcr("ARCHITECTURE DIAGRAM");
+
+        var png = TinyPng.CreateSolid(120, 160);
+        // A multi-line caption clustered at the bottom: its words DO fall inside the image region (so the
+        // figure is kept by the vertical-coverage guard, not by the empty-region early-out), but the band
+        // spans only a sliver of the image height.
+        var pdf = PdfFixtures.Build(
+            texts: new[]
+            {
+                ("Figure 1: System architecture", 70.0),
+                ("Source: internal benchmarking, 2026", 52.0),
+                ("All values normalized to the baseline", 34.0)
+            },
+            images: new[] { (png, FullPageRect) });
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(pdf), PdfContext());
+
+        await _ocr.Received(1).RecognizeAsync(
+            Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
+        result.Markdown.ShouldContain("ARCHITECTURE DIAGRAM"); // figure transcribed and inlined
+        result.Markdown.ShouldContain("Figure 1: System architecture");
+        // In-region caption text is present, proving the figure was kept via low vertical coverage — not
+        // because the region happened to contain no words.
+        result.Markdown.ShouldContain("Source: internal benchmarking, 2026");
+    }
+
+    [Fact]
+    public async Task Keeps_and_transcribes_a_small_embedded_figure()
+    {
+        // #301 behavior is unchanged for ordinary embedded figures: a small image (well below the full-page
+        // coverage bar) is transcribed as before, regardless of the sandwich guard.
+        StubOcr("SMALL FIGURE");
+
+        var png = TinyPng.CreateSolid(48, 48);
+        var pdf = PdfFixtures.Build(
+            texts: new[] { ("Body text", 700.0) },
+            images: new[] { (png, new PdfRectangle(50, 400, 200, 550)) }); // ~25%×18% of the page
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(pdf), PdfContext());
+
+        await _ocr.Received(1).RecognizeAsync(
+            Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
+        result.Markdown.ShouldContain("SMALL FIGURE");
+        result.IsComplete.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Transcribes_the_full_page_image_when_the_skip_guard_is_disabled()
+    {
+        // Control / opt-out: with SkipFullPageScanBackground = false the very same sandwich page is OCR'd
+        // (the unconditional #301 path), proving the image is genuinely full-page and the skip elsewhere is
+        // the guard's doing — not the fixture failing to embed an image.
+        StubOcr("RE_OCRED_BACKGROUND");
+
+        var png = TinyPng.CreateSolid(120, 160);
+        var pdf = PdfFixtures.Build(
+            texts: SpreadLines(20), // the same sandwich page as the skip test above
+            images: new[] { (png, FullPageRect) });
+
+        var result = await CreateExtractor(skipFullPageScanBackground: false)
+            .ExtractAsync(new MemoryStream(pdf), PdfContext());
+
+        await _ocr.Received(1).RecognizeAsync(
+            Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
+        result.Markdown.ShouldContain("RE_OCRED_BACKGROUND");
     }
 }

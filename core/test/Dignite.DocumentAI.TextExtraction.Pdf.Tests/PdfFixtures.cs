@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using UglyToad.PdfPig.Content;
 using UglyToad.PdfPig.Core;
 using UglyToad.PdfPig.Fonts.Standard14Fonts;
 using UglyToad.PdfPig.Writer;
@@ -14,13 +13,26 @@ namespace Dignite.DocumentAI.TextExtraction.Pdf;
 /// </summary>
 internal static class PdfFixtures
 {
+    // A4 in PDF points (1/72"). Exposed so geometry-sensitive tests size their rectangles against the same
+    // page these fixtures build, instead of hardcoding the dimensions independently in another file.
+    public const double PageWidth = 595.28;
+    public const double PageHeight = 841.89;
+
     public static byte[] Build(
         IReadOnlyList<(string Text, double BaselineY)> texts,
-        IReadOnlyList<(byte[] Image, PdfRectangle Rect)>? images = null)
+        IReadOnlyList<(byte[] Image, PdfRectangle Rect)>? images = null,
+        TextRenderingMode? textRenderingMode = null)
     {
         var builder = new PdfDocumentBuilder();
         var font = builder.AddStandard14Font(Standard14Font.Helvetica);
-        var page = builder.AddPage(PageSize.A4);
+        var page = builder.AddPage(PageWidth, PageHeight);
+
+        // Emit the text in an invisible rendering mode (Tr 3) when asked — reproduces the OCR text layer of
+        // a searchable / "sandwich" scan, which is drawn invisibly over the full-page raster.
+        if (textRenderingMode is { } mode)
+        {
+            page.SetTextRenderingMode(mode);
+        }
 
         foreach (var (text, baselineY) in texts)
         {
