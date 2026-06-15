@@ -68,4 +68,18 @@ public class PdfExtractorOptions
     /// sandwich signature; a real figure never carries one. The vertical-span guard still applies.
     /// </summary>
     public double FullPageScanMinInvisibleTextRatio { get; set; } = 0.6;
+
+    /// <summary>
+    /// Whether to reconstruct a detected table region of the digital text layer into a Markdown table
+    /// (#310 Phase B). When a region confidently forms a 2-D grid (>= 2x2, aligned columns, sufficient
+    /// fill) its rows render as Markdown table rows, so a wrapped cell stays in its own cell instead of
+    /// interleaving with its row siblings (the #310 料金表 failure). Detection is <b>non-lossy</b>: a region
+    /// that fails the table test degrades to the Phase A column-aware paragraph linearization
+    /// (<see cref="PdfReadingOrder.RenderPage"/>) — never forcing a bad table, never dropping a cell. This is
+    /// a pure layout/rendering heuristic with no OCR cost; set <c>false</c> to keep the Phase A paragraph
+    /// rendering for every region. The grid-geometry thresholds themselves are internal constants of
+    /// <see cref="PdfTableReconstruction"/> (like the caption-distance / paragraph-pitch constants of
+    /// <see cref="PdfReadingOrder"/>), not options — only this on/off switch is host-configurable.
+    /// </summary>
+    public bool ReconstructTables { get; set; } = true;
 }

@@ -109,21 +109,26 @@ internal static class ChartRenderer
             sb.Append("**").Append(MarkdownText.EscapeInline(MarkdownText.InlineLabel(title))).Append("**\n\n");
         }
 
-        // Header: leading category column + one column per series.
-        sb.Append("| Category | ").Append(string.Join(" | ", series.Select(s => MarkdownText.EscapeCell(s.Name)))).Append(" |\n");
-        sb.Append("| --- |").Append(string.Concat(series.Select(_ => " --- |"))).Append('\n');
+        // Header: leading category column + one column per series, then one row per category. Source-text
+        // cells (series names, category labels, values) are inline-escaped here (#329, matching the PDF /
+        // Word / PPTX table paths), then the shared renderer emits the GFM grid.
+        var rows = new List<IReadOnlyList<string>>
+        {
+            new[] { "Category" }.Concat(series.Select(s => MarkdownText.EscapeInlineCell(s.Name))).ToList()
+        };
 
         foreach (var idx in rowIndices)
         {
             var label = categories.TryGetValue(idx, out var cat) && !string.IsNullOrWhiteSpace(cat)
                 ? cat
                 : (idx + 1).ToString();
-            sb.Append("| ").Append(MarkdownText.EscapeCell(label)).Append(" | ");
-            sb.Append(string.Join(" | ", series.Select(s =>
-                s.Values.TryGetValue(idx, out var v) ? MarkdownText.EscapeCell(v) : string.Empty)));
-            sb.Append(" |\n");
+            var row = new List<string> { MarkdownText.EscapeInlineCell(label) };
+            row.AddRange(series.Select(s =>
+                s.Values.TryGetValue(idx, out var v) ? MarkdownText.EscapeInlineCell(v) : string.Empty));
+            rows.Add(row);
         }
 
+        sb.Append(MarkdownText.RenderTable(rows));
         return sb.ToString().TrimEnd('\n');
     }
 

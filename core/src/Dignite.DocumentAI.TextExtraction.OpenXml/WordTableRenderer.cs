@@ -43,44 +43,23 @@ internal static class WordTableRenderer
             return null;
         }
 
-        var sb = new StringBuilder();
-        for (var r = 0; r < rows.Count; r++)
-        {
-            AppendRow(sb, rows[r], columnCount);
-            if (r == 0)
-            {
-                sb.Append('|').Append(string.Concat(Enumerable.Repeat(" --- |", columnCount))).Append('\n');
-            }
-        }
-
-        return sb.ToString().TrimEnd('\n');
-    }
-
-    private static void AppendRow(StringBuilder sb, List<string> cells, int columnCount)
-    {
-        sb.Append("| ");
-        for (var c = 0; c < columnCount; c++)
-        {
-            sb.Append(c < cells.Count ? cells[c] : string.Empty);
-            sb.Append(c == columnCount - 1 ? " |" : " | ");
-        }
-
-        sb.Append('\n');
+        return MarkdownText.RenderTable(rows);
     }
 
     private static string CellText(W.TableCell cell)
     {
         // Join the cell's paragraphs' text with a space — a Markdown table cell can't contain a newline — and
-        // escape table-breaking characters once. Use Descendants (not Elements) so paragraphs wrapped in a
-        // content control (w:sdt) or custom-XML inside the cell are still picked up; but skip paragraphs that
-        // belong to a NESTED table (a nested w:tbl's text is an accepted blind spot and must not bleed into
-        // this cell's own text).
+        // escape inline metacharacters + table breakers once (#329, matching the PDF table path so a literal
+        // '*' / '[' / '`' in source text is not re-parsed as emphasis / link / code inside the cell). Use
+        // Descendants (not Elements) so paragraphs wrapped in a content control (w:sdt) or custom-XML inside
+        // the cell are still picked up; but skip paragraphs that belong to a NESTED table (a nested w:tbl's
+        // text is an accepted blind spot and must not bleed into this cell's own text).
         var paragraphs = cell
             .Descendants<W.Paragraph>()
             .Where(p => !IsInNestedTable(p, cell))
             .Select(ParagraphPlainText)
             .Where(text => text.Length > 0);
-        return MarkdownText.EscapeCell(string.Join(" ", paragraphs));
+        return MarkdownText.EscapeInlineCell(string.Join(" ", paragraphs));
     }
 
     /// <summary>

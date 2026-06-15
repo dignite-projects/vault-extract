@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using D = DocumentFormat.OpenXml.Drawing;
 
 namespace Dignite.DocumentAI.TextExtraction.OpenXml;
@@ -37,31 +36,11 @@ internal static class DrawingTableRenderer
             return null;
         }
 
-        var sb = new StringBuilder();
-        for (var r = 0; r < rows.Count; r++)
-        {
-            AppendRow(sb, rows[r], columnCount);
-            if (r == 0)
-            {
-                sb.Append('|').Append(string.Concat(Enumerable.Repeat(" --- |", columnCount))).Append('\n');
-            }
-        }
-
-        return sb.ToString().TrimEnd('\n');
-    }
-
-    private static void AppendRow(StringBuilder sb, List<string> cells, int columnCount)
-    {
-        sb.Append("| ");
-        for (var c = 0; c < columnCount; c++)
-        {
-            sb.Append(c < cells.Count ? cells[c] : string.Empty);
-            sb.Append(c == columnCount - 1 ? " |" : " | ");
-        }
-
-        sb.Append('\n');
+        return MarkdownText.RenderTable(rows);
     }
 
     private static string CellText(D.TableCell cell)
-        => MarkdownText.EscapeCell(string.Join(" ", cell.Descendants<D.Text>().Select(t => t.InnerText)));
+        // Inline-escape + table-break-escape source text (#329, matching the PDF table path) so a literal
+        // '*' / '[' / '`' in a cell is not re-parsed as Markdown.
+        => MarkdownText.EscapeInlineCell(string.Join(" ", cell.Descendants<D.Text>().Select(t => t.InnerText)));
 }

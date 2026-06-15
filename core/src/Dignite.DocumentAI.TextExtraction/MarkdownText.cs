@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
 namespace Dignite.DocumentAI.TextExtraction;
@@ -284,6 +286,69 @@ public static class MarkdownText
             .Replace("\r", " ")
             .Replace("\n", " ")
             .Trim();
+    }
+
+    /// <summary>
+    /// Escapes <b>source text</b> placed inside a Markdown table cell: first the inline metacharacter set
+    /// (<see cref="EscapeInline"/> — <c>\ ` * _ [ ] &lt;</c>) so a literal <c>*</c> / <c>[</c> / <c>&lt;</c> in
+    /// the source cannot open emphasis / a link / an autolink inside the cell, then the pipe column separator,
+    /// and finally CR/LF collapsed to a space. Use this (not <see cref="EscapeCell"/>) when the cell value is
+    /// literal document text rather than an already-safe value — it gives a PDF/source table cell the same
+    /// metacharacter protection the paragraph path gets from <see cref="EscapeInline"/> (#320 parity, #329).
+    /// <para>
+    /// The two halves compose without double-escaping: <see cref="EscapeInline"/> already backslash-escapes
+    /// <c>\</c> and never touches <c>|</c>, so the subsequent pipe replace only ever escapes an original
+    /// literal pipe, not a backslash that escaping just introduced.
+    /// </para>
+    /// </summary>
+    public static string EscapeInlineCell(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return string.Empty;
+        }
+
+        return EscapeInline(text)
+            .Replace("|", "\\|")
+            .Replace("\r", " ")
+            .Replace("\n", " ")
+            .Trim();
+    }
+
+    /// <summary>
+    /// Renders a rectangular grid as a GFM Markdown table: the FIRST row is the header (followed by the
+    /// mandated <c>| --- |</c> separator), every row padded to the widest row's column count, with the
+    /// trailing newline trimmed. Cells are emitted <b>verbatim</b> — the caller must have escaped them already
+    /// (<see cref="EscapeCell"/> for already-safe values, <see cref="EscapeInlineCell"/> for source text).
+    /// Shared by the Word / DrawingML / chart renderers and the PDF table reconstructor so the GFM table shape
+    /// lives in one place (#329). Returns the empty string for an empty / zero-column grid.
+    /// </summary>
+    public static string RenderTable(IReadOnlyList<IReadOnlyList<string>> rows)
+    {
+        var columnCount = rows.Count == 0 ? 0 : rows.Max(row => row.Count);
+        if (columnCount == 0)
+        {
+            return string.Empty;
+        }
+
+        var sb = new StringBuilder();
+        for (var r = 0; r < rows.Count; r++)
+        {
+            sb.Append("| ");
+            for (var c = 0; c < columnCount; c++)
+            {
+                sb.Append(c < rows[r].Count ? rows[r][c] : string.Empty);
+                sb.Append(c == columnCount - 1 ? " |" : " | ");
+            }
+
+            sb.Append('\n');
+            if (r == 0)
+            {
+                sb.Append('|').Append(string.Concat(Enumerable.Repeat(" --- |", columnCount))).Append('\n');
+            }
+        }
+
+        return sb.ToString().TrimEnd('\n');
     }
 
     /// <summary>

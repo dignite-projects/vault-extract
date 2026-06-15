@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using Shouldly;
 using Xunit;
 
@@ -95,6 +97,56 @@ public class MarkdownText_Tests
 
     [Fact]
     public void EscapeCell_null_becomes_empty() => MarkdownText.EscapeCell(null).ShouldBe(string.Empty);
+
+    // --- EscapeInlineCell (source text in a table cell — #329) ---
+
+    [Fact]
+    public void EscapeInlineCell_escapes_inline_metacharacters_and_the_pipe()
+        => MarkdownText.EscapeInlineCell("*a*|b").ShouldBe("\\*a\\*\\|b");
+
+    [Fact]
+    public void EscapeInlineCell_does_not_double_escape_a_backslash()
+        => MarkdownText.EscapeInlineCell("a\\b").ShouldBe("a\\\\b");
+
+    [Fact]
+    public void EscapeInlineCell_collapses_newlines_to_spaces()
+        => MarkdownText.EscapeInlineCell("line1\nline2").ShouldBe("line1 line2");
+
+    [Fact]
+    public void EscapeInlineCell_leaves_an_intraword_underscore_untouched()
+        => MarkdownText.EscapeInlineCell("snake_case").ShouldBe("snake_case");
+
+    [Fact]
+    public void EscapeInlineCell_null_becomes_empty() => MarkdownText.EscapeInlineCell(null).ShouldBe(string.Empty);
+
+    // --- RenderTable (shared GFM grid renderer — #329) ---
+
+    [Fact]
+    public void RenderTable_renders_header_separator_and_rows()
+        => MarkdownText.RenderTable(new IReadOnlyList<string>[]
+        {
+            new[] { "a", "b" },
+            new[] { "c", "d" }
+        }).ShouldBe("| a | b |\n| --- | --- |\n| c | d |");
+
+    [Fact]
+    public void RenderTable_pads_short_rows_to_the_widest_row()
+        => MarkdownText.RenderTable(new IReadOnlyList<string>[]
+        {
+            new[] { "a", "b" },
+            new[] { "c" }
+        }).ShouldBe("| a | b |\n| --- | --- |\n| c |  |");
+
+    [Fact]
+    public void RenderTable_emits_only_header_and_separator_for_a_single_row()
+        => MarkdownText.RenderTable(new IReadOnlyList<string>[]
+        {
+            new[] { "a", "b" }
+        }).ShouldBe("| a | b |\n| --- | --- |");
+
+    [Fact]
+    public void RenderTable_returns_empty_for_no_rows()
+        => MarkdownText.RenderTable(Array.Empty<IReadOnlyList<string>>()).ShouldBe(string.Empty);
 
     // --- InlineLabel (consolidated from the former MarkdownCell.Inline) ---
 

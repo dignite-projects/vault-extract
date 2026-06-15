@@ -403,4 +403,63 @@ public class PdfExtractor_Tests
             .Substring(firstBodyWord, lastBodyWord - firstBodyWord)
             .ShouldNotContain("LABEL");
     }
+
+    [Fact]
+    public async Task Reconstructs_a_multi_column_table_into_markdown_table_rows()
+    {
+        // #310 Phase B end-to-end: a positioned multi-column fee schedule whose third-column cell wraps to a
+        // second visual line. Phase A would linearize the row's cells as separate paragraphs and split the
+        // wrapped cell; the table path must emit GFM table rows with the wrapped cell kept whole, while the
+        // title above the table stays its own (non-table) region.
+        var pdf = PdfFixtures.BuildPositioned(new[]
+        {
+            ("Service Fee Schedule", 50.0, 770.0), // title above the table (separate region)
+
+            ("Service", 50.0, 700.0), ("Fee", 230.0, 700.0), ("Note", 380.0, 700.0),
+            ("Basic", 50.0, 672.0), ("100", 230.0, 672.0), ("standard", 380.0, 672.0),
+            ("support", 380.0, 658.0), // wrapped continuation of the Note cell (single-line pitch below)
+            ("Premium", 50.0, 630.0), ("200", 230.0, 630.0), ("priority", 380.0, 630.0)
+        });
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(pdf), PdfContext());
+
+        // A GFM table was produced.
+        result.Markdown.ShouldContain("| --- |");
+        // The wrapped Note cell stays intact in its own cell (not split across siblings).
+        result.Markdown.ShouldContain("standard support");
+        // All table content is present (non-lossy), and the title is preserved as its own region.
+        foreach (var token in new[]
+                 {
+                     "Service Fee Schedule", "Service", "Fee", "Note",
+                     "Basic", "100", "Premium", "200", "priority"
+                 })
+        {
+            result.Markdown.ShouldContain(token);
+        }
+    }
+
+    [Fact]
+    public async Task Reconstructs_a_tight_row_pitch_table()
+    {
+        // #329 review (efficacy): the multi-column fixture above uses a generous row pitch that RecursiveXYCut
+        // cuts into per-cell blocks; a tight row pitch is instead cut into per-COLUMN blocks (each column one
+        // tall block of stacked rows). Because reconstruction works at the WORD level, not the block level,
+        // the grid is recovered either way — a tight pitch is not just non-lossy but a real table.
+        var pdf = PdfFixtures.BuildPositioned(new[]
+        {
+            ("Item", 50.0, 700.0), ("Price", 230.0, 700.0),
+            ("Apple", 50.0, 688.0), ("100", 230.0, 688.0),
+            ("Pear", 50.0, 676.0), ("200", 230.0, 676.0),
+            ("Plum", 50.0, 664.0), ("300", 230.0, 664.0)
+        });
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(pdf), PdfContext());
+
+        result.Markdown.ShouldContain("| --- |"); // a real table, not a paragraph degrade
+
+        foreach (var token in new[] { "Item", "Price", "Apple", "100", "Pear", "200", "Plum", "300" })
+        {
+            result.Markdown.ShouldContain(token);
+        }
+    }
 }

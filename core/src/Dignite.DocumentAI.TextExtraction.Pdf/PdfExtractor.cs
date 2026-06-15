@@ -243,7 +243,7 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
                     }
                 }
 
-                var pageMarkdown = PdfReadingOrder.RenderPage(pageContent.Words, figures);
+                var pageMarkdown = PdfReadingOrder.RenderPage(pageContent.Words, figures, _options.ReconstructTables);
                 if (!string.IsNullOrWhiteSpace(pageMarkdown))
                 {
                     pageMarkdowns.Add(pageMarkdown);
