@@ -112,7 +112,7 @@ Document AI ships three OCR providers; the host enables exactly one (`[DependsOn
 
 * **Vision LLM** — the host's current default (#259). Sends images / rasterized PDF pages to a vision-capable `IChatClient` model; the strongest option for phone photos, thermal receipts, and image-only PDFs. No sidecar — only a vision model id. See [docs/ocr-vision-llm.md](./docs/ocr-vision-llm.md).
 * **PaddleOCR** — local Docker sidecar (PP-StructureV3, CPU); data never leaves the network. See [docs/ocr-paddleocr.md](./docs/ocr-paddleocr.md).
-* **Azure Document Intelligence** — cloud option (`prebuilt-layout`, high accuracy) when data is allowed to leave the network. See [docs/ocr-azure-document-intelligence.md](./docs/ocr-azure-document-intelligence.md).
+* **Azure Document Intelligence** — cloud option (`prebuilt-layout`, high accuracy) when data is allowed to leave the network. See [docs/ocr-azure-document-intelligence.md](./docs/ocr-azure-document-intelligence.md). **Not yet validated against a live Azure resource — community testing welcome ([#327](https://github.com/dignite-projects/document-ai/issues/327)).**
 
 Full selection guidance, configuration, and resource footprint: see [docs/text-extraction.md](./docs/text-extraction.md).
 
