@@ -83,7 +83,6 @@
     "Menu:Documents": "文档",
     "Menu:DocumentList": "文档列表",
     "Menu:DocumentReviewQueue": "审核队列",
-    "Menu:UploadDocument": "上传文档",
     "Menu:DocumentRecycleBin": "回收站",
     "Document:RecycleBin": "回收站",
     "Document:RecycleBinEmpty": "回收站为空。",

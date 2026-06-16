@@ -18,11 +18,6 @@ export const DOCUMENTS_ROUTES: Routes = [
       import('./documents/document-list/document-list.component').then(c => c.DocumentListComponent),
   },
   {
-    path: 'upload',
-    pathMatch: 'full',
-    redirectTo: '',
-  },
-  {
     path: 'recycle',
     canActivate: [authGuard, permissionGuard],
     data: { requiredPolicy: DOCUMENT_AI_PERMISSIONS.Documents.Restore },
