@@ -118,6 +118,8 @@ public class EtoContract_Tests
             TenantId = null,
             EventTime = SampleEventTime,
             DocumentTypeCode = "contract.general",
+            // #346: container marker. Non-default so a serialization regression (getter-only / rename) is caught.
+            IsContainer = true,
             // #306: provenance link for a Scenario B sub-document. Non-null so a serialization regression is caught.
             OriginDocumentId = originDocumentId
         };
@@ -126,6 +128,7 @@ public class EtoContract_Tests
 
         roundTrip.DocumentTypeCode.ShouldBe("contract.general");
         roundTrip.EventTime.ShouldBe(eto.EventTime);
+        roundTrip.IsContainer.ShouldBeTrue();
         roundTrip.OriginDocumentId.ShouldBe(originDocumentId);
     }
 

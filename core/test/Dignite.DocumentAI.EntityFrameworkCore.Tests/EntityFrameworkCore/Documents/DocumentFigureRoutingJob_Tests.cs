@@ -90,7 +90,7 @@ public class DocumentFigureRoutingJob_Tests : DocumentAITestBase<DocumentFigureR
         {
             var derived = (await _documentRepository.GetListAsync(d => d.OriginDocumentId == sourceId)).SingleOrDefault();
             derived.ShouldNotBeNull();
-            derived!.OriginFigureKey.ShouldBe(contentHash);
+            derived!.OriginConstituentKey.ShouldBe(contentHash);
             derived.FileOrigin.ContentHash.ShouldBe(contentHash);
             derived.FileOrigin.BlobName.ShouldNotBe(cropBlobName); // copied to an independent blob
             derived.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.Processing); // text-extraction queued
@@ -218,7 +218,7 @@ public class DocumentFigureRoutingJob_Tests : DocumentAITestBase<DocumentFigureR
         await WithUnitOfWorkAsync(async () =>
             await _documentRepository.InsertAsync(NewDerived(sourceId, figureKey), autoSave: true));
 
-        // The filtered unique index on (OriginDocumentId, OriginFigureKey) is routing's concurrency backstop: a
+        // The filtered unique index on (OriginDocumentId, OriginConstituentKey) is routing's concurrency backstop: a
         // second derived document for the same source figure must be rejected by the database.
         await Should.ThrowAsync<Exception>(() => WithUnitOfWorkAsync(async () =>
             await _documentRepository.InsertAsync(NewDerived(sourceId, figureKey), autoSave: true)));
@@ -278,6 +278,6 @@ public class DocumentFigureRoutingJob_Tests : DocumentAITestBase<DocumentFigureR
             fileOrigin: new FileOrigin(
                 blobName: $"{id:N}.png", uploadedByUserName: "test-user", contentType: "image/png",
                 contentHash: figureKey, fileSize: 4, originalFileName: "figure.png"),
-            originDocumentId: sourceId, originFigureKey: figureKey);
+            originDocumentId: sourceId, originConstituentKey: figureKey);
     }
 }

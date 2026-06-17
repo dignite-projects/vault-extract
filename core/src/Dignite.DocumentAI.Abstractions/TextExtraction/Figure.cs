@@ -9,7 +9,7 @@ namespace Dignite.DocumentAI.Abstractions.TextExtraction;
 /// <para>
 /// <b>Identity is content, not position.</b> A figure is keyed downstream by the SHA-256 of
 /// <see cref="Content"/> (which doubles as the derived document's <c>FileOrigin.ContentHash</c> /
-/// <c>OriginFigureKey</c>), never by bbox — bbox drifts across provider / re-extraction (#210). The
+/// <c>OriginConstituentKey</c>), never by bbox — bbox drifts across provider / re-extraction (#210). The
 /// transient <see cref="PageNumber"/> is provenance only.
 /// </para>
 /// </summary>

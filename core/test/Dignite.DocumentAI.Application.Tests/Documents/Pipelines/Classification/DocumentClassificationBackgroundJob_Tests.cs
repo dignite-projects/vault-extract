@@ -123,6 +123,46 @@ public class DocumentClassificationBackgroundJob_Tests
     }
 
     [Fact]
+    public async Task Container_Marks_Document_And_Does_Not_Publish_ClassifiedEto()
+    {
+        var doc = CreateDocument("Invoice 1 ... Invoice 2 ... Invoice 3 ... (a bundle of independent invoices)");
+        SetupDocumentRepository(doc);
+
+        // #346: the classifier reports a container. Even with an incidental high-confidence type guess, the
+        // container branch dominates: it must not be classified to that type and must not cascade extraction.
+        _workflow
+            .RunAsync(
+                Arg.Any<IReadOnlyList<DocumentType>>(),
+                Arg.Any<string>(),
+                Arg.Any<CancellationToken>())
+            .Returns(new DocumentClassificationOutcome
+            {
+                IsContainer = true,
+                TypeCode = "contract.general",
+                ConfidenceScore = 0.95,
+                Reason = "Several independent documents bundled together"
+            });
+
+        await _job.ExecuteAsync(new DocumentClassificationJobArgs { DocumentId = doc.Id });
+
+        var run = await _runRepository.FindLatestByDocumentAndCodeAsync(doc.Id, DocumentAIPipelines.Classification);
+        run.ShouldNotBeNull();
+        run.Status.ShouldBe(PipelineRunStatus.Succeeded);
+
+        doc.IsContainer.ShouldBeTrue();
+        doc.DocumentTypeId.ShouldBeNull();
+        doc.ClassificationConfidence.ShouldBe(0);
+        // A container is a correct outcome, not low confidence: it must not enter the operator review queue.
+        doc.ReviewReasons.ShouldBe(DocumentReviewReasons.None);
+        doc.ReviewDisposition.ShouldBe(DocumentReviewDisposition.NotReviewed);
+
+        // The crux of Design A: never publishing DocumentClassifiedEto is what stops FieldExtractionEventHandler
+        // from cascading field extraction onto the container.
+        await _eventBus.DidNotReceive().PublishAsync(
+            Arg.Any<DocumentClassifiedEto>(), Arg.Any<bool>());
+    }
+
+    [Fact]
     public async Task LowConfidence_Marks_PendingReview_No_Event()
     {
         var doc = CreateDocument("Some document text.");

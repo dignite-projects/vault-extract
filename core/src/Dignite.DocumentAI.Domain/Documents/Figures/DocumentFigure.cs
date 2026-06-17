@@ -22,7 +22,7 @@ namespace Dignite.DocumentAI.Documents.Figures;
 /// </para>
 /// <para>
 /// <b>Identity is content, not position.</b> <see cref="ContentHash"/> is the SHA-256 of the figure
-/// bytes and doubles as the derived document's <c>FileOrigin.ContentHash</c> / <c>OriginFigureKey</c>,
+/// bytes and doubles as the derived document's <c>FileOrigin.ContentHash</c> / <c>OriginConstituentKey</c>,
 /// giving idempotent routing (unique <c>(SourceDocumentId, ContentHash)</c>); bbox is deliberately not
 /// persisted as identity because it drifts across provider / re-extraction (#210). <see cref="PageNumber"/>
 /// is provenance only.
@@ -37,7 +37,7 @@ public class DocumentFigure : CreationAuditedAggregateRoot<Guid>, IMultiTenant
 
     /// <summary>
     /// SHA-256 (lowercase hex) of the figure bytes. Doubles as the derived document's
-    /// <c>OriginFigureKey</c> / <c>FileOrigin.ContentHash</c> and is unique per source
+    /// <c>OriginConstituentKey</c> / <c>FileOrigin.ContentHash</c> and is unique per source
     /// (<c>(SourceDocumentId, ContentHash)</c>), so re-extraction / job retry never duplicate-spawn.
     /// </summary>
     public virtual string ContentHash { get; private set; } = default!;
@@ -104,7 +104,7 @@ public class DocumentFigure : CreationAuditedAggregateRoot<Guid>, IMultiTenant
     /// <summary>
     /// Records that sub-document routing spawned a derived <see cref="Document"/> from this candidate (#306):
     /// links the derived document and moves <see cref="Status"/> to <see cref="DocumentFigureStatus.Spawned"/>.
-    /// Idempotent re-routing is guarded upstream by the unique <c>(OriginDocumentId, OriginFigureKey)</c> index
+    /// Idempotent re-routing is guarded upstream by the unique <c>(OriginDocumentId, OriginConstituentKey)</c> index
     /// on the derived document.
     /// </summary>
     public void MarkSpawned(Guid routedDocumentId)

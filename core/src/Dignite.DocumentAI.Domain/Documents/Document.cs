@@ -101,10 +101,22 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// </summary>
     public virtual DocumentTextExtractionMetadata? ExtractionMetadata { get; private set; }
 
-    // === Scenario B sub-document back-reference (#306) ===
+    // === Container marker (#346) ===
 
     /// <summary>
-    /// When this document was derived from an embedded figure of another document (#306, Scenario B), the id of
+    /// Whether this document is a <b>container</b> (#346): a parent whose content is several independent documents
+    /// (a multi-type bundle, or multiple instances of one type), so it runs <b>no</b> type-bound field extraction
+    /// itself — each constituent is delegated to a sub-document. Set by <see cref="MarkAsContainer"/> when the
+    /// classification stage reports a container; <c>false</c> for normal single documents. A generic, strongly-typed
+    /// truth-source marker (not a business field, not a generic extension bag), exposed at the egress so downstream
+    /// skips building a record from a container and follows its sub-documents instead.
+    /// </summary>
+    public virtual bool IsContainer { get; private set; }
+
+    // === Scenario B sub-document back-reference (#306 / generalized in #346) ===
+
+    /// <summary>
+    /// When this document was derived from a constituent of another document (#306 / #346, Scenario B), the id of
     /// that <b>source</b> document; <c>null</c> for normally-uploaded documents. A peer back-reference
     /// (reference-by-id, no navigation property, no FK cascade): the derived document has a fully independent
     /// lifecycle and outlives the source. Exposed at the egress so downstream can follow it for provenance.
@@ -112,12 +124,13 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     public virtual Guid? OriginDocumentId { get; private set; }
 
     /// <summary>
-    /// Content-derived stable key of the source figure this document was derived from (#306): the SHA-256 of the
-    /// figure bytes, equal to this document's <c>FileOrigin.ContentHash</c>. NOT bbox (which drifts, #210). Unique
-    /// together with <see cref="OriginDocumentId"/> so re-extraction / routing retry never duplicate-spawn.
+    /// Content-derived stable key of the source constituent this document was derived from (#306 figure path /
+    /// #346 born-digital path): the SHA-256 of the figure bytes <b>or</b> of the Markdown slice, equal to this
+    /// document's <c>FileOrigin.ContentHash</c>. NOT bbox (which drifts, #210). Unique together with
+    /// <see cref="OriginDocumentId"/> so re-extraction / routing retry never duplicate-spawn.
     /// <c>null</c> for normally-uploaded documents.
     /// </summary>
-    public virtual string? OriginFigureKey { get; private set; }
+    public virtual string? OriginConstituentKey { get; private set; }
 
     // --- Aggregate-internal field value collection (field architecture v2 / Issue #206) ---
 
@@ -151,24 +164,25 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     }
 
     /// <summary>
-    /// Creates a <b>derived</b> document spawned from an embedded figure of <paramref name="originDocumentId"/>
-    /// (#306, Scenario B). It is a normal peer <see cref="Document"/> that runs the full pipeline + egress; the
-    /// only difference is the back-reference (<see cref="OriginDocumentId"/> / <see cref="OriginFigureKey"/>).
-    /// <paramref name="originFigureKey"/> equals <paramref name="fileOrigin"/>'s <c>ContentHash</c> (the figure
-    /// content hash), tying storage and routing idempotency together.
+    /// Creates a <b>derived</b> document spawned from a constituent of <paramref name="originDocumentId"/>
+    /// (#306 / #346, Scenario B): an embedded figure (image path) or a Markdown slice (born-digital path). It is a
+    /// normal peer <see cref="Document"/> that runs the full pipeline + egress; the only difference is the
+    /// back-reference (<see cref="OriginDocumentId"/> / <see cref="OriginConstituentKey"/>).
+    /// <paramref name="originConstituentKey"/> equals <paramref name="fileOrigin"/>'s <c>ContentHash</c> (the
+    /// constituent content hash), tying storage and routing idempotency together.
     /// </summary>
     public static Document CreateDerived(
         Guid id,
         Guid? tenantId,
         FileOrigin fileOrigin,
         Guid originDocumentId,
-        string originFigureKey)
+        string originConstituentKey)
     {
         var document = new Document(id, tenantId, fileOrigin)
         {
             OriginDocumentId = Check.NotDefaultOrNull<Guid>(originDocumentId, nameof(originDocumentId)),
-            OriginFigureKey = Check.NotNullOrWhiteSpace(
-                originFigureKey, nameof(originFigureKey), DocumentConsts.MaxOriginFigureKeyLength)
+            OriginConstituentKey = Check.NotNullOrWhiteSpace(
+                originConstituentKey, nameof(originConstituentKey), DocumentConsts.MaxOriginConstituentKeyLength)
         };
         return document;
     }
@@ -343,6 +357,36 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         SetReviewReason(DocumentReviewReasons.MissingRequiredFields, present: false);
         ReviewDisposition = DocumentReviewDisposition.NotReviewed;
         RejectionReason = null; // #284 review-fix: leaving Rejected disposition -> clear stale rejection reason.
+        _extractedFieldValues.Clear();
+    }
+
+    /// <summary>
+    /// Marks this document as a <b>container</b> (#346): a parent whose content is several independent documents
+    /// (a multi-type bundle, or multiple instances of one type), so it runs <b>no</b> type-bound field extraction
+    /// itself — each constituent is delegated to a sub-document. Detected at classification
+    /// (<c>ClassificationResponse.IsContainer</c>), where the marker dominates the incidental type guess.
+    /// <para>
+    /// Unlike <see cref="RequestClassificationReview"/>, a container is a <b>correct</b> outcome, not an error: it
+    /// does <b>not</b> set <see cref="DocumentReviewReasons.UnresolvedClassification"/>, so it never enters the
+    /// operator review queue, and — with both key pipelines succeeded and no blocking reason — derives straight to
+    /// <c>Ready</c> (Design A). <see cref="DocumentTypeId"/> stays null, confidence is reset to 0, and any existing
+    /// field values are cleared (a container holds no single type's fields). <see cref="Markdown"/> /
+    /// <see cref="Title"/> are kept as the original-file / provenance anchor; only type-bound extraction is
+    /// suppressed. The classification caller deliberately does <b>not</b> publish <c>DocumentClassifiedEto</c> for a
+    /// container, so <c>FieldExtractionEventHandler</c> never cascades.
+    /// </para>
+    /// </summary>
+    internal void MarkAsContainer()
+    {
+        IsContainer = true;
+        DocumentTypeId = null;
+        ClassificationConfidence = 0;
+        // A container is a correct outcome: clear the classification / field review reasons rather than setting them,
+        // so it is not routed to the operator review queue and is not blocked from deriving to Ready.
+        SetReviewReason(DocumentReviewReasons.UnresolvedClassification, present: false);
+        SetReviewReason(DocumentReviewReasons.MissingRequiredFields, present: false);
+        ReviewDisposition = DocumentReviewDisposition.NotReviewed;
+        RejectionReason = null;
         _extractedFieldValues.Clear();
     }
 

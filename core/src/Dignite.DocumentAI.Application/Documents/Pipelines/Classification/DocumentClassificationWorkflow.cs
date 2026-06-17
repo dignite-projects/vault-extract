@@ -155,7 +155,10 @@ public class DocumentClassificationWorkflow : ITransientDependency
         {
             TypeCode = typeCode,
             ConfidenceScore = confidenceScore,
-            Reason = parsed?.Reason
+            Reason = parsed?.Reason,
+            // #346: container detection rides the same classification call (zero extra LLM cost). When set, it
+            // dominates the type guess downstream — the BackgroundJob takes the container branch and ignores typeCode.
+            IsContainer = parsed?.IsContainer ?? false
         };
 
         if (parsed?.Candidates != null)
@@ -230,6 +233,15 @@ public class DocumentClassificationWorkflow : ITransientDependency
         public string? TypeCode { get; set; }
         public double Confidence { get; set; }
         public string? Reason { get; set; }
+
+        /// <summary>
+        /// #346: <c>true</c> when the content is clearly several independent documents (a multi-type bundle or
+        /// multiple instances of one type), so the document is a container that must not run field extraction on
+        /// itself. Conservative by design (see the classification prompt); dominates <see cref="TypeCode"/> /
+        /// <see cref="Confidence"/> when set.
+        /// </summary>
+        public bool IsContainer { get; set; }
+
         public List<CandidateItem> Candidates { get; set; } = new();
 
         public sealed class CandidateItem
@@ -245,5 +257,13 @@ public class DocumentClassificationOutcome
     public string? TypeCode { get; set; }
     public double ConfidenceScore { get; set; }
     public string? Reason { get; set; }
+
+    /// <summary>
+    /// #346: the document is a <b>container</b> (several independent documents bundled together). When <c>true</c>
+    /// the BackgroundJob marks the document a container and suppresses field extraction; <see cref="TypeCode"/> /
+    /// <see cref="ConfidenceScore"/> are ignored.
+    /// </summary>
+    public bool IsContainer { get; set; }
+
     public List<PipelineRunCandidate> Candidates { get; } = new();
 }

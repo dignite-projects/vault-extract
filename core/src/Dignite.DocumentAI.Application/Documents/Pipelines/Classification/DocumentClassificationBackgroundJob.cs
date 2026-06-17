@@ -145,6 +145,18 @@ public class DocumentClassificationBackgroundJob
         DocumentPipelineRun run,
         DocumentClassificationOutcome outcome)
     {
+        // #346: a container dominates the type guess. A parent that bundles several independent documents runs no
+        // field extraction itself: mark it a container, complete the run as succeeded, and — crucially — do NOT
+        // publish DocumentClassifiedEto, so FieldExtractionEventHandler never cascades (the race-free suppression
+        // is simply never emitting the trigger event). MarkAsContainer leaves DocumentTypeId null and sets no
+        // UnresolvedClassification reason, so the container is not sent to the operator review queue and — with
+        // both key pipelines succeeded and no blocking reason — derives straight to Ready (Design A).
+        if (outcome.IsContainer)
+        {
+            await PipelineRunManager.CompleteClassificationAsContainerAsync(document, run);
+            return;
+        }
+
         // Field architecture v2: look up the type definition from DB, exactly matching the single
         // layer selected by Document.TenantId.
         DocumentType? typeDef = null;

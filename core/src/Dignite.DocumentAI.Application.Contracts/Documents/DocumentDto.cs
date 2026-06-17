@@ -16,10 +16,18 @@ public class DocumentDto : EntityDto<Guid>
     public Guid? CabinetId { get; set; }
 
     /// <summary>
-    /// Provenance link for a Scenario B sub-document (#306): when this document was derived from an embedded
-    /// figure of another document, the id of that source document; <c>null</c> for normally-uploaded documents.
+    /// Provenance link for a Scenario B sub-document (#306): when this document was derived from a constituent
+    /// of another document, the id of that source document; <c>null</c> for normally-uploaded documents.
     /// </summary>
     public Guid? OriginDocumentId { get; set; }
+
+    /// <summary>
+    /// Whether this document is a <b>container</b> (#346): a parent bundling several independent documents that
+    /// runs no type-bound field extraction itself. <c>true</c> means downstream must <b>not</b> build a business
+    /// record from this document — its real records are its sub-documents (query <c>OriginDocumentId == this.Id</c>).
+    /// A container has no <see cref="DocumentTypeCode"/> and no <see cref="ExtractedFields"/>.
+    /// </summary>
+    public bool IsContainer { get; set; }
 
     public string? DocumentTypeCode { get; set; }
     public DocumentLifecycleStatus LifecycleStatus { get; set; }

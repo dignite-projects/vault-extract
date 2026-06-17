@@ -45,11 +45,12 @@ public static class DocumentConsts
     public static int MaxLanguageLength { get; set; } = 16;
 
     /// <summary>
-    /// Length of <see cref="Document.OriginFigureKey"/> (#306): the SHA-256 (lowercase hex) of the source
-    /// figure's bytes, which equals the derived document's <c>FileOrigin.ContentHash</c>. Matches
+    /// Length of <see cref="Document.OriginConstituentKey"/> (#306 / #346): the SHA-256 (lowercase hex) of the
+    /// source constituent — the figure's bytes (image path) or the Markdown slice (born-digital path) — which
+    /// equals the derived document's <c>FileOrigin.ContentHash</c>. Matches
     /// <see cref="FileOriginConsts.MaxContentHashLength"/>.
     /// </summary>
-    public static int MaxOriginFigureKeyLength { get; set; } = 64;
+    public static int MaxOriginConstituentKeyLength { get; set; } = 64;
 
     /// <summary>
     /// Native payload archive size limit in bytes, default 16 MiB (#210).

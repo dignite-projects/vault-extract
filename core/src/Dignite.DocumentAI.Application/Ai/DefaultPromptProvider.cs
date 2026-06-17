@@ -26,6 +26,17 @@ public class DefaultPromptProvider : IPromptProvider, ITransientDependency
         "structure signals (e.g. an invoice usually has a table of line items; a contract has numbered clauses). " +
         "Return JSON only. Confidence values must be decimal scores from 0.0 to 1.0; never return percentages. " +
         "If you are not confident, set confidence low and typeCode to null. " +
+        // #346: container detection rides this same classification call. Keep it CONSERVATIVE — only a clear
+        // bundle of several independent documents qualifies; attachments / annexes / continuation pages / a
+        // single ledger must never be flagged, or normal documents would stop extracting.
+        "Set isContainer to true ONLY when the content is clearly several independent, complete documents bundled " +
+        "into one file — for example many separate invoices in one file, or a pack mixing a contract plus an " +
+        "invoice plus a receipt. When isContainer is true the type guess is not used, so still fill typeCode and " +
+        "confidence with your best guess but they will be ignored. " +
+        "Do NOT set isContainer for any of these (they are each a single document): a document with attachments, " +
+        "annexes, 別紙, appendices, or exhibits; a multi-page single document such as a continuation page or " +
+        "line-item overflow of one invoice or contract (the same document identity / header repeats); or a single " +
+        "register, ledger, or itemized table that merely lists many rows. When in doubt, set isContainer to false. " +
         // Defensive validation: language comes from host trust-domain configuration
         // (DocumentAIBehaviorOptions.DefaultLanguage), so it does not violate the "compile-time
         // constants for instructions" safety rule. Still, before interpolation into the system prompt,

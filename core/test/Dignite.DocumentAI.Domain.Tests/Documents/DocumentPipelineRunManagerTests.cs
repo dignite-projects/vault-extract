@@ -109,6 +109,52 @@ public class DocumentPipelineRunManagerTests : DocumentAIDomainTestBase<Document
         doc.ReviewReasons.ShouldBe(DocumentReviewReasons.MissingRequiredFields);
     }
 
+    // #346: a container is a correct outcome with no type. Completing classification as a container marks the
+    // document, leaves the type null, sets NO blocking review reason, and — with both key pipelines succeeded —
+    // derives straight to Ready (Design A), so the container is never parked in the operator review queue.
+    [Fact]
+    public async Task Container_Classification_Derives_To_Ready_Without_Review_Reason()
+    {
+        var doc = CreateDocument();
+
+        var textRun = await _manager.StartAsync(doc, DocumentAIPipelines.TextExtraction);
+        await _manager.CompleteAsync(doc, textRun);
+
+        var classRun = await _manager.StartAsync(doc, DocumentAIPipelines.Classification);
+        await _manager.CompleteClassificationAsContainerAsync(doc, classRun);
+
+        doc.IsContainer.ShouldBeTrue();
+        doc.DocumentTypeId.ShouldBeNull();
+        doc.ClassificationConfidence.ShouldBe(0);
+        // Distinct from the low-confidence path: NO UnresolvedClassification, so it does not enter the review queue.
+        doc.ReviewReasons.ShouldBe(DocumentReviewReasons.None);
+        doc.ReviewDisposition.ShouldBe(DocumentReviewDisposition.NotReviewed);
+        doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.Ready);
+
+        var latestRun = await _runRepo.FindLatestByDocumentAndCodeAsync(doc.Id, DocumentAIPipelines.Classification);
+        latestRun!.Status.ShouldBe(PipelineRunStatus.Succeeded);
+    }
+
+    // #346: marking a container clears any field values already extracted (a container holds no single type's
+    // fields), mirroring the #267 "no confirmed type implies no field values" invariant.
+    [Fact]
+    public async Task Container_Classification_Clears_ExtractedFieldValues()
+    {
+        var doc = CreateDocument();
+        doc.SetFields(new[]
+        {
+            new DocumentFieldValue(Guid.NewGuid(), FieldDataType.Text, JsonSerializer.SerializeToElement("Acme")),
+        });
+        doc.ExtractedFieldValues.ShouldNotBeEmpty();
+
+        var run = await _manager.StartAsync(doc, DocumentAIPipelines.Classification);
+        await _manager.CompleteClassificationAsContainerAsync(doc, run);
+
+        doc.IsContainer.ShouldBeTrue();
+        doc.DocumentTypeId.ShouldBeNull();
+        doc.ExtractedFieldValues.ShouldBeEmpty();
+    }
+
     // ────────────────────────────────────────────────────────────────────────────
     // Scenario 2: key pipeline (TextExtraction) fails → Failed
     // ────────────────────────────────────────────────────────────────────────────

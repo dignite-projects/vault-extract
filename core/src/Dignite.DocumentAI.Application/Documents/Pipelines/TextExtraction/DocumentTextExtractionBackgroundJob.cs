@@ -179,10 +179,10 @@ public class DocumentTextExtractionBackgroundJob
         // transcription rather than re-OCR'ing the crop. Load it inside this UoW; null (not derived, or the
         // candidate is missing/empty) falls back to the normal OCR path in ExecuteAsync.
         string? seedMarkdown = null;
-        if (document.OriginDocumentId.HasValue && !string.IsNullOrEmpty(document.OriginFigureKey))
+        if (document.OriginDocumentId.HasValue && !string.IsNullOrEmpty(document.OriginConstituentKey))
         {
             var figure = await _documentFigureRepository.FirstOrDefaultAsync(
-                f => f.SourceDocumentId == document.OriginDocumentId.Value && f.ContentHash == document.OriginFigureKey);
+                f => f.SourceDocumentId == document.OriginDocumentId.Value && f.ContentHash == document.OriginConstituentKey);
             var transcription = figure?.Transcription;
             seedMarkdown = string.IsNullOrEmpty(transcription) ? null : transcription;
         }
@@ -298,7 +298,7 @@ public class DocumentTextExtractionBackgroundJob
     /// External phase (no UoW): persists each de-duplicated embedded figure crop (#306) to blob storage as a
     /// Scenario B routing candidate, keyed by content hash (<c>figures/{documentId}/{contentHash}</c>), and
     /// returns the descriptors the Complete phase turns into <see cref="DocumentFigure"/> rows. The content
-    /// hash doubles as the derived document's <c>OriginFigureKey</c> / <c>FileOrigin.ContentHash</c>, tying
+    /// hash doubles as the derived document's <c>OriginConstituentKey</c> / <c>FileOrigin.ContentHash</c>, tying
     /// storage and routing idempotency together.
     /// <para>
     /// <b>Fails open per figure</b>: a crop is an auxiliary routing input, so empty bytes or a blob-write

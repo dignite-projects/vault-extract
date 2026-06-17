@@ -188,6 +188,28 @@ public class DocumentPipelineRunManager : DomainService
     }
 
     /// <summary>
+    /// Records a <b>container</b> classification outcome (#346) and completes the run as succeeded. A container
+    /// (a parent bundling several independent documents) runs no type-bound field extraction itself, so
+    /// <see cref="Document.MarkAsContainer"/> leaves <see cref="Document.DocumentTypeId"/> null, clears any field
+    /// values, and — unlike <see cref="CompleteClassificationWithLowConfidenceAsync"/> — does <b>not</b> set the
+    /// blocking <see cref="DocumentReviewReasons.UnresolvedClassification"/> reason. The container is therefore not
+    /// sent to the operator review queue and, with both key pipelines succeeded and no blocking reason, derives
+    /// straight to <c>Ready</c> (Design A).
+    /// <para>
+    /// The caller (<c>DocumentClassificationBackgroundJob</c>) must <b>not</b> publish <c>DocumentClassifiedEto</c>
+    /// for a container, so <c>FieldExtractionEventHandler</c> never cascades — the race-free way to suppress
+    /// extraction is simply never emitting its trigger event.
+    /// </para>
+    /// </summary>
+    public virtual Task CompleteClassificationAsContainerAsync(
+        Document document,
+        DocumentPipelineRun run)
+    {
+        document.MarkAsContainer();
+        return CompleteAsync(document, run);
+    }
+
+    /// <summary>
     /// Operator confirms document type: writes classification result, marks it reviewed, and completes the run. Confidence is fixed at 1.0.
     /// The manual override signal is expressed by <see cref="Document.ReviewDisposition"/> = Confirmed.
     /// This literal is maintained in sync with <c>ClassificationDefaults.ManualClassificationConfidence</c> in Domain.Shared.

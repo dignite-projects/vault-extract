@@ -68,6 +68,31 @@ public class DocumentReadyEventHandler_Tests
     }
 
     [Fact]
+    public async Task Container_Ready_Publishes_Eto_With_Marker_And_Null_Type()
+    {
+        // #346: a container reaches Ready with no type. The ETO must carry IsContainer=true and
+        // DocumentTypeCode=null so downstream skips building a record from the container.
+        var doc = CreateContainerDocument();
+        SetupDocumentRepository(doc);
+
+        var evt = new DocumentLifecycleStatusChangedEvent(
+            doc.Id, DocumentLifecycleStatus.Processing, DocumentLifecycleStatus.Ready);
+
+        await _handler.HandleEventAsync(evt);
+
+        await _eventBus.Received(1).PublishAsync(
+            Arg.Is<DocumentReadyEto>(e =>
+                e.DocumentId == doc.Id &&
+                e.IsContainer &&
+                e.DocumentTypeCode == null),
+            Arg.Any<bool>());
+
+        // A container has no DocumentTypeId, so the handler must not even attempt a type lookup.
+        await _documentTypeRepository.DidNotReceive().FindAsync(
+            Arg.Any<Guid>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Non_Ready_Transition_Does_Not_Publish()
     {
         var doc = CreateDocument(documentTypeCode: null);
@@ -128,6 +153,16 @@ public class DocumentReadyEventHandler_Tests
                 .Invoke(doc, [TypeId(documentTypeCode), 0.99]);
         }
 
+        return doc;
+    }
+
+    private static Document CreateContainerDocument()
+    {
+        var doc = CreateDocument(documentTypeCode: null);
+        typeof(Document)
+            .GetMethod("MarkAsContainer",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .Invoke(doc, null);
         return doc;
     }
 

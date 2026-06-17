@@ -362,7 +362,7 @@ public class DocumentPipelineBackgroundJobPersistence_Tests
         await _blobContainer.Received(1).SaveAsync(
             $"figures/{documentId}/{contentHash}", Arg.Any<Stream>(), overrideExisting: true, Arg.Any<CancellationToken>());
 
-        // One DocumentFigure candidate row carrying provenance + the content hash that doubles as OriginFigureKey.
+        // One DocumentFigure candidate row carrying provenance + the content hash that doubles as OriginConstituentKey.
         await WithUnitOfWorkAsync(async () =>
         {
             var figures = await _figureRepository.GetListAsync(f => f.SourceDocumentId == documentId);
@@ -485,7 +485,7 @@ public class DocumentPipelineBackgroundJobPersistence_Tests
                 fileOrigin: new FileOrigin(
                     blobName: $"blobs/{derivedId:N}.png", uploadedByUserName: "test-user",
                     contentType: "image/png", contentHash: figureKey, fileSize: 4, originalFileName: "figure.png"),
-                originDocumentId: sourceId, originFigureKey: figureKey);
+                originDocumentId: sourceId, originConstituentKey: figureKey);
             await _documentRepository.InsertAsync(derived, autoSave: true);
 
             var run = await _pipelineJobScheduler.QueueAsync(derived, DocumentAIPipelines.TextExtraction);

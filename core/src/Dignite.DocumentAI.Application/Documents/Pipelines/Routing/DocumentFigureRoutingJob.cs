@@ -29,14 +29,14 @@ namespace Dignite.DocumentAI.Documents.Pipelines.Routing;
 /// a document — by classifying its OCR transcription against the source's tenant document-type layer and
 /// comparing against the matched type's <c>ConfidenceThreshold</c> (the same per-type Ready-gate bar). A figure
 /// that clears the bar is spawned as its own derived <see cref="Document"/> (its crop copied to an independent
-/// blob, back-reference <c>OriginDocumentId</c> / <c>OriginFigureKey</c> set), which then runs the full normal
+/// blob, back-reference <c>OriginDocumentId</c> / <c>OriginConstituentKey</c> set), which then runs the full normal
 /// pipeline; a figure that does not is marked <see cref="DocumentFigureStatus.NotADocument"/> and its candidate
 /// crop is deleted. Figures that remain inline in the source Markdown either way (#301).
 /// <para>
 /// <b>Resumable + idempotent.</b> Only <see cref="DocumentFigureStatus.Pending"/> candidates are processed, and
 /// each figure's evaluation commits atomically with its status change, so a crash resumes the remaining
 /// candidates without re-paying the gate classification or duplicate-spawning. The unique
-/// <c>(OriginDocumentId, OriginFigureKey)</c> index on <see cref="Document"/> is the final backstop against a
+/// <c>(OriginDocumentId, OriginConstituentKey)</c> index on <see cref="Document"/> is the final backstop against a
 /// concurrent double-route. Per-figure failures are isolated (one bad figure does not block the others) and
 /// surfaced: a figure left <see cref="DocumentFigureStatus.Pending"/> by a fault makes the job rethrow so ABP
 /// retries it, re-loading only the still-Pending candidates.
@@ -331,7 +331,7 @@ public class DocumentFigureRoutingJob
                 derivedDocumentId, workItem.TenantId, fileOrigin, workItem.SourceDocumentId, figure.ContentHash);
 
             // A concurrent route that already committed this figure's derived document trips the unique
-            // (OriginDocumentId, OriginFigureKey) index here. The failure propagates to SpawnDerivedDocumentAsync,
+            // (OriginDocumentId, OriginConstituentKey) index here. The failure propagates to SpawnDerivedDocumentAsync,
             // which reclaims this run's orphan blob and rethrows so the job retries; on retry LoadAsync sees the
             // figure as Spawned (the winner committed it) and skips it — self-healing, no duplicate. Not narrowing
             // to a specific exception type is deliberate: any non-unique DB failure also surfaces (job retry)

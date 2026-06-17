@@ -32,6 +32,14 @@ public class DocumentDtoExposure_Tests
     }
 
     [Fact]
+    public void Exposes_Container_Marker()
+    {
+        // #346: the container marker is an intentional egress field — downstream must see it to skip building a
+        // record from a container. Positive lock to prevent accidental future removal.
+        PropertyNames.ShouldContain(nameof(DocumentDto.IsContainer));
+    }
+
+    [Fact]
     public void Exposes_Extraction_Completeness_Quality_Signal()
     {
         // #268: extraction completeness is an actionable downstream quality signal, unlike the hidden internal

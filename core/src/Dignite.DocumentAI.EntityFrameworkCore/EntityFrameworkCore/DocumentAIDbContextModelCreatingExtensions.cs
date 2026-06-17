@@ -71,8 +71,11 @@ public static class DocumentAIDbContextModelCreatingExtensions
             // Field architecture v2: system common fields are flattened as top-level typed columns: real automatic pipeline outputs.
             b.Property(x => x.Language).HasMaxLength(DocumentConsts.MaxLanguageLength);
 
-            // #306 Scenario B back-reference: content-derived key of the source figure (= FileOrigin.ContentHash).
-            b.Property(x => x.OriginFigureKey).HasMaxLength(DocumentConsts.MaxOriginFigureKeyLength);
+            // #346 container marker: non-null bool, default false (generic truth-source column, not a business field).
+            b.Property(x => x.IsContainer).IsRequired();
+
+            // #306 / #346 Scenario B back-reference: content-derived key of the source constituent (= FileOrigin.ContentHash).
+            b.Property(x => x.OriginConstituentKey).HasMaxLength(DocumentConsts.MaxOriginConstituentKeyLength);
 
             // Text extraction provenance (#210): provider name + archived manifest, serialized as a whole into a typed JSON column (#206 cross-DB principle).
             b.Property(x => x.ExtractionMetadata)
@@ -131,15 +134,15 @@ public static class DocumentAIDbContextModelCreatingExtensions
             b.HasIndex(x => new { x.TenantId, x.DocumentTypeId });
             b.HasIndex(x => x.CreationTime);
 
-            // #306 Scenario B back-reference: derived documents only. A filtered UNIQUE index on
-            // (OriginDocumentId, OriginFigureKey) makes sub-document routing idempotent (one derived document
-            // per source figure; re-routing / retry never duplicate-spawn) and also serves "list a source's
-            // derived documents" (OriginDocumentId is the leading column). Filtered to non-null so
-            // normally-uploaded documents (both columns null) are exempt. The HasFilter clause is
+            // #306 / #346 Scenario B back-reference: derived documents only. A filtered UNIQUE index on
+            // (OriginDocumentId, OriginConstituentKey) makes sub-document routing idempotent (one derived document
+            // per source constituent — figure or Markdown slice; re-routing / retry never duplicate-spawn) and also
+            // serves "list a source's derived documents" (OriginDocumentId is the leading column). Filtered to
+            // non-null so normally-uploaded documents (both columns null) are exempt. The HasFilter clause is
             // SQL-Server-specific; the SQL-Server-only filtered-index portability limitation is intentionally
             // accepted for v0.2.0. No FK on OriginDocumentId: it is a soft provenance pointer, not a constraint,
             // so the derived document outlives the source (the source may be hard-deleted while derived ones remain).
-            b.HasIndex(x => new { x.OriginDocumentId, x.OriginFigureKey })
+            b.HasIndex(x => new { x.OriginDocumentId, x.OriginConstituentKey })
                 .IsUnique()
                 .HasFilter("[OriginDocumentId] IS NOT NULL");
         });

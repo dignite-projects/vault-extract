@@ -16,9 +16,10 @@ namespace Dignite.DocumentAI.Documents.Pipelines.Lifecycle;
 /// <para>
 /// The Ready gate is enforced by the classification stage: documents with insufficient automatic
 /// classification confidence / no suitable type receive the blocking UnresolvedClassification reason
-/// and enter the manual review queue; when <c>DocumentTypeCode</c> is empty,
-/// <c>DeriveLifecycle</c> does not transition to Ready. Therefore this handler needs no extra check:
-/// <c>NewStatus == Ready</c> implicitly means the classification / manual-review gate passed.
+/// and enter the manual review queue, which keeps them out of Ready. Therefore this handler needs no
+/// extra check: <c>NewStatus == Ready</c> implicitly means the gate passed. #346: a <b>container</b> is a
+/// valid Ready outcome with <b>no</b> type — it reaches Ready with <c>DocumentTypeCode == null</c> and
+/// <c>IsContainer == true</c> (it sets no blocking reason), so the published ETO carries that pairing.
 /// </para>
 /// </summary>
 public class DocumentReadyEventHandler
@@ -61,9 +62,10 @@ public class DocumentReadyEventHandler
         }
 
         // ETO still carries the DocumentTypeCode string to preserve the outbound contract, resolving
-        // it from internal DocumentTypeId (#207). Ready documents must have a confirmed type because
-        // of the DeriveLifecycle gate, and DeleteAsync prevents deleting in-use types, so the type
-        // should be active.
+        // it from internal DocumentTypeId (#207). A non-container Ready document has a confirmed type
+        // because of the DeriveLifecycle gate, and DeleteAsync prevents deleting in-use types, so the
+        // type should be active. #346: a container reaches Ready with DocumentTypeId null, so
+        // documentTypeCode stays null — that null + IsContainer=true is the valid container outcome.
         string? documentTypeCode = null;
         if (document.DocumentTypeId.HasValue)
         {
@@ -78,6 +80,8 @@ public class DocumentReadyEventHandler
                 TenantId = document.TenantId,
                 EventTime = _clock.Now,
                 DocumentTypeCode = documentTypeCode,
+                // #346: container marker; downstream skips building a record from a container (DocumentTypeCode null).
+                IsContainer = document.IsContainer,
                 // #306: provenance link for a Scenario B sub-document (null for normally-uploaded documents).
                 OriginDocumentId = document.OriginDocumentId
             });
