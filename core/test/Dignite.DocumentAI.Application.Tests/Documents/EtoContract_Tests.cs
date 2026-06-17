@@ -58,13 +58,17 @@ public class EtoContract_Tests
             DocumentId = Guid.NewGuid(),
             TenantId = null,
             EventTime = SampleEventTime,
-            UsedOcr = true
+            UsedOcr = true,
+            // Non-zero so a serialization regression (getter-only / [JsonIgnore] / rename) is actually caught;
+            // at the default 0 the round-trip would survive a broken contract (#306 review).
+            FigureOcrCount = 3
         };
 
         var roundTrip = RoundTrip(eto);
 
         roundTrip.EventTime.ShouldBe(eto.EventTime);
         roundTrip.UsedOcr.ShouldBeTrue();
+        roundTrip.FigureOcrCount.ShouldBe(3);
     }
 
     [Fact]

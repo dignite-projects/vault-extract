@@ -200,6 +200,34 @@ public static class DocumentAIDbContextModelCreatingExtensions
                 .IsUnique();
         });
 
+        builder.Entity<DocumentFigure>(b =>
+        {
+            b.ToTable(DocumentAIDbProperties.DbTablePrefix + "DocumentFigures", DocumentAIDbProperties.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.ContentHash).IsRequired().HasMaxLength(DocumentFigureConsts.MaxContentHashLength);
+            b.Property(x => x.CropBlobName).IsRequired().HasMaxLength(DocumentFigureConsts.MaxCropBlobNameLength);
+            b.Property(x => x.ContentType).IsRequired().HasMaxLength(DocumentFigureConsts.MaxContentTypeLength);
+            // Transcription is a figure-OCR snapshot (nvarchar(max), like Document.Markdown); not indexed.
+            b.Property(x => x.Transcription).IsRequired();
+            b.Property(x => x.Status).IsRequired();
+
+            // #306: candidate figure -> source Document, FK + CASCADE so hard-deleting the source removes its
+            // candidate rows (mirrors the #216 DocumentPipelineRun child-side declaration). RoutedDocumentId is
+            // a soft pointer to the spawned derived Document with NO FK constraint: the derived document is a
+            // peer that must outlive the source, so it must not cascade from / be constrained by this table.
+            b.HasOne<Document>()
+                .WithMany()
+                .HasForeignKey(x => x.SourceDocumentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Idempotent routing / re-extraction: one candidate per (source, figure-content). A job retry that
+            // re-persists the same figure bytes collides here instead of duplicate-spawning downstream. Both
+            // columns are non-nullable, so this is a plain (portable) unique index, not a filtered one.
+            b.HasIndex(x => new { x.SourceDocumentId, x.ContentHash })
+                .IsUnique();
+        });
+
         builder.Entity<DocumentType>(b =>
         {
             b.ToTable(DocumentAIDbProperties.DbTablePrefix + "DocumentTypes", DocumentAIDbProperties.DbSchema);

@@ -15,7 +15,9 @@ using Microsoft.Extensions.Options;
 using Volo.Abp.BackgroundJobs;
 using Volo.Abp.BlobStoring;
 using Volo.Abp.DependencyInjection;
+using Volo.Abp.Domain.Repositories;
 using Volo.Abp.EventBus.Distributed;
+using Volo.Abp.Guids;
 using Volo.Abp.Threading;
 using Volo.Abp.Timing;
 using Volo.Abp.Uow;
@@ -45,6 +47,10 @@ public class DocumentTextExtractionBackgroundJob
     // ICancellationTokenProvider.Use(...) before calling ExecuteAsync. By default the worker source is the host shutdown token,
     // allowing slow external work to be cancelled.
     private readonly ICancellationTokenProvider _cancellationTokenProvider;
+    // #306: Scenario B candidate figures are an independent aggregate (default repository), persisted in
+    // this job's Complete phase from the crops written in its External phase.
+    private readonly IRepository<DocumentFigure, Guid> _documentFigureRepository;
+    private readonly IGuidGenerator _guidGenerator;
 
     public DocumentTextExtractionBackgroundJob(
         IDocumentRepository documentRepository,
@@ -61,7 +67,9 @@ public class DocumentTextExtractionBackgroundJob
         [FromKeyedServices(DocumentAIConsts.TitleGeneratorChatClientKey)] IChatClient titleGeneratorChatClient,
         IPromptProvider promptProvider,
         IOptions<DocumentAIBehaviorOptions> behaviorOptions,
-        ICancellationTokenProvider cancellationTokenProvider)
+        ICancellationTokenProvider cancellationTokenProvider,
+        IRepository<DocumentFigure, Guid> documentFigureRepository,
+        IGuidGenerator guidGenerator)
         : base(documentRepository, runRepository, pipelineRunManager, pipelineRunAccessor, unitOfWorkManager)
     {
         _pipelineJobScheduler = pipelineJobScheduler;
@@ -74,12 +82,17 @@ public class DocumentTextExtractionBackgroundJob
         _promptProvider = promptProvider;
         _behaviorOptions = behaviorOptions.Value;
         _cancellationTokenProvider = cancellationTokenProvider;
+        _documentFigureRepository = documentFigureRepository;
+        _guidGenerator = guidGenerator;
     }
 
     public override async Task ExecuteAsync(DocumentTextExtractionJobArgs args)
     {
         var workItem = await BeginRunAsync(args);
 
+        // Hoisted so a Complete-phase failure can reclaim the crop blobs already written in the External phase:
+        // they are written before the DocumentFigure rows commit, so a rollback would otherwise orphan them.
+        IReadOnlyList<FigureCandidate> figureCandidates = Array.Empty<FigureCandidate>();
         try
         {
             // The caller owns the blob stream. With the FileSystem provider this is a FileStream holding an OS file handle,
@@ -103,12 +116,29 @@ public class DocumentTextExtractionBackgroundJob
             // Archiving fails open: over limit / write failure / disabled archive affects only the manifest, not text extraction completion below.
             var extractionMetadata = await ArchiveNativePayloadAndBuildMetadataAsync(args.DocumentId, result);
 
+            // External phase (no UoW): persist each de-duplicated embedded figure crop (#306) to blob storage
+            // as a Scenario B routing candidate. Fails open per figure (auxiliary work must not break the main
+            // Markdown pipeline); the Complete phase below turns the returned descriptors into DocumentFigure rows.
+            figureCandidates = await PersistFigureCropsAsync(args.DocumentId, result, _cancellationTokenProvider.Token);
+
+            // The decoded crop bytes are dead once the candidates (which carry only hash / blobName / contentType /
+            // transcription) are built; drop them so the whole set is not pinned in memory through the title LLM
+            // call's result reference and the Complete-phase reload + commit. CompleteRunAsync never reads Figures.
+            result.Figures = null;
+
             await CompleteRunAsync(
-                args.DocumentId, workItem.RunId, result, title, extractionMetadata);
+                args.DocumentId, workItem.RunId, result, title, extractionMetadata, figureCandidates);
         }
         catch (Exception ex)
         {
             await FailRunAsync(args.DocumentId, workItem.RunId, ex.Message, DocumentAIPipelines.TextExtraction);
+
+            // The Complete-phase DocumentFigure inserts are atomic with the Markdown commit, so a throw means no
+            // row references the crops written in the External phase — reclaim them best-effort so a failed (and
+            // possibly never-retried) run does not leak orphan blobs. A later retry re-writes the same
+            // content-hash keys, so deleting here is safe. Cleanup failures must not mask the original error.
+            await TryDeleteFigureCropsAsync(args.DocumentId, figureCandidates);
+
             throw;
         }
     }
@@ -136,7 +166,8 @@ public class DocumentTextExtractionBackgroundJob
         Guid runId,
         TextExtractionResult result,
         string? title,
-        DocumentTextExtractionMetadata extractionMetadata)
+        DocumentTextExtractionMetadata extractionMetadata,
+        IReadOnlyList<FigureCandidate> figureCandidates)
     {
         using var uow = UnitOfWorkManager.Begin(requiresNew: true);
 
@@ -148,6 +179,25 @@ public class DocumentTextExtractionBackgroundJob
             language: result.DetectedLanguage,
             extractionMetadata: extractionMetadata);
 
+        // #306: persist Scenario B candidate figures in the SAME UoW as text-extraction completion, so the
+        // figure rows and the Markdown commit atomically. The Markdown write-once invariant makes this success
+        // path run at most once per document (a retry after a failed commit re-runs cleanly; a retry after a
+        // committed success is rejected by SetMarkdown before reaching here), so candidates insert exactly
+        // once. Intra-batch de-duplication by ContentHash already happened during crop persistence; the unique
+        // (SourceDocumentId, ContentHash) index is the final guard. RoutedDocumentId stays null until routing.
+        foreach (var candidate in figureCandidates)
+        {
+            await _documentFigureRepository.InsertAsync(new DocumentFigure(
+                _guidGenerator.Create(),
+                document.TenantId,
+                document.Id,
+                candidate.ContentHash,
+                candidate.CropBlobName,
+                candidate.ContentType,
+                candidate.Transcription,
+                candidate.PageNumber));
+        }
+
         // Publish OCRCompletedEto with a thin payload; downstream consumers pull Markdown back through REST.
         await _distributedEventBus.PublishAsync(
             new OCRCompletedEto
@@ -155,7 +205,8 @@ public class DocumentTextExtractionBackgroundJob
                 DocumentId = document.Id,
                 TenantId = document.TenantId,
                 EventTime = _clock.Now,
-                UsedOcr = result.UsedOcr
+                UsedOcr = result.UsedOcr,
+                FigureOcrCount = result.FigureOcrCount
             });
 
         // Advance classification as soon as text extraction completes. OCR has no quality gate:
@@ -196,6 +247,101 @@ public class DocumentTextExtractionBackgroundJob
         var manifest = await TryArchiveNativePayloadAsync(documentId, result.NativePayload);
         return new DocumentTextExtractionMetadata(
             result.ProviderName, manifest, result.IsComplete, result.IncompleteReason);
+    }
+
+    /// <summary>
+    /// External phase (no UoW): persists each de-duplicated embedded figure crop (#306) to blob storage as a
+    /// Scenario B routing candidate, keyed by content hash (<c>figures/{documentId}/{contentHash}</c>), and
+    /// returns the descriptors the Complete phase turns into <see cref="DocumentFigure"/> rows. The content
+    /// hash doubles as the derived document's <c>OriginFigureKey</c> / <c>FileOrigin.ContentHash</c>, tying
+    /// storage and routing idempotency together.
+    /// <para>
+    /// <b>Fails open per figure</b>: a crop is an auxiliary routing input, so empty bytes or a blob-write
+    /// failure skips only that candidate (logged) — text extraction still succeeds and the figure's
+    /// transcription is already inlined into the Markdown.
+    /// </para>
+    /// </summary>
+    protected virtual async Task<IReadOnlyList<FigureCandidate>> PersistFigureCropsAsync(
+        Guid documentId, TextExtractionResult result, CancellationToken cancellationToken = default)
+    {
+        if (result.Figures is not { Count: > 0 } figures)
+        {
+            return Array.Empty<FigureCandidate>();
+        }
+
+        var candidates = new List<FigureCandidate>(figures.Count);
+        var seen = new HashSet<string>();
+        foreach (var figure in figures)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (figure.Content is not { Length: > 0 })
+            {
+                continue;
+            }
+
+            // Fail-open at the source: a Figure with a blank ContentType cannot build a valid DocumentFigure
+            // / derived FileOrigin (the entity ctor's Check.NotNullOrWhiteSpace would throw and break the main
+            // Markdown pipeline). Skip it here — the figure's transcription is already inlined into Markdown.
+            // Today's PdfExtractor always supplies a non-empty image/* type; this guards any other producer.
+            if (string.IsNullOrWhiteSpace(figure.ContentType))
+            {
+                Logger.LogWarning(
+                    "Embedded figure for document {DocumentId} has a blank ContentType; skipping this Scenario B candidate (text extraction still succeeds).",
+                    documentId);
+                continue;
+            }
+
+            var contentHash = ContentHasher.Sha256Hex(figure.Content);
+            // De-dupe identical embedded images within one document: same bytes -> same hash -> one crop blob
+            // + one candidate row (the unique (SourceDocumentId, ContentHash) index is the final guard).
+            if (!seen.Add(contentHash))
+            {
+                continue;
+            }
+
+            var blobName = $"figures/{documentId}/{contentHash}";
+            try
+            {
+                using var stream = new MemoryStream(figure.Content, writable: false);
+                await _blobContainer.SaveAsync(blobName, stream, overrideExisting: true, cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Logger.LogWarning(ex,
+                    "Failed to persist figure crop {BlobName} for document {DocumentId}; skipping this Scenario B candidate (text extraction still succeeds).",
+                    blobName, documentId);
+                continue;
+            }
+
+            candidates.Add(new FigureCandidate(
+                contentHash, blobName, figure.ContentType, figure.PageNumber, figure.Transcription));
+        }
+
+        return candidates;
+    }
+
+    /// <summary>
+    /// Best-effort cleanup of figure crop blobs written in the External phase when the Complete phase failed
+    /// (#306). The Complete-phase <see cref="DocumentFigure"/> inserts are atomic with the Markdown commit, so a
+    /// failure means no committed row references these crops; without this they orphan, because permanent delete
+    /// only reclaims crops via committed rows. Failures here are swallowed so cleanup never masks the original error.
+    /// </summary>
+    private async Task TryDeleteFigureCropsAsync(Guid documentId, IReadOnlyList<FigureCandidate> figureCandidates)
+    {
+        foreach (var candidate in figureCandidates)
+        {
+            try
+            {
+                await _blobContainer.DeleteAsync(candidate.CropBlobName);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex,
+                    "Failed to clean up orphaned figure crop {BlobName} for document {DocumentId} after a failed text-extraction completion.",
+                    candidate.CropBlobName, documentId);
+            }
+        }
     }
 
     private async Task<NativePayloadManifest?> TryArchiveNativePayloadAsync(Guid documentId, NativePayload? payload)
@@ -308,6 +454,14 @@ public class DocumentTextExtractionBackgroundJob
         string BlobName,
         string ContentType,
         string? OriginalFileName);
+
+    /// <summary>
+    /// Descriptor of a persisted candidate figure crop (#306). <c>protected</c> because it appears in the
+    /// signature of the overridable <see cref="PersistFigureCropsAsync"/>; turned into a
+    /// <see cref="DocumentFigure"/> row in the Complete phase.
+    /// </summary>
+    protected sealed record FigureCandidate(
+        string ContentHash, string CropBlobName, string ContentType, int? PageNumber, string Transcription);
 }
 
 public class DocumentTextExtractionJobArgs

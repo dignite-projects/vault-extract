@@ -69,8 +69,8 @@ public class EfCoreDocumentRepository
         // Traverse only soft delete to physically delete already-soft-deleted rows, while preserving the IMultiTenant tenant boundary.
         // Never use IgnoreQueryFilters(), because it would also disable IMultiTenant and allow future callers without app-layer tenant validation
         // to hard-delete across tenants (#220).
-        // ExecuteDeleteAsync relies on DB-level ON DELETE CASCADE. Both child FKs, DocumentExtractedField and DocumentPipelineRun,
-        // use OnDelete(Cascade), and the narrowed filter does not affect cascading.
+        // ExecuteDeleteAsync relies on DB-level ON DELETE CASCADE. All three child FKs — DocumentExtractedField,
+        // DocumentPipelineRun, and DocumentFigure (#306) — use OnDelete(Cascade), and the narrowed filter does not affect cascading.
         using (DataFilter.Disable<ISoftDelete>())
         {
             var dbContext = await GetDbContextAsync();

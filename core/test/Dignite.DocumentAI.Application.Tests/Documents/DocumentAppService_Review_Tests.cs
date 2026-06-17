@@ -4,6 +4,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Dignite.DocumentAI.Documents.Figures;
 using Dignite.DocumentAI.Documents.Pipelines;
 using Dignite.DocumentAI.Documents.Review;
 using Microsoft.Extensions.DependencyInjection;
@@ -11,6 +12,7 @@ using NSubstitute;
 using Shouldly;
 using Volo.Abp.BackgroundJobs;
 using Volo.Abp.BlobStoring;
+using Volo.Abp.Domain.Repositories;
 using Volo.Abp.EventBus.Distributed;
 using Volo.Abp.Modularity;
 using Volo.Abp.Validation;
@@ -24,6 +26,8 @@ public class DocumentAppServiceReviewTestModule : AbpModule
     public override void ConfigureServices(ServiceConfigurationContext context)
     {
         context.Services.AddSingleton(Substitute.For<IDocumentRepository>());
+        // #306: DocumentAppService depends on the DocumentFigure repository (permanent-delete crop cleanup).
+        context.Services.AddSingleton(Substitute.For<IRepository<DocumentFigure, Guid>>());
         context.Services.AddSingleton(Substitute.For<ICabinetRepository>());
         context.Services.AddSingleton(Substitute.For<IBlobContainer<DocumentAIDocumentContainer>>());
         context.Services.AddSingleton(Substitute.For<IBackgroundJobManager>());
@@ -322,7 +326,8 @@ public class DocumentAppService_Review_Tests
                 new DocumentPipelineRunManager(runRepoSubstitute),
                 Substitute.For<IBackgroundJobManager>()),
             Substitute.For<IDistributedEventBus>(),
-            new ReviewStateEvaluator());
+            new ReviewStateEvaluator(),
+            Substitute.For<IRepository<DocumentFigure, Guid>>());
 
         var method = typeof(DocumentAppService).GetMethod(
             "ApplyFilter",

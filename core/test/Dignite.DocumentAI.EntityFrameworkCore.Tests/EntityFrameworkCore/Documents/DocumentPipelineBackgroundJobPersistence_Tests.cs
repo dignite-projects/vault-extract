@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -7,6 +8,7 @@ using Dignite.DocumentAI.Abstractions.TextExtraction;
 using Dignite.DocumentAI.Ai;
 using Dignite.DocumentAI.Documents;
 using Dignite.DocumentAI.Documents.Cabinets;
+using Dignite.DocumentAI.Documents.Figures;
 using Dignite.DocumentAI.Documents.Pipelines;
 using Dignite.DocumentAI.Documents.Pipelines.Classification;
 using Dignite.DocumentAI.Documents.Pipelines.TextExtraction;
@@ -17,6 +19,7 @@ using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Volo.Abp.BackgroundJobs;
 using Volo.Abp.BlobStoring;
+using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Guids;
 using Volo.Abp.Modularity;
 using Volo.Abp.Uow;
@@ -57,6 +60,7 @@ public class DocumentPipelineBackgroundJobPersistence_Tests
     private readonly IGuidGenerator _guidGenerator;
     private readonly IUnitOfWorkManager _unitOfWorkManager;
     private readonly IDocumentAppService _documentAppService;
+    private readonly IRepository<DocumentFigure, Guid> _figureRepository;
 
     public DocumentPipelineBackgroundJobPersistence_Tests()
     {
@@ -70,6 +74,7 @@ public class DocumentPipelineBackgroundJobPersistence_Tests
         _guidGenerator = GetRequiredService<IGuidGenerator>();
         _unitOfWorkManager = GetRequiredService<IUnitOfWorkManager>();
         _documentAppService = GetRequiredService<IDocumentAppService>();
+        _figureRepository = GetRequiredService<IRepository<DocumentFigure, Guid>>();
     }
 
     [Fact]
@@ -334,6 +339,127 @@ public class DocumentPipelineBackgroundJobPersistence_Tests
             "blobs/test.pdf", Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task Text_Extraction_Job_Persists_Scenario_B_Candidate_Figures()
+    {
+        var documentId = _guidGenerator.Create();
+        var textExtractionRunId = await ArrangeQueuedTextExtractionAsync(documentId);
+
+        var figureBytes = new byte[] { 9, 8, 7, 6 };
+        StubExtraction("# Contract\n\nbody", usedOcr: false,
+            figures: new[] { new Figure(figureBytes, "image/png", "INVOICE No. 42", pageNumber: 2) },
+            figureOcrCount: 1);
+
+        await _textExtractionJob.ExecuteAsync(new DocumentTextExtractionJobArgs
+        {
+            DocumentId = documentId,
+            PipelineRunId = textExtractionRunId
+        });
+
+        var contentHash = Sha256Hex(figureBytes);
+
+        // The crop is persisted to blob under the content-hash key (overwrite semantics).
+        await _blobContainer.Received(1).SaveAsync(
+            $"figures/{documentId}/{contentHash}", Arg.Any<Stream>(), overrideExisting: true, Arg.Any<CancellationToken>());
+
+        // One DocumentFigure candidate row carrying provenance + the content hash that doubles as OriginFigureKey.
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var figures = await _figureRepository.GetListAsync(f => f.SourceDocumentId == documentId);
+            var figure = figures.ShouldHaveSingleItem();
+            figure.ContentHash.ShouldBe(contentHash);
+            figure.CropBlobName.ShouldBe($"figures/{documentId}/{contentHash}");
+            figure.ContentType.ShouldBe("image/png");
+            figure.PageNumber.ShouldBe(2);
+            figure.Transcription.ShouldBe("INVOICE No. 42");
+            figure.RoutedDocumentId.ShouldBeNull();
+            figure.Status.ShouldBe(DocumentFigureStatus.Pending);
+        });
+    }
+
+    [Fact]
+    public async Task Text_Extraction_Job_Deduplicates_Identical_Candidate_Figures()
+    {
+        var documentId = _guidGenerator.Create();
+        var textExtractionRunId = await ArrangeQueuedTextExtractionAsync(documentId);
+
+        // Two embedded images with identical bytes -> one candidate (same content hash); the unique
+        // (SourceDocumentId, ContentHash) index is the final guard, intra-batch de-dup avoids the collision.
+        var bytes = new byte[] { 4, 4, 4 };
+        StubExtraction("# Doc\n\nbody", usedOcr: false,
+            figures: new[]
+            {
+                new Figure(bytes, "image/png", "same figure", pageNumber: 1),
+                new Figure(bytes, "image/png", "same figure", pageNumber: 3)
+            },
+            figureOcrCount: 2);
+
+        await _textExtractionJob.ExecuteAsync(new DocumentTextExtractionJobArgs
+        {
+            DocumentId = documentId,
+            PipelineRunId = textExtractionRunId
+        });
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var figures = await _figureRepository.GetListAsync(f => f.SourceDocumentId == documentId);
+            figures.ShouldHaveSingleItem();
+        });
+    }
+
+    [Fact]
+    public async Task PermanentDelete_Removes_Candidate_Figure_Crop_Blobs()
+    {
+        var documentId = _guidGenerator.Create();
+        var textExtractionRunId = await ArrangeQueuedTextExtractionAsync(documentId);
+
+        var figureBytes = new byte[] { 5, 5, 5, 5 };
+        StubExtraction("# Contract\n\nbody", usedOcr: false,
+            figures: new[] { new Figure(figureBytes, "image/png", "fig", pageNumber: 1) },
+            figureOcrCount: 1);
+
+        await _textExtractionJob.ExecuteAsync(new DocumentTextExtractionJobArgs
+        {
+            DocumentId = documentId,
+            PipelineRunId = textExtractionRunId
+        });
+
+        await _documentAppService.PermanentDeleteAsync(documentId);
+
+        // The candidate crop blob is deleted alongside the original-file blob; its DocumentFigure row was
+        // already removed by the FK CASCADE on hard delete.
+        await _blobContainer.Received(1).DeleteAsync(
+            $"figures/{documentId}/{Sha256Hex(figureBytes)}", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Failed_Complete_Phase_Reclaims_Orphaned_Figure_Crop_Blobs()
+    {
+        var documentId = _guidGenerator.Create();
+        var textExtractionRunId = await ArrangeQueuedTextExtractionAsync(documentId);
+
+        var figureBytes = new byte[] { 1, 2, 3, 9 };
+        StubExtraction("# Contract\n\nbody", usedOcr: false,
+            figures: new[] { new Figure(figureBytes, "image/png", "fig", pageNumber: 1) },
+            figureOcrCount: 1);
+
+        // Force the Complete phase to throw AFTER the External phase wrote the crop blob: the cabinet-suggestion
+        // fan-out enqueue runs inside CompleteRunAsync before the UoW commits, so the figure-row inserts roll back.
+        _backgroundJobManager.EnqueueAsync(
+                Arg.Any<DocumentCabinetSuggestionJobArgs>(), Arg.Any<BackgroundJobPriority>(), Arg.Any<TimeSpan?>())
+            .ThrowsAsync(new InvalidOperationException("complete-phase boom"));
+
+        await Should.ThrowAsync<InvalidOperationException>(() => _textExtractionJob.ExecuteAsync(
+            new DocumentTextExtractionJobArgs { DocumentId = documentId, PipelineRunId = textExtractionRunId }));
+
+        // The crop was written in the External phase; the Complete UoW threw before commit, so the catch path
+        // reclaims the crop blob instead of leaking it. (Asserting the DocumentFigure rows rolled back is left to
+        // production transaction semantics — the in-memory SQLite test harness does not roll back autoSaved
+        // inserts; this test pins the blob-reclaim behavior the fix adds.)
+        await _blobContainer.Received(1).DeleteAsync(
+            $"figures/{documentId}/{Sha256Hex(figureBytes)}", Arg.Any<CancellationToken>());
+    }
+
     private async Task<Guid> ArrangeQueuedTextExtractionAsync(Guid documentId)
     {
         Guid textExtractionRunId = default;
@@ -350,7 +476,8 @@ public class DocumentPipelineBackgroundJobPersistence_Tests
 
     // Stub callback assertion that external extraction work runs outside the ambient UoW, matching the
     // background-jobs.md short-UoW rule.
-    private void StubExtraction(string markdown, bool usedOcr, NativePayload? nativePayload = null)
+    private void StubExtraction(string markdown, bool usedOcr, NativePayload? nativePayload = null,
+        IReadOnlyList<Figure>? figures = null, int figureOcrCount = 0)
     {
         _blobContainer.GetAsync(Arg.Any<string>())
             .Returns(Task.FromResult<Stream>(new MemoryStream([1, 2, 3])));
@@ -367,10 +494,16 @@ public class DocumentPipelineBackgroundJobPersistence_Tests
                     DetectedLanguage = "en",
                     UsedOcr = usedOcr,
                     ProviderName = usedOcr ? "PaddleOCR" : "ElBruno.MarkItDotNet",
-                    NativePayload = nativePayload
+                    NativePayload = nativePayload,
+                    Figures = figures,
+                    FigureOcrCount = figureOcrCount
                 };
             });
     }
+
+    // Delegate to the production canonical hasher so the test asserts the figure crop key against the exact
+    // hash convention the code under test uses, rather than a parallel hand-rolled copy that could drift (#306 review).
+    private static string Sha256Hex(byte[] bytes) => ContentHasher.Sha256Hex(bytes);
 
     private static Document CreateDocument(Guid id)
     {

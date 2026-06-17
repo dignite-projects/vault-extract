@@ -96,6 +96,64 @@ public class PdfExtractor_Tests
     }
 
     [Fact]
+    public async Task Surfaces_each_transcribed_image_as_an_out_of_band_figure()
+    {
+        StubOcr("INVOICE No. 42");
+
+        var png = TinyPng.CreateSolid(48, 48);
+        var pdf = PdfFixtures.Build(
+            texts: new[] { ("Body text", 700.0) },
+            images: new[] { (png, new PdfRectangle(50, 400, 200, 550)) });
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(pdf), PdfContext());
+
+        // #306 out-of-band signal: the transcribed image is surfaced on Figures with its bytes + provenance,
+        // while UsedOcr stays false (a digital extraction) and FigureOcrCount records the embedded-image OCR.
+        result.UsedOcr.ShouldBeFalse();
+        result.FigureOcrCount.ShouldBe(1);
+
+        result.Figures.ShouldNotBeNull();
+        result.Figures!.Count.ShouldBe(1);
+        var figure = result.Figures[0];
+        figure.Transcription.ShouldBe("INVOICE No. 42");
+        figure.Content.Length.ShouldBeGreaterThan(0);
+        figure.ContentType.ShouldStartWith("image/");
+        figure.PageNumber.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Leaves_figures_null_and_count_zero_when_no_image_is_transcribed()
+    {
+        var pdf = PdfFixtures.Build(texts: new[] { ("Just digital text", 700.0) });
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(pdf), PdfContext());
+
+        // Null (not empty) so a downstream "has figures?" check stays a simple null test; no OCR ran.
+        result.Figures.ShouldBeNull();
+        result.FigureOcrCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Counts_a_dispatched_figure_ocr_even_when_it_throws()
+    {
+        // The OCR call is dispatched (bytes sent) then throws (provider timeout / rate-limit). FigureOcrCount
+        // is a cost-attribution signal that counts dispatched calls, so the failed call must still be counted.
+        _ocr.RecognizeAsync(Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("provider down"));
+
+        var png = TinyPng.CreateSolid(48, 48);
+        var pdf = PdfFixtures.Build(
+            texts: new[] { ("Body text", 700.0) },
+            images: new[] { (png, new PdfRectangle(50, 400, 200, 550)) });
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(pdf), PdfContext());
+
+        result.FigureOcrCount.ShouldBe(1);   // dispatched, even though it threw
+        result.Figures.ShouldBeNull();       // no transcription produced -> no out-of-band figure
+        result.IsComplete.ShouldBeFalse();   // #268 trips on the failed figure OCR
+    }
+
+    [Fact]
     public async Task Feeds_image_bytes_to_the_ocr_provider()
     {
         StubOcr("FIGURE");

@@ -17,6 +17,7 @@ using Volo.Abp.BlobStoring;
 using Volo.Abp.Content;
 using Volo.Abp.Data;
 using Volo.Abp.Domain.Entities;
+using Volo.Abp.Domain.Repositories;
 using Volo.Abp.EventBus.Distributed;
 
 namespace Dignite.DocumentAI.Documents;
@@ -32,6 +33,9 @@ public class DocumentAppService : DocumentAIAppService, IDocumentAppService
     private readonly DocumentPipelineJobScheduler _pipelineJobScheduler;
     private readonly IDistributedEventBus _distributedEventBus;
     private readonly ReviewStateEvaluator _reviewEvaluator;
+    // #306: Scenario B candidate figures (own aggregate, default repository). Used to clean up candidate crop
+    // blobs on permanent delete; sub-document routing reads these in a later phase.
+    private readonly IRepository<DocumentFigure, Guid> _documentFigureRepository;
 
     public DocumentAppService(
         IDocumentRepository documentRepository,
@@ -42,7 +46,8 @@ public class DocumentAppService : DocumentAIAppService, IDocumentAppService
         DocumentPipelineRunManager pipelineRunManager,
         DocumentPipelineJobScheduler pipelineJobScheduler,
         IDistributedEventBus distributedEventBus,
-        ReviewStateEvaluator reviewEvaluator)
+        ReviewStateEvaluator reviewEvaluator,
+        IRepository<DocumentFigure, Guid> documentFigureRepository)
     {
         _documentRepository = documentRepository;
         _documentTypeRepository = documentTypeRepository;
@@ -53,6 +58,7 @@ public class DocumentAppService : DocumentAIAppService, IDocumentAppService
         _pipelineJobScheduler = pipelineJobScheduler;
         _distributedEventBus = distributedEventBus;
         _reviewEvaluator = reviewEvaluator;
+        _documentFigureRepository = documentFigureRepository;
     }
 
     public virtual async Task<DocumentDto> GetAsync(Guid id)
@@ -360,10 +366,17 @@ public class DocumentAppService : DocumentAIAppService, IDocumentAppService
     public virtual async Task PermanentDeleteAsync(Guid id)
     {
         Document document;
+        List<string> figureCropBlobNames;
         using (DataFilter.Disable<ISoftDelete>())
         {
             // Permanent delete needs only scalar fields + owned FileOrigin (blob name); no child collections are needed.
             document = await _documentRepository.GetAsync(id, includeDetails: false);
+
+            // #306: capture candidate figure crop blob names BEFORE the hard delete removes their rows by FK
+            // CASCADE. Derived documents promoted from these figures own independent copied blobs, so deleting
+            // the candidate crops never affects a derived document.
+            var figures = await _documentFigureRepository.GetListAsync(f => f.SourceDocumentId == id);
+            figureCropBlobNames = figures.Select(f => f.CropBlobName).ToList();
         }
 
         await _documentRepository.HardDeleteAsync(id);
@@ -393,6 +406,22 @@ public class DocumentAppService : DocumentAIAppService, IDocumentAppService
                 Logger.LogError(ex,
                     "Failed to delete native payload blob {BlobName} for document {DocumentId}.",
                     nativePayloadBlobName, id);
+            }
+        }
+
+        // #306: permanently delete the candidate figure crop blobs together (best-effort, like the original
+        // file and native payload blobs); their DocumentFigure rows were already removed by the FK CASCADE.
+        foreach (var cropBlobName in figureCropBlobNames)
+        {
+            try
+            {
+                await _blobContainer.DeleteAsync(cropBlobName);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex,
+                    "Failed to delete figure crop blob {BlobName} for document {DocumentId}.",
+                    cropBlobName, id);
             }
         }
 

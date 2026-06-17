@@ -4,6 +4,7 @@ using Dignite.DocumentAI.Host.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Volo.Abp.EntityFrameworkCore;
 
@@ -12,9 +13,11 @@ using Volo.Abp.EntityFrameworkCore;
 namespace Dignite.DocumentAI.Host.Migrations
 {
     [DbContext(typeof(DocumentAIHostDbContext))]
-    partial class DocumentAIHostDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260616061248_Added_DocumentFigures")]
+    partial class Added_DocumentFigures
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

@@ -130,9 +130,15 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
             var undecodable = 0;
             var truncatedOcr = 0;
             var failedFigureOcr = 0;
+            var figureOcrCount = 0;
             // Distinct from failedPages (GetWords fault → whole page dropped): here GetImages faulted but
             // the page's text was already extracted and is retained — only its images are skipped.
             var pagesWithSkippedImages = 0;
+            // Out-of-band figure signal (#306): the decoded crop bytes + transcription + provenance for
+            // each transcribed embedded image, surfaced on TextExtractionResult.Figures so the pipeline can
+            // persist a candidate crop and route a figure that is itself a document to its own derived
+            // Document (Scenario B). Orthogonal to the inline-into-Markdown output (#301) built below.
+            var outOfBandFigures = new List<Figure>();
 
             var languageHints = ResolveLanguageHints(context);
 
@@ -203,6 +209,10 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
                     }
 
                     imageBudget--;
+                    // Count the dispatched OCR call up front (the bytes are about to be sent to the provider),
+                    // so FigureOcrCount reflects every attempt — including one that throws below — per its
+                    // cost-attribution contract ("counted whether or not it yields text").
+                    figureOcrCount++;
 
                     OcrResult ocr;
                     try
@@ -239,7 +249,16 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
                     var transcription = ocr.Markdown?.Trim() ?? string.Empty;
                     if (transcription.Length > 0)
                     {
+                        // Inline output (#301): woven into the page Markdown at the reading position.
                         figures.Add(new PdfReadingOrder.Figure(image.BoundingBox, transcription));
+                        // Out-of-band output (#306): the crop bytes + transcription + page for sub-document
+                        // routing. Same transcription as the inline copy; downstream identity is the content
+                        // hash of the bytes (computed by the consumer), never the bbox (#210 drift).
+                        outOfBandFigures.Add(new Figure(
+                            payload.Value.Bytes,
+                            payload.Value.ContentType,
+                            transcription,
+                            pageContent.Page.Number));
                     }
                 }
 
@@ -279,7 +298,11 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
                 IncompleteReason = incompleteReason,
                 // PdfPig text layer + per-image OCR has no single aggregated spatial payload to archive
                 // this round (#210). Left null deliberately.
-                NativePayload = null
+                NativePayload = null,
+                // Out-of-band figure signal (#306): null (not empty) when no figure produced a
+                // transcription, so a downstream "has figures?" check stays a simple null test.
+                Figures = outOfBandFigures.Count > 0 ? outOfBandFigures : null,
+                FigureOcrCount = figureOcrCount
             };
         }
     }
