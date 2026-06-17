@@ -146,20 +146,13 @@ public class DocumentSegmentationJob
     {
         using var uow = _unitOfWorkManager.Begin(requiresNew: true);
 
-        var container = await _documentRepository.FindAsync(containerDocumentId, includeDetails: false);
+        // A stale job may have been enqueued for a document that was since removed, or reclassified away from a
+        // container (see FindActiveContainerAsync); in either case there is nothing to segment.
+        var container = await FindActiveContainerAsync(containerDocumentId);
         if (container is null)
         {
-            return null;
-        }
-
-        // #346: this job may have been enqueued for a container that an operator (or a high-confidence
-        // re-recognition) has since reclassified to a concrete type — which clears IsContainer. A stale job must
-        // NOT split/spawn a document that is no longer a container, or it would inject spurious sub-documents
-        // downstream alongside the now-typed document's own fields. Abort if the container marker is gone.
-        if (!container.IsContainer)
-        {
             Logger.LogInformation(
-                "Document {ContainerId} is no longer a container (reclassified after this job was enqueued); skipping segmentation.",
+                "Document {ContainerId} is missing or no longer a container (removed/reclassified after this job was enqueued); skipping segmentation.",
                 containerDocumentId);
             return null;
         }
@@ -175,6 +168,21 @@ public class DocumentSegmentationJob
             container.FileOrigin.UploadedByUserName,
             container.Markdown ?? string.Empty,
             hasExistingSegments);
+    }
+
+    /// <summary>
+    /// Loads the container by id, returning it only while it is still an <b>active container</b>. Returns null when
+    /// the document was removed, or was reclassified to a concrete type after this job was enqueued (an operator
+    /// correction or a high-confidence re-recognition clears <see cref="Document.IsContainer"/>). A stale job must
+    /// never split, spawn, or re-flag a document that is no longer a container — doing so would inject spurious
+    /// sub-documents downstream, or push the operator's reclassification back into the review queue. This is the
+    /// single guard every phase consults (LoadAsync / CommitSpawnAsync / FinalizeSegmentationFlagAsync /
+    /// MarkSegmentationIncompleteAsync); it runs in the caller's ambient UoW and opens none.
+    /// </summary>
+    private async Task<Document?> FindActiveContainerAsync(Guid containerId)
+    {
+        var container = await _documentRepository.FindAsync(containerId, includeDetails: false);
+        return container is { IsContainer: true } ? container : null;
     }
 
     /// <summary>
@@ -238,13 +246,15 @@ public class DocumentSegmentationJob
         // OriginConstituentKey idempotency identity (positional salt would diverge from the upload + #306 figure
         // paths). So rather than silently collapsing them (and risking dropping a real document instance), flag the
         // whole container for human review. Byte-identical document slices are rare, so the false-trigger cost is low.
-        var dedupedKeys = new HashSet<string>(StringComparer.Ordinal);
+        // NB: a duplicate here ABORTS the whole split (it is not silently collapsed) — `seenKeys` only detects the
+        // collision; `keyed` is consumed only when there are zero duplicates.
+        var seenKeys = new HashSet<string>(StringComparer.Ordinal);
         var keyed = new List<(MarkdownSlice Slice, string Key)>(slices.Count);
         var hasDuplicateSlice = false;
         foreach (var slice in slices)
         {
             var key = ContentHasher.Sha256Hex(Encoding.UTF8.GetBytes(slice.Text));
-            if (dedupedKeys.Add(key))
+            if (seenKeys.Add(key))
             {
                 keyed.Add((slice, key));
             }
@@ -402,8 +412,7 @@ public class DocumentSegmentationJob
             // #346: re-check the container is still a container in THIS UoW — it may have been reclassified between
             // LoadAsync and now (the per-segment spawns span time). If the marker is gone, do not spawn; the
             // document is being handled as a concrete type.
-            var container = await _documentRepository.FindAsync(context.ContainerId, includeDetails: false);
-            if (container is null || !container.IsContainer)
+            if (await FindActiveContainerAsync(context.ContainerId) is null)
             {
                 await TryDeleteBlobAsync(derivedBlobName);
                 return;
@@ -459,7 +468,12 @@ public class DocumentSegmentationJob
         using (_currentTenant.Change(context.TenantId))
         using (var uow = _unitOfWorkManager.Begin(requiresNew: true))
         {
-            var container = await _documentRepository.FindAsync(context.ContainerId, includeDetails: false);
+            // #346: re-check the container is still a container in THIS UoW. It may have been reclassified to a
+            // concrete type during the slow LLM split (the window between LoadAsync and here); flagging the now-typed
+            // document would push the operator's reclassification back into the review queue with no path to clear it
+            // — this Phase A path persists no segment rows, so FinalizeSegmentationFlagAsync's count-driven clear
+            // never runs. Mirrors the guard CommitSpawnAsync / FinalizeSegmentationFlagAsync already apply.
+            var container = await FindActiveContainerAsync(context.ContainerId);
             if (container is null)
             {
                 return;
@@ -493,12 +507,11 @@ public class DocumentSegmentationJob
 
             var remainingPending = segments.Count(s => s.Status == DocumentSegmentStatus.Pending);
 
-            var container = await _documentRepository.FindAsync(context.ContainerId, includeDetails: false);
-
             // #346: if the document was reclassified to a concrete type mid-job (IsContainer cleared), do NOT touch
             // its review flag — its leftover Pending segments are inert (CommitSpawnAsync skips them) and re-flagging
             // a now-typed document would wrongly push the operator's reclassification back into the review queue.
-            if (container is null || !container.IsContainer)
+            var container = await FindActiveContainerAsync(context.ContainerId);
+            if (container is null)
             {
                 await uow.CompleteAsync();
                 return 0;

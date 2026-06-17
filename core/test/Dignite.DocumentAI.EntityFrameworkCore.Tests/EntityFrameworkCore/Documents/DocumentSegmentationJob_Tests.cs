@@ -253,6 +253,37 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
     }
 
     [Fact]
+    public async Task Reclassify_During_Phase_A_Does_Not_Re_Flag_The_Now_Typed_Document()
+    {
+        // #346 fix (high-effort review): the container passes LoadAsync (still a container), but an operator
+        // reclassifies it to a concrete type DURING the slow LLM split (IsContainer cleared). The split then fails
+        // verification, so the Phase A flag path (MarkSegmentationIncompleteAsync) runs — it must re-check IsContainer
+        // and NOT re-flag the now-typed document, or it would push the operator's reclassification back into the
+        // review queue with no way to clear it (no segment rows are persisted on this path, so the count-driven clear
+        // in FinalizeSegmentationFlagAsync never runs). Mirrors the guard CommitSpawnAsync / FinalizeSegmentationFlagAsync apply.
+        var containerId = await ArrangeContainerAsync("Invoice A first\nInvoice B second");
+
+        // Untrusted markers -> the split is rejected -> MarkSegmentationIncompleteAsync runs.
+        StubSplit(("Phantom marker one", true), ("Phantom marker two", true));
+        // ...but mid-split (the external phase), the document is reclassified away from container — the race this guard closes.
+        _workflow
+            .When(x => x.RunAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()))
+            .Do(_ => ReclassifyAwayFromContainer(containerId));
+
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId });
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var doc = await _documentRepository.GetAsync(containerId);
+            doc.IsContainer.ShouldBeFalse();
+            // The now-typed document must NOT carry the segmentation-incomplete flag.
+            doc.ReviewReasons.ShouldBe(DocumentReviewReasons.None);
+            (await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId)).ShouldBeEmpty();
+            (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).ShouldBeEmpty();
+        });
+    }
+
+    [Fact]
     public async Task Unparseable_LLM_Response_Flags_Container_Without_Faulting_The_Job()
     {
         // #346 fix: a schema-drift / non-JSON structured response is caught and flagged for review, not allowed to
@@ -402,6 +433,21 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
 
         return containerId;
     }
+
+    // Simulates an operator reclassifying the container to a concrete type WHILE the LLM split runs (the external
+    // phase). Mirrors how ArrangeContainerAsync sets Markdown — flips IsContainer via its private setter and commits,
+    // so the job's subsequent FindActiveContainerAsync sees the document is no longer a container. Blocking is safe:
+    // xUnit async tests run with no SynchronizationContext, and at this point the job holds no ambient UoW.
+    private void ReclassifyAwayFromContainer(Guid containerId)
+        => WithUnitOfWorkAsync(async () =>
+        {
+            var doc = await _documentRepository.GetAsync(containerId);
+            typeof(Document)
+                .GetProperty(nameof(Document.IsContainer))!
+                .GetSetMethod(nonPublic: true)!
+                .Invoke(doc, [false]);
+            await _documentRepository.UpdateAsync(doc, autoSave: true);
+        }).GetAwaiter().GetResult();
 
     private DocumentSegment NewSegment(Guid containerId, string sliceText, int ordinal)
         => new(

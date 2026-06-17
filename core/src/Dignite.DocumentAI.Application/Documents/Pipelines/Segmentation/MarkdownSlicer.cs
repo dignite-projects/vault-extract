@@ -28,8 +28,10 @@ public static class MarkdownSlicer
     /// preamble before the first marker is folded into the first slice so no content is dropped.
     /// <para>
     /// Returns <c>false</c> (with an empty <paramref name="slices"/>) when the boundaries cannot be trusted —
-    /// empty input, a marker not found verbatim, or markers out of order — so the caller raises a review signal
-    /// instead of spawning garbage. A marker is matched against the raw Markdown first, then against a copy with
+    /// empty input, or a marker not found verbatim at or after the previous marker's position — so the caller raises
+    /// a review signal instead of spawning garbage. (Out-of-order markers are rejected by that same forward search,
+    /// not a separate ordering pass: a marker that appears only before its predecessor is not found from the
+    /// advancing cursor and yields <c>false</c>.) A marker is matched against the raw Markdown first, then against a copy with
     /// <c>&amp;lt;</c> decoded back to <c>&lt;</c>, because the LLM reads the Markdown after
     /// <see cref="Dignite.DocumentAI.Ai.PromptBoundary.WrapDocument"/> has encoded <c>&lt;</c>.
     /// </para>
