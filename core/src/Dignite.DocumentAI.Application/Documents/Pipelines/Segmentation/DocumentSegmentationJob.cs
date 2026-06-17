@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Dignite.DocumentAI.Abstractions.Documents;
@@ -108,13 +109,11 @@ public class DocumentSegmentationJob
             await SplitAndPersistAsync(context, cancellationToken);
         }
 
-        // Phase B: spawn a derived document per still-Pending segment. Re-loaded each run, so a retry processes
-        // only the slices not yet spawned.
+        // Phase B: spawn a derived document per still-Pending segment. Re-loaded each run, so a retry processes only
+        // the slices not yet spawned. NOTE: no early return on an empty list — a resume/retry that finds nothing
+        // Pending must still run FinalizeSegmentationFlagAsync below, so a container whose last slice was spawned by
+        // a concurrent worker still gets its stale flag cleared.
         var pending = await LoadPendingSegmentsAsync(args.ContainerDocumentId);
-        if (pending.Count == 0)
-        {
-            return;
-        }
 
         var failures = new List<Exception>();
         foreach (var segment in pending)
@@ -123,12 +122,21 @@ public class DocumentSegmentationJob
             await SpawnWithIsolationAsync(failures, segment, context, cancellationToken);
         }
 
-        if (failures.Count > 0)
+        // #346 fix: decide the container's terminal SegmentationIncomplete flag from the DB's remaining-Pending count,
+        // NOT from this run's per-segment failures. Two concurrent workers can each collide on the other's
+        // just-spawned segment (the unique (OriginDocumentId, OriginConstituentKey) backstop) and so each end with
+        // failures > 0 even though every slice is now Spawned; keying off the actual remaining count means whichever
+        // run observes zero remaining clears the flag, so a fully-segmented container never lingers in the review
+        // queue, and a genuinely incomplete one stays flagged ("failure is never silent").
+        var remainingPending = await FinalizeSegmentationFlagAsync(context);
+
+        if (failures.Count > 0 && remainingPending > 0)
         {
-            // Surface the faults so ABP reschedules the job; already-spawned segments are terminal and skipped on
-            // retry (LoadPendingSegmentsAsync re-reads only the still-Pending ones), so retries never duplicate.
+            // Real faults this run AND slices still Pending -> surface so ABP reschedules; already-spawned segments
+            // are terminal and skipped on retry (LoadPendingSegmentsAsync re-reads only the still-Pending ones), so
+            // retries never duplicate.
             throw new AggregateException(
-                $"Segmentation left {failures.Count} slice(s) of container {args.ContainerDocumentId} Pending; the job will be retried.",
+                $"Segmentation left {remainingPending} slice(s) of container {args.ContainerDocumentId} Pending; the job will be retried.",
                 failures);
         }
     }
@@ -171,10 +179,28 @@ public class DocumentSegmentationJob
         }
 
         // Gate (external, no UoW): the LLM proposes boundaries; keep the ambient tenant aligned as classification does.
-        DocumentSegmentationOutcome outcome;
+        // A schema-drift / non-JSON structured response is a recoverable bad-output case (mirrors
+        // DocumentClassificationBackgroundJob): flag the container for review rather than letting the exception fault
+        // the job into an endless ABP retry loop that never reaches a terminal state.
+        DocumentSegmentationOutcome? outcome = null;
         using (_currentTenant.Change(context.TenantId))
         {
-            outcome = await _segmentationWorkflow.RunAsync(context.Markdown, cancellationToken);
+            try
+            {
+                outcome = await _segmentationWorkflow.RunAsync(context.Markdown, cancellationToken);
+            }
+            catch (Exception ex) when (IsSchemaDeserializationError(ex))
+            {
+                Logger.LogWarning(ex,
+                    "AI segmentation response failed JSON deserialization for container {ContainerId}; flagging for review.",
+                    context.ContainerId);
+            }
+        }
+
+        if (outcome is null)
+        {
+            await MarkSegmentationIncompleteAsync(context, "the AI segmentation response could not be parsed (schema drift)");
+            return;
         }
 
         if (!MarkdownSlicer.TrySlice(context.Markdown, outcome.Boundaries, out var slices))
@@ -183,12 +209,35 @@ public class DocumentSegmentationJob
             return;
         }
 
-        var documentSliceCount = slices.Count(s => s.IsDocument);
+        // De-duplicate byte-identical slices up front (same content -> same content hash). A born-digital duplicate
+        // is almost certainly an accidental repeat — the figure path makes the same choice for identical embedded
+        // images — but unlike a silent drop we LOG it, and we count AFTER de-dup so the validation below reflects the
+        // number of DISTINCT documents actually persisted. Hashing the content (no positional salt) keeps SegmentKey
+        // == the derived FileOrigin.ContentHash == OriginConstituentKey: one pure content fingerprint, consistent
+        // with the upload + #306 figure paths.
+        var deduped = new List<(MarkdownSlice Slice, string Key)>();
+        var seenKeys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var slice in slices)
+        {
+            var key = ContentHasher.Sha256Hex(Encoding.UTF8.GetBytes(slice.Text));
+            if (seenKeys.Add(key))
+            {
+                deduped.Add((slice, key));
+            }
+            else
+            {
+                Logger.LogWarning(
+                    "Container {ContainerId} produced a byte-identical slice at ordinal {Ordinal}; de-duplicated to one sub-document (mirrors the figure path's identical-image de-dup).",
+                    context.ContainerId, slice.Ordinal);
+            }
+        }
+
+        var documentSliceCount = deduped.Count(p => p.Slice.IsDocument);
         if (documentSliceCount < 2)
         {
-            // Fewer than two document slices means this was not really a multi-document bundle; do not spawn a lone
-            // duplicate of the container — let an operator reclassify it to a concrete type.
-            await MarkSegmentationIncompleteAsync(context, "fewer than two document slices were identified");
+            // Fewer than two DISTINCT document slices means this was not really a multi-document bundle; do not spawn
+            // a lone duplicate of the container — let an operator reclassify it to a concrete type.
+            await MarkSegmentationIncompleteAsync(context, "fewer than two distinct document slices were identified");
             return;
         }
 
@@ -211,22 +260,13 @@ public class DocumentSegmentationJob
                 return;
             }
 
-            var seen = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var slice in slices)
+            foreach (var (slice, key) in deduped)
             {
-                var segmentKey = ContentHasher.Sha256Hex(Encoding.UTF8.GetBytes(slice.Text));
-                // De-dupe identical slices within one container: same text -> same key -> one row (the unique
-                // (SourceDocumentId, SegmentKey) index is the final guard).
-                if (!seen.Add(segmentKey))
-                {
-                    continue;
-                }
-
                 await _segmentRepository.InsertAsync(new DocumentSegment(
                     _guidGenerator.Create(),
                     context.TenantId,
                     context.ContainerId,
-                    segmentKey,
+                    key,
                     slice.Text,
                     slice.Ordinal,
                     // Cover / index / transmittal slices are recorded for audit but never spawned.
@@ -385,6 +425,51 @@ public class DocumentSegmentationJob
             await uow.CompleteAsync();
         }
     }
+
+    /// <summary>
+    /// Sets or clears <see cref="DocumentReviewReasons.SegmentationIncomplete"/> on the container from the DB's
+    /// remaining-Pending segment count (short UoW; writes only when the flag must change), and returns that count.
+    /// When no segment rows exist at all, Phase A already owns the flag (untrusted / &lt;2 / &gt;max / unparseable
+    /// split), so it is left untouched. Driving the flag off the persisted state — not a single run's failures —
+    /// makes the flag converge correctly even when concurrent workers collide on each other's spawned segments.
+    /// </summary>
+    private async Task<int> FinalizeSegmentationFlagAsync(SegmentationContext context)
+    {
+        using (_currentTenant.Change(context.TenantId))
+        using (var uow = _unitOfWorkManager.Begin(requiresNew: true))
+        {
+            var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == context.ContainerId);
+            if (segments.Count == 0)
+            {
+                // Nothing persisted -> Phase A already decided the flag (or there was nothing to do); don't override it.
+                await uow.CompleteAsync();
+                return 0;
+            }
+
+            var remainingPending = segments.Count(s => s.Status == DocumentSegmentStatus.Pending);
+
+            var container = await _documentRepository.FindAsync(context.ContainerId, includeDetails: false);
+            if (container is not null)
+            {
+                var hasFlag = (container.ReviewReasons & DocumentReviewReasons.SegmentationIncomplete)
+                    != DocumentReviewReasons.None;
+                var shouldHaveFlag = remainingPending > 0;
+                if (hasFlag != shouldHaveFlag)
+                {
+                    container.SetReviewReason(DocumentReviewReasons.SegmentationIncomplete, present: shouldHaveFlag);
+                    await _documentRepository.UpdateAsync(container);
+                }
+            }
+
+            await uow.CompleteAsync();
+            return remainingPending;
+        }
+    }
+
+    // Mirrors DocumentClassificationBackgroundJob: a structured-output schema drift surfaces as a JsonException
+    // (sometimes wrapped); treat it as a recoverable bad-output case, not a job fault.
+    private static bool IsSchemaDeserializationError(Exception ex)
+        => ex is JsonException || ex.GetBaseException() is JsonException;
 
     private async Task TryDeleteBlobAsync(string blobName)
     {

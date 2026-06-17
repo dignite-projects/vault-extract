@@ -180,17 +180,17 @@ public class EfCoreDocumentRepository
         // inlined here rather than reusing that Expression because EF Core cannot fold a shared Expression into a
         // grouped projection; keep the two in sync.
         var byStatus = await dbSet
-            // #346: a container is an infrastructure wrapper, not a business document — its sub-documents are the
-            // real records. Exclude containers from the overview so a container + its N sub-documents do not
-            // double-count the totals / storage. A segmentation-incomplete container still surfaces in the operator
-            // review queue list (DocumentAppService.ApplyFilter); only this dashboard summary omits it.
-            .Where(d => !d.IsContainer)
             .GroupBy(d => d.LifecycleStatus)
             .Select(g => new
             {
                 Status = g.Key,
-                Count = g.LongCount(),
-                Bytes = g.Sum(d => d.FileOrigin.FileSize),
+                // #346: a container is an infrastructure wrapper, not a business document — its sub-documents are the
+                // real records. Exclude containers from the document counts / storage so a container + its N
+                // sub-documents do not double-count. But a segmentation-incomplete container DOES need operator
+                // attention, so it is INCLUDED in NeedsReview below — the review-queue list (DocumentAppService.ApplyFilter)
+                // counts it too, so the dashboard count and the queue never drift (#333).
+                Count = g.Sum(d => d.IsContainer ? 0L : 1L),
+                Bytes = g.Sum(d => d.IsContainer ? 0L : d.FileOrigin.FileSize),
                 NeedsReview = g.Sum(d =>
                     d.ReviewReasons != DocumentReviewReasons.None
                     && d.ReviewDisposition != DocumentReviewDisposition.Rejected

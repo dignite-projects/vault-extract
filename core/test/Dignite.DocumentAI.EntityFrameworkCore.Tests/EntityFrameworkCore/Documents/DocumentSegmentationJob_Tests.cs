@@ -1,5 +1,7 @@
 using System;
+using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Dignite.DocumentAI.Abstractions.Documents;
@@ -50,6 +52,7 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
     private readonly IBackgroundJobManager _backgroundJobManager;
     private readonly IDistributedEventBus _eventBus;
     private readonly DocumentSegmentationWorkflow _workflow;
+    private readonly IBlobContainer<DocumentAIDocumentContainer> _blobContainer;
     private readonly IGuidGenerator _guidGenerator;
 
     public DocumentSegmentationJob_Tests()
@@ -60,6 +63,7 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
         _backgroundJobManager = GetRequiredService<IBackgroundJobManager>();
         _eventBus = GetRequiredService<IDistributedEventBus>();
         _workflow = GetRequiredService<DocumentSegmentationWorkflow>();
+        _blobContainer = GetRequiredService<IBlobContainer<DocumentAIDocumentContainer>>();
         _guidGenerator = GetRequiredService<IGuidGenerator>();
     }
 
@@ -167,6 +171,131 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
 
         await WithUnitOfWorkAsync(async () =>
             (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).Count.ShouldBe(2));
+    }
+
+    [Fact]
+    public async Task Byte_Identical_Document_Slices_Are_Deduped_While_Distinct_Slices_Each_Spawn()
+    {
+        // #346 fix: a byte-identical slice collapses to one sub-document (an accidental repeat — mirrors the figure
+        // path's identical-image de-dup) and is LOGGED, not silently dropped; the distinct slices still each spawn,
+        // and SegmentKey stays a pure content hash (== FileOrigin.ContentHash == OriginConstituentKey).
+        var containerId = await ArrangeContainerAsync("DOCA body line\nDOCA body line\nDOCB other line");
+        StubSplit(("DOCA body", true), ("DOCA body", true), ("DOCB other", true));
+
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId });
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId);
+            segments.Count.ShouldBe(2); // the duplicate "DOCA" slice was de-duplicated
+            segments.Select(s => s.SliceText).OrderBy(t => t).ToArray()
+                .ShouldBe(new[] { "DOCA body line", "DOCB other line" });
+            // SegmentKey is the pure content hash of the slice text (no positional salt).
+            foreach (var s in segments)
+            {
+                s.SegmentKey.ShouldBe(ContentHasher.Sha256Hex(System.Text.Encoding.UTF8.GetBytes(s.SliceText)));
+            }
+
+            var derived = await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId);
+            derived.Count.ShouldBe(2);
+        });
+    }
+
+    [Fact]
+    public async Task Retry_That_Finds_All_Segments_Already_Spawned_Clears_A_Stale_Flag()
+    {
+        // #346 fix (sweep): a prior/concurrent run flagged the container, and a concurrent worker spawned the last
+        // slice, so THIS run finds zero Pending. It must still clear the stale flag (FinalizeSegmentationFlagAsync
+        // runs even with nothing Pending), so a fully-segmented container does not linger in the review queue.
+        var containerId = await ArrangeContainerAsync("Invoice A first\nInvoice B second");
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var container = await _documentRepository.GetAsync(containerId);
+            container.SetReviewReason(DocumentReviewReasons.SegmentationIncomplete, present: true);
+            await _documentRepository.UpdateAsync(container, autoSave: true);
+
+            // Two segments already fully Spawned (as if a concurrent worker finished them).
+            var s1 = NewSegment(containerId, "Invoice A first", 0);
+            s1.MarkSpawned(_guidGenerator.Create());
+            await _segmentRepository.InsertAsync(s1, autoSave: true);
+            var s2 = NewSegment(containerId, "Invoice B second", 1);
+            s2.MarkSpawned(_guidGenerator.Create());
+            await _segmentRepository.InsertAsync(s2, autoSave: true);
+        });
+
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId });
+
+        // No LLM re-split (segments already exist), and the stale flag is cleared.
+        await _workflow.DidNotReceive().RunAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await WithUnitOfWorkAsync(async () =>
+            (await _documentRepository.GetAsync(containerId)).ReviewReasons.ShouldBe(DocumentReviewReasons.None));
+    }
+
+    [Fact]
+    public async Task Unparseable_LLM_Response_Flags_Container_Without_Faulting_The_Job()
+    {
+        // #346 fix: a schema-drift / non-JSON structured response is caught and flagged for review, not allowed to
+        // fault the job into an endless ABP retry loop.
+        var containerId = await ArrangeContainerAsync("Invoice A first\nInvoice B second");
+        _workflow.RunAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns<DocumentSegmentationOutcome>(_ => throw new JsonException("schema drift"));
+
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId });
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            (await _documentRepository.GetAsync(containerId)).ReviewReasons
+                .ShouldBe(DocumentReviewReasons.SegmentationIncomplete);
+            (await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId)).ShouldBeEmpty();
+            (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).ShouldBeEmpty();
+        });
+    }
+
+    [Fact]
+    public async Task Spawn_Failure_Flags_Container_And_Leaves_Segments_Pending()
+    {
+        // #346 fix: Phase B failures are not silent either — the container is flagged before the rethrow so an
+        // operator sees it even after ABP exhausts retries.
+        var containerId = await ArrangeContainerAsync("Invoice A first\nInvoice B second");
+        StubSplit(("Invoice A", true), ("Invoice B", true));
+        _blobContainer
+            .When(x => x.SaveAsync(Arg.Any<string>(), Arg.Any<Stream>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()))
+            .Do(_ => throw new InvalidOperationException("blob store down"));
+
+        await Should.ThrowAsync<AggregateException>(
+            () => _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId }));
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            (await _documentRepository.GetAsync(containerId)).ReviewReasons
+                .ShouldBe(DocumentReviewReasons.SegmentationIncomplete);
+            (await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId))
+                .ShouldAllBe(s => s.Status == DocumentSegmentStatus.Pending);
+            (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).ShouldBeEmpty();
+        });
+    }
+
+    [Fact]
+    public async Task Full_Segmentation_Clears_A_Prior_SegmentationIncomplete_Flag()
+    {
+        // #346 fix: a retry that finally spawns every slice clears the flag a prior partial run left, so a container
+        // that ultimately segments fully does not linger in the review queue.
+        var containerId = await ArrangeContainerAsync("Invoice A first\nInvoice B second");
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var container = await _documentRepository.GetAsync(containerId);
+            container.SetReviewReason(DocumentReviewReasons.SegmentationIncomplete, present: true);
+            await _documentRepository.UpdateAsync(container, autoSave: true);
+        });
+        StubSplit(("Invoice A", true), ("Invoice B", true));
+
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId });
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            (await _documentRepository.GetAsync(containerId)).ReviewReasons.ShouldBe(DocumentReviewReasons.None);
+            (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).Count.ShouldBe(2);
+        });
     }
 
     private async Task<Guid> ArrangeContainerAsync(string markdown)

@@ -869,6 +869,18 @@ public class DocumentAppService : DocumentAIAppService, IDocumentAppService
             }
         }
 
+        // #346: a container whose born-digital segmentation could not complete carries this non-blocking reason.
+        // Project it so the detail page shows WHY the container needs attention (the client localizes by the Reason
+        // enum); otherwise RequiresReview would be true with no explanation. No extra data — the reason bit is enough.
+        if ((document.ReviewReasons & DocumentReviewReasons.SegmentationIncomplete) != DocumentReviewReasons.None)
+        {
+            details.Add(new ReviewReasonDetailDto
+            {
+                Reason = DocumentReviewReasons.SegmentationIncomplete,
+                IsBlocking = ReviewReasonPolicy.IsBlocking(DocumentReviewReasons.SegmentationIncomplete)
+            });
+        }
+
         // If all reason-bit details were skipped (for example MRF is the only reason but field names are temporarily empty),
         // return null rather than an empty array. This keeps "no details" semantics consistent with frontend reviewReasonDetails?.length checks.
         // RequiresReview is still determined independently by the upstream predicate.
