@@ -600,6 +600,8 @@ export class DocumentDetailComponent implements OnInit {
         return '::Document:ReviewReason:UnresolvedClassification';
       case DocumentReviewReasons.MissingRequiredFields:
         return '::Document:ReviewReason:MissingRequiredFields';
+      case DocumentReviewReasons.SegmentationIncomplete:
+        return '::Document:ReviewReason:SegmentationIncomplete';
       default:
         return '::Document:NeedsReview';
     }

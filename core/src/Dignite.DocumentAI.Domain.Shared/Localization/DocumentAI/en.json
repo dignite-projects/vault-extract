@@ -74,6 +74,7 @@
     "Document:ReviewDisposition:Rejected": "Rejected",
     "Document:ReviewReason:UnresolvedClassification": "Classification unresolved",
     "Document:ReviewReason:MissingRequiredFields": "Missing required fields",
+    "Document:ReviewReason:SegmentationIncomplete": "Couldn't be split into documents",
     "Document:Review:RejectReasonRequired": "Rejection reason is required.",
     "Document:TotalCount": "Total:",
     "Document:AreYouSureToDelete": "Are you sure you want to delete this document?",

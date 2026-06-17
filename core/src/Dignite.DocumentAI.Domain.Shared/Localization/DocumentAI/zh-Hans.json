@@ -223,6 +223,7 @@
     "Document:ReviewDisposition:Rejected": "已拒绝",
     "Document:ReviewReason:UnresolvedClassification": "分类未定",
     "Document:ReviewReason:MissingRequiredFields": "必填字段缺失",
+    "Document:ReviewReason:SegmentationIncomplete": "未能拆分为多个文档",
     "Document:Review:RejectReasonRequired": "拒绝理由为必填。",
     "Document:DocumentTypeCode": "文档类型代码",
     "Document:Type": "文档类型",
