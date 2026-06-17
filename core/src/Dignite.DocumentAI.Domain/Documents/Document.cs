@@ -335,10 +335,18 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         SetReviewReason(DocumentReviewReasons.UnresolvedClassification, present: false);
         // #346: a concrete type is now assigned, so this is no longer a container; clear the marker and any stale
         // segmentation-incomplete signal to avoid the contradictory "has a type AND is a container" state.
+        // #349: capture the prior marker state and, on a true→false transition, raise ContainerMarkerClearedEvent so
+        // the in-process handler retracts any already-spawned sub-documents (soft-delete + DocumentDeletedEto) and
+        // removes the container's segment rows, preventing downstream double-counting.
+        var wasContainer = IsContainer;
         IsContainer = false;
         SetReviewReason(DocumentReviewReasons.SegmentationIncomplete, present: false);
         ReviewDisposition = DocumentReviewDisposition.NotReviewed;
         RejectionReason = null; // #284 review-fix: leaving Rejected disposition -> clear stale rejection reason; only Rejected should have one.
+        if (wasContainer)
+        {
+            AddLocalEvent(new ContainerMarkerClearedEvent(Id));
+        }
     }
 
     /// <summary>
@@ -405,10 +413,18 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         SetReviewReason(DocumentReviewReasons.MissingRequiredFields, present: false);
         // #346: operator reclassifying a container to a concrete type clears the container marker (reversibility)
         // and any stale segmentation-incomplete signal; subsequent DocumentClassifiedEto cascades field extraction.
+        // #349: capture the prior marker state and, on a true→false transition, raise ContainerMarkerClearedEvent so
+        // the in-process handler retracts any already-spawned sub-documents (soft-delete + DocumentDeletedEto) and
+        // removes the container's segment rows, preventing downstream double-counting.
+        var wasContainer = IsContainer;
         IsContainer = false;
         SetReviewReason(DocumentReviewReasons.SegmentationIncomplete, present: false);
         ReviewDisposition = DocumentReviewDisposition.Confirmed;
         RejectionReason = null; // #284 review-fix: rejection is recoverable; clear stale rejection reason after Reclassify / Confirm.
+        if (wasContainer)
+        {
+            AddLocalEvent(new ContainerMarkerClearedEvent(Id));
+        }
     }
 
     /// <summary>

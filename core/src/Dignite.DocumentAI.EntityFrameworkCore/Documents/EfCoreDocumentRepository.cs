@@ -51,6 +51,20 @@ public class EfCoreDocumentRepository
         }
     }
 
+    public virtual async Task<List<Document>> GetListByOriginAsync(
+        Guid originDocumentId,
+        CancellationToken cancellationToken = default)
+    {
+        // #349: list a source's derived sub-documents. The composite unique index (OriginDocumentId, OriginConstituentKey)
+        // has OriginDocumentId as its leading column, so this filter is index-served (no new index needed). IMultiTenant
+        // + ISoftDelete global filters apply automatically by ambient state — only the container's own layer, no
+        // already-deleted sub-documents. Scalar fields + owned FileOrigin suffice for the soft-delete + ETO publication.
+        var dbSet = await GetDbSetAsync();
+        return await dbSet
+            .Where(d => d.OriginDocumentId == originDocumentId)
+            .ToListAsync(GetCancellationToken(cancellationToken));
+    }
+
     public override async Task<IQueryable<Document>> WithDetailsAsync()
     {
         return (await GetQueryableAsync()).IncludeDetails();

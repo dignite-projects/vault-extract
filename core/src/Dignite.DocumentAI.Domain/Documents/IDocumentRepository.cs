@@ -19,6 +19,23 @@ public interface IDocumentRepository : IRepository<Document, Guid>
     Task HardDeleteAsync(Guid id, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Lists the derived sub-documents spawned from <paramref name="originDocumentId"/> (#306 / #346 Scenario B):
+    /// every <see cref="Document"/> whose <see cref="Document.OriginDocumentId"/> equals it. Served by the composite
+    /// unique index <c>(OriginDocumentId, OriginConstituentKey)</c> whose leading column is <c>OriginDocumentId</c>,
+    /// so no extra index is needed.
+    /// <para>
+    /// Used by the #349 container-retraction handler (<c>ContainerMarkerClearedEventHandler</c>): when a container is
+    /// reclassified to a concrete type, its previously-spawned sub-documents must be soft-deleted so they stop
+    /// double-counting downstream. Scalar fields + owned <c>FileOrigin</c> suffice (no child collection), so this does
+    /// not eager-load details. <c>IMultiTenant</c> + <c>ISoftDelete</c> global filters apply automatically by ambient
+    /// state, keeping the result within the container's own layer and excluding already-deleted sub-documents.
+    /// </para>
+    /// </summary>
+    Task<List<Document>> GetListByOriginAsync(
+        Guid originDocumentId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Finds a Document by Id and eager-loads <b>only</b> the <see cref="Document.ExtractedFieldValues"/> child collection.
     /// Field extraction write-back paths (<c>FieldExtractionEventHandler</c>) need existing field rows present so
     /// <see cref="Document.SetFields"/> can reconcile correctly (delete old / update in place / insert new).
