@@ -263,26 +263,26 @@ public class DocumentFigureRoutingJob
     {
         // External: copy the candidate crop into an independent, derived-document-owned blob so the derived
         // document outlives the source (the source's permanent delete reclaims the candidate crop, not this copy).
-        byte[] cropBytes;
+        // The crop content hash is already known (figure.ContentHash), so there is no need to materialize a byte[]
+        // for re-hashing — buffer the crop once and rewind the same stream to save it (avoids a second full-size
+        // copy / LOH allocation per spawned figure).
+        var extension = ImageExtensionForContentType(figure.ContentType);
+        var derivedBlobName = _guidGenerator.Create().ToString("N") + extension;
+        long fileSize;
         await using (var cropStream = await _blobContainer.GetAsync(figure.CropBlobName))
         using (var buffer = new MemoryStream())
         {
             await cropStream.CopyToAsync(buffer, cancellationToken);
-            cropBytes = buffer.ToArray();
-        }
-
-        var extension = ImageExtensionForContentType(figure.ContentType);
-        var derivedBlobName = _guidGenerator.Create().ToString("N") + extension;
-        using (var saveStream = new MemoryStream(cropBytes, writable: false))
-        {
-            await _blobContainer.SaveAsync(derivedBlobName, saveStream, overrideExisting: true, cancellationToken);
+            fileSize = buffer.Length;
+            buffer.Position = 0;
+            await _blobContainer.SaveAsync(derivedBlobName, buffer, overrideExisting: true, cancellationToken);
         }
 
         var derivedDocumentId = _guidGenerator.Create();
 
         try
         {
-            await CommitSpawnAsync(workItem, figure, derivedBlobName, derivedDocumentId, extension, cropBytes.LongLength);
+            await CommitSpawnAsync(workItem, figure, derivedBlobName, derivedDocumentId, extension, fileSize);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
