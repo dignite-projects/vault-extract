@@ -34,10 +34,12 @@ public class OCRCompletedEto
     public bool UsedOcr { get; init; }
 
     /// <summary>
-    /// Number of embedded images transcribed via figure-OCR (#306). <see cref="UsedOcr"/> still means
-    /// "scan vs digital" (a path fact); this is the named figure-OCR signal so downstream
-    /// cost-attribution can see that embedded-image OCR occurred on a digital document. 0 when none ran.
-    /// New optional field; defaults to 0 for producers / consumers that predate it.
+    /// Number of embedded-image OCR calls <b>dispatched</b> via figure-OCR (#306) — counting every call sent to
+    /// <c>IOcrProvider</c>, <b>including ones that threw</b> (a failed call may still incur provider cost), so this
+    /// counts dispatched attempts, not successful transcriptions. <see cref="UsedOcr"/> still means "scan vs
+    /// digital" (a path fact); this is the named figure-OCR signal so downstream cost-attribution can see that
+    /// embedded-image OCR occurred on a digital document. 0 when none ran. New optional field; defaults to 0 for
+    /// producers / consumers that predate it.
     /// </summary>
     public int FigureOcrCount { get; init; }
 }
