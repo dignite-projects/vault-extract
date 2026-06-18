@@ -96,7 +96,7 @@ public class PdfExtractor_Tests
     }
 
     [Fact]
-    public async Task Surfaces_each_transcribed_image_as_an_out_of_band_figure()
+    public async Task Inlines_each_transcribed_image_in_band_with_page_anchored_sentinels()
     {
         StubOcr("INVOICE No. 42");
 
@@ -107,29 +107,37 @@ public class PdfExtractor_Tests
 
         var result = await CreateExtractor().ExtractAsync(new MemoryStream(pdf), PdfContext());
 
-        // #306 out-of-band signal: the transcribed image is surfaced on Figures with its bytes + provenance,
-        // while UsedOcr stays false (a digital extraction) and FigureOcrCount records the embedded-image OCR.
+        // #371: the figure no longer rides an out-of-band Figures list — its transcription travels IN-BAND in
+        // the (marked) Markdown, bracketed by [Image OCR p:N]…[End OCR] sentinels carrying the 1-based page
+        // anchor. UsedOcr stays false (a digital extraction) and FigureOcrCount still records the embedded-image OCR.
         result.UsedOcr.ShouldBeFalse();
         result.FigureOcrCount.ShouldBe(1);
 
-        result.Figures.ShouldNotBeNull();
-        result.Figures!.Count.ShouldBe(1);
-        var figure = result.Figures[0];
-        figure.Transcription.ShouldBe("INVOICE No. 42");
-        figure.Content.Length.ShouldBeGreaterThan(0);
-        figure.ContentType.ShouldStartWith("image/");
-        figure.PageNumber.ShouldBe(1);
+        result.Markdown.ShouldContain("INVOICE No. 42");
+        result.Markdown.ShouldContain(ImageOcrMarkup.CloseMarker); // "[End OCR]"
+        // The single fixture page is page 1, so the open sentinel carries the page anchor "[Image OCR p:1]"
+        // (the page-anchored form, NOT the bare OpenMarker "[Image OCR]").
+        result.Markdown.ShouldContain(ImageOcrMarkup.OpenPagePrefix + "1]");
+
+        // The transcription sits between the open and close sentinels (the bracketed figure span).
+        var open = result.Markdown.IndexOf(ImageOcrMarkup.OpenPagePrefix + "1]", StringComparison.Ordinal);
+        var transcription = result.Markdown.IndexOf("INVOICE No. 42", StringComparison.Ordinal);
+        var close = result.Markdown.IndexOf(ImageOcrMarkup.CloseMarker, StringComparison.Ordinal);
+        open.ShouldBeGreaterThanOrEqualTo(0);
+        transcription.ShouldBeGreaterThan(open);
+        close.ShouldBeGreaterThan(transcription);
     }
 
     [Fact]
-    public async Task Leaves_figures_null_and_count_zero_when_no_image_is_transcribed()
+    public async Task Emits_no_figure_sentinels_and_count_zero_when_no_image_is_transcribed()
     {
         var pdf = PdfFixtures.Build(texts: new[] { ("Just digital text", 700.0) });
 
         var result = await CreateExtractor().ExtractAsync(new MemoryStream(pdf), PdfContext());
 
-        // Null (not empty) so a downstream "has figures?" check stays a simple null test; no OCR ran.
-        result.Figures.ShouldBeNull();
+        // No figure → no in-band [Image OCR] sentinels at all, and no OCR ran.
+        ImageOcrMarkup.Contains(result.Markdown).ShouldBeFalse();
+        result.Markdown.ShouldNotContain(ImageOcrMarkup.CloseMarker);
         result.FigureOcrCount.ShouldBe(0);
     }
 
@@ -148,9 +156,9 @@ public class PdfExtractor_Tests
 
         var result = await CreateExtractor().ExtractAsync(new MemoryStream(pdf), PdfContext());
 
-        result.FigureOcrCount.ShouldBe(1);   // dispatched, even though it threw
-        result.Figures.ShouldBeNull();       // no transcription produced -> no out-of-band figure
-        result.IsComplete.ShouldBeFalse();   // #268 trips on the failed figure OCR
+        result.FigureOcrCount.ShouldBe(1);                          // dispatched, even though it threw
+        ImageOcrMarkup.Contains(result.Markdown).ShouldBeFalse();   // no transcription produced -> no in-band figure span
+        result.IsComplete.ShouldBeFalse();                          // #268 trips on the failed figure OCR
     }
 
     [Fact]

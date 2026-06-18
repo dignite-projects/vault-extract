@@ -4,13 +4,14 @@ using System.Collections.Generic;
 namespace Dignite.DocumentAI.Documents.Pipelines.Segmentation;
 
 /// <summary>
-/// A constituent boundary proposed by the segmentation LLM (#346): a <b>verbatim</b> start marker copied from
-/// the container Markdown plus whether the slice it opens is itself a document (vs a cover / index / transmittal).
+/// A span boundary proposed by the unified sub-document detection pass (#346/#371): a <b>verbatim</b> start marker
+/// copied from the source Markdown (the <c>[Image OCR]</c> marker line for a figure span) plus whether the span it
+/// opens is itself a standalone sub-document (vs the parent's own content / a cover / an element of the parent).
 /// </summary>
-public sealed record SegmentBoundary(string StartMarker, bool IsDocument);
+public sealed record SegmentBoundary(string StartMarker, bool IsSubDocument);
 
-/// <summary>A deterministically-cut constituent slice of a container's Markdown (#346).</summary>
-public sealed record MarkdownSlice(string Text, bool IsDocument, int Ordinal);
+/// <summary>A deterministically-cut span of a source document's Markdown (#346/#371).</summary>
+public sealed record MarkdownSlice(string Text, bool IsSubDocument, int Ordinal);
 
 /// <summary>
 /// Deterministically cuts a container's Markdown at LLM-proposed boundaries (#346 decision: the LLM returns
@@ -74,7 +75,7 @@ public static class MarkdownSlicer
                 continue; // defensively skip an empty slice (e.g. adjacent markers)
             }
 
-            slices.Add(new MarkdownSlice(text, boundaries[i].IsDocument, slices.Count));
+            slices.Add(new MarkdownSlice(text, boundaries[i].IsSubDocument, slices.Count));
         }
 
         return slices.Count > 0;

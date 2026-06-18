@@ -23,8 +23,6 @@ public class DocumentAppServiceDeleteTestModule : AbpModule
     public override void ConfigureServices(ServiceConfigurationContext context)
     {
         context.Services.AddSingleton(Substitute.For<IDocumentRepository>());
-        // #306: DocumentAppService depends on the DocumentFigure repository (permanent-delete crop cleanup).
-        context.Services.AddSingleton(Substitute.For<Volo.Abp.Domain.Repositories.IRepository<Figures.DocumentFigure, Guid>>());
         context.Services.AddSingleton(Substitute.For<IDocumentTypeRepository>());
         context.Services.AddSingleton(Substitute.For<IFieldDefinitionRepository>());
         context.Services.AddSingleton(Substitute.For<ICabinetRepository>());

@@ -10,7 +10,6 @@ public class DocumentAIDbContext : AbpDbContext<DocumentAIDbContext>, IDocumentA
 {
     public DbSet<Document> Documents { get; set; }
     public DbSet<DocumentPipelineRun> DocumentPipelineRuns { get; set; }
-    public DbSet<DocumentFigure> DocumentFigures { get; set; }
     public DbSet<DocumentSegment> DocumentSegments { get; set; }
     public DbSet<DocumentType> DocumentTypes { get; set; }
     public DbSet<FieldDefinition> FieldDefinitions { get; set; }

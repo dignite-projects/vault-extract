@@ -33,9 +33,6 @@ public class DocumentAppService : DocumentAIAppService, IDocumentAppService
     private readonly DocumentPipelineJobScheduler _pipelineJobScheduler;
     private readonly IDistributedEventBus _distributedEventBus;
     private readonly ReviewStateEvaluator _reviewEvaluator;
-    // #306: Scenario B candidate figures (own aggregate, default repository). Used to clean up candidate crop
-    // blobs on permanent delete; sub-document routing reads these in a later phase.
-    private readonly IRepository<DocumentFigure, Guid> _documentFigureRepository;
 
     public DocumentAppService(
         IDocumentRepository documentRepository,
@@ -46,8 +43,7 @@ public class DocumentAppService : DocumentAIAppService, IDocumentAppService
         DocumentPipelineRunManager pipelineRunManager,
         DocumentPipelineJobScheduler pipelineJobScheduler,
         IDistributedEventBus distributedEventBus,
-        ReviewStateEvaluator reviewEvaluator,
-        IRepository<DocumentFigure, Guid> documentFigureRepository)
+        ReviewStateEvaluator reviewEvaluator)
     {
         _documentRepository = documentRepository;
         _documentTypeRepository = documentTypeRepository;
@@ -58,7 +54,6 @@ public class DocumentAppService : DocumentAIAppService, IDocumentAppService
         _pipelineJobScheduler = pipelineJobScheduler;
         _distributedEventBus = distributedEventBus;
         _reviewEvaluator = reviewEvaluator;
-        _documentFigureRepository = documentFigureRepository;
     }
 
     public virtual async Task<DocumentDto> GetAsync(Guid id)
@@ -366,17 +361,10 @@ public class DocumentAppService : DocumentAIAppService, IDocumentAppService
     public virtual async Task PermanentDeleteAsync(Guid id)
     {
         Document document;
-        List<string> figureCropBlobNames;
         using (DataFilter.Disable<ISoftDelete>())
         {
             // Permanent delete needs only scalar fields + owned FileOrigin (blob name); no child collections are needed.
             document = await _documentRepository.GetAsync(id, includeDetails: false);
-
-            // #306: capture candidate figure crop blob names BEFORE the hard delete removes their rows by FK
-            // CASCADE. Derived documents promoted from these figures own independent copied blobs, so deleting
-            // the candidate crops never affects a derived document.
-            var figures = await _documentFigureRepository.GetListAsync(f => f.SourceDocumentId == id);
-            figureCropBlobNames = figures.Select(f => f.CropBlobName).ToList();
         }
 
         await _documentRepository.HardDeleteAsync(id);
@@ -409,20 +397,19 @@ public class DocumentAppService : DocumentAIAppService, IDocumentAppService
             }
         }
 
-        // #306: permanently delete the candidate figure crop blobs together (best-effort, like the original
-        // file and native payload blobs); their DocumentFigure rows were already removed by the FK CASCADE.
-        foreach (var cropBlobName in figureCropBlobNames)
+        // #371: permanently delete the marked-Markdown pipeline artifact (if any) together, using its stable
+        // per-document key (best-effort, like the original file / native payload blobs). Only figure-bearing
+        // documents have one; DeleteAsync on a missing blob is a no-op for the file-system / typical providers.
+        var markedMarkdownBlobName = DocumentConsts.MarkedMarkdownBlobPrefix + id;
+        try
         {
-            try
-            {
-                await _blobContainer.DeleteAsync(cropBlobName);
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex,
-                    "Failed to delete figure crop blob {BlobName} for document {DocumentId}.",
-                    cropBlobName, id);
-            }
+            await _blobContainer.DeleteAsync(markedMarkdownBlobName);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex,
+                "Failed to delete marked Markdown blob {BlobName} for document {DocumentId}.",
+                markedMarkdownBlobName, id);
         }
 
         // Notify downstream consumers: the Document is unrecoverable, so derived data should be physically deleted.

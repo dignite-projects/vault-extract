@@ -1,11 +1,10 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Text;
 using System.Threading.Tasks;
 using Dignite.DocumentAI.Abstractions.Documents;
 using Dignite.DocumentAI.Documents;
-using Dignite.DocumentAI.Documents.Figures;
 using Dignite.DocumentAI.Documents.Segments;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
@@ -43,10 +42,10 @@ public class ContainerReclassifyRetractionTestModule : AbpModule
 /// <b>Scope of these assertions.</b> <see cref="IDistributedEventBus"/> is an NSubstitute substitute, so these tests
 /// verify, precisely: (1) the local event dispatches to the handler on the reclassify UoW's completion; (2) the four
 /// retraction post-conditions hold against the real DB — the container becomes a concrete-typed non-container, its
-/// sub-documents are soft-deleted, and its segment rows are gone; (3) <c>PublishAsync</c> is invoked exactly once per
-/// sub-document (and never when there are no sub-documents). They do <b>not</b> assert that those publishes enrolled
-/// in the same transactional outbox as the soft-deletes, nor that publish + soft-delete are atomic — the substitute
-/// records calls but does not exercise ABP's real outbox, so outbox atomicity is out of scope here (it is a
+/// Text sub-documents are soft-deleted, and its Text segment rows are gone; (3) <c>PublishAsync</c> is invoked exactly
+/// once per retracted sub-document (and never when there are none). They do <b>not</b> assert that those publishes
+/// enrolled in the same transactional outbox as the soft-deletes, nor that publish + soft-delete are atomic — the
+/// substitute records calls but does not exercise ABP's real outbox, so outbox atomicity is out of scope here (it is a
 /// framework guarantee; see the all-in-one-UoW note in <c>ContainerMarkerClearedEventHandler</c>).
 /// </para>
 /// </summary>
@@ -56,7 +55,6 @@ public class ContainerReclassifyRetraction_Tests
     private readonly IDocumentAppService _appService;
     private readonly IDocumentRepository _documentRepository;
     private readonly IRepository<DocumentSegment, Guid> _segmentRepository;
-    private readonly IRepository<DocumentFigure, Guid> _figureRepository;
     private readonly IRepository<DocumentType, Guid> _documentTypeRepository;
     private readonly IDistributedEventBus _eventBus;
     private readonly IGuidGenerator _guidGenerator;
@@ -66,7 +64,6 @@ public class ContainerReclassifyRetraction_Tests
         _appService = GetRequiredService<IDocumentAppService>();
         _documentRepository = GetRequiredService<IDocumentRepository>();
         _segmentRepository = GetRequiredService<IRepository<DocumentSegment, Guid>>();
-        _figureRepository = GetRequiredService<IRepository<DocumentFigure, Guid>>();
         _documentTypeRepository = GetRequiredService<IRepository<DocumentType, Guid>>();
         _eventBus = GetRequiredService<IDistributedEventBus>();
         _guidGenerator = GetRequiredService<IGuidGenerator>();
@@ -121,38 +118,38 @@ public class ContainerReclassifyRetraction_Tests
     }
 
     [Fact]
-    public async Task Reclassifying_A_Container_Retracts_Only_Segment_Children_Leaving_Figure_Routed_Ones_Intact()
+    public async Task Reclassifying_A_Container_Retracts_Only_Text_Children_Leaving_Figure_Children_Intact()
     {
-        // #364: a container can ALSO carry #306 figure-routed children (figures are routed during text extraction,
-        // independent of container-ness). Reclassifying the container to a concrete type must retract only the
-        // segmentation (#346) children — the figure-routed child (and its DocumentFigure ledger row) must survive,
-        // exactly as it would for a normal concrete-typed document, instead of being blanket-deleted by an
-        // OriginDocumentId sweep.
+        // #364/#371: under the unified ledger (#371) a container can ALSO carry FIGURE-kind sub-documents — a
+        // genuinely embedded document (an invoice photo inside what is now a concrete-typed contract). Reclassifying
+        // the container to a concrete type must retract only the TEXT-kind (bundle-constituent) children; the
+        // FIGURE-kind child (and its Kind.Figure segment row) must survive, exactly as a freshly-uploaded concrete
+        // document with an embedded figure keeps it, instead of being blanket-deleted by an OriginDocumentId sweep.
         var typeId = await SeedDocumentTypeAsync("invoice.general");
         var containerId = await ArrangeSegmentedContainerAsync(subDocumentCount: 2);
-        var (figureChildId, figureRowId) = await ArrangeFigureRoutedChildAsync(containerId);
+        var (figureChildId, figureSegmentId) = await ArrangeFigureChildAsync(containerId);
 
         await _appService.ReclassifyAsync(
             containerId, new ReclassifyDocumentInput { DocumentTypeId = typeId });
 
         await WithUnitOfWorkAsync(async () =>
         {
-            // Only the figure-routed child survives under the OriginDocumentId; the two segmentation children are gone.
+            // Only the figure-kind child survives under the OriginDocumentId; the two text children are gone.
             var survivors = await _documentRepository.GetListByOriginAsync(containerId);
             survivors.Count.ShouldBe(1);
             survivors[0].Id.ShouldBe(figureChildId);
 
-            // The figure ledger row is untouched (not orphaned), still pointing at its surviving child.
-            var figures = await _figureRepository.GetListAsync(f => f.SourceDocumentId == containerId);
-            figures.Count.ShouldBe(1);
-            figures[0].Id.ShouldBe(figureRowId);
-            figures[0].RoutedDocumentId.ShouldBe(figureChildId);
-
-            // The container's segment rows are gone.
-            (await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId)).ShouldBeEmpty();
+            // The figure-kind segment row is untouched (kept as the surviving child's provenance), still Spawned and
+            // still pointing at its surviving child; the two text segment rows are removed.
+            var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId);
+            segments.Count.ShouldBe(1);
+            segments[0].Id.ShouldBe(figureSegmentId);
+            segments[0].Kind.ShouldBe(DocumentSegmentKind.Figure);
+            segments[0].Status.ShouldBe(DocumentSegmentStatus.Spawned);
+            segments[0].RoutedDocumentId.ShouldBe(figureChildId);
         });
 
-        // DocumentDeletedEto fired for exactly the two segmentation children — never for the figure-routed child.
+        // DocumentDeletedEto fired for exactly the two text children — never for the figure-kind child.
         await _eventBus.Received(2).PublishAsync(Arg.Any<DocumentDeletedEto>());
         await _eventBus.DidNotReceive().PublishAsync(
             Arg.Is<DocumentDeletedEto>(e => e.DocumentId == figureChildId));
@@ -169,8 +166,9 @@ public class ContainerReclassifyRetraction_Tests
 
     /// <summary>
     /// Seeds a container document (Markdown set, IsContainer marked) plus <paramref name="subDocumentCount"/> derived
-    /// sub-documents (OriginDocumentId == container) and one Spawned segment row each — mirroring the post-segmentation
-    /// state produced by <c>DocumentSegmentationJob</c>'s derived-document spawn (<c>DerivedDocumentSpawner</c>).
+    /// TEXT-kind sub-documents (OriginDocumentId == container) and one Spawned segment row each — mirroring the
+    /// post-segmentation state produced by <c>DocumentSegmentationJob</c>'s derived-document spawn
+    /// (<c>DerivedDocumentSpawner</c>).
     /// </summary>
     private async Task<Guid> ArrangeSegmentedContainerAsync(int subDocumentCount)
     {
@@ -202,7 +200,7 @@ public class ContainerReclassifyRetraction_Tests
             for (var i = 0; i < subDocumentCount; i++)
             {
                 var sliceText = $"Invoice slice {i}";
-                var segmentKey = ContentHasher.Sha256Hex(System.Text.Encoding.UTF8.GetBytes(sliceText));
+                var segmentKey = ContentHasher.Sha256Hex(Encoding.UTF8.GetBytes(sliceText));
                 var derivedId = _guidGenerator.Create();
 
                 var derived = Document.CreateDerived(
@@ -221,7 +219,7 @@ public class ContainerReclassifyRetraction_Tests
 
                 var segment = new DocumentSegment(
                     _guidGenerator.Create(), tenantId: null, sourceDocumentId: containerId,
-                    segmentKey: segmentKey, sliceText: sliceText, ordinal: i);
+                    segmentKey: segmentKey, sliceText: sliceText, ordinal: i, kind: DocumentSegmentKind.Text);
                 segment.MarkSpawned(derivedId);
                 await _segmentRepository.InsertAsync(segment, autoSave: true);
             }
@@ -231,16 +229,17 @@ public class ContainerReclassifyRetraction_Tests
     }
 
     /// <summary>
-    /// Seeds one #306 figure-routed child onto an existing container: a Spawned <see cref="DocumentFigure"/> row plus
-    /// its derived <see cref="Document"/> (OriginDocumentId == container, keyed by the figure's image-bytes hash).
-    /// Figure routing runs during text extraction, independent of container-ness — so a container can carry these
-    /// alongside its segmentation children. Returns the derived figure-child id and the figure ledger row id.
+    /// Seeds one #371 FIGURE-kind sub-document onto an existing container: a Spawned <see cref="DocumentSegment"/> row
+    /// with <see cref="DocumentSegmentKind.Figure"/> plus its derived <see cref="Document"/> (OriginDocumentId ==
+    /// container). A figure span (an embedded image that is a standalone document) is orthogonal to container-ness, so
+    /// a container can carry these alongside its text segmentation children, and they survive a container→type
+    /// reclassify. Returns the derived figure-child id and the figure segment row id.
     /// </summary>
-    private async Task<(Guid FigureChildId, Guid FigureRowId)> ArrangeFigureRoutedChildAsync(Guid containerId)
+    private async Task<(Guid FigureChildId, Guid FigureSegmentId)> ArrangeFigureChildAsync(Guid containerId)
     {
         var figureChildId = _guidGenerator.Create();
-        var figureRowId = _guidGenerator.Create();
-        var figureHash = ContentHasher.Sha256Hex(System.Text.Encoding.UTF8.GetBytes("figure-image-bytes"));
+        var figureSegmentId = _guidGenerator.Create();
+        var figureKey = ContentHasher.Sha256Hex(Encoding.UTF8.GetBytes("INVOICE No 42 Total 100"));
 
         await WithUnitOfWorkAsync(async () =>
         {
@@ -248,29 +247,24 @@ public class ContainerReclassifyRetraction_Tests
                 figureChildId,
                 tenantId: null,
                 fileOrigin: new FileOrigin(
-                    blobName: $"{figureChildId:N}.png",
+                    blobName: $"{figureChildId:N}.md",
                     uploadedByUserName: "test-user",
-                    contentType: "image/png",
-                    contentHash: figureHash,
-                    fileSize: 1234,
-                    originalFileName: "figure.png"),
+                    contentType: "text/markdown",
+                    contentHash: figureKey,
+                    fileSize: 23,
+                    originalFileName: "segment-figure.md"),
                 originDocumentId: containerId,
-                originConstituentKey: figureHash);
+                originConstituentKey: figureKey);
             await _documentRepository.InsertAsync(derived, autoSave: true);
 
-            var figure = new DocumentFigure(
-                figureRowId,
-                tenantId: null,
-                sourceDocumentId: containerId,
-                contentHash: figureHash,
-                cropBlobName: $"figures/{containerId:N}/{figureHash}",
-                contentType: "image/png",
-                transcription: "INVOICE photo",
-                pageNumber: 1);
-            figure.MarkSpawned(figureChildId);
-            await _figureRepository.InsertAsync(figure, autoSave: true);
+            var segment = new DocumentSegment(
+                figureSegmentId, tenantId: null, sourceDocumentId: containerId,
+                segmentKey: figureKey, sliceText: "INVOICE No 42 Total 100",
+                ordinal: 99, kind: DocumentSegmentKind.Figure, pageNumber: 1);
+            segment.MarkSpawned(figureChildId);
+            await _segmentRepository.InsertAsync(segment, autoSave: true);
         });
 
-        return (figureChildId, figureRowId);
+        return (figureChildId, figureSegmentId);
     }
 }

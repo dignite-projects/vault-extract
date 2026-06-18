@@ -2,13 +2,14 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Dignite.DocumentAI.Abstractions.Documents;
+using Dignite.DocumentAI.Abstractions.TextExtraction;
 using Dignite.DocumentAI.Ai;
 using Dignite.DocumentAI.Documents;
-using Dignite.DocumentAI.Documents.Figures;
 using Dignite.DocumentAI.Documents.Pipelines.Segmentation;
 using Dignite.DocumentAI.Documents.Pipelines.TextExtraction;
 using Dignite.DocumentAI.Documents.Segments;
@@ -59,7 +60,6 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
     private readonly DocumentSegmentationJob _job;
     private readonly IDocumentRepository _documentRepository;
     private readonly IRepository<DocumentSegment, Guid> _segmentRepository;
-    private readonly IRepository<DocumentFigure, Guid> _figureRepository;
     private readonly IBackgroundJobManager _backgroundJobManager;
     private readonly IDistributedEventBus _eventBus;
     private readonly DocumentSegmentationWorkflow _workflow;
@@ -71,7 +71,6 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
         _job = GetRequiredService<DocumentSegmentationJob>();
         _documentRepository = GetRequiredService<IDocumentRepository>();
         _segmentRepository = GetRequiredService<IRepository<DocumentSegment, Guid>>();
-        _figureRepository = GetRequiredService<IRepository<DocumentFigure, Guid>>();
         _backgroundJobManager = GetRequiredService<IBackgroundJobManager>();
         _eventBus = GetRequiredService<IDistributedEventBus>();
         _workflow = GetRequiredService<DocumentSegmentationWorkflow>();
@@ -85,13 +84,15 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
         var containerId = await ArrangeContainerAsync("Invoice A first\nInvoice B second");
         StubSplit(("Invoice A", true), ("Invoice B", true));
 
-        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId });
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
 
         await WithUnitOfWorkAsync(async () =>
         {
             var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId);
             segments.Count.ShouldBe(2);
             segments.ShouldAllBe(s => s.Status == DocumentSegmentStatus.Spawned);
+            // Born-digital text constituents -> Kind.Text (drives the #364 retraction filter).
+            segments.ShouldAllBe(s => s.Kind == DocumentSegmentKind.Text);
 
             var derived = await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId);
             derived.Count.ShouldBe(2);
@@ -112,63 +113,87 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
     }
 
     [Fact]
-    public async Task Inlined_Figure_Transcription_Is_Not_Spawned_As_A_Sub_Document()
+    public async Task Embedded_Figure_Span_In_A_Concrete_Document_Spawns_One_Figure_Sub_Document()
     {
-        // #359: figure routing (#306) is the single owner of figure-as-document. A born-digital container whose
-        // Markdown carries an inlined image-invoice transcription (#301) between two real text documents must NOT
-        // re-spawn that invoice as a text sub-document when the LLM (ignoring the segmentation prompt's instruction)
-        // cuts the inlined transcription into its own slice — that would duplicate the figure-routed invoice (the
-        // text-slice hash and the image-bytes hash differ, so the unique index cannot dedup them). The figure slice is
-        // downgraded to NotADocument; only the two genuine text documents spawn.
-        var invoiceTranscription = "INVOICE No 42 Total 100";
-        var containerId = await ArrangeContainerAsync(
-            $"Service Agreement A-B\n{invoiceTranscription}\nLease Contract X-Y",
-            figureTranscriptions: new[] { invoiceTranscription });
-        StubSplit(("Service Agreement", true), ("INVOICE No 42", true), ("Lease Contract", true));
+        // #371 (b): a single concrete-typed document (NOT a container) whose MARKED Markdown carries an inlined,
+        // sentinel-bracketed image-invoice transcription that the LLM returns standalone. The unified pass routes
+        // ONLY that figure span (kind Figure) into one derived sub-document; the parent keeps its own type and is
+        // never flagged (it extracts normally — figure routing is orthogonal to its own content).
+        var invoiceText = "INVOICE No 42 Total 100";
+        // The figure span is the LAST span so it slices marker-to-end cleanly into exactly the bracketed block;
+        // its stripped text is therefore exactly the transcription (its identity hash).
+        var marked = $"Contract body\n{ImageOcrMarkup.Wrap(invoiceText, 1)}";
+        var docId = await ArrangeContainerAsync(
+            markdown: "Contract body", asContainer: false, markedMarkdown: marked);
 
-        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId });
+        // The figure span's first line IS the open sentinel — that is the verbatim marker the LLM returns for it.
+        StubSplit(("Contract body", false), (ImageOcrMarkup.OpenPagePrefix + "1]", true));
+
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = docId });
 
         await WithUnitOfWorkAsync(async () =>
         {
-            var invoiceSliceKey = ContentHasher.Sha256Hex(
-                System.Text.Encoding.UTF8.GetBytes(invoiceTranscription));
+            // Exactly one figure sub-document, keyed by the CLEAN (stripped) transcription hash.
+            var figureKey = ContentHasher.Sha256Hex(Encoding.UTF8.GetBytes(invoiceText));
+            var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == docId);
+            segments.Count.ShouldBe(1);
+            segments[0].Kind.ShouldBe(DocumentSegmentKind.Figure);
+            segments[0].Status.ShouldBe(DocumentSegmentStatus.Spawned);
+            segments[0].SegmentKey.ShouldBe(figureKey);
+            segments[0].PageNumber.ShouldBe(1);
 
-            // Only the two genuine text documents spawn; the inlined invoice figure is not re-spawned by segmentation.
-            var derived = await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId);
-            derived.Count.ShouldBe(2);
-            derived.ShouldNotContain(d => d.OriginConstituentKey == invoiceSliceKey);
+            var derived = await _documentRepository.GetListAsync(d => d.OriginDocumentId == docId);
+            derived.Count.ShouldBe(1);
+            derived[0].OriginConstituentKey.ShouldBe(figureKey);
 
-            // The figure slice is persisted as NotADocument (audit), the two real docs as Spawned.
-            var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId);
-            segments.Count.ShouldBe(3);
-            segments.Count(s => s.Status == DocumentSegmentStatus.Spawned).ShouldBe(2);
-            segments.ShouldContain(s =>
-                s.SegmentKey == invoiceSliceKey && s.Status == DocumentSegmentStatus.NotADocument);
+            // The parent keeps its own type and is not flagged for review (embedded-document mode never flags).
+            var parent = await _documentRepository.GetAsync(docId);
+            parent.IsContainer.ShouldBeFalse();
+            parent.ReviewReasons.ShouldBe(DocumentReviewReasons.None);
         });
+
+        await _eventBus.Received(1).PublishAsync(Arg.Any<DocumentUploadedEto>());
     }
 
     [Fact]
-    public async Task Document_Whose_Body_Merely_Contains_A_Figure_Still_Spawns()
+    public async Task Inlined_Figure_Span_In_A_Container_Spawns_Exactly_One_Invoice_Sub_Document()
     {
-        // #359 guard against over-suppression: the suppression only fires when a slice is ESSENTIALLY a figure
-        // transcription (>= FigureDominanceRatio of it). A real document whose body merely INCLUDES a small inlined
-        // figure keeps a large non-figure remainder, so the transcription is a minority of the slice and the document
-        // still spawns. If suppression keyed off `Contains` alone, this slice would be wrongly dropped, leaving fewer
-        // than two document slices and flagging the container — so this test fails on a too-aggressive threshold.
+        // #356/#359 REGRESSION: a born-digital container whose MARKED Markdown carries an inlined, sentinel-bracketed
+        // image-invoice transcription (#301) between two real text documents, and the LLM returns that figure span
+        // standalone alongside the two text documents. Under the unified pass (#371) figure and text spans share one
+        // identity (SHA-256 of the clean span text) and one spawn sink, so the inlined invoice can spawn at most ONCE:
+        // there is no longer a second DocumentFigure path that would double-spawn it. Assert EXACTLY ONE invoice
+        // sub-document, recorded as Kind.Figure, plus the two genuine Kind.Text documents.
+        var invoiceText = "INVOICE No 42 Total 100";
+        var marked = $"Service A-B\n{ImageOcrMarkup.Wrap(invoiceText, 1)}\nLease X-Y";
         var containerId = await ArrangeContainerAsync(
-            "Service Agreement A-B\nFig 1 logo\nLease Contract X-Y body text",
-            figureTranscriptions: new[] { "Fig 1 logo" });
-        StubSplit(("Service Agreement", true), ("Lease Contract", true));
+            markdown: "Service A-B\nLease X-Y", asContainer: true, markedMarkdown: marked);
 
-        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId });
+        StubSplit(
+            ("Service A-B", true),
+            (ImageOcrMarkup.OpenPagePrefix + "1]", true),
+            ("Lease X-Y", true));
+
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
 
         await WithUnitOfWorkAsync(async () =>
         {
-            // Both real documents spawn; the embedded figure does not suppress its host document.
-            (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).Count.ShouldBe(2);
-            (await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId))
-                .ShouldAllBe(s => s.Status == DocumentSegmentStatus.Spawned);
+            var invoiceKey = ContentHasher.Sha256Hex(Encoding.UTF8.GetBytes(invoiceText));
+
+            var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId);
+            // Three spawned spans: two text documents + exactly one figure invoice (no cross-path duplicate).
+            segments.Count.ShouldBe(3);
+            segments.ShouldAllBe(s => s.Status == DocumentSegmentStatus.Spawned);
+            segments.Count(s => s.SegmentKey == invoiceKey).ShouldBe(1);
+            segments.Single(s => s.SegmentKey == invoiceKey).Kind.ShouldBe(DocumentSegmentKind.Figure);
+            segments.Count(s => s.Kind == DocumentSegmentKind.Text).ShouldBe(2);
+
+            var derived = await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId);
+            derived.Count.ShouldBe(3);
+            derived.Count(d => d.OriginConstituentKey == invoiceKey).ShouldBe(1);
         });
+
+        await _eventBus.Received(3).PublishAsync(Arg.Any<DocumentUploadedEto>());
     }
 
     [Fact]
@@ -178,7 +203,7 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
         // Markers the LLM "returned" but that do not appear verbatim -> MarkdownSlicer rejects the split.
         StubSplit(("Phantom marker one", true), ("Phantom marker two", true));
 
-        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId });
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
 
         await WithUnitOfWorkAsync(async () =>
         {
@@ -198,7 +223,7 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
         var containerId = await ArrangeContainerAsync("Invoice A only");
         StubSplit(("Invoice A", true)); // a single document slice is not a real bundle
 
-        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId });
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
 
         await WithUnitOfWorkAsync(async () =>
         {
@@ -220,10 +245,11 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
             await _segmentRepository.InsertAsync(NewSegment(containerId, "Invoice B second", 1), autoSave: true);
         });
 
-        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId });
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
 
         // The LLM split must be skipped on resume (segments already exist), and the Pending segments spawn.
-        await _workflow.DidNotReceive().RunAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _workflow.DidNotReceive().RunAsync(
+            Arg.Any<string>(), Arg.Any<SubDocumentDetectionContext>(), Arg.Any<CancellationToken>());
         await WithUnitOfWorkAsync(async () =>
         {
             (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).Count.ShouldBe(2);
@@ -238,8 +264,8 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
         var containerId = await ArrangeContainerAsync("Invoice A first\nInvoice B second");
         StubSplit(("Invoice A", true), ("Invoice B", true));
 
-        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId });
-        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId });
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
 
         await WithUnitOfWorkAsync(async () =>
             (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).Count.ShouldBe(2));
@@ -255,7 +281,7 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
         var containerId = await ArrangeContainerAsync("DOCA body line\nDOCA body line\nDOCB other line");
         StubSplit(("DOCA body", true), ("DOCA body", true), ("DOCB other", true));
 
-        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId });
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
 
         await WithUnitOfWorkAsync(async () =>
         {
@@ -270,19 +296,23 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
     public async Task Reclassified_Container_Is_Skipped_Without_Splitting_Or_Spawning()
     {
         // #346 fix (Codex review): a job enqueued for a mis-detected container that was since reclassified to a
-        // concrete type (IsContainer cleared) must NOT split/spawn — that would inject spurious sub-documents
-        // downstream alongside the now-typed document's own fields.
+        // concrete type (IsContainer cleared) must NOT split/spawn a text bundle — that would inject spurious
+        // sub-documents downstream alongside the now-typed document's own fields. With no figure spans in the
+        // Markdown the embedded-document mode finds nothing standalone to route, so it is a clean no-op.
         var docId = await ArrangeContainerAsync("Invoice A first\nInvoice B second", asContainer: false);
         StubSplit(("Invoice A", true), ("Invoice B", true));
 
-        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = docId });
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = docId });
 
-        await _workflow.DidNotReceive().RunAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
         await WithUnitOfWorkAsync(async () =>
         {
             (await _segmentRepository.GetListAsync(s => s.SourceDocumentId == docId)).ShouldBeEmpty();
             (await _documentRepository.GetListAsync(d => d.OriginDocumentId == docId)).ShouldBeEmpty();
+            // An embedded-document source is never flagged (it extracts normally).
+            (await _documentRepository.GetAsync(docId)).ReviewReasons.ShouldBe(DocumentReviewReasons.None);
         });
+
+        await _eventBus.DidNotReceive().PublishAsync(Arg.Any<DocumentUploadedEto>());
     }
 
     [Fact]
@@ -307,10 +337,11 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
             await _segmentRepository.InsertAsync(s2, autoSave: true);
         });
 
-        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId });
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
 
         // No LLM re-split (segments already exist), and the stale flag is cleared.
-        await _workflow.DidNotReceive().RunAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _workflow.DidNotReceive().RunAsync(
+            Arg.Any<string>(), Arg.Any<SubDocumentDetectionContext>(), Arg.Any<CancellationToken>());
         await WithUnitOfWorkAsync(async () =>
             (await _documentRepository.GetAsync(containerId)).ReviewReasons.ShouldBe(DocumentReviewReasons.None));
     }
@@ -330,10 +361,11 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
         StubSplit(("Phantom marker one", true), ("Phantom marker two", true));
         // ...but mid-split (the external phase), the document is reclassified away from container — the race this guard closes.
         _workflow
-            .When(x => x.RunAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()))
+            .When(x => x.RunAsync(
+                Arg.Any<string>(), Arg.Any<SubDocumentDetectionContext>(), Arg.Any<CancellationToken>()))
             .Do(_ => ReclassifyAwayFromContainer(containerId));
 
-        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId });
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
 
         await WithUnitOfWorkAsync(async () =>
         {
@@ -352,10 +384,10 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
         // #346 fix: a schema-drift / non-JSON structured response is caught and flagged for review, not allowed to
         // fault the job into an endless ABP retry loop.
         var containerId = await ArrangeContainerAsync("Invoice A first\nInvoice B second");
-        _workflow.RunAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _workflow.RunAsync(Arg.Any<string>(), Arg.Any<SubDocumentDetectionContext>(), Arg.Any<CancellationToken>())
             .Returns<DocumentSegmentationOutcome>(_ => throw new JsonException("schema drift"));
 
-        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId });
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
 
         await WithUnitOfWorkAsync(async () =>
         {
@@ -378,7 +410,7 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
             .Do(_ => throw new InvalidOperationException("blob store down"));
 
         await Should.ThrowAsync<AggregateException>(
-            () => _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId }));
+            () => _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId }));
 
         await WithUnitOfWorkAsync(async () =>
         {
@@ -404,7 +436,7 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
         });
         StubSplit(("Invoice A", true), ("Invoice B", true));
 
-        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId });
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
 
         await WithUnitOfWorkAsync(async () =>
         {
@@ -416,13 +448,12 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
     [Fact]
     public async Task Total_Slice_Count_Over_The_Cap_Flags_Container_Even_When_Most_Are_Non_Document()
     {
-        // #346 fix: the cap bounds TOTAL slices, not just document slices — a flood of cover/index slices cannot
-        // insert unbounded rows. 2 documents + 3 covers = 5 total > the test cap of 4, so the container is flagged
-        // even though only 2 are documents.
-        var containerId = await ArrangeContainerAsync("A doc\nB doc\nC cover\nD cover\nE cover");
-        StubSplit(("A doc", true), ("B doc", true), ("C cover", false), ("D cover", false), ("E cover", false));
+        // #346 fix: the cap bounds the spawnable slices — a flood of slices cannot insert unbounded rows. 5 document
+        // slices > the test cap of 4, so the container is flagged.
+        var containerId = await ArrangeContainerAsync("A doc\nB doc\nC doc\nD doc\nE doc");
+        StubSplit(("A doc", true), ("B doc", true), ("C doc", true), ("D doc", true), ("E doc", true));
 
-        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId });
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
 
         await WithUnitOfWorkAsync(async () =>
         {
@@ -440,9 +471,10 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
         var oversized = new string('x', 150); // > the test cap of 100
         var containerId = await ArrangeContainerAsync(oversized);
 
-        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId });
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
 
-        await _workflow.DidNotReceive().RunAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _workflow.DidNotReceive().RunAsync(
+            Arg.Any<string>(), Arg.Any<SubDocumentDetectionContext>(), Arg.Any<CancellationToken>());
         await WithUnitOfWorkAsync(async () =>
             (await _documentRepository.GetAsync(containerId)).ReviewReasons
                 .ShouldBe(DocumentReviewReasons.SegmentationIncomplete));
@@ -462,7 +494,7 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
     }
 
     private async Task<Guid> ArrangeContainerAsync(
-        string markdown, bool asContainer = true, string[]? figureTranscriptions = null)
+        string markdown, bool asContainer = true, string? markedMarkdown = null)
     {
         var containerId = _guidGenerator.Create();
         await WithUnitOfWorkAsync(async () =>
@@ -493,19 +525,21 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
             }
 
             await _documentRepository.InsertAsync(doc, autoSave: true);
-
-            // #359: seed DocumentFigure rows as text extraction (#306) would have, carrying the verbatim transcription
-            // that PdfExtractor inlined into the container Markdown (#301). Segmentation reads these to refuse carving
-            // an already-inlined figure into its own sub-document.
-            foreach (var transcription in figureTranscriptions ?? Array.Empty<string>())
-            {
-                var contentHash = $"{Guid.NewGuid():N}{Guid.NewGuid():N}"[..64];
-                await _figureRepository.InsertAsync(new DocumentFigure(
-                    _guidGenerator.Create(), tenantId: null, sourceDocumentId: containerId,
-                    contentHash: contentHash, cropBlobName: $"figures/{containerId}/{contentHash}",
-                    contentType: "image/png", transcription: transcription, pageNumber: 1), autoSave: true);
-            }
         });
+
+        // #371: the unified pass reads the MARKED Markdown blob (the working copy still carrying the
+        // [Image OCR]…[End OCR] figure sentinels), falling back to Document.Markdown when there is no marked blob.
+        // Seed the marked blob only when a test needs in-band figure spans; otherwise the clean Markdown fallback
+        // is exercised.
+        if (markedMarkdown is not null)
+        {
+            var blobName = DocumentConsts.MarkedMarkdownBlobPrefix + containerId;
+            // GetAllBytesOrNullAsync is an IBlobContainer EXTENSION method (NSubstitute cannot stub an extension
+            // method); stub the underlying GetOrNullAsync to return a FRESH stream per call so the extension reads
+            // the bytes back each time the job loads the marked Markdown.
+            _blobContainer.GetOrNullAsync(blobName, Arg.Any<CancellationToken>())
+                .Returns(_ => new MemoryStream(Encoding.UTF8.GetBytes(markedMarkdown)));
+        }
 
         return containerId;
     }
@@ -530,18 +564,20 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
             _guidGenerator.Create(),
             tenantId: null,
             sourceDocumentId: containerId,
-            segmentKey: ContentHasher.Sha256Hex(System.Text.Encoding.UTF8.GetBytes(sliceText)),
+            segmentKey: ContentHasher.Sha256Hex(Encoding.UTF8.GetBytes(sliceText)),
             sliceText: sliceText,
-            ordinal: ordinal);
+            ordinal: ordinal,
+            kind: DocumentSegmentKind.Text);
 
-    private void StubSplit(params (string Marker, bool IsDocument)[] boundaries)
+    private void StubSplit(params (string Marker, bool IsSubDocument)[] boundaries)
     {
         var outcome = new DocumentSegmentationOutcome();
-        foreach (var (marker, isDocument) in boundaries)
+        foreach (var (marker, isSubDocument) in boundaries)
         {
-            outcome.Boundaries.Add(new SegmentBoundary(marker, isDocument));
+            outcome.Boundaries.Add(new SegmentBoundary(marker, isSubDocument));
         }
 
-        _workflow.RunAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(outcome);
+        _workflow.RunAsync(Arg.Any<string>(), Arg.Any<SubDocumentDetectionContext>(), Arg.Any<CancellationToken>())
+            .Returns(outcome);
     }
 }

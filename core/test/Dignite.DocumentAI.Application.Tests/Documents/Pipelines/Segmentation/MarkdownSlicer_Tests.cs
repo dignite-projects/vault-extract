@@ -18,15 +18,15 @@ public class MarkdownSlicer_Tests
         const string markdown = "Invoice A first\nInvoice B second";
         var boundaries = new List<SegmentBoundary>
         {
-            new("Invoice A", IsDocument: true),
-            new("Invoice B", IsDocument: true)
+            new("Invoice A", IsSubDocument: true),
+            new("Invoice B", IsSubDocument: true)
         };
 
         MarkdownSlicer.TrySlice(markdown, boundaries, out var slices).ShouldBeTrue();
 
         slices.Count.ShouldBe(2);
         slices[0].Text.ShouldBe("Invoice A first");
-        slices[0].IsDocument.ShouldBeTrue();
+        slices[0].IsSubDocument.ShouldBeTrue();
         slices[0].Ordinal.ShouldBe(0);
         slices[1].Text.ShouldBe("Invoice B second");
         slices[1].Ordinal.ShouldBe(1);
@@ -39,8 +39,8 @@ public class MarkdownSlicer_Tests
         const string markdown = "PREAMBLE LINE\nInvoice A body\nInvoice B body";
         var boundaries = new List<SegmentBoundary>
         {
-            new("Invoice A", IsDocument: true),
-            new("Invoice B", IsDocument: true)
+            new("Invoice A", IsSubDocument: true),
+            new("Invoice B", IsSubDocument: true)
         };
 
         MarkdownSlicer.TrySlice(markdown, boundaries, out var slices).ShouldBeTrue();
@@ -59,8 +59,8 @@ public class MarkdownSlicer_Tests
         const string markdown = "Invoice\nfirst\nInvoice\nsecond";
         var boundaries = new List<SegmentBoundary>
         {
-            new("Invoice", IsDocument: true),
-            new("Invoice", IsDocument: true)
+            new("Invoice", IsSubDocument: true),
+            new("Invoice", IsSubDocument: true)
         };
 
         MarkdownSlicer.TrySlice(markdown, boundaries, out var slices).ShouldBeTrue();
@@ -71,20 +71,20 @@ public class MarkdownSlicer_Tests
     }
 
     [Fact]
-    public void Preserves_IsDocument_Flag_For_NonDocument_Slices()
+    public void Preserves_IsSubDocument_Flag_For_NonDocument_Slices()
     {
         const string markdown = "TABLE OF CONTENTS\nInvoice A body";
         var boundaries = new List<SegmentBoundary>
         {
-            new("TABLE OF CONTENTS", IsDocument: false),
-            new("Invoice A", IsDocument: true)
+            new("TABLE OF CONTENTS", IsSubDocument: false),
+            new("Invoice A", IsSubDocument: true)
         };
 
         MarkdownSlicer.TrySlice(markdown, boundaries, out var slices).ShouldBeTrue();
 
         slices.Count.ShouldBe(2);
-        slices[0].IsDocument.ShouldBeFalse();
-        slices[1].IsDocument.ShouldBeTrue();
+        slices[0].IsSubDocument.ShouldBeFalse();
+        slices[1].IsSubDocument.ShouldBeTrue();
     }
 
     [Fact]
@@ -95,8 +95,8 @@ public class MarkdownSlicer_Tests
         const string markdown = "Invoice 1 Amount X\nAmount\npaid";
         var boundaries = new List<SegmentBoundary>
         {
-            new("Invoice 1", IsDocument: true),
-            new("Amount", IsDocument: true)
+            new("Invoice 1", IsSubDocument: true),
+            new("Amount", IsSubDocument: true)
         };
 
         MarkdownSlicer.TrySlice(markdown, boundaries, out var slices).ShouldBeTrue();
@@ -112,8 +112,8 @@ public class MarkdownSlicer_Tests
         const string markdown = "Invoice A first\nInvoice B second";
         var boundaries = new List<SegmentBoundary>
         {
-            new("Invoice A", IsDocument: true),
-            new("Invoice C never appears", IsDocument: true)
+            new("Invoice A", IsSubDocument: true),
+            new("Invoice C never appears", IsSubDocument: true)
         };
 
         MarkdownSlicer.TrySlice(markdown, boundaries, out var slices).ShouldBeFalse();
@@ -141,8 +141,8 @@ public class MarkdownSlicer_Tests
         const string markdown = "<order> details here\nInvoice B body";
         var boundaries = new List<SegmentBoundary>
         {
-            new("&lt;order> details", IsDocument: true),
-            new("Invoice B", IsDocument: true)
+            new("&lt;order> details", IsSubDocument: true),
+            new("Invoice B", IsSubDocument: true)
         };
 
         MarkdownSlicer.TrySlice(markdown, boundaries, out var slices).ShouldBeTrue();

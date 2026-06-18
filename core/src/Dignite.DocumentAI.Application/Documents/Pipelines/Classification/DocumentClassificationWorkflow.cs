@@ -158,7 +158,11 @@ public class DocumentClassificationWorkflow : ITransientDependency
             Reason = parsed?.Reason,
             // #346: container detection rides the same classification call (zero extra LLM cost). When set, it
             // dominates the type guess downstream — the BackgroundJob takes the container branch and ignores typeCode.
-            IsContainer = parsed?.IsContainer ?? false
+            IsContainer = parsed?.IsContainer ?? false,
+            // #371: a non-container parent that embeds a standalone document (e.g. an invoice photo inside a
+            // contract — a figure span the classification input shows bracketed by [Image OCR]…[End OCR]) still
+            // triggers the unified sub-document detection pass. Rides the same call (zero extra LLM cost).
+            ContainsEmbeddedDocument = parsed?.ContainsEmbeddedDocument ?? false
         };
 
         if (parsed?.Candidates != null)
@@ -242,6 +246,14 @@ public class DocumentClassificationWorkflow : ITransientDependency
         /// </summary>
         public bool IsContainer { get; set; }
 
+        /// <summary>
+        /// #371: <c>true</c> when the document is NOT a container but contains an embedded image that is itself a
+        /// complete standalone document (an invoice photo inside a contract) — a figure span the classification input
+        /// shows bracketed by <c>[Image OCR]…[End OCR]</c>. Triggers the unified sub-document detection pass for a
+        /// concrete-typed parent. Conservative (the prompt's reject-list); ignored when <see cref="IsContainer"/> is set.
+        /// </summary>
+        public bool ContainsEmbeddedDocument { get; set; }
+
         public List<CandidateItem> Candidates { get; set; } = new();
 
         public sealed class CandidateItem
@@ -264,6 +276,14 @@ public class DocumentClassificationOutcome
     /// <see cref="ConfidenceScore"/> are ignored.
     /// </summary>
     public bool IsContainer { get; set; }
+
+    /// <summary>
+    /// #371: the document is a concrete-typed parent that <b>embeds</b> a standalone document (e.g. an invoice photo
+    /// inside a contract). When <c>true</c> (and not a container) the BackgroundJob still publishes
+    /// <c>DocumentClassifiedEto</c> (the parent extracts its own fields) <b>and</b> enqueues the unified sub-document
+    /// detection pass to route the embedded document. Ignored when <see cref="IsContainer"/> is set.
+    /// </summary>
+    public bool ContainsEmbeddedDocument { get; set; }
 
     public List<PipelineRunCandidate> Candidates { get; } = new();
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
+using Dignite.DocumentAI.Abstractions.TextExtraction;
 using UglyToad.PdfPig.Content;
 using UglyToad.PdfPig.Core;
 using UglyToad.PdfPig.DocumentLayoutAnalysis.PageSegmenter;
@@ -43,8 +44,8 @@ namespace Dignite.DocumentAI.TextExtraction.Pdf;
 /// </summary>
 internal static class PdfReadingOrder
 {
-    /// <summary>An embedded image with its page placement and the OCR transcription of its content.</summary>
-    public readonly record struct Figure(PdfRectangle Bounds, string Transcription);
+    /// <summary>An embedded image with its page placement, source page number, and the OCR transcription of its content.</summary>
+    public readonly record struct Figure(PdfRectangle Bounds, string Transcription, int? PageNumber = null);
 
     /// <summary>A reconstructed visual line of the text layer.</summary>
     public readonly record struct TextLine(PdfRectangle Bounds, string Text);
@@ -239,7 +240,7 @@ internal static class PdfReadingOrder
         for (var fi = 0; fi < figures.Count; fi++)
         {
             figureCaptions.TryGetValue(fi, out var caption);
-            items.Add(Item.ForFigure(figures[fi].Bounds, figures[fi].Transcription, caption));
+            items.Add(Item.ForFigure(figures[fi].Bounds, figures[fi].Transcription, caption, figures[fi].PageNumber));
         }
 
         if (items.Count == 0)
@@ -283,11 +284,17 @@ internal static class PdfReadingOrder
             if (item.IsFigure)
             {
                 FlushParagraph();
-                // The caption is a digital-text-layer line bound to this figure, so escape it; item.Text is
-                // the OCR transcription (already Markdown) and is emitted verbatim.
+                // #371: bracket the figure's OCR transcription with in-band [Image OCR p:N]…[End OCR] sentinels so
+                // the pipeline-internal consumers (the classification embedded-document signal + the unified
+                // sub-document detection pass) can recognize the figure span. The sentinels are stripped before
+                // Document.Markdown (the egress payload), so once stripped this is byte-equivalent to the pre-#371
+                // inline output (ImageOcrMarkup.Strip is the inverse of Wrap).
+                // The caption is a digital-text-layer line bound to this figure, so escape it; item.Text is the OCR
+                // transcription (already Markdown) and is emitted verbatim inside the sentinels.
+                var figureMarkup = ImageOcrMarkup.Wrap(item.Text, item.PageNumber);
                 blocks.Add(item.Caption is { Length: > 0 } caption
-                    ? MarkdownText.EscapeBlockText(caption) + "\n\n" + item.Text
-                    : item.Text);
+                    ? MarkdownText.EscapeBlockText(caption) + "\n\n" + figureMarkup
+                    : figureMarkup);
                 continue;
             }
 
@@ -684,11 +691,11 @@ internal static class PdfReadingOrder
 
     private static double Sq(double v) => v * v;
 
-    private readonly record struct Item(PdfRectangle Bounds, string Text, bool IsFigure, string? Caption)
+    private readonly record struct Item(PdfRectangle Bounds, string Text, bool IsFigure, string? Caption, int? PageNumber)
     {
-        public static Item ForText(PdfRectangle bounds, string text) => new(bounds, text, false, null);
+        public static Item ForText(PdfRectangle bounds, string text) => new(bounds, text, false, null, null);
 
-        public static Item ForFigure(PdfRectangle bounds, string text, string? caption)
-            => new(bounds, text, true, caption);
+        public static Item ForFigure(PdfRectangle bounds, string text, string? caption, int? pageNumber)
+            => new(bounds, text, true, caption, pageNumber);
     }
 }

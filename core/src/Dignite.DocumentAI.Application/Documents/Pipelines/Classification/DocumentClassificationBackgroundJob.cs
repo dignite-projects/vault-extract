@@ -1,14 +1,17 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Dignite.DocumentAI.Abstractions.Documents;
+using Dignite.DocumentAI.Abstractions.TextExtraction;
 using Dignite.DocumentAI.Ai;
 using Dignite.DocumentAI.Documents.Pipelines.Segmentation;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Volo.Abp.BackgroundJobs;
+using Volo.Abp.BlobStoring;
 using Volo.Abp.DependencyInjection;
 using Volo.Abp.EventBus.Distributed;
 using Volo.Abp.MultiTenancy;
@@ -28,6 +31,9 @@ public class DocumentClassificationBackgroundJob
     private readonly DocumentAIBehaviorOptions _aiOptions;
     private readonly ICurrentTenant _currentTenant;
     private readonly IBackgroundJobManager _backgroundJobManager;
+    // #371: classification reads the MARKED Markdown (with [Image OCR] sentinels) so the embedded-document signal
+    // can recognize figure spans; the blob is the same artifact the unified pass reads.
+    private readonly IBlobContainer<DocumentAIDocumentContainer> _blobContainer;
 
     public DocumentClassificationBackgroundJob(
         IDocumentRepository documentRepository,
@@ -41,7 +47,8 @@ public class DocumentClassificationBackgroundJob
         IClock clock,
         IOptions<DocumentAIBehaviorOptions> aiOptions,
         ICurrentTenant currentTenant,
-        IBackgroundJobManager backgroundJobManager)
+        IBackgroundJobManager backgroundJobManager,
+        IBlobContainer<DocumentAIDocumentContainer> blobContainer)
         : base(documentRepository, runRepository, pipelineRunManager, pipelineRunAccessor, unitOfWorkManager)
     {
         _documentTypeRepository = documentTypeRepository;
@@ -51,6 +58,7 @@ public class DocumentClassificationBackgroundJob
         _aiOptions = aiOptions.Value;
         _currentTenant = currentTenant;
         _backgroundJobManager = backgroundJobManager;
+        _blobContainer = blobContainer;
     }
 
     public override async Task ExecuteAsync(DocumentClassificationJobArgs args)
@@ -59,8 +67,11 @@ public class DocumentClassificationBackgroundJob
 
         try
         {
-            var outcome = await ClassifyAsync(workItem);
-            await CompleteRunAsync(workItem, outcome);
+            // #371: classify over the MARKED Markdown (external blob read, no UoW) so the embedded-document signal
+            // sees the [Image OCR] figure spans; fall back to the clean Document.Markdown when there is no artifact.
+            var marked = await TryReadMarkedMarkdownAsync(workItem.DocumentId) ?? workItem.Markdown;
+            var outcome = await ClassifyAsync(workItem, marked);
+            await CompleteRunAsync(workItem, outcome, ImageOcrMarkup.Contains(marked), marked.Length);
         }
         catch (Exception ex)
         {
@@ -97,7 +108,7 @@ public class DocumentClassificationBackgroundJob
         return new ClassificationWorkItem(run.Id, document.Id, document.TenantId, document.Markdown ?? string.Empty, candidates);
     }
 
-    private async Task<DocumentClassificationOutcome> ClassifyAsync(ClassificationWorkItem workItem)
+    private async Task<DocumentClassificationOutcome> ClassifyAsync(ClassificationWorkItem workItem, string markdown)
     {
         // Defense-in-depth: the LLM call itself does not query the DB, so it has no cross-tenant leak
         // risk, but keep the ambient tenant aligned with FieldExtractionEventHandler. If telemetry /
@@ -107,7 +118,7 @@ public class DocumentClassificationBackgroundJob
         {
             try
             {
-                return await _workflow.RunAsync(workItem.Candidates, workItem.Markdown);
+                return await _workflow.RunAsync(workItem.Candidates, markdown);
             }
             catch (Exception ex) when (IsSchemaDeserializationError(ex))
             {
@@ -126,7 +137,9 @@ public class DocumentClassificationBackgroundJob
 
     private async Task CompleteRunAsync(
         ClassificationWorkItem workItem,
-        DocumentClassificationOutcome outcome)
+        DocumentClassificationOutcome outcome,
+        bool hasFigures,
+        int markedLength)
     {
         using var uow = UnitOfWorkManager.Begin(requiresNew: true);
 
@@ -135,7 +148,7 @@ public class DocumentClassificationBackgroundJob
         var (document, run) = await LoadDocumentAndRunAsync(
             workItem.DocumentId, workItem.RunId, DocumentAIPipelines.Classification, includeFieldValues: true);
 
-        await ApplyClassificationResultAsync(document, run, outcome);
+        await ApplyClassificationResultAsync(document, run, outcome, hasFigures, markedLength);
         await DocumentRepository.UpdateAsync(document, autoSave: true);
 
         await uow.CompleteAsync();
@@ -144,33 +157,55 @@ public class DocumentClassificationBackgroundJob
     private static bool IsSchemaDeserializationError(Exception ex)
         => ex is JsonException || ex.GetBaseException() is JsonException;
 
+    /// <summary>
+    /// External read (no UoW): the marked Markdown artifact (#371) for the document, or <c>null</c> when there is
+    /// none (a non-figure document, or an archive that failed open) — the caller then classifies over the clean
+    /// <c>Document.Markdown</c>. Fails open: a read error degrades to <c>null</c>, never faulting classification.
+    /// </summary>
+    private async Task<string?> TryReadMarkedMarkdownAsync(Guid documentId)
+    {
+        var blobName = DocumentConsts.MarkedMarkdownBlobPrefix + documentId;
+        try
+        {
+            var bytes = await _blobContainer.GetAllBytesOrNullAsync(blobName);
+            return bytes is null ? null : Encoding.UTF8.GetString(bytes);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex,
+                "Failed to read marked Markdown blob {BlobName} for document {DocumentId}; classifying over the clean Document.Markdown.",
+                blobName, documentId);
+            return null;
+        }
+    }
+
     private async Task ApplyClassificationResultAsync(
         Document document,
         DocumentPipelineRun run,
-        DocumentClassificationOutcome outcome)
+        DocumentClassificationOutcome outcome,
+        bool hasFigures,
+        int markedLength)
     {
-        // #346: a container dominates the type guess. A parent that bundles several independent documents runs no
-        // field extraction itself: mark it a container, complete the run as succeeded, and — crucially — do NOT
-        // publish DocumentClassifiedEto, so FieldExtractionEventHandler never cascades (the race-free suppression
-        // is simply never emitting the trigger event). MarkAsContainer leaves DocumentTypeId null and sets no
-        // UnresolvedClassification reason, so the container is not sent to the operator review queue and — with
-        // both key pipelines succeeded and no blocking reason — derives straight to Ready (Design A).
+        var isDerived = document.OriginDocumentId.HasValue;
+
+        // #346 container branch: a parent that bundles several independent documents runs no field extraction
+        // itself — mark it a container, complete the run as succeeded, do NOT publish DocumentClassifiedEto (so
+        // FieldExtractionEventHandler never cascades — race-free suppression is simply never emitting the trigger),
+        // and enqueue the unified sub-document detection pass to split it. MarkAsContainer leaves DocumentTypeId
+        // null and sets no UnresolvedClassification reason, so the container is not sent to the review queue and —
+        // with both key pipelines succeeded and no blocking reason — derives straight to Ready (Design A).
         //
         // Recursion guard (#346): a derived sub-document (OriginDocumentId set) must NOT be re-detected as a
-        // container — that would recurse the split one level deeper. v1 bars recursion at depth one: a derived
-        // document never takes the container branch, so a slice the LLM mistakes for a bundle is simply classified
-        // normally (a real type, or low-confidence review) like any other document.
-        if (outcome.IsContainer && !document.OriginDocumentId.HasValue)
+        // container — that would recurse the split one level deeper. v1 bars recursion at depth one.
+        if (outcome.IsContainer && !isDerived)
         {
             await PipelineRunManager.CompleteClassificationAsContainerAsync(document, run);
 
-            // Born-digital path: enqueue the LLM segmentation that splits the container's Markdown into
-            // sub-documents. Enqueued in the SAME UoW as the completion so the container marker and the
-            // segmentation job commit atomically (no committed container without its segmentation job, and vice
-            // versa). The image path needs no enqueue here — its figures were already routed during text
-            // extraction; the segmentation prompt is told not to re-split inlined figure transcriptions.
+            // Enqueued in the SAME UoW as the completion so the container marker and the detection job commit
+            // atomically via the outbox. The unified pass (#371) reads the marked Markdown and splits both text and
+            // figure spans — there is no separate figure-routing job anymore.
             await _backgroundJobManager.EnqueueAsync(
-                new DocumentSegmentationJobArgs { ContainerDocumentId = document.Id });
+                new DocumentSegmentationJobArgs { SourceDocumentId = document.Id });
             return;
         }
 
@@ -206,12 +241,28 @@ public class DocumentClassificationBackgroundJob
                     DocumentTypeCode = typeDef.TypeCode,
                     ClassificationConfidence = outcome.ConfidenceScore
                 });
-
-            return;
+        }
+        else
+        {
+            await PipelineRunManager.CompleteClassificationWithLowConfidenceAsync(
+                document, run, outcome.Reason, outcome.Candidates);
         }
 
-        await PipelineRunManager.CompleteClassificationWithLowConfidenceAsync(
-            document, run, outcome.Reason, outcome.Candidates);
+        // #371: a non-container parent may still embed a standalone document to route to its own sub-document. Enqueue
+        // the unified pass when the classifier flagged it, OR — a fallback for a figure beyond the classification
+        // truncation window — when the source is figure-bearing and its marked Markdown is longer than that window
+        // (so the embedded-document signal may not have seen the tail figure). Runs IN ADDITION to the parent's own
+        // extraction (DocumentClassifiedEto was published above for a confirmed type); the recursion guard prevents a
+        // seeded sub-document (which carries no figures) from descending. Enqueued in this same UoW, so the job and
+        // the run completion commit atomically via the outbox.
+        var shouldRoute = !isDerived
+            && (outcome.ContainsEmbeddedDocument
+                || (hasFigures && markedLength > _aiOptions.MaxTextLengthPerExtraction));
+        if (shouldRoute)
+        {
+            await _backgroundJobManager.EnqueueAsync(
+                new DocumentSegmentationJobArgs { SourceDocumentId = document.Id });
+        }
     }
 
     private sealed record ClassificationWorkItem(

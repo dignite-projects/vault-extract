@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Dignite.DocumentAI.Abstractions.Documents;
@@ -8,7 +9,7 @@ using Dignite.DocumentAI.Abstractions.TextExtraction;
 using Dignite.DocumentAI.Ai;
 using Dignite.DocumentAI.Documents;
 using Dignite.DocumentAI.Documents.Cabinets;
-using Dignite.DocumentAI.Documents.Pipelines.Routing;
+using Dignite.DocumentAI.Documents.Segments;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -18,7 +19,6 @@ using Volo.Abp.BlobStoring;
 using Volo.Abp.DependencyInjection;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.EventBus.Distributed;
-using Volo.Abp.Guids;
 using Volo.Abp.Threading;
 using Volo.Abp.Timing;
 using Volo.Abp.Uow;
@@ -29,10 +29,7 @@ namespace Dignite.DocumentAI.Documents.Pipelines.TextExtraction;
 public class DocumentTextExtractionBackgroundJob
     : DocumentPipelineBackgroundJobBase<DocumentTextExtractionJobArgs>, ITransientDependency
 {
-    /// <summary>Provider name recorded for a derived sub-document whose Markdown is seeded from the source figure's transcription (#306), instead of re-OCR'ing the crop.</summary>
-    private const string ScenarioBSeedProviderName = "ScenarioB-FigureSeed";
-
-    /// <summary>Provider name recorded for a derived sub-document whose Markdown is seeded from a born-digital container's Markdown slice (#346), instead of re-extracting the slice blob.</summary>
+    /// <summary>Provider name recorded for a derived sub-document whose Markdown is seeded from a source <see cref="DocumentSegment"/> slice (#346/#371) — a text constituent or a figure span's transcription — instead of re-extracting it.</summary>
     private const string ScenarioBSegmentSeedProviderName = "ScenarioB-SegmentSeed";
 
     private readonly DocumentPipelineJobScheduler _pipelineJobScheduler;
@@ -54,12 +51,8 @@ public class DocumentTextExtractionBackgroundJob
     // ICancellationTokenProvider.Use(...) before calling ExecuteAsync. By default the worker source is the host shutdown token,
     // allowing slow external work to be cancelled.
     private readonly ICancellationTokenProvider _cancellationTokenProvider;
-    // #306: Scenario B candidate figures are an independent aggregate (default repository), persisted in
-    // this job's Complete phase from the crops written in its External phase.
-    private readonly IRepository<DocumentFigure, Guid> _documentFigureRepository;
-    // #346: born-digital container slices; looked up in the Begin phase to seed a derived sub-document's Markdown.
+    // #346/#371: born-digital container slices / figure spans; looked up in the Begin phase to seed a derived sub-document's Markdown.
     private readonly IRepository<DocumentSegment, Guid> _documentSegmentRepository;
-    private readonly IGuidGenerator _guidGenerator;
 
     public DocumentTextExtractionBackgroundJob(
         IDocumentRepository documentRepository,
@@ -77,9 +70,7 @@ public class DocumentTextExtractionBackgroundJob
         IPromptProvider promptProvider,
         IOptions<DocumentAIBehaviorOptions> behaviorOptions,
         ICancellationTokenProvider cancellationTokenProvider,
-        IRepository<DocumentFigure, Guid> documentFigureRepository,
-        IRepository<DocumentSegment, Guid> documentSegmentRepository,
-        IGuidGenerator guidGenerator)
+        IRepository<DocumentSegment, Guid> documentSegmentRepository)
         : base(documentRepository, runRepository, pipelineRunManager, pipelineRunAccessor, unitOfWorkManager)
     {
         _pipelineJobScheduler = pipelineJobScheduler;
@@ -92,34 +83,27 @@ public class DocumentTextExtractionBackgroundJob
         _promptProvider = promptProvider;
         _behaviorOptions = behaviorOptions.Value;
         _cancellationTokenProvider = cancellationTokenProvider;
-        _documentFigureRepository = documentFigureRepository;
         _documentSegmentRepository = documentSegmentRepository;
-        _guidGenerator = guidGenerator;
     }
 
     public override async Task ExecuteAsync(DocumentTextExtractionJobArgs args)
     {
         var workItem = await BeginRunAsync(args);
 
-        // Hoisted so a Complete-phase failure can reclaim the crop blobs already written in the External phase:
-        // they are written before the DocumentFigure rows commit, so a rollback would otherwise orphan them.
-        IReadOnlyList<FigureCandidate> figureCandidates = Array.Empty<FigureCandidate>();
         try
         {
             TextExtractionResult result;
             if (workItem.SeedMarkdown != null)
             {
-                // Derived sub-document: seed Markdown from the source constituent instead of re-extracting it.
-                // #306 figure path — the crop is the exact bytes the figure OCR already transcribed via the same
-                // IOcrProvider, so re-OCR would reproduce the same text; seeding is equivalent and saves one OCR
-                // call. #346 born-digital path — the slice is already Markdown, so seeding preserves the exact
-                // slice text (no re-extraction, no drift). Either way the seed is a single constituent, so no
-                // embedded figures are surfaced and no recursive sub-document routing occurs.
+                // Derived sub-document (#371): seed Markdown from the source DocumentSegment slice instead of
+                // re-extracting it. The slice is already (clean) Markdown — a born-digital text constituent or a
+                // figure span's transcription — so seeding preserves the exact slice text (no drift) and surfaces no
+                // embedded figures, so no recursive sub-document detection occurs.
                 result = new TextExtractionResult
                 {
                     Markdown = workItem.SeedMarkdown,
                     UsedOcr = false,
-                    ProviderName = workItem.SeedProviderName ?? ScenarioBSeedProviderName,
+                    ProviderName = workItem.SeedProviderName ?? ScenarioBSegmentSeedProviderName,
                     IsComplete = true
                 };
             }
@@ -139,6 +123,15 @@ public class DocumentTextExtractionBackgroundJob
                 result = await _textExtractor.ExtractAsync(blobStream, ctx, _cancellationTokenProvider.Token);
             }
 
+            // #371: the PDF provider brackets each embedded-figure transcription with [Image OCR p:N]…[End OCR]
+            // sentinels. Archive the marked Markdown as an internal pipeline artifact (read by classification's
+            // embedded-document signal + the unified sub-document pass to recognize figure spans), then strip the
+            // sentinels IN PLACE so Document.Markdown — the egress payload — and the title below are clean
+            // (Markdown-first). For a document with no figure sentinels (most uploads, all seeded sub-documents)
+            // this is a no-op: archiving is skipped and Strip returns the input unchanged.
+            await ArchiveMarkedMarkdownAsync(args.DocumentId, result.Markdown);
+            result.Markdown = ImageOcrMarkup.Strip(result.Markdown);
+
             var title = await TryGenerateTitleAsync(result.Markdown, _cancellationTokenProvider.Token)
                 ?? MarkdownTitleExtractor.ExtractTitle(result.Markdown)
                 ?? FallbackTitleFromFileName(workItem.OriginalFileName);
@@ -147,29 +140,11 @@ public class DocumentTextExtractionBackgroundJob
             // Archiving fails open: over limit / write failure / disabled archive affects only the manifest, not text extraction completion below.
             var extractionMetadata = await ArchiveNativePayloadAndBuildMetadataAsync(args.DocumentId, result);
 
-            // External phase (no UoW): persist each de-duplicated embedded figure crop (#306) to blob storage
-            // as a Scenario B routing candidate. Fails open per figure (auxiliary work must not break the main
-            // Markdown pipeline); the Complete phase below turns the returned descriptors into DocumentFigure rows.
-            figureCandidates = await PersistFigureCropsAsync(args.DocumentId, result, _cancellationTokenProvider.Token);
-
-            // The decoded crop bytes are dead once the candidates (which carry only hash / blobName / contentType /
-            // transcription) are built; drop them so the whole set is not pinned in memory through the title LLM
-            // call's result reference and the Complete-phase reload + commit. CompleteRunAsync never reads Figures.
-            result.Figures = null;
-
-            await CompleteRunAsync(
-                args.DocumentId, workItem.RunId, result, title, extractionMetadata, figureCandidates);
+            await CompleteRunAsync(args.DocumentId, workItem.RunId, result, title, extractionMetadata);
         }
         catch (Exception ex)
         {
             await FailRunAsync(args.DocumentId, workItem.RunId, ex.Message, DocumentAIPipelines.TextExtraction);
-
-            // The Complete-phase DocumentFigure inserts are atomic with the Markdown commit, so a throw means no
-            // row references the crops written in the External phase — reclaim them best-effort so a failed (and
-            // possibly never-retried) run does not leak orphan blobs. A later retry re-writes the same
-            // content-hash keys, so deleting here is safe. Cleanup failures must not mask the original error.
-            await TryDeleteFigureCropsAsync(args.DocumentId, figureCandidates);
-
             throw;
         }
     }
@@ -184,30 +159,21 @@ public class DocumentTextExtractionBackgroundJob
         await DocumentRepository.UpdateAsync(document, autoSave: true);
 
         // A derived sub-document (OriginDocumentId set) seeds its Markdown from the source constituent rather than
-        // re-extracting it. Two constituent paths, looked up by the shared OriginConstituentKey: the #306 figure
-        // path seeds from the figure's transcription; the #346 born-digital path seeds from the container's
-        // Markdown slice (the exact slice text, so there is no content drift). Loaded inside this UoW; null (not
-        // derived, or the constituent is missing/empty) falls back to the normal extraction path in ExecuteAsync.
+        // re-extracting it (#371): the unified detection pass persisted that constituent as a DocumentSegment keyed
+        // by the shared OriginConstituentKey (SHA-256 of the clean span). A figure-kind segment's SliceText is the
+        // figure's transcription, a text-kind segment's is the constituent text — either way the exact (clean) slice,
+        // so there is no content drift. Loaded inside this UoW; null (not derived, or the slice is missing/empty)
+        // falls back to the normal extraction path in ExecuteAsync.
         string? seedMarkdown = null;
         string? seedProviderName = null;
         if (document.OriginDocumentId.HasValue && !string.IsNullOrEmpty(document.OriginConstituentKey))
         {
-            var figure = await _documentFigureRepository.FirstOrDefaultAsync(
-                f => f.SourceDocumentId == document.OriginDocumentId.Value && f.ContentHash == document.OriginConstituentKey);
-            if (!string.IsNullOrEmpty(figure?.Transcription))
+            var segment = await _documentSegmentRepository.FirstOrDefaultAsync(
+                s => s.SourceDocumentId == document.OriginDocumentId.Value && s.SegmentKey == document.OriginConstituentKey);
+            if (!string.IsNullOrEmpty(segment?.SliceText))
             {
-                seedMarkdown = figure.Transcription;
-                seedProviderName = ScenarioBSeedProviderName;
-            }
-            else
-            {
-                var segment = await _documentSegmentRepository.FirstOrDefaultAsync(
-                    s => s.SourceDocumentId == document.OriginDocumentId.Value && s.SegmentKey == document.OriginConstituentKey);
-                if (!string.IsNullOrEmpty(segment?.SliceText))
-                {
-                    seedMarkdown = segment.SliceText;
-                    seedProviderName = ScenarioBSegmentSeedProviderName;
-                }
+                seedMarkdown = segment.SliceText;
+                seedProviderName = ScenarioBSegmentSeedProviderName;
             }
         }
 
@@ -227,8 +193,7 @@ public class DocumentTextExtractionBackgroundJob
         Guid runId,
         TextExtractionResult result,
         string? title,
-        DocumentTextExtractionMetadata extractionMetadata,
-        IReadOnlyList<FigureCandidate> figureCandidates)
+        DocumentTextExtractionMetadata extractionMetadata)
     {
         using var uow = UnitOfWorkManager.Begin(requiresNew: true);
 
@@ -239,34 +204,6 @@ public class DocumentTextExtractionBackgroundJob
             document, run, result.Markdown, title,
             language: result.DetectedLanguage,
             extractionMetadata: extractionMetadata);
-
-        // #306: persist Scenario B candidate figures in the SAME UoW as text-extraction completion, so the
-        // figure rows and the Markdown commit atomically. The Markdown write-once invariant makes this success
-        // path run at most once per document (a retry after a failed commit re-runs cleanly; a retry after a
-        // committed success is rejected by SetMarkdown before reaching here), so candidates insert exactly
-        // once. Intra-batch de-duplication by ContentHash already happened during crop persistence; the unique
-        // (SourceDocumentId, ContentHash) index is the final guard. RoutedDocumentId stays null until routing.
-        foreach (var candidate in figureCandidates)
-        {
-            await _documentFigureRepository.InsertAsync(new DocumentFigure(
-                _guidGenerator.Create(),
-                document.TenantId,
-                document.Id,
-                candidate.ContentHash,
-                candidate.CropBlobName,
-                candidate.ContentType,
-                candidate.Transcription,
-                candidate.PageNumber));
-        }
-
-        // #306: hand the persisted candidates to sub-document routing (a separate, independently-retried job).
-        // Enqueued in this same UoW so the candidates and the routing job commit atomically; no candidates -> no
-        // routing job. A derived sub-document is itself seeded (no figures), so it never re-enqueues routing.
-        if (figureCandidates.Count > 0)
-        {
-            await _backgroundJobManager.EnqueueAsync(
-                new DocumentFigureRoutingJobArgs { SourceDocumentId = document.Id });
-        }
 
         // Publish OCRCompletedEto with a thin payload; downstream consumers pull Markdown back through REST.
         await _distributedEventBus.PublishAsync(
@@ -281,7 +218,9 @@ public class DocumentTextExtractionBackgroundJob
 
         // Advance classification as soon as text extraction completes. OCR has no quality gate:
         // #196 found average OCR confidence does not predict real quality. Quality issues are handled later through classification review
-        // plus operator rerun / re-upload.
+        // plus operator rerun / re-upload. Figure sub-document routing now rides classification (#371): the embedded
+        // [Image OCR] sentinels make the classifier flag an embedded document and enqueue the unified pass — no
+        // separate figure-routing enqueue here anymore.
         await _pipelineJobScheduler.QueueAsync(document, DocumentAIPipelines.Classification);
 
         // #265: after text extraction succeeds and Markdown is ready, fan out the "AI fallback cabinet selection when empty" job.
@@ -320,97 +259,36 @@ public class DocumentTextExtractionBackgroundJob
     }
 
     /// <summary>
-    /// External phase (no UoW): persists each de-duplicated embedded figure crop (#306) to blob storage as a
-    /// Scenario B routing candidate, keyed by content hash (<c>figures/{documentId}/{contentHash}</c>), and
-    /// returns the descriptors the Complete phase turns into <see cref="DocumentFigure"/> rows. The content
-    /// hash doubles as the derived document's <c>OriginConstituentKey</c> / <c>FileOrigin.ContentHash</c>, tying
-    /// storage and routing idempotency together.
+    /// External phase (no UoW): archives the <b>marked</b> Markdown (#371) — the working Markdown still carrying
+    /// the in-band <c>[Image OCR]…[End OCR]</c> figure sentinels — under the stable per-document key
+    /// <c>markdown-marked/{documentId}</c>, so classification (the embedded-document signal) and the unified
+    /// sub-document pass can recognize figure spans. <c>Document.Markdown</c> itself is persisted with the
+    /// sentinels stripped (Markdown-first); this marked copy is a pipeline-internal artifact only.
     /// <para>
-    /// <b>Fails open per figure</b>: a crop is an auxiliary routing input, so empty bytes or a blob-write
-    /// failure skips only that candidate (logged) — text extraction still succeeds and the figure's
-    /// transcription is already inlined into the Markdown.
+    /// Skips a document with no figure sentinels (the consumers fall back to the clean <c>Document.Markdown</c>),
+    /// and <b>fails open</b>: a write failure only loses the figure-span hint, never the text extraction itself.
+    /// The stable key is overwritten on re-extraction and reclaimed on permanent delete, so a failed-completion
+    /// write leaves at most one overwrite-stable orphan (like the native payload archive).
     /// </para>
     /// </summary>
-    protected virtual async Task<IReadOnlyList<FigureCandidate>> PersistFigureCropsAsync(
-        Guid documentId, TextExtractionResult result, CancellationToken cancellationToken = default)
+    protected virtual async Task ArchiveMarkedMarkdownAsync(Guid documentId, string? markedMarkdown)
     {
-        if (result.Figures is not { Count: > 0 } figures)
+        if (string.IsNullOrEmpty(markedMarkdown) || !ImageOcrMarkup.Contains(markedMarkdown))
         {
-            return Array.Empty<FigureCandidate>();
+            return;
         }
 
-        var candidates = new List<FigureCandidate>(figures.Count);
-        var seen = new HashSet<string>();
-        foreach (var figure in figures)
+        var blobName = DocumentConsts.MarkedMarkdownBlobPrefix + documentId;
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            if (figure.Content is not { Length: > 0 })
-            {
-                continue;
-            }
-
-            // Fail-open at the source: a Figure with a blank ContentType cannot build a valid DocumentFigure
-            // / derived FileOrigin (the entity ctor's Check.NotNullOrWhiteSpace would throw and break the main
-            // Markdown pipeline). Skip it here — the figure's transcription is already inlined into Markdown.
-            // Today's PdfExtractor always supplies a non-empty image/* type; this guards any other producer.
-            if (string.IsNullOrWhiteSpace(figure.ContentType))
-            {
-                Logger.LogWarning(
-                    "Embedded figure for document {DocumentId} has a blank ContentType; skipping this Scenario B candidate (text extraction still succeeds).",
-                    documentId);
-                continue;
-            }
-
-            var contentHash = ContentHasher.Sha256Hex(figure.Content);
-            // De-dupe identical embedded images within one document: same bytes -> same hash -> one crop blob
-            // + one candidate row (the unique (SourceDocumentId, ContentHash) index is the final guard).
-            if (!seen.Add(contentHash))
-            {
-                continue;
-            }
-
-            var blobName = $"figures/{documentId}/{contentHash}";
-            try
-            {
-                using var stream = new MemoryStream(figure.Content, writable: false);
-                await _blobContainer.SaveAsync(blobName, stream, overrideExisting: true, cancellationToken);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                Logger.LogWarning(ex,
-                    "Failed to persist figure crop {BlobName} for document {DocumentId}; skipping this Scenario B candidate (text extraction still succeeds).",
-                    blobName, documentId);
-                continue;
-            }
-
-            candidates.Add(new FigureCandidate(
-                contentHash, blobName, figure.ContentType, figure.PageNumber, figure.Transcription));
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(markedMarkdown), writable: false);
+            await _blobContainer.SaveAsync(blobName, stream, overrideExisting: true);
         }
-
-        return candidates;
-    }
-
-    /// <summary>
-    /// Best-effort cleanup of figure crop blobs written in the External phase when the Complete phase failed
-    /// (#306). The Complete-phase <see cref="DocumentFigure"/> inserts are atomic with the Markdown commit, so a
-    /// failure means no committed row references these crops; without this they orphan, because permanent delete
-    /// only reclaims crops via committed rows. Failures here are swallowed so cleanup never masks the original error.
-    /// </summary>
-    private async Task TryDeleteFigureCropsAsync(Guid documentId, IReadOnlyList<FigureCandidate> figureCandidates)
-    {
-        foreach (var candidate in figureCandidates)
+        catch (Exception ex)
         {
-            try
-            {
-                await _blobContainer.DeleteAsync(candidate.CropBlobName);
-            }
-            catch (Exception ex)
-            {
-                Logger.LogWarning(ex,
-                    "Failed to clean up orphaned figure crop {BlobName} for document {DocumentId} after a failed text-extraction completion.",
-                    candidate.CropBlobName, documentId);
-            }
+            Logger.LogWarning(ex,
+                "Failed to archive marked Markdown for document {DocumentId} to blob {BlobName}; classification and the unified sub-document pass will fall back to Document.Markdown.",
+                documentId, blobName);
         }
     }
 
@@ -526,14 +404,6 @@ public class DocumentTextExtractionBackgroundJob
         string? OriginalFileName,
         string? SeedMarkdown,
         string? SeedProviderName);
-
-    /// <summary>
-    /// Descriptor of a persisted candidate figure crop (#306). <c>protected</c> because it appears in the
-    /// signature of the overridable <see cref="PersistFigureCropsAsync"/>; turned into a
-    /// <see cref="DocumentFigure"/> row in the Complete phase.
-    /// </summary>
-    protected sealed record FigureCandidate(
-        string ContentHash, string CropBlobName, string ContentType, int? PageNumber, string Transcription);
 }
 
 public class DocumentTextExtractionJobArgs

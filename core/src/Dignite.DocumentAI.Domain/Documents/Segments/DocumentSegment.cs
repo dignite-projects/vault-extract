@@ -10,12 +10,13 @@ namespace Dignite.DocumentAI.Documents.Segments;
 /// container's Markdown into per-document slices, and each slice is recorded here as the durable, resumable,
 /// idempotent work-queue row before it is spawned into its own derived <see cref="Document"/>.
 /// <para>
-/// This is the born-digital sibling of <c>DocumentFigure</c> (the image path). The two are kept as parallel
-/// ledgers + jobs feeding the same derived-document sink; unifying them into one "constituent" abstraction is
-/// deferred (#346). It references its source by id through <see cref="SourceDocumentId"/> (DDD reference-by-id,
-/// no navigation property), while the DB keeps an FK + CASCADE so hard-deleting the container also removes its
-/// segment rows. There is no soft delete: a segment is working state, not an independently restorable document
-/// (the derived document it spawns is the first-class, restorable artifact).
+/// Since #371 this is the <b>single</b> sub-document ledger: the unified detection pass records every standalone
+/// span here — a born-digital text constituent (<see cref="Kind"/> = <c>Text</c>) or an embedded-figure OCR span
+/// (<see cref="Kind"/> = <c>Figure</c>) — replacing the retired image-path <c>DocumentFigure</c> aggregate. It
+/// references its source by id through <see cref="SourceDocumentId"/> (DDD reference-by-id, no navigation property),
+/// while the DB keeps an FK + CASCADE so hard-deleting the container also removes its segment rows. There is no soft
+/// delete: a segment is working state, not an independently restorable document (the derived document it spawns is
+/// the first-class, restorable artifact).
 /// </para>
 /// <para>
 /// <b>The slice text lives on the row</b> (<see cref="SliceText"/>), mirroring <c>DocumentFigure.Transcription</c>:
@@ -55,6 +56,22 @@ public class DocumentSegment : CreationAuditedAggregateRoot<Guid>, IMultiTenant
     public virtual int Ordinal { get; private set; }
 
     /// <summary>
+    /// Which kind of source span this segment was carved from by the unified detection pass (#371): a born-digital
+    /// text constituent (<see cref="DocumentSegmentKind.Text"/>) or an embedded-figure OCR span
+    /// (<see cref="DocumentSegmentKind.Figure"/>). Drives retraction (#364): a container→type reclassify retracts
+    /// <see cref="DocumentSegmentKind.Text"/> children but keeps <see cref="DocumentSegmentKind.Figure"/> ones.
+    /// </summary>
+    public virtual DocumentSegmentKind Kind { get; private set; }
+
+    /// <summary>
+    /// 1-based source page of a <see cref="DocumentSegmentKind.Figure"/> span (#371): a lightweight recovery anchor
+    /// parsed from the <c>[Image OCR p:N]</c> sentinel, so the original image can be recovered by re-parsing the
+    /// source file if ever needed (the crop is not persisted). <c>null</c> for a <see cref="DocumentSegmentKind.Text"/>
+    /// span or a page-less source. Provenance only — never identity (#210).
+    /// </summary>
+    public virtual int? PageNumber { get; private set; }
+
+    /// <summary>
     /// The derived <see cref="Document"/> spawned from this slice, or <c>null</c> when not (yet) spawned /
     /// classified as a non-document segment.
     /// </summary>
@@ -80,7 +97,9 @@ public class DocumentSegment : CreationAuditedAggregateRoot<Guid>, IMultiTenant
         string segmentKey,
         string sliceText,
         int ordinal,
-        DocumentSegmentStatus status = DocumentSegmentStatus.Pending)
+        DocumentSegmentKind kind,
+        DocumentSegmentStatus status = DocumentSegmentStatus.Pending,
+        int? pageNumber = null)
         : base(id)
     {
         TenantId = tenantId;
@@ -88,7 +107,9 @@ public class DocumentSegment : CreationAuditedAggregateRoot<Guid>, IMultiTenant
         SegmentKey = Check.NotNullOrWhiteSpace(segmentKey, nameof(segmentKey), DocumentSegmentConsts.MaxSegmentKeyLength);
         SliceText = Check.NotNullOrWhiteSpace(sliceText, nameof(sliceText));
         Ordinal = ordinal;
+        Kind = kind;
         Status = status;
+        PageNumber = pageNumber;
     }
 
     /// <summary>

@@ -10,7 +10,6 @@ public interface IDocumentAIDbContext : IEfCoreDbContext
 {
     DbSet<Document> Documents { get; }
     DbSet<DocumentPipelineRun> DocumentPipelineRuns { get; }
-    DbSet<DocumentFigure> DocumentFigures { get; }
     DbSet<DocumentSegment> DocumentSegments { get; }
     DbSet<DocumentType> DocumentTypes { get; }
     DbSet<FieldDefinition> FieldDefinitions { get; }
