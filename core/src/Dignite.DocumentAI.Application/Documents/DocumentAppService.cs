@@ -763,6 +763,11 @@ public class DocumentAppService : DocumentAIAppService, IDocumentAppService
         if (input.CabinetId.HasValue)
             query = query.Where(x => x.CabinetId == input.CabinetId.Value);
 
+        // Sub-document provenance filter (#354): list the documents derived from a given source (e.g. a
+        // container's children). The IMultiTenant global filter still applies, so both ends stay tenant-scoped.
+        if (input.OriginDocumentId.HasValue)
+            query = query.Where(x => x.OriginDocumentId == input.OriginDocumentId.Value);
+
         // Filter by manual-review disposition phase (#284). Rejected documents have ReviewDisposition=Rejected and can be queried explicitly.
         if (input.ReviewDisposition.HasValue)
             query = query.Where(d => d.ReviewDisposition == input.ReviewDisposition.Value);

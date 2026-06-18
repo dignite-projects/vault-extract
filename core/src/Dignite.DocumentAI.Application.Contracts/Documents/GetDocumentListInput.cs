@@ -31,6 +31,14 @@ public class GetDocumentListInput : PagedAndSortedResultRequestDto
     public Guid? CabinetId { get; set; }
 
     /// <summary>
+    /// Provenance filter (#354): when set, returns only the sub-documents derived from this source document
+    /// (those whose <c>Document.OriginDocumentId</c> equals it) — the queryable form of the container /
+    /// sub-document relationship surfaced by #350. null means no filter. Stays under the ABP <c>IMultiTenant</c>
+    /// global filter, so it can only ever reach documents in the caller's own tenant.
+    /// </summary>
+    public Guid? OriginDocumentId { get; set; }
+
+    /// <summary>
     /// ExtractedFields value filters. Multiple filters are ANDed, and all are anchored to
     /// <see cref="DocumentTypeCode"/>. When provided, <see cref="DocumentTypeCode"/> is required
     /// because field declaration types must be resolved by type. Each element must carry Name plus at

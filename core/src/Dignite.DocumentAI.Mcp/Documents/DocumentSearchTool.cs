@@ -32,15 +32,21 @@ public sealed class DocumentSearchTool
         + "and/or one or more extracted-field filters (all combined with AND). Returns up to 50 rows "
         + "(id, uri, title, type, lifecycle, created-at, and the document's extracted field values); read a "
         + "match's full Markdown via its docai://documents/{id} resource uri. Structured field/metadata "
-        + "search only — no keyword/full-text or semantic/vector retrieval. documentTypeCode is required; if the "
-        + "user has not said which document type to search, ask them first. Discover a type's filterable field "
-        + "names and data types via its docai://document-types/{code} resource.")]
+        + "search only — no keyword/full-text or semantic/vector retrieval. documentTypeCode is required UNLESS "
+        + "originDocumentId is given; if the user has not said which document type to search, ask them first. "
+        + "To list the sub-documents of a container, pass that container's id as originDocumentId. Discover a "
+        + "type's filterable field names and data types via its docai://document-types/{code} resource.")]
     public static async Task<IReadOnlyList<DocumentSearchResultItem>> SearchAsync(
         IDocumentAppService documentAppService,
-        [Description("Required. The document type code to search within (e.g. a classification result like "
-            + "'contract.general'). Every search anchors to a single document type; a field value query needs it "
-            + "to resolve each field's data type. If unknown, ask the user which document type to search.")]
-        string documentTypeCode,
+        [Description("The document type code to search within (e.g. a classification result like "
+            + "'contract.general'). Required UNLESS originDocumentId is given; a field value query always needs "
+            + "it to resolve each field's data type. If unknown and not listing a container's children, ask the "
+            + "user which document type to search.")]
+        string? documentTypeCode = null,
+        [Description("List only the sub-documents derived from this source document id — i.e. the children of a "
+            + "container (the documents whose origin is this id). Pass a container's id here to enumerate its "
+            + "sub-documents. Optional; when given, documentTypeCode is not required.")]
+        string? originDocumentId = null,
         [Description("Filter by lifecycle status. One of: Uploaded, Processing, Ready, Failed, Archived. Optional.")]
         string? lifecycleStatus = null,
         [Description("Extracted-field filters, all combined with AND (every filter must match). Each entry "
@@ -56,16 +62,27 @@ public sealed class DocumentSearchTool
         int? maxResultCount = null,
         CancellationToken cancellationToken = default)
     {
-        // documentTypeCode is a required contract. Each retrieval is anchored to one document type because field value queries
-        // need it to resolve each field's data type; the description also states required. Empty string would make GetListAsync
-        // degrade to metadata retrieval across all types, contrary to the contract. Reject loudly instead of silently widening.
-        // Permissions / tenant / limits still apply inside AppService, so this is not a security risk.
-        if (string.IsNullOrWhiteSpace(documentTypeCode))
+        // Sub-document provenance query (#354): listing a container's children is anchored by originDocumentId,
+        // not by type — the children are heterogeneously typed and their types are unknown to the caller. Parse
+        // leniently (LLM clients pass string GUIDs); a malformed value is treated as "no provenance filter".
+        Guid? originDocumentIdValue = null;
+        if (!string.IsNullOrWhiteSpace(originDocumentId)
+            && Guid.TryParse(originDocumentId, out var parsedOriginId))
+        {
+            originDocumentIdValue = parsedOriginId;
+        }
+
+        // documentTypeCode anchors a type/field query and stays required — EXCEPT when originDocumentId is given,
+        // where the query is a provenance lookup that does not need a type. Without either, an empty documentTypeCode
+        // would make GetListAsync degrade to metadata retrieval across all types, contrary to the contract; reject
+        // loudly instead of silently widening. Permissions / tenant / limits still apply inside AppService.
+        if (string.IsNullOrWhiteSpace(documentTypeCode) && originDocumentIdValue is null)
         {
             throw new McpException(
-                "documentTypeCode is required: every search anchors to a single document type. "
-                + "If the user has not said which type to search, ask them first; discover a type's "
-                + "filterable fields via its docai://document-types/{code} resource.");
+                "documentTypeCode is required unless originDocumentId is given: every type/field search anchors to a "
+                + "single document type. If the user has not said which type to search, ask them first; discover a "
+                + "type's filterable fields via its docai://document-types/{code} resource. To list a container's "
+                + "sub-documents, pass the container id as originDocumentId.");
         }
 
         // Leniently parse lifecycle filter values. LLM clients usually pass string names such as "Ready".
@@ -81,6 +98,7 @@ public sealed class DocumentSearchTool
         var input = new GetDocumentListInput
         {
             DocumentTypeCode = documentTypeCode,
+            OriginDocumentId = originDocumentIdValue,
             LifecycleStatus = lifecycle,
             FieldFilters = fieldFilters?.ToList(),
             // Clamp hard result-set limit to MaxSearchResultCount. This is an MCP transport concern:

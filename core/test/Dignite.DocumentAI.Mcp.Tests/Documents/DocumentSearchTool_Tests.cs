@@ -4,6 +4,7 @@ using System.Text.Json;
 using Dignite.DocumentAI.Ai;
 using Dignite.DocumentAI.Documents;
 using Microsoft.Extensions.DependencyInjection;
+using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using NSubstitute;
 using Shouldly;
@@ -65,11 +66,51 @@ public class DocumentSearchTool_Tests : DocumentAITestBase<DocumentSearchToolTes
         // Other LLM-facing parameters are controls: they are scalars (IsService=false) and already expose
         // normally.
         properties.TryGetProperty("documentTypeCode", out _).ShouldBeTrue();
+        properties.TryGetProperty("originDocumentId", out _).ShouldBeTrue();
         properties.TryGetProperty("lifecycleStatus", out _).ShouldBeTrue();
         properties.TryGetProperty("maxResultCount", out _).ShouldBeTrue();
 
         // DI-injected service parameters must not appear in the LLM schema.
         properties.TryGetProperty("documentAppService", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Lists_sub_documents_by_origin_without_requiring_a_type()
+    {
+        // #354: listing a container's sub-documents is a provenance query anchored by originDocumentId, not by
+        // type — the children are heterogeneously typed. documentTypeCode must NOT be required in this case, and
+        // the parsed origin id must flow into GetDocumentListInput.OriginDocumentId.
+        var containerId = Guid.NewGuid();
+        var subDocId = Guid.NewGuid();
+        _documentAppService
+            .GetListAsync(Arg.Any<GetDocumentListInput>())
+            .Returns(new PagedResultDto<DocumentListItemDto>(1, new List<DocumentListItemDto>
+            {
+                new()
+                {
+                    Id = subDocId,
+                    LifecycleStatus = DocumentLifecycleStatus.Ready,
+                    CreationTime = new DateTime(2024, 1, 1),
+                    OriginDocumentId = containerId
+                }
+            }));
+
+        var result = await DocumentSearchTool.SearchAsync(
+            _documentAppService, originDocumentId: containerId.ToString());
+
+        await _documentAppService.Received(1).GetListAsync(Arg.Is<GetDocumentListInput>(i =>
+            i.OriginDocumentId == containerId && string.IsNullOrEmpty(i.DocumentTypeCode)));
+        result.Count.ShouldBe(1);
+        result[0].Id.ShouldBe(subDocId);
+        result[0].OriginDocumentId.ShouldBe(containerId);
+    }
+
+    [Fact]
+    public async Task Requires_documentTypeCode_unless_originDocumentId_is_given()
+    {
+        // Neither a type anchor nor an origin anchor: reject loudly instead of silently widening to all types.
+        await Should.ThrowAsync<McpException>(() => DocumentSearchTool.SearchAsync(_documentAppService));
+        await _documentAppService.DidNotReceive().GetListAsync(Arg.Any<GetDocumentListInput>());
     }
 
     [Fact]
