@@ -10,7 +10,6 @@ using Dignite.DocumentAI.Documents;
 using Dignite.DocumentAI.Documents.DocumentTypes;
 using Dignite.DocumentAI.Documents.Figures;
 using Dignite.DocumentAI.Documents.Pipelines;
-using Dignite.DocumentAI.Documents.Pipelines.Classification;
 using Dignite.DocumentAI.Documents.Pipelines.Routing;
 using Dignite.DocumentAI.Documents.Pipelines.TextExtraction;
 using Microsoft.Extensions.AI;
@@ -38,13 +37,13 @@ public class DocumentFigureRoutingJobTestModule : AbpModule
         context.Services.AddSingleton(Substitute.For<IBackgroundJobManager>());
         context.Services.AddSingleton(Substitute.For<IDistributedEventBus>());
 
-        // Gate seam: a partial substitute of the classification workflow whose RunAsync each test stubs to a
-        // chosen outcome — no real LLM call (mirrors DocumentClassificationBackgroundJob_Tests).
-        var workflow = Substitute.ForPartsOf<DocumentClassificationWorkflow>(
+        // Gate seam: a partial substitute of the figure-document gate whose RunAsync each test stubs to a chosen
+        // outcome — no real LLM call (mirrors DocumentClassificationBackgroundJob_Tests).
+        var gate = Substitute.ForPartsOf<FigureDocumentGateWorkflow>(
             Substitute.For<IChatClient>(),
             Options.Create(new DocumentAIBehaviorOptions()),
             new DefaultPromptProvider());
-        context.Services.AddSingleton(workflow);
+        context.Services.AddSingleton(gate);
     }
 }
 
@@ -52,6 +51,7 @@ public class DocumentFigureRoutingJob_Tests : DocumentAITestBase<DocumentFigureR
 {
     private const string TypeCode = "invoice.general";
     private const double Threshold = 0.75;
+    private const string ParentTitle = "Master Service Agreement";
 
     private readonly DocumentFigureRoutingJob _job;
     private readonly IDocumentRepository _documentRepository;
@@ -60,7 +60,7 @@ public class DocumentFigureRoutingJob_Tests : DocumentAITestBase<DocumentFigureR
     private readonly IBlobContainer<DocumentAIDocumentContainer> _blobContainer;
     private readonly IBackgroundJobManager _backgroundJobManager;
     private readonly IDistributedEventBus _eventBus;
-    private readonly DocumentClassificationWorkflow _workflow;
+    private readonly FigureDocumentGateWorkflow _gate;
     private readonly IGuidGenerator _guidGenerator;
 
     public DocumentFigureRoutingJob_Tests()
@@ -72,7 +72,7 @@ public class DocumentFigureRoutingJob_Tests : DocumentAITestBase<DocumentFigureR
         _blobContainer = GetRequiredService<IBlobContainer<DocumentAIDocumentContainer>>();
         _backgroundJobManager = GetRequiredService<IBackgroundJobManager>();
         _eventBus = GetRequiredService<IDistributedEventBus>();
-        _workflow = GetRequiredService<DocumentClassificationWorkflow>();
+        _gate = GetRequiredService<FigureDocumentGateWorkflow>();
         _guidGenerator = GetRequiredService<IGuidGenerator>();
     }
 
@@ -82,7 +82,7 @@ public class DocumentFigureRoutingJob_Tests : DocumentAITestBase<DocumentFigureR
         var sourceId = _guidGenerator.Create();
         var (figureId, contentHash, cropBlobName) = await ArrangeAsync(sourceId, withType: true);
         StubCropBlob(cropBlobName);
-        StubGate(TypeCode, 0.92);
+        StubGate(isStandaloneDocument: true, confidence: 0.92);
 
         await _job.ExecuteAsync(new DocumentFigureRoutingJobArgs { SourceDocumentId = sourceId });
 
@@ -116,7 +116,7 @@ public class DocumentFigureRoutingJob_Tests : DocumentAITestBase<DocumentFigureR
         var sourceId = _guidGenerator.Create();
         var (figureId, _, cropBlobName) = await ArrangeAsync(sourceId, withType: true);
         StubCropBlob(cropBlobName);
-        StubGate(TypeCode, 0.50); // below the type's 0.75 threshold
+        StubGate(isStandaloneDocument: true, confidence: 0.50); // below the 0.7 figure-gate threshold
 
         await _job.ExecuteAsync(new DocumentFigureRoutingJobArgs { SourceDocumentId = sourceId });
 
@@ -127,6 +127,47 @@ public class DocumentFigureRoutingJob_Tests : DocumentAITestBase<DocumentFigureR
         });
 
         await _blobContainer.Received(1).DeleteAsync(cropBlobName, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Element_Of_Parent_Is_Rejected_Even_When_Confident()
+    {
+        var sourceId = _guidGenerator.Create();
+        var (figureId, _, cropBlobName) = await ArrangeAsync(sourceId, withType: true);
+        StubCropBlob(cropBlobName);
+        // The gate is highly confident, but it judged the figure an ELEMENT of its parent (a chart / logo /
+        // stamp), not a standalone document. Type-confidence alone would have spawned it (#365 weakness #1); the
+        // explicit binary must not.
+        StubGate(isStandaloneDocument: false, confidence: 0.95);
+
+        await _job.ExecuteAsync(new DocumentFigureRoutingJobArgs { SourceDocumentId = sourceId });
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            (await _documentRepository.GetListAsync(d => d.OriginDocumentId == sourceId)).ShouldBeEmpty();
+            (await _figureRepository.GetAsync(figureId)).Status.ShouldBe(DocumentFigureStatus.NotADocument);
+        });
+
+        await _blobContainer.Received(1).DeleteAsync(cropBlobName, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Gate_Receives_Parent_Context()
+    {
+        var sourceId = _guidGenerator.Create();
+        var (_, _, cropBlobName) = await ArrangeAsync(sourceId, withType: true);
+        StubCropBlob(cropBlobName);
+        StubGate(isStandaloneDocument: true, confidence: 0.92);
+
+        await _job.ExecuteAsync(new DocumentFigureRoutingJobArgs { SourceDocumentId = sourceId });
+
+        // The gate is fed the parent document's title so it can judge the figure's independence FROM the parent
+        // rather than classifying a fragment in a vacuum (#365).
+        await _gate.Received(1).RunAsync(
+            Arg.Any<IReadOnlyList<DocumentType>>(),
+            Arg.Any<string>(),
+            Arg.Is<FigureGateParentContext>(p => p.Title == ParentTitle),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -142,8 +183,9 @@ public class DocumentFigureRoutingJob_Tests : DocumentAITestBase<DocumentFigureR
 
         await _blobContainer.Received(1).DeleteAsync(cropBlobName, Arg.Any<CancellationToken>());
         // The no-types early path never calls the gate.
-        await _workflow.DidNotReceive().RunAsync(
-            Arg.Any<IReadOnlyList<DocumentType>>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _gate.DidNotReceive().RunAsync(
+            Arg.Any<IReadOnlyList<DocumentType>>(), Arg.Any<string>(),
+            Arg.Any<FigureGateParentContext>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -162,8 +204,9 @@ public class DocumentFigureRoutingJob_Tests : DocumentAITestBase<DocumentFigureR
 
         await _job.ExecuteAsync(new DocumentFigureRoutingJobArgs { SourceDocumentId = sourceId });
 
-        await _workflow.DidNotReceive().RunAsync(
-            Arg.Any<IReadOnlyList<DocumentType>>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _gate.DidNotReceive().RunAsync(
+            Arg.Any<IReadOnlyList<DocumentType>>(), Arg.Any<string>(),
+            Arg.Any<FigureGateParentContext>(), Arg.Any<CancellationToken>());
         await WithUnitOfWorkAsync(async () =>
             (await _documentRepository.GetListAsync(d => d.OriginDocumentId == sourceId)).ShouldBeEmpty());
     }
@@ -173,7 +216,7 @@ public class DocumentFigureRoutingJob_Tests : DocumentAITestBase<DocumentFigureR
     {
         var sourceId = _guidGenerator.Create();
         var (figureId, _, cropBlobName) = await ArrangeAsync(sourceId, withType: true);
-        StubGate(TypeCode, 0.92);          // confident -> proceeds to spawn, which reads the crop
+        StubGate(isStandaloneDocument: true, confidence: 0.92); // standalone -> proceeds to spawn, which reads the crop
         StubCropBlobThrows(cropBlobName);  // the crop read faults on every run (e.g. transient blob loss)
 
         // The fault must NOT be swallowed: ExecuteAsync rethrows so ABP reschedules the job. Routing is enqueued
@@ -205,8 +248,9 @@ public class DocumentFigureRoutingJob_Tests : DocumentAITestBase<DocumentFigureR
 
         await _blobContainer.Received(1).DeleteAsync(cropBlobName, Arg.Any<CancellationToken>());
         // An empty/whitespace transcription is short-circuited to reject; the gate LLM is never called.
-        await _workflow.DidNotReceive().RunAsync(
-            Arg.Any<IReadOnlyList<DocumentType>>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _gate.DidNotReceive().RunAsync(
+            Arg.Any<IReadOnlyList<DocumentType>>(), Arg.Any<string>(),
+            Arg.Any<FigureGateParentContext>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -233,7 +277,7 @@ public class DocumentFigureRoutingJob_Tests : DocumentAITestBase<DocumentFigureR
 
         await WithUnitOfWorkAsync(async () =>
         {
-            await _documentRepository.InsertAsync(new Document(
+            var source = new Document(
                 sourceId,
                 tenantId: null,
                 fileOrigin: new FileOrigin(
@@ -242,7 +286,11 @@ public class DocumentFigureRoutingJob_Tests : DocumentAITestBase<DocumentFigureR
                     contentType: "application/pdf",
                     contentHash: $"{Guid.NewGuid():N}{Guid.NewGuid():N}"[..64],
                     fileSize: 1024,
-                    originalFileName: "contract.pdf")), autoSave: true);
+                    originalFileName: "contract.pdf"));
+            // The parent title is set by the text-extraction stage before routing runs; feed it so the
+            // parent-context plumbing is exercised (InternalsVisibleTo grants the test SetTitle access).
+            source.SetTitle(ParentTitle);
+            await _documentRepository.InsertAsync(source, autoSave: true);
 
             if (withType)
             {
@@ -263,9 +311,11 @@ public class DocumentFigureRoutingJob_Tests : DocumentAITestBase<DocumentFigureR
     private void StubCropBlob(string cropBlobName)
         => _blobContainer.GetAsync(cropBlobName).Returns(_ => (Stream)new MemoryStream(new byte[] { 1, 2, 3, 4 }));
 
-    private void StubGate(string typeCode, double confidence)
-        => _workflow.RunAsync(Arg.Any<IReadOnlyList<DocumentType>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new DocumentClassificationOutcome { TypeCode = typeCode, ConfidenceScore = confidence });
+    private void StubGate(bool isStandaloneDocument, double confidence)
+        => _gate.RunAsync(
+                Arg.Any<IReadOnlyList<DocumentType>>(), Arg.Any<string>(),
+                Arg.Any<FigureGateParentContext>(), Arg.Any<CancellationToken>())
+            .Returns(new FigureGateOutcome { IsStandaloneDocument = isStandaloneDocument, ConfidenceScore = confidence });
 
     private void StubCropBlobThrows(string cropBlobName)
         => _blobContainer.GetAsync(cropBlobName).Returns<Stream>(_ => throw new InvalidOperationException("blob unavailable"));

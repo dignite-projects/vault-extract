@@ -87,4 +87,16 @@ public class DocumentAIBehaviorOptions
     /// windows); hosts may raise it for bigger bundles or lower it to cap spend.
     /// </summary>
     public int MaxSegmentationMarkdownLength { get; set; } = 200_000;
+
+    /// <summary>
+    /// Confidence bar (0..1) for the Scenario B figure-document gate (#365): a candidate figure is spawned as a
+    /// derived sub-document only when the gate judges it a self-contained, standalone document (not a chart /
+    /// logo / stamp / photo / decorative element of its parent) <b>and</b> its confidence in that judgment is at
+    /// least this value. This is deliberately a <b>dedicated</b> bar, distinct from a document type's
+    /// <c>ConfidenceThreshold</c> (the Ready gate): the figure gate answers "is this figure a standalone
+    /// document?", which is a different question from "is this whole document of type X?". The matched type is
+    /// not consulted here — the spawned document re-classifies itself on its own pipeline run. Default 0.7:
+    /// conservative, because the auto-spawn model (#306) leans entirely on a high-precision gate.
+    /// </summary>
+    public double FigureGateConfidenceThreshold { get; set; } = 0.7;
 }

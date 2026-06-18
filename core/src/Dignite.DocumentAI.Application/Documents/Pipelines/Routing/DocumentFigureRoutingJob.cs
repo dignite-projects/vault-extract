@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using Dignite.DocumentAI.Abstractions.Documents;
 using Dignite.DocumentAI.Ai;
 using Dignite.DocumentAI.Documents.DocumentTypes;
-using Dignite.DocumentAI.Documents.Pipelines.Classification;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Volo.Abp.BackgroundJobs;
@@ -26,12 +25,14 @@ namespace Dignite.DocumentAI.Documents.Pipelines.Routing;
 /// <summary>
 /// Scenario B sub-document routing (#306). Consumes the <see cref="DocumentFigure"/> candidates that the
 /// text-extraction job persisted for a source document and decides, per figure, whether the figure is itself
-/// a document — by classifying its OCR transcription against the source's tenant document-type layer and
-/// comparing against the matched type's <c>ConfidenceThreshold</c> (the same per-type Ready-gate bar). A figure
-/// that clears the bar is spawned as its own derived <see cref="Document"/> (its crop copied to an independent
-/// blob, back-reference <c>OriginDocumentId</c> / <c>OriginConstituentKey</c> set), which then runs the full normal
-/// pipeline; a figure that does not is marked <see cref="DocumentFigureStatus.NotADocument"/> and its candidate
-/// crop is deleted. Figures that remain inline in the source Markdown either way (#301).
+/// a document — via the parent-aware <see cref="FigureDocumentGateWorkflow"/> (#365), which makes an explicit,
+/// conservative binary judgment ("standalone document vs. element of its parent") instead of reusing the
+/// whole-document type classifier as a detector. A figure the gate judges a standalone document with at least
+/// <see cref="DocumentAIBehaviorOptions.FigureGateConfidenceThreshold"/> confidence is spawned as its own derived
+/// <see cref="Document"/> (its crop copied to an independent blob, back-reference <c>OriginDocumentId</c> /
+/// <c>OriginConstituentKey</c> set), which then runs the full normal pipeline; a figure that does not is marked
+/// <see cref="DocumentFigureStatus.NotADocument"/> and its candidate crop is deleted. Figures that remain inline
+/// in the source Markdown either way (#301).
 /// <para>
 /// <b>Resumable + idempotent.</b> Only <see cref="DocumentFigureStatus.Pending"/> candidates are processed, and
 /// each figure's evaluation commits atomically with its status change, so a crash resumes the remaining
@@ -53,7 +54,7 @@ public class DocumentFigureRoutingJob
     private readonly IDocumentRepository _documentRepository;
     private readonly IRepository<DocumentFigure, Guid> _figureRepository;
     private readonly IDocumentTypeRepository _documentTypeRepository;
-    private readonly DocumentClassificationWorkflow _classificationWorkflow;
+    private readonly FigureDocumentGateWorkflow _figureGateWorkflow;
     private readonly DocumentPipelineJobScheduler _pipelineJobScheduler;
     private readonly IBlobContainer<DocumentAIDocumentContainer> _blobContainer;
     private readonly IDistributedEventBus _distributedEventBus;
@@ -68,7 +69,7 @@ public class DocumentFigureRoutingJob
         IDocumentRepository documentRepository,
         IRepository<DocumentFigure, Guid> figureRepository,
         IDocumentTypeRepository documentTypeRepository,
-        DocumentClassificationWorkflow classificationWorkflow,
+        FigureDocumentGateWorkflow figureGateWorkflow,
         DocumentPipelineJobScheduler pipelineJobScheduler,
         IBlobContainer<DocumentAIDocumentContainer> blobContainer,
         IDistributedEventBus distributedEventBus,
@@ -82,7 +83,7 @@ public class DocumentFigureRoutingJob
         _documentRepository = documentRepository;
         _figureRepository = figureRepository;
         _documentTypeRepository = documentTypeRepository;
-        _classificationWorkflow = classificationWorkflow;
+        _figureGateWorkflow = figureGateWorkflow;
         _pipelineJobScheduler = pipelineJobScheduler;
         _blobContainer = blobContainer;
         _distributedEventBus = distributedEventBus;
@@ -179,6 +180,8 @@ public class DocumentFigureRoutingJob
         }
 
         List<DocumentType> candidateTypes;
+        string? parentTypeCode = null;
+        string? parentTypeDisplayName = null;
         using (_currentTenant.Change(source.TenantId))
         {
             var visible = await _documentTypeRepository.GetListAsync();
@@ -187,6 +190,16 @@ public class DocumentFigureRoutingJob
                 .ThenBy(t => t.TypeCode)
                 .Take(_behaviorOptions.MaxDocumentTypesInClassificationPrompt)
                 .ToList();
+
+            // Best-effort parent type for the gate's parent context (#365). Resolve from the full visible set
+            // (not the truncated candidate subset) so a low-priority parent type is still found. Often null:
+            // routing and classification are enqueued in parallel, so the source may not be classified yet.
+            if (source.DocumentTypeId.HasValue)
+            {
+                var parentType = visible.FirstOrDefault(t => t.Id == source.DocumentTypeId.Value);
+                parentTypeCode = parentType?.TypeCode;
+                parentTypeDisplayName = parentType?.DisplayName;
+            }
         }
 
         var pending = await _figureRepository.GetListAsync(
@@ -198,8 +211,10 @@ public class DocumentFigureRoutingJob
 
         await uow.CompleteAsync();
 
+        var parentContext = new FigureGateParentContext(source.Title, parentTypeCode, parentTypeDisplayName);
+
         return new RoutingWorkItem(
-            sourceDocumentId, source.TenantId, source.FileOrigin.UploadedByUserName, candidateTypes, figures);
+            sourceDocumentId, source.TenantId, source.FileOrigin.UploadedByUserName, candidateTypes, parentContext, figures);
     }
 
     protected virtual async Task RouteFigureAsync(
@@ -214,20 +229,28 @@ public class DocumentFigureRoutingJob
             return;
         }
 
-        // Gate (external, no UoW): classify the figure transcription against the source's tenant type layer.
-        DocumentClassificationOutcome outcome;
+        // Gate (external, no UoW): the parent-aware binary judgment — is this figure a self-contained standalone
+        // document, or merely an element of its parent (chart / logo / stamp / photo / decorative)?
+        FigureGateOutcome outcome;
         using (_currentTenant.Change(workItem.TenantId))
         {
-            outcome = await _classificationWorkflow.RunAsync(workItem.CandidateTypes, figure.Transcription, cancellationToken);
+            outcome = await _figureGateWorkflow.RunAsync(
+                workItem.CandidateTypes, figure.Transcription, workItem.Parent, cancellationToken);
         }
 
-        // Match the winning type from the already-loaded candidates (same set the classifier chose from), and
-        // gate on that type's own ConfidenceThreshold — the figure must read as a confident document of a known
-        // type to become one, otherwise it stays inline-only.
-        var matched = string.IsNullOrEmpty(outcome.TypeCode)
-            ? null
-            : workItem.CandidateTypes.FirstOrDefault(t => t.TypeCode == outcome.TypeCode);
-        var isDocument = matched != null && outcome.ConfidenceScore >= matched.ConfidenceThreshold;
+        // Spawn only when the gate judges the figure a standalone document with at least the dedicated figure-gate
+        // confidence (#365). The matched type / Ready-gate threshold is intentionally NOT consulted here — the
+        // derived document re-classifies itself on its own pipeline run.
+        var isDocument = outcome.IsStandaloneDocument
+            && outcome.ConfidenceScore >= _behaviorOptions.FigureGateConfidenceThreshold;
+
+        // Audit the load-bearing precision decision: the reject path deletes the candidate crop irreversibly and a
+        // false spawn manufactures a bogus sub-document, so record why the gate decided as it did (Reason is the
+        // LLM's one-line justification). This is the only trace of an otherwise unrecoverable call.
+        Logger.LogInformation(
+            "Figure {FigureId} of source {SourceDocumentId} gate decision: isStandaloneDocument={IsStandalone} confidence={Confidence} threshold={Threshold} -> {Decision}. Reason: {Reason}",
+            figure.FigureId, workItem.SourceDocumentId, outcome.IsStandaloneDocument, outcome.ConfidenceScore,
+            _behaviorOptions.FigureGateConfidenceThreshold, isDocument ? "spawn" : "reject", outcome.Reason);
 
         if (!isDocument)
         {
@@ -389,12 +412,13 @@ public class DocumentFigureRoutingJob
     protected sealed record FigureSnapshot(
         Guid FigureId, string ContentHash, string CropBlobName, string ContentType, int? PageNumber, string Transcription);
 
-    /// <summary>Per-source routing context loaded once up front: tenant + uploader provenance, candidate types, and pending figures.</summary>
+    /// <summary>Per-source routing context loaded once up front: tenant + uploader provenance, candidate types, parent context, and pending figures.</summary>
     protected sealed record RoutingWorkItem(
         Guid SourceDocumentId,
         Guid? TenantId,
         string SourceUploadedByUserName,
         IReadOnlyList<DocumentType> CandidateTypes,
+        FigureGateParentContext Parent,
         IReadOnlyList<FigureSnapshot> PendingFigures);
 }
 

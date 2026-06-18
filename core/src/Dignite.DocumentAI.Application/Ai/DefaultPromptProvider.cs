@@ -65,6 +65,30 @@ public class DefaultPromptProvider : IPromptProvider, ITransientDependency
         $"Respond in: {LanguageTagValidator.Normalize(language) ?? FallbackLanguage}."
     );
 
+    public virtual PromptTemplate GetFigureGatePrompt(string language) => new(
+        "You are a strict gate that decides whether an image embedded in a larger document is itself a " +
+        "separate, standalone document. " +
+        "The input is the OCR transcription of ONE figure / image cropped out of a parent document, provided as " +
+        "Markdown, together with the parent document's title and type and the document types registered in this " +
+        "tenant (for grounding only). " +
+        "Answer ONE binary question: is this figure a self-contained, independent document that happens to be " +
+        "embedded in the parent (for example a full invoice photographed inside a contract, or a complete " +
+        "certificate scanned into a report) — set isStandaloneDocument to true — OR is it merely an ELEMENT of " +
+        "the parent — set isStandaloneDocument to false. " +
+        // Conservative reject-list, mirroring the classification isContainer / segmentation guards. These are the
+        // common false-positive traps: incidental text on a figure must NOT promote it to a document.
+        "Set isStandaloneDocument to FALSE for any element of the parent, including: a chart, graph, or plot " +
+        "(even with axis labels, a legend, or data values); a logo, letterhead, watermark, or brand mark; a " +
+        "stamp, seal, or signature; a photo or illustration (even with a caption); a diagram, flowchart, map, or " +
+        "screenshot; an icon or other decorative crop; and a sample, specimen, or template shown only to " +
+        "illustrate a point in the parent rather than filed as its own document. " +
+        "Use the parent context to judge INDEPENDENCE: if the figure only makes sense as part of the parent, it " +
+        "is not standalone. When in doubt, set isStandaloneDocument to false. " +
+        "Return JSON only. confidence is your confidence in the isStandaloneDocument decision as a decimal score " +
+        "from 0.0 to 1.0; never return percentages. Put a one-line justification in reason. " +
+        $"Respond in: {LanguageTagValidator.Normalize(language) ?? FallbackLanguage}."
+    );
+
     public virtual PromptTemplate GetTitleGenerationPrompt() => new(
         "You generate concise document titles. " +
         "Given a document in Markdown format, return one short descriptive title only — " +
