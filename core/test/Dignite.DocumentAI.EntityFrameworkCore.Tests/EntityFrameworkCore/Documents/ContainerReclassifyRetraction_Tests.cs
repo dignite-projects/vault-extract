@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Threading.Tasks;
 using Dignite.DocumentAI.Abstractions.Documents;
 using Dignite.DocumentAI.Documents;
+using Dignite.DocumentAI.Documents.Figures;
 using Dignite.DocumentAI.Documents.Segments;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
@@ -55,6 +56,7 @@ public class ContainerReclassifyRetraction_Tests
     private readonly IDocumentAppService _appService;
     private readonly IDocumentRepository _documentRepository;
     private readonly IRepository<DocumentSegment, Guid> _segmentRepository;
+    private readonly IRepository<DocumentFigure, Guid> _figureRepository;
     private readonly IRepository<DocumentType, Guid> _documentTypeRepository;
     private readonly IDistributedEventBus _eventBus;
     private readonly IGuidGenerator _guidGenerator;
@@ -64,6 +66,7 @@ public class ContainerReclassifyRetraction_Tests
         _appService = GetRequiredService<IDocumentAppService>();
         _documentRepository = GetRequiredService<IDocumentRepository>();
         _segmentRepository = GetRequiredService<IRepository<DocumentSegment, Guid>>();
+        _figureRepository = GetRequiredService<IRepository<DocumentFigure, Guid>>();
         _documentTypeRepository = GetRequiredService<IRepository<DocumentType, Guid>>();
         _eventBus = GetRequiredService<IDistributedEventBus>();
         _guidGenerator = GetRequiredService<IGuidGenerator>();
@@ -115,6 +118,44 @@ public class ContainerReclassifyRetraction_Tests
 
         // No sub-documents existed, so no retraction events fire (the marker-cleared handler is a no-op here).
         await _eventBus.DidNotReceive().PublishAsync(Arg.Any<DocumentDeletedEto>());
+    }
+
+    [Fact]
+    public async Task Reclassifying_A_Container_Retracts_Only_Segment_Children_Leaving_Figure_Routed_Ones_Intact()
+    {
+        // #364: a container can ALSO carry #306 figure-routed children (figures are routed during text extraction,
+        // independent of container-ness). Reclassifying the container to a concrete type must retract only the
+        // segmentation (#346) children — the figure-routed child (and its DocumentFigure ledger row) must survive,
+        // exactly as it would for a normal concrete-typed document, instead of being blanket-deleted by an
+        // OriginDocumentId sweep.
+        var typeId = await SeedDocumentTypeAsync("invoice.general");
+        var containerId = await ArrangeSegmentedContainerAsync(subDocumentCount: 2);
+        var (figureChildId, figureRowId) = await ArrangeFigureRoutedChildAsync(containerId);
+
+        await _appService.ReclassifyAsync(
+            containerId, new ReclassifyDocumentInput { DocumentTypeId = typeId });
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            // Only the figure-routed child survives under the OriginDocumentId; the two segmentation children are gone.
+            var survivors = await _documentRepository.GetListByOriginAsync(containerId);
+            survivors.Count.ShouldBe(1);
+            survivors[0].Id.ShouldBe(figureChildId);
+
+            // The figure ledger row is untouched (not orphaned), still pointing at its surviving child.
+            var figures = await _figureRepository.GetListAsync(f => f.SourceDocumentId == containerId);
+            figures.Count.ShouldBe(1);
+            figures[0].Id.ShouldBe(figureRowId);
+            figures[0].RoutedDocumentId.ShouldBe(figureChildId);
+
+            // The container's segment rows are gone.
+            (await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId)).ShouldBeEmpty();
+        });
+
+        // DocumentDeletedEto fired for exactly the two segmentation children — never for the figure-routed child.
+        await _eventBus.Received(2).PublishAsync(Arg.Any<DocumentDeletedEto>());
+        await _eventBus.DidNotReceive().PublishAsync(
+            Arg.Is<DocumentDeletedEto>(e => e.DocumentId == figureChildId));
     }
 
     private async Task<Guid> SeedDocumentTypeAsync(string typeCode)
@@ -187,5 +228,49 @@ public class ContainerReclassifyRetraction_Tests
         });
 
         return containerId;
+    }
+
+    /// <summary>
+    /// Seeds one #306 figure-routed child onto an existing container: a Spawned <see cref="DocumentFigure"/> row plus
+    /// its derived <see cref="Document"/> (OriginDocumentId == container, keyed by the figure's image-bytes hash).
+    /// Figure routing runs during text extraction, independent of container-ness — so a container can carry these
+    /// alongside its segmentation children. Returns the derived figure-child id and the figure ledger row id.
+    /// </summary>
+    private async Task<(Guid FigureChildId, Guid FigureRowId)> ArrangeFigureRoutedChildAsync(Guid containerId)
+    {
+        var figureChildId = _guidGenerator.Create();
+        var figureRowId = _guidGenerator.Create();
+        var figureHash = ContentHasher.Sha256Hex(System.Text.Encoding.UTF8.GetBytes("figure-image-bytes"));
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var derived = Document.CreateDerived(
+                figureChildId,
+                tenantId: null,
+                fileOrigin: new FileOrigin(
+                    blobName: $"{figureChildId:N}.png",
+                    uploadedByUserName: "test-user",
+                    contentType: "image/png",
+                    contentHash: figureHash,
+                    fileSize: 1234,
+                    originalFileName: "figure.png"),
+                originDocumentId: containerId,
+                originConstituentKey: figureHash);
+            await _documentRepository.InsertAsync(derived, autoSave: true);
+
+            var figure = new DocumentFigure(
+                figureRowId,
+                tenantId: null,
+                sourceDocumentId: containerId,
+                contentHash: figureHash,
+                cropBlobName: $"figures/{containerId:N}/{figureHash}",
+                contentType: "image/png",
+                transcription: "INVOICE photo",
+                pageNumber: 1);
+            figure.MarkSpawned(figureChildId);
+            await _figureRepository.InsertAsync(figure, autoSave: true);
+        });
+
+        return (figureChildId, figureRowId);
     }
 }

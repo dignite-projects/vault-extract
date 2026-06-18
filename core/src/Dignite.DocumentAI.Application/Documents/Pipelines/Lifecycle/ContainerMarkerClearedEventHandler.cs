@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Dignite.DocumentAI.Abstractions.Documents;
 using Dignite.DocumentAI.Documents.Segments;
@@ -20,10 +22,13 @@ namespace Dignite.DocumentAI.Documents.Pipelines.Lifecycle;
 /// <para>
 /// Within the same transaction as the marker clear (local event), this handler:
 /// <list type="bullet">
-///   <item>loads the spawned sub-documents (<see cref="IDocumentRepository.GetListByOriginAsync"/>, those whose
-///   <see cref="Document.OriginDocumentId"/> is the container) and soft-deletes each, publishing a
-///   <see cref="DocumentDeletedEto"/> per sub-document — mirroring <c>DocumentAppService.DeleteAsync</c> so downstream
-///   moves their derived data to a recoverable archived state;</item>
+///   <item>loads the sub-documents <b>this container's segmentation spawned</b> — identified by the container's
+///   <see cref="DocumentSegment"/> ledger (<see cref="DocumentSegment.RoutedDocumentId"/>), <b>not</b> a blanket
+///   <see cref="Document.OriginDocumentId"/> sweep — and soft-deletes each, publishing a
+///   <see cref="DocumentDeletedEto"/> per sub-document so downstream moves their derived data to a recoverable
+///   archived state. <b>#306 figure-routed children are intentionally left intact</b>: figure routing is orthogonal
+///   to container-ness (a normal concrete-typed document keeps its routed figure sub-documents), so retracting them
+///   would lose a legitimate routing and orphan its <c>DocumentFigure</c> row (#364);</item>
 ///   <item>removes the container's <see cref="DocumentSegment"/> work-queue rows (keyed by
 ///   <see cref="DocumentSegment.SourceDocumentId"/>), so a stale segmentation job finds nothing to resume and the
 ///   ledger no longer references a non-container.</item>
@@ -60,45 +65,57 @@ public class ContainerMarkerClearedEventHandler
     {
         var containerId = eventData.DocumentId;
 
-        // Retract the spawned sub-documents: soft-delete each + publish DocumentDeletedEto so downstream archives the
-        // derived data. A container that was never segmented (or whose segmentation never spawned) yields an empty
-        // list — a no-op, which is correct.
-        //
-        // Bounded fan-out: the sub-document count is already capped upstream by
-        // DocumentAIBehaviorOptions.MaxSegmentsPerDocument (default 50) — the segmentation job (SplitAndPersistAsync)
-        // refuses to spawn when the split exceeds that cap (flagging the container for review instead), so at most
-        // MaxSegmentsPerDocument rows can ever come back from GetListByOriginAsync. Because that bound is small and
-        // fixed, this loop needs no Take(N)/pagination and no background job — the retraction runs synchronously,
-        // entirely within the reclassify UoW (see the per-document delete note below).
-        var subDocuments = await _documentRepository.GetListByOriginAsync(containerId);
-        foreach (var subDocument in subDocuments)
-        {
-            // Intentional deferred flush: DeleteAsync WITHOUT autoSave (contrast the eager bulk DeleteAsync(predicate)
-            // for segments below). The soft-delete UPDATE is deferred to the ambient reclassify UoW's SaveChanges, so
-            // it commits together with that UoW. DO NOT add autoSave: true here — doing so would flush this one
-            // sub-document mid-handler, partially committing before the rest of the retraction and before the
-            // reclassify completes, breaking the all-in-one-UoW guarantee: every soft-delete, every DocumentDeletedEto,
-            // and the DocumentClassifiedEto must land in a single transactional-outbox commit (atomic, all-or-nothing).
-            await _documentRepository.DeleteAsync(subDocument);
+        // #364: retract ONLY the sub-documents THIS container's segmentation (#346) spawned, identified by the
+        // container's DocumentSegment ledger (RoutedDocumentId is set on a Spawned segment). A blanket
+        // OriginDocumentId sweep would also delete #306 figure-routed children — which are orthogonal to
+        // container-ness (a normal concrete-typed document keeps its routed figure sub-documents) — and would orphan
+        // their DocumentFigure rows. So drive the retraction from the segment rows; figure children + their figure
+        // ledger rows are left untouched. A container that was never segmented (or whose segmentation never spawned)
+        // yields no routed ids — a no-op, which is correct.
+        var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId);
+        var spawnedSubDocumentIds = segments
+            .Where(s => s.RoutedDocumentId.HasValue)
+            .Select(s => s.RoutedDocumentId!.Value)
+            .ToList();
 
-            await _distributedEventBus.PublishAsync(
-                new DocumentDeletedEto
-                {
-                    DocumentId = subDocument.Id,
-                    TenantId = subDocument.TenantId,
-                    EventTime = _clock.Now
-                });
+        var retractedCount = 0;
+        if (spawnedSubDocumentIds.Count > 0)
+        {
+            // Bounded fan-out: segment count is capped upstream by DocumentAIBehaviorOptions.MaxSegmentsPerDocument
+            // (default 50 — the segmentation job flags the container for review rather than spawn beyond that), so this
+            // list is small and fixed: no Take(N)/pagination and no background job, the retraction runs synchronously
+            // within the reclassify UoW (see the per-document delete note below).
+            var subDocuments = await _documentRepository.GetListAsync(d => spawnedSubDocumentIds.Contains(d.Id));
+            foreach (var subDocument in subDocuments)
+            {
+                // Intentional deferred flush: DeleteAsync WITHOUT autoSave (contrast the eager bulk DeleteAsync(predicate)
+                // for segments below). The soft-delete UPDATE is deferred to the ambient reclassify UoW's SaveChanges, so
+                // it commits together with that UoW. DO NOT add autoSave: true here — doing so would flush this one
+                // sub-document mid-handler, partially committing before the rest of the retraction and before the
+                // reclassify completes, breaking the all-in-one-UoW guarantee: every soft-delete, every DocumentDeletedEto,
+                // and the DocumentClassifiedEto must land in a single transactional-outbox commit (atomic, all-or-nothing).
+                await _documentRepository.DeleteAsync(subDocument);
+
+                await _distributedEventBus.PublishAsync(
+                    new DocumentDeletedEto
+                    {
+                        DocumentId = subDocument.Id,
+                        TenantId = subDocument.TenantId,
+                        EventTime = _clock.Now
+                    });
+                retractedCount++;
+            }
         }
 
         // Remove the container's segment work-queue rows: they reference a document that is no longer a container, so a
         // stale segmentation job finds nothing to resume (DocumentSegment has no soft delete — it is working state).
         await _segmentRepository.DeleteAsync(s => s.SourceDocumentId == containerId);
 
-        if (subDocuments.Count > 0)
+        if (retractedCount > 0)
         {
             _logger.LogInformation(
-                "Container {ContainerId} reclassified to a concrete type; retracted {SubDocumentCount} spawned sub-document(s) and removed its segment rows (#349).",
-                containerId, subDocuments.Count);
+                "Container {ContainerId} reclassified to a concrete type; retracted {SubDocumentCount} segmentation sub-document(s) and removed its segment rows (#349/#364); figure-routed sub-documents (#306) left intact.",
+                containerId, retractedCount);
         }
     }
 }
