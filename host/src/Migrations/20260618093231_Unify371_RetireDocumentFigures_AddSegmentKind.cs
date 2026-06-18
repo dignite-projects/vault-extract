@@ -11,6 +11,15 @@ namespace Dignite.DocumentAI.Host.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            // #374 (accepted, ops note): dropping this table orphans the #306 figure-crop blobs persisted at
+            // figures/{documentId}/{contentHash} — DocumentFigure.CropBlobName was the only handle that
+            // PermanentDeleteAsync used to reclaim them, and it is gone with the rows. The leak is bounded and
+            // NON-GROWING (the unified pass #371 spawns TEXT-ONLY figure sub-documents and never writes new crops),
+            // and the blast radius is ~0 (the #306 path only reached main for v0.2.0, so no production deployment
+            // wrote any). A complete reclaim is impossible here anyway: the crop blob names live only on these rows,
+            // and IBlobContainer has no list API, so once this DropTable runs the names are unrecoverable. Decision:
+            // ACCEPT the leak rather than couple blob IO into a migration for ~0 data. Any environment that DID run
+            // the #306 path (dev/staging) should one-off delete the "figures/" blob-store prefix manually.
             migrationBuilder.DropTable(
                 name: "DocAIDocumentFigures");
 
