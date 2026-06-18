@@ -145,6 +145,24 @@ public class EtoContract_Tests
     }
 
     [Fact]
+    public void DocumentReclassifiedToContainerEto_RoundTrips_Through_SystemTextJson()
+    {
+        var eto = new DocumentReclassifiedToContainerEto
+        {
+            DocumentId = Guid.NewGuid(),
+            TenantId = Guid.NewGuid(),
+            EventTime = SampleEventTime
+        };
+
+        var roundTrip = RoundTrip(eto);
+
+        roundTrip.DocumentId.ShouldBe(eto.DocumentId);
+        roundTrip.TenantId.ShouldBe(eto.TenantId);
+        roundTrip.EventTime.ShouldBe(eto.EventTime);
+        roundTrip.Version.ShouldBe("1.0");
+    }
+
+    [Fact]
     public void DocumentPermanentlyDeletedEto_RoundTrips_Through_SystemTextJson()
     {
         var eto = new DocumentPermanentlyDeletedEto

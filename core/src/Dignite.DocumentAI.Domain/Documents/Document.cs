@@ -390,6 +390,14 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// </summary>
     internal void MarkAsContainer()
     {
+        // #355: capture the prior state before clearing it. A false→true transition where the document previously
+        // had a concrete type means a re-recognition turned an already-classified document (downstream may have
+        // built a record from its DocumentClassifiedEto / DocumentReadyEto) into a container — that record is now
+        // invalid and downstream must be told to retract it. A fresh upload first detected as a container had no
+        // prior type and no downstream record, so it raises nothing.
+        var wasContainer = IsContainer;
+        var hadConcreteType = DocumentTypeId.HasValue;
+
         IsContainer = true;
         DocumentTypeId = null;
         ClassificationConfidence = 0;
@@ -402,6 +410,13 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         ReviewDisposition = DocumentReviewDisposition.NotReviewed;
         RejectionReason = null;
         _extractedFieldValues.Clear();
+
+        // #355: mirror of the container→type retraction (#349 ContainerMarkerClearedEvent). The in-process handler
+        // publishes DocumentReclassifiedToContainerEto so downstream retracts the record derived from the former type.
+        if (!wasContainer && hadConcreteType)
+        {
+            AddLocalEvent(new ContainerMarkerSetEvent(Id, TenantId));
+        }
     }
 
     internal void ConfirmClassification(Guid documentTypeId)

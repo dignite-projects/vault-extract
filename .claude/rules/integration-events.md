@@ -27,6 +27,7 @@ paths:
 | `DocumentDeletedEto` | document soft-deleted (into recycle bin) — downstream should set derived data to a recoverable archived state |
 | `DocumentRestoredEto` | document restored from recycle bin — downstream should un-archive |
 | `DocumentPermanentlyDeletedEto` | document permanently deleted (including the original file / archive blob) — downstream should physically delete derived data |
+| `DocumentReclassifiedToContainerEto` | a previously concrete-typed document was re-recognized as a **container** (#355) — its type + type-bound fields are cleared, so downstream should **retract** the record it derived from the former type. The document itself is not deleted; its constituents become sub-documents queryable by `OriginDocumentId`. Thin payload (`DocumentId` / `TenantId` / `EventTime`), not Ready-gated. The type→container mirror of the container→type retraction (#349, which reuses `DocumentDeletedEto` for the spawned sub-documents). Fires only on a real transition — a fresh upload first classified as a container emits nothing. |
 
 **Payload design**: event payloads are uniformly thin (ID + key metadata); downstream pulls detailed data back via REST/MCP.
 
