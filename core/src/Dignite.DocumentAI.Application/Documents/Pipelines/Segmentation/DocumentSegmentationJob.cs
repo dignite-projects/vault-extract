@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Dignite.DocumentAI.Abstractions.Documents;
 using Dignite.DocumentAI.Ai;
+using Dignite.DocumentAI.Documents.Figures;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Volo.Abp.BackgroundJobs;
@@ -54,6 +55,7 @@ public class DocumentSegmentationJob
 {
     private readonly IDocumentRepository _documentRepository;
     private readonly IRepository<DocumentSegment, Guid> _segmentRepository;
+    private readonly IRepository<DocumentFigure, Guid> _documentFigureRepository;
     private readonly DocumentSegmentationWorkflow _segmentationWorkflow;
     private readonly DocumentPipelineJobScheduler _pipelineJobScheduler;
     private readonly IBlobContainer<DocumentAIDocumentContainer> _blobContainer;
@@ -68,6 +70,7 @@ public class DocumentSegmentationJob
     public DocumentSegmentationJob(
         IDocumentRepository documentRepository,
         IRepository<DocumentSegment, Guid> segmentRepository,
+        IRepository<DocumentFigure, Guid> documentFigureRepository,
         DocumentSegmentationWorkflow segmentationWorkflow,
         DocumentPipelineJobScheduler pipelineJobScheduler,
         IBlobContainer<DocumentAIDocumentContainer> blobContainer,
@@ -81,6 +84,7 @@ public class DocumentSegmentationJob
     {
         _documentRepository = documentRepository;
         _segmentRepository = segmentRepository;
+        _documentFigureRepository = documentFigureRepository;
         _segmentationWorkflow = segmentationWorkflow;
         _pipelineJobScheduler = pipelineJobScheduler;
         _blobContainer = blobContainer;
@@ -160,6 +164,18 @@ public class DocumentSegmentationJob
         var hasExistingSegments =
             await _segmentRepository.FirstOrDefaultAsync(s => s.SourceDocumentId == containerDocumentId) is not null;
 
+        // #359: snapshot this container's inlined figure transcriptions so SplitAndPersistAsync can refuse to carve an
+        // already-inlined figure (e.g. an image invoice) into its own sub-document. Figure routing (#306) is the sole
+        // owner of figure-as-document; a text slice would be keyed by the slice-text hash, which does NOT collide with
+        // the figure's image-bytes-hash-keyed derived document on the unique (OriginDocumentId, OriginConstituentKey)
+        // index, so without this guard segmentation would silently duplicate it. The figure rows are persisted by
+        // text extraction, which always completes before classification enqueues this job, so they are readable here.
+        var figureTranscriptions = (await _documentFigureRepository.GetListAsync(
+                f => f.SourceDocumentId == containerDocumentId))
+            .Select(f => f.Transcription)
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .ToList();
+
         await uow.CompleteAsync();
 
         return new SegmentationContext(
@@ -167,7 +183,8 @@ public class DocumentSegmentationJob
             container.TenantId,
             container.FileOrigin.UploadedByUserName,
             container.Markdown ?? string.Empty,
-            hasExistingSegments);
+            hasExistingSegments,
+            figureTranscriptions);
     }
 
     /// <summary>
@@ -274,7 +291,29 @@ public class DocumentSegmentationJob
             return;
         }
 
-        var documentSliceCount = keyed.Count(p => p.Slice.IsDocument);
+        // #359: a document slice whose text is essentially an inlined figure transcription must not spawn — figure
+        // routing (#306) is the single owner of figure-as-document, and a text slice keyed by the slice hash would
+        // NOT collide with the figure's image-hash-keyed derived document, so it would silently duplicate it. Such a
+        // slice is downgraded to NotADocument (kept for audit), so it neither counts toward the document-slice total
+        // below nor produces a sub-document. Unconditional: an inlined figure transcription is never a standalone
+        // segmentation document, independent of whether figure routing itself spawned or rejected that figure.
+        var figureInlinedOrdinals = new HashSet<int>();
+        if (context.FigureTranscriptions.Count > 0)
+        {
+            foreach (var (slice, _) in keyed)
+            {
+                if (slice.IsDocument &&
+                    IsDominatedByFigureTranscription(slice.Text, context.FigureTranscriptions))
+                {
+                    figureInlinedOrdinals.Add(slice.Ordinal);
+                    Logger.LogInformation(
+                        "Container {ContainerId} slice at ordinal {Ordinal} is an inlined figure transcription; not spawning it as a sub-document (#359, owned by figure routing #306).",
+                        context.ContainerId, slice.Ordinal);
+                }
+            }
+        }
+
+        var documentSliceCount = keyed.Count(p => p.Slice.IsDocument && !figureInlinedOrdinals.Contains(p.Slice.Ordinal));
         if (documentSliceCount < 2)
         {
             // Fewer than two DISTINCT document slices means this was not really a multi-document bundle; do not spawn
@@ -314,8 +353,11 @@ public class DocumentSegmentationJob
                     key,
                     slice.Text,
                     slice.Ordinal,
-                    // Cover / index / transmittal slices are recorded for audit but never spawned.
-                    slice.IsDocument ? DocumentSegmentStatus.Pending : DocumentSegmentStatus.NotADocument));
+                    // Cover / index / transmittal slices, and inlined figure transcriptions (#359), are recorded for
+                    // audit but never spawned.
+                    slice.IsDocument && !figureInlinedOrdinals.Contains(slice.Ordinal)
+                        ? DocumentSegmentStatus.Pending
+                        : DocumentSegmentStatus.NotADocument));
             }
 
             await uow.CompleteAsync();
@@ -536,6 +578,34 @@ public class DocumentSegmentationJob
     private static bool IsSchemaDeserializationError(Exception ex)
         => ex is JsonException || ex.GetBaseException() is JsonException;
 
+    // #359: the slice must be ESSENTIALLY one figure's transcription — the transcription appears verbatim in it AND
+    // makes up at least this fraction of it (a short digital-text caption may precede it, #301). A real document whose
+    // body merely CONTAINS an inlined image keeps a much larger non-figure remainder, so the transcription is a
+    // minority of the slice and the slice stays a document. Content comparison, not offset matching: DocumentFigure
+    // has no positional anchor (#210 — identity is content), but its Transcription is the verbatim inlined text.
+    private const double FigureDominanceRatio = 0.9;
+
+    private static bool IsDominatedByFigureTranscription(string sliceText, IReadOnlyList<string> figureTranscriptions)
+    {
+        foreach (var transcription in figureTranscriptions)
+        {
+            // Skip a transcription too short to dominate this slice (cheap length gate before the substring scan); the
+            // `Contains` then confirms it is the verbatim inlined text, so it makes up >= FigureDominanceRatio of it.
+            if (string.IsNullOrWhiteSpace(transcription) ||
+                transcription.Length < sliceText.Length * FigureDominanceRatio)
+            {
+                continue;
+            }
+
+            if (sliceText.Contains(transcription, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private async Task TryDeleteBlobAsync(string blobName)
     {
         try
@@ -554,7 +624,8 @@ public class DocumentSegmentationJob
         Guid? TenantId,
         string UploadedByUserName,
         string Markdown,
-        bool HasExistingSegments);
+        bool HasExistingSegments,
+        IReadOnlyList<string> FigureTranscriptions);
 
     /// <summary>Detached snapshot of one still-Pending segment, carried across the per-segment external + UoW phases.</summary>
     protected sealed record PendingSegment(Guid SegmentId, string SegmentKey, string SliceText, int Ordinal);

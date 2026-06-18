@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Dignite.DocumentAI.Abstractions.Documents;
 using Dignite.DocumentAI.Ai;
 using Dignite.DocumentAI.Documents;
+using Dignite.DocumentAI.Documents.Figures;
 using Dignite.DocumentAI.Documents.Pipelines.Segmentation;
 using Dignite.DocumentAI.Documents.Pipelines.TextExtraction;
 using Dignite.DocumentAI.Documents.Segments;
@@ -58,6 +59,7 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
     private readonly DocumentSegmentationJob _job;
     private readonly IDocumentRepository _documentRepository;
     private readonly IRepository<DocumentSegment, Guid> _segmentRepository;
+    private readonly IRepository<DocumentFigure, Guid> _figureRepository;
     private readonly IBackgroundJobManager _backgroundJobManager;
     private readonly IDistributedEventBus _eventBus;
     private readonly DocumentSegmentationWorkflow _workflow;
@@ -69,6 +71,7 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
         _job = GetRequiredService<DocumentSegmentationJob>();
         _documentRepository = GetRequiredService<IDocumentRepository>();
         _segmentRepository = GetRequiredService<IRepository<DocumentSegment, Guid>>();
+        _figureRepository = GetRequiredService<IRepository<DocumentFigure, Guid>>();
         _backgroundJobManager = GetRequiredService<IBackgroundJobManager>();
         _eventBus = GetRequiredService<IDistributedEventBus>();
         _workflow = GetRequiredService<DocumentSegmentationWorkflow>();
@@ -106,6 +109,66 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
         // Each derived sub-document runs the full normal pipeline (text-extraction enqueued).
         await _backgroundJobManager.Received(2).EnqueueAsync(
             Arg.Any<DocumentTextExtractionJobArgs>(), Arg.Any<BackgroundJobPriority>(), Arg.Any<TimeSpan?>());
+    }
+
+    [Fact]
+    public async Task Inlined_Figure_Transcription_Is_Not_Spawned_As_A_Sub_Document()
+    {
+        // #359: figure routing (#306) is the single owner of figure-as-document. A born-digital container whose
+        // Markdown carries an inlined image-invoice transcription (#301) between two real text documents must NOT
+        // re-spawn that invoice as a text sub-document when the LLM (ignoring the segmentation prompt's instruction)
+        // cuts the inlined transcription into its own slice — that would duplicate the figure-routed invoice (the
+        // text-slice hash and the image-bytes hash differ, so the unique index cannot dedup them). The figure slice is
+        // downgraded to NotADocument; only the two genuine text documents spawn.
+        var invoiceTranscription = "INVOICE No 42 Total 100";
+        var containerId = await ArrangeContainerAsync(
+            $"Service Agreement A-B\n{invoiceTranscription}\nLease Contract X-Y",
+            figureTranscriptions: new[] { invoiceTranscription });
+        StubSplit(("Service Agreement", true), ("INVOICE No 42", true), ("Lease Contract", true));
+
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId });
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var invoiceSliceKey = ContentHasher.Sha256Hex(
+                System.Text.Encoding.UTF8.GetBytes(invoiceTranscription));
+
+            // Only the two genuine text documents spawn; the inlined invoice figure is not re-spawned by segmentation.
+            var derived = await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId);
+            derived.Count.ShouldBe(2);
+            derived.ShouldNotContain(d => d.OriginConstituentKey == invoiceSliceKey);
+
+            // The figure slice is persisted as NotADocument (audit), the two real docs as Spawned.
+            var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId);
+            segments.Count.ShouldBe(3);
+            segments.Count(s => s.Status == DocumentSegmentStatus.Spawned).ShouldBe(2);
+            segments.ShouldContain(s =>
+                s.SegmentKey == invoiceSliceKey && s.Status == DocumentSegmentStatus.NotADocument);
+        });
+    }
+
+    [Fact]
+    public async Task Document_Whose_Body_Merely_Contains_A_Figure_Still_Spawns()
+    {
+        // #359 guard against over-suppression: the suppression only fires when a slice is ESSENTIALLY a figure
+        // transcription (>= FigureDominanceRatio of it). A real document whose body merely INCLUDES a small inlined
+        // figure keeps a large non-figure remainder, so the transcription is a minority of the slice and the document
+        // still spawns. If suppression keyed off `Contains` alone, this slice would be wrongly dropped, leaving fewer
+        // than two document slices and flagging the container — so this test fails on a too-aggressive threshold.
+        var containerId = await ArrangeContainerAsync(
+            "Service Agreement A-B\nFig 1 logo\nLease Contract X-Y body text",
+            figureTranscriptions: new[] { "Fig 1 logo" });
+        StubSplit(("Service Agreement", true), ("Lease Contract", true));
+
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { ContainerDocumentId = containerId });
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            // Both real documents spawn; the embedded figure does not suppress its host document.
+            (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).Count.ShouldBe(2);
+            (await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId))
+                .ShouldAllBe(s => s.Status == DocumentSegmentStatus.Spawned);
+        });
     }
 
     [Fact]
@@ -398,7 +461,8 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
             await _segmentRepository.InsertAsync(NewSegment(containerId, "second split slice", 0), autoSave: true)));
     }
 
-    private async Task<Guid> ArrangeContainerAsync(string markdown, bool asContainer = true)
+    private async Task<Guid> ArrangeContainerAsync(
+        string markdown, bool asContainer = true, string[]? figureTranscriptions = null)
     {
         var containerId = _guidGenerator.Create();
         await WithUnitOfWorkAsync(async () =>
@@ -429,6 +493,18 @@ public class DocumentSegmentationJob_Tests : DocumentAITestBase<DocumentSegmenta
             }
 
             await _documentRepository.InsertAsync(doc, autoSave: true);
+
+            // #359: seed DocumentFigure rows as text extraction (#306) would have, carrying the verbatim transcription
+            // that PdfExtractor inlined into the container Markdown (#301). Segmentation reads these to refuse carving
+            // an already-inlined figure into its own sub-document.
+            foreach (var transcription in figureTranscriptions ?? Array.Empty<string>())
+            {
+                var contentHash = $"{Guid.NewGuid():N}{Guid.NewGuid():N}"[..64];
+                await _figureRepository.InsertAsync(new DocumentFigure(
+                    _guidGenerator.Create(), tenantId: null, sourceDocumentId: containerId,
+                    contentHash: contentHash, cropBlobName: $"figures/{containerId}/{contentHash}",
+                    contentType: "image/png", transcription: transcription, pageNumber: 1), autoSave: true);
+            }
         });
 
         return containerId;

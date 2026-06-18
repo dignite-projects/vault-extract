@@ -49,4 +49,20 @@ public class DefaultPromptProvider_Tests
         template.SystemInstructions.ShouldNotContain("Ignore previous instructions");
         template.SystemInstructions.ShouldNotContain("ignore prior rules");
     }
+
+    [Fact]
+    public void Segmentation_Prompt_Interpolates_Valid_Language_Tag()
+    {
+        _provider.GetSegmentationPrompt("zh-Hans").SystemInstructions.ShouldEndWith("Respond in: zh-Hans.");
+    }
+
+    [Fact]
+    public void Segmentation_Prompt_Instructs_Not_To_Split_Inlined_Figure_Transcriptions()
+    {
+        // #359: this prompt instruction is the LLM-side half of the inlined-figure guard (the code-side half lives in
+        // DocumentSegmentationJob, which refuses to spawn a slice dominated by a figure transcription). Pin the
+        // wording so it cannot be silently dropped or reworded away without a deliberate test update.
+        _provider.GetSegmentationPrompt("en").SystemInstructions
+            .ShouldContain("Do NOT split a figure or image transcription that is already inlined");
+    }
 }
