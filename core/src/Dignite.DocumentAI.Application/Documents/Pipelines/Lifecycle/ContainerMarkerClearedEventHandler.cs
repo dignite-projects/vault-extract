@@ -26,9 +26,9 @@ namespace Dignite.DocumentAI.Documents.Pipelines.Lifecycle;
 ///   <see cref="DocumentSegment"/> ledger (<see cref="DocumentSegment.RoutedDocumentId"/>), <b>not</b> a blanket
 ///   <see cref="Document.OriginDocumentId"/> sweep — and soft-deletes each, publishing a
 ///   <see cref="DocumentDeletedEto"/> per sub-document so downstream moves their derived data to a recoverable
-///   archived state. <b>#306 figure-routed children are intentionally left intact</b>: figure routing is orthogonal
-///   to container-ness (a normal concrete-typed document keeps its routed figure sub-documents), so retracting them
-///   would lose a legitimate routing and orphan its <c>DocumentFigure</c> row (#364);</item>
+///   archived state. <b><see cref="DocumentSegmentKind.Figure"/> children are intentionally left intact</b> (#371):
+///   figure routing is orthogonal to container-ness (a normal concrete-typed document keeps its routed figure
+///   sub-documents), so retracting them would lose a legitimate routing (#364);</item>
 ///   <item>removes the container's <see cref="DocumentSegment"/> work-queue rows (keyed by
 ///   <see cref="DocumentSegment.SourceDocumentId"/>), so a stale segmentation job finds nothing to resume and the
 ///   ledger no longer references a non-container.</item>
@@ -73,8 +73,12 @@ public class ContainerMarkerClearedEventHandler
         // ledger rows are left untouched. A container that was never segmented (or whose segmentation never spawned)
         // yields no routed ids — a no-op, which is correct.
         var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId);
+        // #371: retract only TEXT-kind sub-documents (bundle constituents that existed only because the parent was a
+        // container). FIGURE-kind sub-documents are genuinely embedded documents (an invoice photo inside what is now
+        // a concrete-typed contract) and survive the reclassify — exactly as a freshly-uploaded concrete document with
+        // an embedded figure keeps it (#364, now a Kind filter on the single unified ledger).
         var spawnedSubDocumentIds = segments
-            .Where(s => s.RoutedDocumentId.HasValue)
+            .Where(s => s.Kind == DocumentSegmentKind.Text && s.RoutedDocumentId.HasValue)
             .Select(s => s.RoutedDocumentId!.Value)
             .ToList();
 
@@ -107,9 +111,11 @@ public class ContainerMarkerClearedEventHandler
             }
         }
 
-        // Remove the container's segment work-queue rows: they reference a document that is no longer a container, so a
-        // stale segmentation job finds nothing to resume (DocumentSegment has no soft delete — it is working state).
-        await _segmentRepository.DeleteAsync(s => s.SourceDocumentId == containerId);
+        // Remove the container's TEXT-kind segment work-queue rows: they reference a bundle premise that is gone, so a
+        // stale detection job finds no text constituents to resume (DocumentSegment has no soft delete — working
+        // state). FIGURE-kind rows are KEPT: figure routing is orthogonal to container-ness, so a still-Pending figure
+        // span must still route on the now-concrete-typed parent, and a spawned figure's row stays as its provenance.
+        await _segmentRepository.DeleteAsync(s => s.SourceDocumentId == containerId && s.Kind == DocumentSegmentKind.Text);
 
         if (retractedCount > 0)
         {

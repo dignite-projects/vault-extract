@@ -14,11 +14,13 @@ namespace Dignite.DocumentAI.Documents.Pipelines.Lifecycle;
 /// record downstream may have built and now needs to retract.
 /// <para>
 /// Mirror of <see cref="ContainerMarkerClearedEventHandler"/> (#349, the container→type direction). Unlike that
-/// handler, this one does <b>no</b> aggregate work — a document becoming a container has no already-spawned
-/// sub-documents to retract (it was a concrete-typed document, not a container); the sub-documents it will go on to
-/// spawn are produced by segmentation afterwards. So this handler's sole job is the outbound signal. It runs in the
-/// same transaction as the marker set (local event), so the ETO is written to the transactional outbox atomically
-/// with the reclassification — never lost, never published for a rolled-back transition.
+/// handler, this one does <b>no</b> aggregate work. Since #371 the former concrete document may already have spawned a
+/// single figure sub-document (its embedded figure routed a <c>Kind=Figure</c> segment before this re-recognition),
+/// but that figure is a legitimate constituent of the now-container and is <b>kept</b>, not retracted; the unified
+/// pass then re-runs in container mode and idempotently adds the remaining <c>Kind=Text</c> constituents (#372). So
+/// this handler's sole job is the outbound signal. It runs in the same transaction as the marker set (local event),
+/// so the ETO is written to the transactional outbox atomically with the reclassification — never lost, never
+/// published for a rolled-back transition.
 /// </para>
 /// </summary>
 public class ContainerMarkerSetEventHandler

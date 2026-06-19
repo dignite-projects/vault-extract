@@ -15,6 +15,7 @@ using Microsoft.Extensions.Options;
 using NSubstitute;
 using Shouldly;
 using Volo.Abp.BackgroundJobs;
+using Volo.Abp.BlobStoring;
 using Volo.Abp.EventBus.Distributed;
 using Volo.Abp.Modularity;
 using Xunit;
@@ -32,6 +33,10 @@ public class DocumentClassificationJobTestModule : AbpModule
         context.Services.AddSingleton(Substitute.For<IDocumentRepository>());
         context.Services.AddSingleton(Substitute.For<IDistributedEventBus>());
         context.Services.AddSingleton(Substitute.For<IBackgroundJobManager>());
+        // #371: classification now reads the marked-Markdown blob (GetAllBytesOrNullAsync) to see [Image OCR] figure
+        // spans for the embedded-document signal. A substitute container returns null from GetOrNullAsync, so the job
+        // falls back to Document.Markdown — preserving these tests' clean-Markdown classification behavior.
+        context.Services.AddSingleton(Substitute.For<IBlobContainer<DocumentAIDocumentContainer>>());
         // #216: Manager + background-job BeginRun / CompleteRun / FailRun all use IDocumentPipelineRunRepository.
         context.Services.AddSingleton(PipelineRunRepositoryFake.Create());
 
@@ -164,9 +169,9 @@ public class DocumentClassificationBackgroundJob_Tests
         await _eventBus.DidNotReceive().PublishAsync(
             Arg.Any<DocumentClassifiedEto>(), Arg.Any<bool>());
 
-        // #346 PR3b: a detected container enqueues the born-digital segmentation job (same UoW as the completion).
+        // #371: a detected container enqueues the unified sub-document segmentation job (same UoW as the completion).
         await _backgroundJobManager.Received(1).EnqueueAsync(
-            Arg.Is<DocumentSegmentationJobArgs>(a => a.ContainerDocumentId == doc.Id),
+            Arg.Is<DocumentSegmentationJobArgs>(a => a.SourceDocumentId == doc.Id),
             Arg.Any<BackgroundJobPriority>(), Arg.Any<TimeSpan?>());
     }
 

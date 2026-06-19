@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-
 namespace Dignite.DocumentAI.Abstractions.TextExtraction;
 
 public class TextExtractionResult
@@ -36,16 +34,6 @@ public class TextExtractionResult
     /// DB</b> and is <b>not exposed as a parallel text field</b>.
     /// </summary>
     public NativePayload? NativePayload { get; set; }
-
-    /// <summary>
-    /// Out-of-band embedded-figure signal (#306): named / strongly-typed / nullable (the #210
-    /// <c>PageBlocks</c> precedent, <b>not</b> a <c>Dictionary&lt;string,object&gt;</c> bag, #206). Carries
-    /// each transcribed embedded image's bytes + provenance so the channel can persist candidate crops and
-    /// route a figure that is itself a document to its own derived <c>Document</c> (Scenario B).
-    /// <b>Orthogonal to inline-into-Markdown (#301)</b>: inlining stays the text payload; this is the
-    /// separate out-of-band channel. <c>null</c> when the provider surfaces no figures.
-    /// </summary>
-    public IReadOnlyList<Figure>? Figures { get; set; }
 
     /// <summary>
     /// Number of embedded-image OCR calls <b>dispatched</b> via figure-OCR (#306) — every call sent to

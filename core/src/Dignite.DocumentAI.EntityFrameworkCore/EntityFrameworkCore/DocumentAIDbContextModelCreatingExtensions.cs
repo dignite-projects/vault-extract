@@ -74,6 +74,10 @@ public static class DocumentAIDbContextModelCreatingExtensions
             // #346 container marker: non-null bool, default false (generic truth-source column, not a business field).
             b.Property(x => x.IsContainer).IsRequired();
 
+            // #377 segmentation-completed marker: non-null bool, default false. Internal pipeline state (the precise
+            // resume gate for the unified sub-document pass); not exposed at the egress.
+            b.Property(x => x.IsSegmented).IsRequired();
+
             // #306 / #346 Scenario B back-reference: content-derived key of the source constituent (= FileOrigin.ContentHash).
             b.Property(x => x.OriginConstituentKey).HasMaxLength(DocumentConsts.MaxOriginConstituentKeyLength);
 
@@ -218,44 +222,20 @@ public static class DocumentAIDbContextModelCreatingExtensions
                 .IsUnique();
         });
 
-        builder.Entity<DocumentFigure>(b =>
-        {
-            b.ToTable(DocumentAIDbProperties.DbTablePrefix + "DocumentFigures", DocumentAIDbProperties.DbSchema);
-            b.ConfigureByConvention();
-
-            b.Property(x => x.ContentHash).IsRequired().HasMaxLength(DocumentFigureConsts.MaxContentHashLength);
-            b.Property(x => x.CropBlobName).IsRequired().HasMaxLength(DocumentFigureConsts.MaxCropBlobNameLength);
-            b.Property(x => x.ContentType).IsRequired().HasMaxLength(DocumentFigureConsts.MaxContentTypeLength);
-            // Transcription is a figure-OCR snapshot (nvarchar(max), like Document.Markdown); not indexed.
-            b.Property(x => x.Transcription).IsRequired();
-            b.Property(x => x.Status).IsRequired();
-
-            // #306: candidate figure -> source Document, FK + CASCADE so hard-deleting the source removes its
-            // candidate rows (mirrors the #216 DocumentPipelineRun child-side declaration). RoutedDocumentId is
-            // a soft pointer to the spawned derived Document with NO FK constraint: the derived document is a
-            // peer that must outlive the source, so it must not cascade from / be constrained by this table.
-            b.HasOne<Document>()
-                .WithMany()
-                .HasForeignKey(x => x.SourceDocumentId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            // Idempotent routing / re-extraction: one candidate per (source, figure-content). A job retry that
-            // re-persists the same figure bytes collides here instead of duplicate-spawning downstream. Both
-            // columns are non-nullable, so this is a plain (portable) unique index, not a filtered one.
-            b.HasIndex(x => new { x.SourceDocumentId, x.ContentHash })
-                .IsUnique();
-        });
-
         builder.Entity<DocumentSegment>(b =>
         {
             b.ToTable(DocumentAIDbProperties.DbTablePrefix + "DocumentSegments", DocumentAIDbProperties.DbSchema);
             b.ConfigureByConvention();
 
             b.Property(x => x.SegmentKey).IsRequired().HasMaxLength(DocumentSegmentConsts.MaxSegmentKeyLength);
-            // SliceText is a Markdown slice used to seed the derived document (nvarchar(max), like Document.Markdown
-            // and DocumentFigure.Transcription); not indexed.
+            // SliceText is a Markdown slice used to seed the derived document (nvarchar(max), like Document.Markdown);
+            // not indexed.
             b.Property(x => x.SliceText).IsRequired();
             b.Property(x => x.Ordinal).IsRequired();
+            // #371: which span kind this segment was carved from (Text constituent vs embedded Figure); drives the
+            // container→type retraction filter (#364). PageNumber is a nullable recovery anchor (page) for
+            // Figure-kind rows, parsed from the [Image OCR p:N] sentinel; neither is indexed.
+            b.Property(x => x.Kind).IsRequired();
             b.Property(x => x.Status).IsRequired();
 
             // #346: born-digital slice -> container Document, FK + CASCADE so hard-deleting the container removes

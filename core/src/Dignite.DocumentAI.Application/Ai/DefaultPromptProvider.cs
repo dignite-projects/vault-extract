@@ -1,3 +1,4 @@
+using Dignite.DocumentAI.Abstractions.TextExtraction;
 using Dignite.DocumentAI.Documents;
 using Volo.Abp.DependencyInjection;
 
@@ -37,6 +38,17 @@ public class DefaultPromptProvider : IPromptProvider, ITransientDependency
         "annexes, 別紙, appendices, or exhibits; a multi-page single document such as a continuation page or " +
         "line-item overflow of one invoice or contract (the same document identity / header repeats); or a single " +
         "register, ledger, or itemized table that merely lists many rows. When in doubt, set isContainer to false. " +
+        // #371: a NON-container parent may still embed a standalone document (an invoice photo inside a contract).
+        // The input brackets each embedded-image OCR region with the salted figure sentinels (#376); flag those that
+        // are a complete document of their own. Conservative — mirrors the isContainer / figure-gate reject-list.
+        "Set containsEmbeddedDocument to true when the document is NOT a container but embeds an image that is itself " +
+        "a complete, self-contained document — for example an invoice or receipt photo, or a scanned certificate, " +
+        "shown inside a contract or report; the classification input marks each embedded-image OCR region with " +
+        ImageOcrMarkup.OpenMarker + " and " + ImageOcrMarkup.CloseMarker +
+        ". Do NOT set it for an image that is merely an element of this document (a chart, " +
+        "logo, letterhead, watermark, stamp, seal, signature, photo, illustration, diagram, map, screenshot, or " +
+        "decorative crop), and do NOT set it when isContainer is true (a container's constituents are handled " +
+        "separately). When in doubt, set containsEmbeddedDocument to false. " +
         // Defensive validation: language comes from host trust-domain configuration
         // (DocumentAIBehaviorOptions.DefaultLanguage), so it does not violate the "compile-time
         // constants for instructions" safety rule. Still, before interpolation into the system prompt,
@@ -47,45 +59,33 @@ public class DefaultPromptProvider : IPromptProvider, ITransientDependency
     );
 
     public virtual PromptTemplate GetSegmentationPrompt(string language) => new(
-        "You split a bundle of several independent documents into its constituent documents. " +
-        "The content is provided as Markdown. Identify each separate document in reading order. " +
+        // #371: unified sub-document detection — one pass deciding, per span (text spans AND figure spans alike),
+        // whether it is a standalone sub-document or content of the parent. Folds #346 container segmentation and
+        // the #365 figure-document gate into one decision.
+        "You analyze one document's Markdown and identify which spans are standalone sub-documents that should be " +
+        "filed and processed on their own, versus content of the document itself. The content is provided as " +
+        "Markdown and may contain embedded-image OCR regions, each bracketed by " + ImageOcrMarkup.OpenMarker +
+        " (or " + ImageOcrMarkup.OpenPagePrefix + "N]) and " + ImageOcrMarkup.CloseMarker +
+        " markers — these are images embedded in the document, transcribed to text. " +
+        "You are told whether the document is a CONTAINER (a bundle of several independent documents) or a single " +
+        "concrete document that may merely EMBED a standalone document (such as an invoice photo inside a contract). " +
         // #346 decision (Decision Log): the model returns BOUNDARIES, not regenerated text. It copies a short
-        // verbatim marker for each constituent; code does the actual cutting, so there is no content drift.
-        "For each constituent, return its startMarker — the FIRST line (or first ~60 characters) of that " +
-        "constituent, copied EXACTLY and verbatim from the Markdown, character for character, with no edits, " +
-        "no summarizing, and no added punctuation — and isDocument. " +
-        "Set isDocument to false for a cover sheet, table of contents, index, or transmittal page, and true for " +
-        "an actual document (invoice, contract, receipt, etc.). List the segments in the order they appear. " +
-        // Conservative boundaries: the same false-positive traps as container detection.
-        "Do NOT split a single multi-page document (a continuation page or line-item overflow of one invoice or " +
-        "contract is the SAME document, one segment). Do NOT split attachments, annexes, 別紙, appendices, or " +
-        "exhibits away from the document they belong to. Do NOT split a figure or image transcription that is " +
-        "already inlined inside another document's text. When unsure whether two parts are separate documents, " +
-        "keep them as one segment. " +
-        $"Respond in: {LanguageTagValidator.Normalize(language) ?? FallbackLanguage}."
-    );
-
-    public virtual PromptTemplate GetFigureGatePrompt(string language) => new(
-        "You are a strict gate that decides whether an image embedded in a larger document is itself a " +
-        "separate, standalone document. " +
-        "The input is the OCR transcription of ONE figure / image cropped out of a parent document, provided as " +
-        "Markdown, together with the parent document's title and type and the document types registered in this " +
-        "tenant (for grounding only). " +
-        "Answer ONE binary question: is this figure a self-contained, independent document that happens to be " +
-        "embedded in the parent (for example a full invoice photographed inside a contract, or a complete " +
-        "certificate scanned into a report) — set isStandaloneDocument to true — OR is it merely an ELEMENT of " +
-        "the parent — set isStandaloneDocument to false. " +
-        // Conservative reject-list, mirroring the classification isContainer / segmentation guards. These are the
-        // common false-positive traps: incidental text on a figure must NOT promote it to a document.
-        "Set isStandaloneDocument to FALSE for any element of the parent, including: a chart, graph, or plot " +
-        "(even with axis labels, a legend, or data values); a logo, letterhead, watermark, or brand mark; a " +
-        "stamp, seal, or signature; a photo or illustration (even with a caption); a diagram, flowchart, map, or " +
-        "screenshot; an icon or other decorative crop; and a sample, specimen, or template shown only to " +
-        "illustrate a point in the parent rather than filed as its own document. " +
-        "Use the parent context to judge INDEPENDENCE: if the figure only makes sense as part of the parent, it " +
-        "is not standalone. When in doubt, set isStandaloneDocument to false. " +
-        "Return JSON only. confidence is your confidence in the isStandaloneDocument decision as a decimal score " +
-        "from 0.0 to 1.0; never return percentages. Put a one-line justification in reason. " +
+        // verbatim marker for each span; code does the actual cutting, so there is no content drift.
+        "For each span, return its startMarker — the FIRST line of that span, copied EXACTLY and verbatim from the " +
+        "Markdown, character for character, with no edits, no summarizing, and no added punctuation (for an " +
+        "embedded-image span, that first line is the " + ImageOcrMarkup.OpenMarker + " marker line) — and isSubDocument. " +
+        "Set isSubDocument to true ONLY for a self-contained, independent document that should be processed on its " +
+        "own: in a CONTAINER, each constituent document (an invoice, a contract, a receipt); in a single document, " +
+        "an embedded image that is itself a complete standalone document (an invoice photo, a scanned certificate). " +
+        "Set isSubDocument to false for: the document's own body text, headings, or tables; a cover sheet, table of " +
+        "contents, index, or transmittal page; and any embedded image that is merely an ELEMENT of the document — a " +
+        "chart, graph, logo, letterhead, watermark, stamp, seal, signature, photo, illustration, diagram, " +
+        "flowchart, map, screenshot, icon, or a sample/specimen shown only to illustrate a point. " +
+        // Conservative boundaries: the same false-positive traps as container detection (#346) + the figure gate (#365).
+        "Be conservative. Do NOT split a single multi-page document (a continuation page or line-item overflow of " +
+        "one invoice or contract is the SAME document, one span). Do NOT split attachments, annexes, 別紙, " +
+        "appendices, or exhibits away from the document they belong to. When unsure whether something is a separate " +
+        "document, set isSubDocument to false. List the spans in the order they appear. " +
         $"Respond in: {LanguageTagValidator.Normalize(language) ?? FallbackLanguage}."
     );
 
