@@ -65,13 +65,12 @@ public class ContainerMarkerClearedEventHandler
     {
         var containerId = eventData.DocumentId;
 
-        // #364: retract ONLY the sub-documents THIS container's segmentation (#346) spawned, identified by the
-        // container's DocumentSegment ledger (RoutedDocumentId is set on a Spawned segment). A blanket
-        // OriginDocumentId sweep would also delete #306 figure-routed children — which are orthogonal to
-        // container-ness (a normal concrete-typed document keeps its routed figure sub-documents) — and would orphan
-        // their DocumentFigure rows. So drive the retraction from the segment rows; figure children + their figure
-        // ledger rows are left untouched. A container that was never segmented (or whose segmentation never spawned)
-        // yields no routed ids — a no-op, which is correct.
+        // #364 / #371: retract ONLY the sub-documents THIS container's segmentation (#346) spawned, identified by the
+        // container's DocumentSegment ledger (RoutedDocumentId is set on a Spawned segment). A blanket OriginDocumentId
+        // sweep would also delete genuinely-embedded FIGURE-kind sub-documents — orthogonal to container-ness (a normal
+        // concrete-typed document keeps its embedded sub-documents) — so drive the retraction from the segment rows and
+        // filter by Kind (below). A container that was never segmented (or whose segmentation never spawned) yields no
+        // routed ids — a no-op, which is correct.
         var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId);
         // #371: retract only TEXT-kind sub-documents (bundle constituents that existed only because the parent was a
         // container). FIGURE-kind sub-documents are genuinely embedded documents (an invoice photo inside what is now

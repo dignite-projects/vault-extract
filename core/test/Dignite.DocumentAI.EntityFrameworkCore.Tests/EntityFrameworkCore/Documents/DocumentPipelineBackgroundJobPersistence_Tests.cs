@@ -123,6 +123,48 @@ public class DocumentPipelineBackgroundJobPersistence_Tests
     }
 
     [Fact]
+    public async Task Text_Extraction_Job_Archives_Marked_Markdown_And_Persists_Clean_Markdown()
+    {
+        // #371 Markdown-first egress invariant: when extraction produces [Image OCR]-marked Markdown, the job archives
+        // the marked copy to the pipeline-internal markdown-marked/{id} blob (the classifier + segmentation pass read
+        // it) AND strips the sentinels before the write-once SetMarkdown, so the persisted Document.Markdown (the
+        // egress text payload) is sentinel-free. Without this, routing scaffolding would leak into the channel text
+        // consumed by RAG / classification / egress, or the classifier would lose its embedded-document signal.
+        var documentId = _guidGenerator.Create();
+        var textExtractionRunId = await ArrangeQueuedTextExtractionAsync(documentId);
+
+        var figureBody = "INVOICE No 42 Total 100";
+        var marked = "# Contract\n\nBody before the figure.\n\n"
+            + ImageOcrMarkup.Wrap(figureBody, pageNumber: 3)
+            + "\n\nBody after the figure.";
+        StubExtraction(marked, usedOcr: false);
+
+        await _textExtractionJob.ExecuteAsync(new DocumentTextExtractionJobArgs
+        {
+            DocumentId = documentId,
+            PipelineRunId = textExtractionRunId
+        });
+
+        // (a) The marked copy is archived to the pipeline-internal blob (overrideExisting for re-extraction).
+        await _blobContainer.Received(1).SaveAsync(
+            DocumentConsts.MarkedMarkdownBlobPrefix + documentId,
+            Arg.Any<Stream>(),
+            true,
+            Arg.Any<CancellationToken>());
+
+        // (b) The persisted egress payload is sentinel-free, yet the figure transcription body is retained inline.
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var doc = await _documentRepository.GetAsync(documentId, includeDetails: false);
+            doc.Markdown.ShouldNotBeNull();
+            var markdown = doc.Markdown!;
+            ImageOcrMarkup.Contains(markdown).ShouldBeFalse();
+            markdown.ShouldContain(figureBody);
+            markdown.ShouldNotContain("9f1d3a7c"); // the sentinel salt must never reach the egress Markdown
+        });
+    }
+
+    [Fact]
     public async Task Text_Extraction_Job_Should_Queue_Classification_For_Ocr_Path()
     {
         // #196 contract lock: OCR does not perform pre-quality gating. Even poor recognition quality on the OCR

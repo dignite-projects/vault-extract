@@ -358,6 +358,13 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         RejectionReason = null; // #284 review-fix: leaving Rejected disposition -> clear stale rejection reason; only Rejected should have one.
         if (wasContainer)
         {
+            // #377 (#371 post-merge review): symmetric with the operator path (ConfirmClassification). A
+            // container->concrete reclassify retracts the container's segment rows (#349 below), so its
+            // segmentation completion no longer holds — clear IsSegmented so the now-concrete document's own
+            // embedded-document routing can run when re-segmented, instead of being skipped by the stale resume
+            // marker. Previously only the operator path cleared this, so the automatic high-confidence path
+            // (reachable via RerecognizeAsync) silently gated off the now-concrete document's embedded-figure routing.
+            IsSegmented = false;
             AddLocalEvent(new ContainerMarkerClearedEvent(Id));
         }
     }

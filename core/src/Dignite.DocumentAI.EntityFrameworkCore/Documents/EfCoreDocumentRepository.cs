@@ -84,7 +84,7 @@ public class EfCoreDocumentRepository
         // Never use IgnoreQueryFilters(), because it would also disable IMultiTenant and allow future callers without app-layer tenant validation
         // to hard-delete across tenants (#220).
         // ExecuteDeleteAsync relies on DB-level ON DELETE CASCADE. All three child FKs — DocumentExtractedField,
-        // DocumentPipelineRun, and DocumentFigure (#306) — use OnDelete(Cascade), and the narrowed filter does not affect cascading.
+        // DocumentPipelineRun, and DocumentSegment (#346/#371) — use OnDelete(Cascade), and the narrowed filter does not affect cascading.
         using (DataFilter.Disable<ISoftDelete>())
         {
             var dbContext = await GetDbContextAsync();

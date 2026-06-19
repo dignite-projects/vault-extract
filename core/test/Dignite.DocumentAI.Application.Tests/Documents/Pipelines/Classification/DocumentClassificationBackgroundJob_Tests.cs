@@ -1,9 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Dignite.DocumentAI.Abstractions.Documents;
+using Dignite.DocumentAI.Abstractions.TextExtraction;
 using Dignite.DocumentAI.Ai;
 using Dignite.DocumentAI.Documents;
 using Dignite.DocumentAI.Documents.Pipelines;
@@ -83,6 +87,7 @@ public class DocumentClassificationBackgroundJob_Tests
     private readonly DocumentClassificationWorkflow _workflow;
     private readonly IDistributedEventBus _eventBus;
     private readonly IBackgroundJobManager _backgroundJobManager;
+    private readonly IBlobContainer<DocumentAIDocumentContainer> _markedBlobContainer;
 
     public DocumentClassificationBackgroundJob_Tests()
     {
@@ -92,6 +97,7 @@ public class DocumentClassificationBackgroundJob_Tests
         _workflow = GetRequiredService<DocumentClassificationWorkflow>();
         _eventBus = GetRequiredService<IDistributedEventBus>();
         _backgroundJobManager = GetRequiredService<IBackgroundJobManager>();
+        _markedBlobContainer = GetRequiredService<IBlobContainer<DocumentAIDocumentContainer>>();
     }
 
     [Fact]
@@ -206,6 +212,137 @@ public class DocumentClassificationBackgroundJob_Tests
         // It classified to a real type, so the normal field-extraction cascade event still fires.
         await _eventBus.Received(1).PublishAsync(
             Arg.Is<DocumentClassifiedEto>(e => e.DocumentId == doc.Id), Arg.Any<bool>());
+    }
+
+    [Fact]
+    public async Task EmbeddedDocument_NonContainer_Routes_And_Still_Publishes_ClassifiedEto()
+    {
+        // #371 D6(a): a non-container parent the classifier flags as embedding a standalone document still extracts its
+        // own fields (DocumentClassifiedEto fires) AND enqueues the unified sub-document pass to route the embedded
+        // document. The two are not mutually exclusive — the parent is a real typed document that happens to embed one.
+        var doc = CreateDocument("A service agreement that has a scanned invoice photo embedded in it.");
+        SetupDocumentRepository(doc);
+
+        _workflow
+            .RunAsync(Arg.Any<IReadOnlyList<DocumentType>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new DocumentClassificationOutcome
+            {
+                TypeCode = "contract.general",
+                ConfidenceScore = 0.92,
+                ContainsEmbeddedDocument = true,
+                Reason = "A contract that embeds a standalone invoice"
+            });
+
+        await _job.ExecuteAsync(new DocumentClassificationJobArgs { DocumentId = doc.Id });
+
+        // The parent is still classified and its own field-extraction cascade fires.
+        doc.DocumentTypeId.ShouldBe(DocumentClassificationJobTestModule.ContractTypeId);
+        await _eventBus.Received(1).PublishAsync(
+            Arg.Is<DocumentClassifiedEto>(e => e.DocumentId == doc.Id), Arg.Any<bool>());
+
+        // AND the unified sub-document pass is enqueued to route the embedded document.
+        await _backgroundJobManager.Received(1).EnqueueAsync(
+            Arg.Is<DocumentSegmentationJobArgs>(a => a.SourceDocumentId == doc.Id),
+            Arg.Any<BackgroundJobPriority>(), Arg.Any<TimeSpan?>());
+    }
+
+    [Fact]
+    public async Task NoEmbeddedDocument_SmallDocument_Does_Not_Route()
+    {
+        // #371 D6(b): the common case — a small, figure-free document the classifier does NOT flag as embedding a
+        // standalone document must NOT pay for the heavy segmentation pass. Guards a regression that drops the
+        // ContainsEmbeddedDocument disjunct or inverts the markedLength comparison.
+        var doc = CreateDocument("A short single service agreement with no embedded documents.");
+        SetupDocumentRepository(doc);
+
+        _workflow
+            .RunAsync(Arg.Any<IReadOnlyList<DocumentType>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new DocumentClassificationOutcome
+            {
+                TypeCode = "contract.general",
+                ConfidenceScore = 0.92,
+                ContainsEmbeddedDocument = false
+            });
+
+        await _job.ExecuteAsync(new DocumentClassificationJobArgs { DocumentId = doc.Id });
+
+        doc.DocumentTypeId.ShouldBe(DocumentClassificationJobTestModule.ContractTypeId);
+        await _backgroundJobManager.DidNotReceive().EnqueueAsync(
+            Arg.Any<DocumentSegmentationJobArgs>(), Arg.Any<BackgroundJobPriority>(), Arg.Any<TimeSpan?>());
+    }
+
+    [Fact]
+    public async Task FigureBearing_OverWindow_Document_Routes_Even_Without_Embedded_Signal()
+    {
+        // #371 D6(b) fallback arm: a figure-bearing document whose MARKED Markdown exceeds the classification
+        // truncation window (MaxTextLengthPerExtraction = 8000) may carry an embedded figure the classifier never saw
+        // (the tail was truncated out of the prompt). It must route even when ContainsEmbeddedDocument is false, so a
+        // beyond-window embedded document is not silently missed.
+        var doc = CreateDocument("Leading body text used as the clean fallback Markdown.");
+        SetupDocumentRepository(doc);
+
+        // Marked-Markdown blob: a real salted [Image OCR] span (so ImageOcrMarkup.Contains == true) padded beyond the
+        // window. GetAllBytesOrNullAsync is an extension over the interface GetOrNullAsync(Stream), so stub the latter.
+        var markedMarkdown = ImageOcrMarkup.Wrap(new string('x', 9000), pageNumber: 2);
+        var markedBytes = Encoding.UTF8.GetBytes(markedMarkdown);
+        var markedBlobName = DocumentConsts.MarkedMarkdownBlobPrefix + doc.Id;
+        _markedBlobContainer
+            .GetOrNullAsync(markedBlobName, Arg.Any<CancellationToken>())
+            .Returns(_ => new MemoryStream(markedBytes));
+
+        _workflow
+            .RunAsync(Arg.Any<IReadOnlyList<DocumentType>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new DocumentClassificationOutcome
+            {
+                TypeCode = "contract.general",
+                ConfidenceScore = 0.92,
+                ContainsEmbeddedDocument = false
+            });
+
+        await _job.ExecuteAsync(new DocumentClassificationJobArgs { DocumentId = doc.Id });
+
+        await _backgroundJobManager.Received(1).EnqueueAsync(
+            Arg.Is<DocumentSegmentationJobArgs>(a => a.SourceDocumentId == doc.Id),
+            Arg.Any<BackgroundJobPriority>(), Arg.Any<TimeSpan?>());
+    }
+
+    [Fact]
+    public async Task Automatic_Reclassify_Of_Segmented_Container_To_Concrete_Type_Clears_IsSegmented()
+    {
+        // #371/#377 post-merge fix: the AUTOMATIC high-confidence path (ApplyAutomaticClassificationResult, reachable
+        // via RerecognizeAsync) must clear IsSegmented on a container->concrete transition, exactly like the operator
+        // path (ConfirmClassification). Otherwise the stale resume marker silently gates off the now-concrete
+        // document's own embedded-document routing (DocumentSegmentationJob's !AlreadySegmented gate skips the split),
+        // so the embedded figure is never routed. This test fails on the pre-fix code (IsSegmented stays true).
+        var doc = CreateDocument("A document once detected as a container, now re-recognized as a single contract.");
+        typeof(Document)
+            .GetMethod("MarkAsContainer", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .Invoke(doc, null);
+        doc.MarkSegmented(); // simulate the prior container segmentation having completed
+        doc.IsContainer.ShouldBeTrue();
+        doc.IsSegmented.ShouldBeTrue();
+        SetupDocumentRepository(doc);
+
+        // Automatic high-confidence classification to a concrete type that also embeds a standalone document.
+        _workflow
+            .RunAsync(Arg.Any<IReadOnlyList<DocumentType>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new DocumentClassificationOutcome
+            {
+                TypeCode = "contract.general",
+                ConfidenceScore = 0.92,
+                ContainsEmbeddedDocument = true
+            });
+
+        await _job.ExecuteAsync(new DocumentClassificationJobArgs { DocumentId = doc.Id });
+
+        doc.IsContainer.ShouldBeFalse();
+        doc.DocumentTypeId.ShouldBe(DocumentClassificationJobTestModule.ContractTypeId);
+        // The fix: the stale resume marker is cleared, so the re-enqueued segmentation pass will actually run instead
+        // of being skipped by !AlreadySegmented — the now-concrete document's embedded figure can be routed.
+        doc.IsSegmented.ShouldBeFalse();
+        await _backgroundJobManager.Received(1).EnqueueAsync(
+            Arg.Is<DocumentSegmentationJobArgs>(a => a.SourceDocumentId == doc.Id),
+            Arg.Any<BackgroundJobPriority>(), Arg.Any<TimeSpan?>());
     }
 
     [Fact]
