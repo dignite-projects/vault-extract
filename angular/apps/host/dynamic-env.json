@@ -2,7 +2,7 @@
   "production": true,
   "application": {
     "baseUrl":"https://extract-web",
-    "name": "Document AI",
+    "name": "Dignite Extract",
     "logoUrl": ""
   },
   "oAuthConfig": {

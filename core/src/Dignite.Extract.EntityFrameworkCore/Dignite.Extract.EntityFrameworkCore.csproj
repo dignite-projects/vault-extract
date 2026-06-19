@@ -6,7 +6,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <RootNamespace>Dignite.Extract</RootNamespace>
-    <Description>Entity Framework Core integration of Dignite Document AI: DbContext, entity mappings and repository implementations for the document channel.</Description>
+    <Description>Entity Framework Core integration of Dignite Extract: DbContext, entity mappings and repository implementations for the document channel.</Description>
   </PropertyGroup>
 
   <ItemGroup>

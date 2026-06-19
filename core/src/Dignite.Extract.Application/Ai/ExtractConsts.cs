@@ -16,7 +16,7 @@ public static class ExtractConsts
     /// keeps trace structure honest (no phantom <c>orchestrate_tools</c> spans around a
     /// tool-free call) and lets hosts pick a cheaper / faster model for the title side.
     /// </summary>
-    public const string TitleGeneratorChatClientKey = "docai-title-generator";
+    public const string TitleGeneratorChatClientKey = "extract-title-generator";
 
     /// <summary>
     /// DI key for the structured-output <c>IChatClient</c>
@@ -38,5 +38,5 @@ public static class ExtractConsts
     /// additional per-purpose keyed clients on top of this default consolidation.
     /// </para>
     /// </summary>
-    public const string StructuredChatClientKey = "docai-structured";
+    public const string StructuredChatClientKey = "extract-structured";
 }

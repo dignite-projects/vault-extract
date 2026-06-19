@@ -70,13 +70,13 @@ public class DocumentResources_Tests : ExtractTestBase<DocumentResourcesTestModu
     }
 
     /// <summary>
-    /// Returns the lines between the metadata header markers (<c>&lt;!-- docai document metadata</c> and the
+    /// Returns the lines between the metadata header markers (<c>&lt;!-- extract document metadata</c> and the
     /// closing <c>--&gt;</c>) so assertions target header lines only, decoupled from prose wording elsewhere
     /// in the payload (matches <see cref="DocumentResources"/> <c>BuildPayload</c>).
     /// </summary>
     private static string ExtractMetadataHeader(string payload)
     {
-        const string open = "<!-- docai document metadata";
+        const string open = "<!-- extract document metadata";
         const string close = "-->";
         var start = payload.IndexOf(open, StringComparison.Ordinal);
         start.ShouldBeGreaterThanOrEqualTo(0);

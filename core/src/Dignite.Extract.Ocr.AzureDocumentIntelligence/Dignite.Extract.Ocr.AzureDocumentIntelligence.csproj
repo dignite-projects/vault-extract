@@ -6,7 +6,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <RootNamespace>Dignite.Extract.Ocr.AzureDocumentIntelligence</RootNamespace>
-    <Description>Azure Document Intelligence OCR provider for Dignite Document AI: uses the prebuilt-layout model for high-accuracy, cloud-based conversion of scanned documents to structured Markdown.</Description>
+    <Description>Azure Document Intelligence OCR provider for Dignite Extract: uses the prebuilt-layout model for high-accuracy, cloud-based conversion of scanned documents to structured Markdown.</Description>
   </PropertyGroup>
 
   <ItemGroup>

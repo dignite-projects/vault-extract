@@ -21,7 +21,7 @@ content requiring IDP: scans / photos / PDF images / Office files / digital-born
 ## Solution structure
 
 ```
-document-ai/
+extract/
 ├── core/      # Channel implementation — ABP layers (Abstractions / Domain.Shared / Domain / Application / EntityFrameworkCore / HttpApi / Mcp)
 ├── host/      # Host application — provider wiring (OCR + AI) and middleware (ASP.NET Core API)
 ├── angular/   # Angular SPA (operator UI)

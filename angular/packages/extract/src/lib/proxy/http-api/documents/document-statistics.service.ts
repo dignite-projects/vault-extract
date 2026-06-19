@@ -13,7 +13,7 @@ export class DocumentStatisticsService {
   get = (config?: Partial<Rest.Config>) =>
     this.restService.request<any, DocumentStatisticsDto>({
       method: 'GET',
-      url: '/api/document-ai/document-statistics',
+      url: '/api/extract/document-statistics',
     },
     { apiName: this.apiName,...config });
 }

@@ -6,7 +6,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <RootNamespace>Dignite.Extract.Parse.ElBrunoMarkItDown</RootNamespace>
-    <Description>Markdown text provider for Dignite Document AI based on ElBruno.MarkItDotNet, converting digital documents (PDF, Word, HTML, plain text, CSV, RTF, EPUB and more) to Markdown.</Description>
+    <Description>Markdown text provider for Dignite Extract based on ElBruno.MarkItDotNet, converting digital documents (PDF, Word, HTML, plain text, CSV, RTF, EPUB and more) to Markdown.</Description>
   </PropertyGroup>
 
   <ItemGroup>

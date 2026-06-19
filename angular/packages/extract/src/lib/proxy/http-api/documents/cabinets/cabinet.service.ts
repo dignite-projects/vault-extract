@@ -13,7 +13,7 @@ export class CabinetService {
   create = (input: CreateCabinetDto, config?: Partial<Rest.Config>) =>
     this.restService.request<any, CabinetDto>({
       method: 'POST',
-      url: '/api/document-ai/cabinets',
+      url: '/api/extract/cabinets',
       body: input,
     },
     { apiName: this.apiName,...config });
@@ -22,7 +22,7 @@ export class CabinetService {
   delete = (id: string, config?: Partial<Rest.Config>) =>
     this.restService.request<any, void>({
       method: 'DELETE',
-      url: `/api/document-ai/cabinets/${id}`,
+      url: `/api/extract/cabinets/${id}`,
     },
     { apiName: this.apiName,...config });
   
@@ -30,7 +30,7 @@ export class CabinetService {
   getList = (config?: Partial<Rest.Config>) =>
     this.restService.request<any, CabinetDto[]>({
       method: 'GET',
-      url: '/api/document-ai/cabinets',
+      url: '/api/extract/cabinets',
     },
     { apiName: this.apiName,...config });
   
@@ -38,7 +38,7 @@ export class CabinetService {
   update = (id: string, input: UpdateCabinetDto, config?: Partial<Rest.Config>) =>
     this.restService.request<any, CabinetDto>({
       method: 'PUT',
-      url: `/api/document-ai/cabinets/${id}`,
+      url: `/api/extract/cabinets/${id}`,
       body: input,
     },
     { apiName: this.apiName,...config });

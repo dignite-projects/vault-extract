@@ -1,22 +1,22 @@
 services:
-  document-ai-web:
-    image: dignite/document-ai-web:latest
-    container_name: document-ai-web
+  extract-web:
+    image: dignite/extract-web:latest
+    container_name: extract-web
     build:
       context: ../../angular
       dockerfile: apps/host/Dockerfile
     ports:
       - "4200:80"
     depends_on:
-      - document-ai-api
+      - extract-api
     volumes:
       - ./dynamic-env.json:/usr/share/nginx/html/dynamic-env.json
     networks:
       - abp-network
 
-  document-ai-api:
-    image: dignite/document-ai-api:latest
-    container_name: document-ai-api-container
+  extract-api:
+    image: dignite/extract-api:latest
+    container_name: extract-api-container
     build:
       context: ../../
       dockerfile: src/Dockerfile.local
@@ -25,8 +25,8 @@ services:
       - Kestrel__Certificates__Default__Path=/app/certs/localhost.pfx
       - Kestrel__Certificates__Default__Password=91f91912-5ab0-49df-8166-23377efaf3cc
       - App__SelfUrl=https://localhost:44348
-      - App__HealthCheckUrl=http://document-ai-api:8080/health-status
-      - AuthServer__Authority=http://document-ai-api:8080
+      - App__HealthCheckUrl=http://extract-api:8080/health-status
+      - AuthServer__Authority=http://extract-api:8080
       - AuthServer__RequireHttpsMetadata=false
       - AuthServer__SetSelfAsIssuer=true
       - ConnectionStrings__Default=Data Source=sql-server;Initial Catalog=Extract;User Id=sa;Password=myPassw0rd;MultipleActiveResultSets=true;TrustServerCertificate=True;
@@ -42,7 +42,7 @@ services:
       - abp-network
 
   db-migrator:
-    image: dignite/document-ai-api:latest
+    image: dignite/extract-api:latest
     container_name: db-migrator
     build:
       context: ../../
@@ -76,8 +76,8 @@ services:
       start_period: 10s
 volumes:
   sqldata:
-    name: document-ai_sqldata
+    name: extract_sqldata
 networks:
   abp-network:
-    name: document-ai-network
+    name: extract-network
     driver: bridge

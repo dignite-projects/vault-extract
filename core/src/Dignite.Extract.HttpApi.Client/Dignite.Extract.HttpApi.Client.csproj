@@ -6,7 +6,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <RootNamespace>Dignite.Extract</RootNamespace>
-    <Description>Dynamic HTTP client proxies for the Dignite Document AI REST API, letting .NET applications consume the document channel remotely through the application service interfaces.</Description>
+    <Description>Dynamic HTTP client proxies for the Dignite Extract REST API, letting .NET applications consume the document channel remotely through the application service interfaces.</Description>
   </PropertyGroup>
 
   <ItemGroup>

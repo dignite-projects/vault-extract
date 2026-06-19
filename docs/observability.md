@@ -52,7 +52,7 @@ For local dev we ship a profile-gated `aspire-dashboard` service in `host/docker
 ### Bring it up
 
 ```powershell
-cd D:\dignite-projects\document-ai\host
+cd D:\dignite-projects\extract\host
 
 # Profile-gated so plain `docker compose up` doesn't pull a 300MB image
 docker compose --profile observability up -d aspire-dashboard

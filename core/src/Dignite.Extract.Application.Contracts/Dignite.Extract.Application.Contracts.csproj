@@ -6,7 +6,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <RootNamespace>Dignite.Extract</RootNamespace>
-    <Description>Application contracts of Dignite Document AI: application service interfaces, DTOs and permission definitions shared by the REST, MCP and client-proxy exits.</Description>
+    <Description>Application contracts of Dignite Extract: application service interfaces, DTOs and permission definitions shared by the REST, MCP and client-proxy exits.</Description>
   </PropertyGroup>
 
   <ItemGroup>

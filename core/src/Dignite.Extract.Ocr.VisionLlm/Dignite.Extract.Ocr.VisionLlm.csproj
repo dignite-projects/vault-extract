@@ -11,7 +11,7 @@
          library declares no target platform. Suppress project-wide — the project's whole purpose is to call
          PDFium + a platform-agnostic IChatClient, so there is no genuinely-unsupported call to mask. -->
     <NoWarn>$(NoWarn);CA1416</NoWarn>
-    <Description>Vision-LLM OCR provider for Dignite Document AI: rasterizes images and scanned PDFs (via PDFium) and transcribes them to Markdown with a multimodal vision chat model (any Microsoft.Extensions.AI IChatClient).</Description>
+    <Description>Vision-LLM OCR provider for Dignite Extract: rasterizes images and scanned PDFs (via PDFium) and transcribes them to Markdown with a multimodal vision chat model (any Microsoft.Extensions.AI IChatClient).</Description>
   </PropertyGroup>
 
   <ItemGroup>

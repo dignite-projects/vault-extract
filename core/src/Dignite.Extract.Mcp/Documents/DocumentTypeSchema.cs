@@ -4,7 +4,7 @@ namespace Dignite.Extract.Mcp.Documents;
 
 /// <summary>
 /// Document type field schema: the LLM-facing read projection for MCP resource
-/// <c>docai://document-types/{code}</c>. It lets downstream AI clients discover which fields a type
+/// <c>extract://document-types/{code}</c>. It lets downstream AI clients discover which fields a type
 /// has and what data types they use, so they can populate the search tool's <c>fieldFilters</c> /
 /// <c>includeFields</c> with correct field names. <see cref="DisplayName"/> is admin-configured
 /// user-derived text and is already wrapped with <c>PromptBoundary.WrapField</c> to prevent indirect

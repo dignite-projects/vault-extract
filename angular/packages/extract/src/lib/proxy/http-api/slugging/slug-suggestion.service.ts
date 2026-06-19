@@ -13,7 +13,7 @@ export class SlugSuggestionService {
   suggest = (input: SuggestSlugInput, cancellationToken: any, config?: Partial<Rest.Config>) =>
     this.restService.request<any, SlugSuggestionDto>({
       method: 'POST',
-      url: '/api/document-ai/slug-suggestion/suggest',
+      url: '/api/extract/slug-suggestion/suggest',
       body: input,
     },
     { apiName: this.apiName,...config });

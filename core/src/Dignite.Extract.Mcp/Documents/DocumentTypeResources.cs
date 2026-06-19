@@ -14,7 +14,7 @@ namespace Dignite.Extract.Mcp.Documents;
 
 /// <summary>
 /// Exposes Extract document types as MCP resources on the read path. The resource template
-/// <c>docai://document-types/{code}</c> returns that type's field schema: per-field name / dataType /
+/// <c>extract://document-types/{code}</c> returns that type's field schema: per-field name / dataType /
 /// allowMultiple / displayName / required, plus the type displayName. This lets downstream AI
 /// discover which fields exist for a type and what data types they use, so it can populate the search
 /// tool's <c>fieldFilters</c> / <c>includeFields</c> with correct field names. "Which types exist" is
@@ -40,7 +40,7 @@ public sealed class DocumentTypeResources
         Name = "Extract Document Type",
         Title = "Document Type",
         MimeType = "application/json")]
-    [Description("Read a Extract document type's field schema by type code: its fields (name, data type, "
+    [Description("Read a Dignite Extract document type's field schema by type code: its fields (name, data type, "
         + "allowMultiple, display name, required) plus the type display name. Use this to discover which field names and data "
         + "types you can pass to the search tool's fieldFilters / includeFields. A field with allowMultiple=true (Text only) "
         + "returns a JSON array (string[]) in search results' extractedFields rather than a scalar string. Display names are external, "

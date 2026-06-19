@@ -1,6 +1,6 @@
 {
   "generated": [
-    "document-ai"
+    "extract"
   ],
   "modules": {
     "abp": {
@@ -885,8 +885,8 @@
         }
       }
     },
-    "document-ai": {
-      "rootPath": "document-ai",
+    "extract": {
+      "rootPath": "extract",
       "remoteServiceName": "Default",
       "controllers": {
         "Dignite.Extract.HttpApi.Documents.Cabinets.CabinetController": {
@@ -976,7 +976,7 @@
               "uniqueName": "GetListAsync",
               "name": "GetListAsync",
               "httpMethod": "GET",
-              "url": "api/document-ai/cabinets",
+              "url": "api/extract/cabinets",
               "supportedVersions": [],
               "parametersOnMethod": [],
               "parameters": [],
@@ -992,7 +992,7 @@
               "uniqueName": "CreateAsyncByInput",
               "name": "CreateAsync",
               "httpMethod": "POST",
-              "url": "api/document-ai/cabinets",
+              "url": "api/extract/cabinets",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -1030,7 +1030,7 @@
               "uniqueName": "UpdateAsyncByIdAndInput",
               "name": "UpdateAsync",
               "httpMethod": "PUT",
-              "url": "api/document-ai/cabinets/{id}",
+              "url": "api/extract/cabinets/{id}",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -1088,7 +1088,7 @@
               "uniqueName": "DeleteAsyncById",
               "name": "DeleteAsync",
               "httpMethod": "DELETE",
-              "url": "api/document-ai/cabinets/{id}",
+              "url": "api/extract/cabinets/{id}",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -1447,7 +1447,7 @@
               "uniqueName": "GetAsyncById",
               "name": "GetAsync",
               "httpMethod": "GET",
-              "url": "api/document-ai/documents/{id}",
+              "url": "api/extract/documents/{id}",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -1485,7 +1485,7 @@
               "uniqueName": "GetListAsyncByInput",
               "name": "GetListAsync",
               "httpMethod": "GET",
-              "url": "api/document-ai/documents",
+              "url": "api/extract/documents",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -1631,7 +1631,7 @@
               "uniqueName": "UploadAsyncByInput",
               "name": "UploadAsync",
               "httpMethod": "POST",
-              "url": "api/document-ai/documents/upload",
+              "url": "api/extract/documents/upload",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -1681,7 +1681,7 @@
               "uniqueName": "GetBlobAsyncById",
               "name": "GetBlobAsync",
               "httpMethod": "GET",
-              "url": "api/document-ai/documents/{id}/blob",
+              "url": "api/extract/documents/{id}/blob",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -1719,7 +1719,7 @@
               "uniqueName": "DeleteAsyncById",
               "name": "DeleteAsync",
               "httpMethod": "DELETE",
-              "url": "api/document-ai/documents/{id}",
+              "url": "api/extract/documents/{id}",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -1757,7 +1757,7 @@
               "uniqueName": "PermanentDeleteAsyncById",
               "name": "PermanentDeleteAsync",
               "httpMethod": "DELETE",
-              "url": "api/document-ai/documents/{id}/permanent",
+              "url": "api/extract/documents/{id}/permanent",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -1795,7 +1795,7 @@
               "uniqueName": "RestoreAsyncById",
               "name": "RestoreAsync",
               "httpMethod": "POST",
-              "url": "api/document-ai/documents/{id}/restore",
+              "url": "api/extract/documents/{id}/restore",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -1833,7 +1833,7 @@
               "uniqueName": "ConfirmClassificationAsyncByIdAndInput",
               "name": "ConfirmClassificationAsync",
               "httpMethod": "POST",
-              "url": "api/document-ai/documents/{id}/confirm-classification",
+              "url": "api/extract/documents/{id}/confirm-classification",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -1891,7 +1891,7 @@
               "uniqueName": "ReclassifyAsyncByIdAndInput",
               "name": "ReclassifyAsync",
               "httpMethod": "POST",
-              "url": "api/document-ai/documents/{id}/reclassify",
+              "url": "api/extract/documents/{id}/reclassify",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -1949,7 +1949,7 @@
               "uniqueName": "RejectReviewAsyncByIdAndInput",
               "name": "RejectReviewAsync",
               "httpMethod": "POST",
-              "url": "api/document-ai/documents/{id}/review/reject",
+              "url": "api/extract/documents/{id}/review/reject",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -2007,7 +2007,7 @@
               "uniqueName": "RetryPipelineAsyncByIdAndInput",
               "name": "RetryPipelineAsync",
               "httpMethod": "POST",
-              "url": "api/document-ai/documents/{id}/retry-pipeline",
+              "url": "api/extract/documents/{id}/retry-pipeline",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -2065,7 +2065,7 @@
               "uniqueName": "RerecognizeAsyncById",
               "name": "RerecognizeAsync",
               "httpMethod": "POST",
-              "url": "api/document-ai/documents/{id}/rerecognize",
+              "url": "api/extract/documents/{id}/rerecognize",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -2103,7 +2103,7 @@
               "uniqueName": "ReextractFieldsAsyncById",
               "name": "ReextractFieldsAsync",
               "httpMethod": "POST",
-              "url": "api/document-ai/documents/{id}/reextract-fields",
+              "url": "api/extract/documents/{id}/reextract-fields",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -2141,7 +2141,7 @@
               "uniqueName": "UpdateExtractedFieldsAsyncByIdAndInput",
               "name": "UpdateExtractedFieldsAsync",
               "httpMethod": "POST",
-              "url": "api/document-ai/documents/{id}/extracted-fields",
+              "url": "api/extract/documents/{id}/extracted-fields",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -2199,7 +2199,7 @@
               "uniqueName": "UpdateCabinetAsyncByIdAndInput",
               "name": "UpdateCabinetAsync",
               "httpMethod": "POST",
-              "url": "api/document-ai/documents/{id}/cabinet",
+              "url": "api/extract/documents/{id}/cabinet",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -2367,7 +2367,7 @@
               "uniqueName": "GetVisibleAsync",
               "name": "GetVisibleAsync",
               "httpMethod": "GET",
-              "url": "api/document-ai/document-types",
+              "url": "api/extract/document-types",
               "supportedVersions": [],
               "parametersOnMethod": [],
               "parameters": [],
@@ -2383,7 +2383,7 @@
               "uniqueName": "GetDeletedAsync",
               "name": "GetDeletedAsync",
               "httpMethod": "GET",
-              "url": "api/document-ai/document-types/deleted",
+              "url": "api/extract/document-types/deleted",
               "supportedVersions": [],
               "parametersOnMethod": [],
               "parameters": [],
@@ -2399,7 +2399,7 @@
               "uniqueName": "CreateAsyncByInput",
               "name": "CreateAsync",
               "httpMethod": "POST",
-              "url": "api/document-ai/document-types",
+              "url": "api/extract/document-types",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -2437,7 +2437,7 @@
               "uniqueName": "UpdateAsyncByIdAndInput",
               "name": "UpdateAsync",
               "httpMethod": "PUT",
-              "url": "api/document-ai/document-types/{id}",
+              "url": "api/extract/document-types/{id}",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -2495,7 +2495,7 @@
               "uniqueName": "DeleteAsyncById",
               "name": "DeleteAsync",
               "httpMethod": "DELETE",
-              "url": "api/document-ai/document-types/{id}",
+              "url": "api/extract/document-types/{id}",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -2533,7 +2533,7 @@
               "uniqueName": "RestoreAsyncById",
               "name": "RestoreAsync",
               "httpMethod": "POST",
-              "url": "api/document-ai/document-types/{id}/restore",
+              "url": "api/extract/document-types/{id}/restore",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -2690,7 +2690,7 @@
               "uniqueName": "GetAsyncById",
               "name": "GetAsync",
               "httpMethod": "GET",
-              "url": "api/document-ai/export-templates/{id}",
+              "url": "api/extract/export-templates/{id}",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -2728,7 +2728,7 @@
               "uniqueName": "GetListAsync",
               "name": "GetListAsync",
               "httpMethod": "GET",
-              "url": "api/document-ai/export-templates",
+              "url": "api/extract/export-templates",
               "supportedVersions": [],
               "parametersOnMethod": [],
               "parameters": [],
@@ -2744,7 +2744,7 @@
               "uniqueName": "CreateAsyncByInput",
               "name": "CreateAsync",
               "httpMethod": "POST",
-              "url": "api/document-ai/export-templates",
+              "url": "api/extract/export-templates",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -2782,7 +2782,7 @@
               "uniqueName": "UpdateAsyncByIdAndInput",
               "name": "UpdateAsync",
               "httpMethod": "PUT",
-              "url": "api/document-ai/export-templates/{id}",
+              "url": "api/extract/export-templates/{id}",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -2840,7 +2840,7 @@
               "uniqueName": "DeleteAsyncById",
               "name": "DeleteAsync",
               "httpMethod": "DELETE",
-              "url": "api/document-ai/export-templates/{id}",
+              "url": "api/extract/export-templates/{id}",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -2878,7 +2878,7 @@
               "uniqueName": "ExportAsyncByInput",
               "name": "ExportAsync",
               "httpMethod": "POST",
-              "url": "api/document-ai/export-templates/export",
+              "url": "api/extract/export-templates/export",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -3027,7 +3027,7 @@
               "uniqueName": "GetListAsyncByInput",
               "name": "GetListAsync",
               "httpMethod": "GET",
-              "url": "api/document-ai/field-definitions",
+              "url": "api/extract/field-definitions",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -3077,7 +3077,7 @@
               "uniqueName": "CreateAsyncByInput",
               "name": "CreateAsync",
               "httpMethod": "POST",
-              "url": "api/document-ai/field-definitions",
+              "url": "api/extract/field-definitions",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -3115,7 +3115,7 @@
               "uniqueName": "UpdateAsyncByIdAndInput",
               "name": "UpdateAsync",
               "httpMethod": "PUT",
-              "url": "api/document-ai/field-definitions/{id}",
+              "url": "api/extract/field-definitions/{id}",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -3173,7 +3173,7 @@
               "uniqueName": "DeleteAsyncById",
               "name": "DeleteAsync",
               "httpMethod": "DELETE",
-              "url": "api/document-ai/field-definitions/{id}",
+              "url": "api/extract/field-definitions/{id}",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -3211,7 +3211,7 @@
               "uniqueName": "RestoreAsyncById",
               "name": "RestoreAsync",
               "httpMethod": "POST",
-              "url": "api/document-ai/field-definitions/{id}/restore",
+              "url": "api/extract/field-definitions/{id}/restore",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -3292,7 +3292,7 @@
               "uniqueName": "DraftAsyncByInputAndCancellationToken",
               "name": "DraftAsync",
               "httpMethod": "POST",
-              "url": "api/document-ai/field-draft-suggestion/draft",
+              "url": "api/extract/field-draft-suggestion/draft",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -3373,7 +3373,7 @@
               "uniqueName": "GetListAsyncByDocumentId",
               "name": "GetListAsync",
               "httpMethod": "GET",
-              "url": "api/document-ai/document-pipeline-runs",
+              "url": "api/extract/document-pipeline-runs",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -3497,7 +3497,7 @@
               "uniqueName": "PreviewFieldExtractionAsyncByDocumentTypeId",
               "name": "PreviewFieldExtractionAsync",
               "httpMethod": "GET",
-              "url": "api/document-ai/document-reprocessing/field-extraction/preview",
+              "url": "api/extract/document-reprocessing/field-extraction/preview",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -3535,7 +3535,7 @@
               "uniqueName": "StartFieldExtractionAsyncByInput",
               "name": "StartFieldExtractionAsync",
               "httpMethod": "POST",
-              "url": "api/document-ai/document-reprocessing/field-extraction",
+              "url": "api/extract/document-reprocessing/field-extraction",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -3573,7 +3573,7 @@
               "uniqueName": "PreviewReclassificationAsyncByInput",
               "name": "PreviewReclassificationAsync",
               "httpMethod": "POST",
-              "url": "api/document-ai/document-reprocessing/reclassification/preview",
+              "url": "api/extract/document-reprocessing/reclassification/preview",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -3611,7 +3611,7 @@
               "uniqueName": "StartReclassificationAsyncByInput",
               "name": "StartReclassificationAsync",
               "httpMethod": "POST",
-              "url": "api/document-ai/document-reprocessing/reclassification",
+              "url": "api/extract/document-reprocessing/reclassification",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -3692,7 +3692,7 @@
               "uniqueName": "SuggestAsyncByInputAndCancellationToken",
               "name": "SuggestAsync",
               "httpMethod": "POST",
-              "url": "api/document-ai/slug-suggestion/suggest",
+              "url": "api/extract/slug-suggestion/suggest",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {

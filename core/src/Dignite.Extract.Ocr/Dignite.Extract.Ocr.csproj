@@ -6,7 +6,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <RootNamespace>Dignite.Extract.Ocr</RootNamespace>
-    <Description>Minimal OCR provider contract for Dignite Document AI: IOcrProvider, OcrOptions and OcrResult with Markdown-first output. Third-party OCR integrations only need to reference this package.</Description>
+    <Description>Minimal OCR provider contract for Dignite Extract: IOcrProvider, OcrOptions and OcrResult with Markdown-first output. Third-party OCR integrations only need to reference this package.</Description>
   </PropertyGroup>
 
   <ItemGroup>

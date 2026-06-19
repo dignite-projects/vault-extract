@@ -6,7 +6,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <RootNamespace>Dignite.Extract</RootNamespace>
-    <Description>Application layer of Dignite Document AI — the core of the document channel: document storage, text-extraction pipeline orchestration, LLM-based document classification, type-bound field extraction and outbound integration event publishing.</Description>
+    <Description>Application layer of Dignite Extract — the core of the document channel: document storage, text-extraction pipeline orchestration, LLM-based document classification, type-bound field extraction and outbound integration event publishing.</Description>
   </PropertyGroup>
 
   <ItemGroup>

@@ -19,7 +19,7 @@ If(!(Test-Path -Path $certsFolder))
 #    src/Dockerfile.local only does lightweight packaging (COPY pre-published output);
 #    it does not build inside the container.
 Set-Location $hostFolder
-dotnet publish "src/Dignite.DocumentAI.Host.csproj" -c Release
+dotnet publish "src/Dignite.Extract.Host.csproj" -c Release
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # 3. Prebuild frontend output -> angular/dist/host/browser/

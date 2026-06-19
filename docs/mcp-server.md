@@ -8,8 +8,8 @@ Dignite Extract exposes an **MCP (Model Context Protocol) server** as one of its
 
 | MCP primitive | Dignite Extract mapping |
 | --- | --- |
-| `resources/read` (template `docai://documents/{id}`) | A small system-metadata header (type, lifecycle, language, created-at) followed by the document's Markdown body wrapped in `<document>` tags. The wrapped body is external, untrusted content — the header tells clients to treat it as data, not instructions |
-| `tools/call` → `search_docai_documents` | Structured search **within a required `documentTypeCode`**: metadata (`lifecycleStatus`) + zero or more `ExtractedFields` field-value filters, all combined with **AND** (each is an equality, or a numeric/date `min`/`max` range). No keyword/full-text search. Returns up to 50 thin rows; each row carries the `docai://documents/{id}` uri to read the full document |
+| `resources/read` (template `extract://documents/{id}`) | A small system-metadata header (type, lifecycle, language, created-at) followed by the document's Markdown body wrapped in `<document>` tags. The wrapped body is external, untrusted content — the header tells clients to treat it as data, not instructions |
+| `tools/call` → `search_extract_documents` | Structured search **within a required `documentTypeCode`**: metadata (`lifecycleStatus`) + zero or more `ExtractedFields` field-value filters, all combined with **AND** (each is an equality, or a numeric/date `min`/`max` range). No keyword/full-text search. Returns up to 50 thin rows; each row carries the `extract://documents/{id}` uri to read the full document |
 
 The server declares only the bare `resources` capability — **no `subscribe` / `listChanged`**. v1 is pull-only: clients read on demand. Push (resource subscriptions + `notifications/resources/updated` / `list_changed`) is a follow-up increment (see issue #197).
 
@@ -120,20 +120,20 @@ Claude Desktop talks to remote HTTP MCP servers through the `mcp-remote` stdio b
 ```json
 {
   "mcpServers": {
-    "docai": {
+    "extract": {
       "command": "npx",
       "args": [
         "-y", "mcp-remote",
-        "https://your-docai-host/mcp",
-        "--header", "Authorization: Bearer ${DOCAI_TOKEN}"
+        "https://your-extract-host/mcp",
+        "--header", "Authorization: Bearer ${EXTRACT_TOKEN}"
       ],
-      "env": { "DOCAI_TOKEN": "<your-bearer-token>" }
+      "env": { "EXTRACT_TOKEN": "<your-bearer-token>" }
     }
   }
 }
 ```
 
-Restart Claude Desktop; the `search_docai_documents` tool and `docai://documents/{id}` resources become available.
+Restart Claude Desktop; the `search_extract_documents` tool and `extract://documents/{id}` resources become available.
 
 ## Connect Cursor
 
@@ -142,8 +142,8 @@ Cursor reads remote HTTP MCP servers directly. In `.cursor/mcp.json` (project) o
 ```json
 {
   "mcpServers": {
-    "docai": {
-      "url": "https://your-docai-host/mcp",
+    "extract": {
+      "url": "https://your-extract-host/mcp",
       "headers": { "Authorization": "Bearer <your-bearer-token>" }
     }
   }
@@ -169,15 +169,15 @@ Claude Code (CLI) reads remote HTTP MCP servers directly and uses Guided OAuth �
 3. **Add the server** (the preset public PKCE client — no secret, no fixed callback port):
 
    ```powershell
-   claude mcp add --transport http docai https://localhost:44348/mcp --client-id Extract_Mcp
+   claude mcp add --transport http extract https://localhost:44348/mcp --client-id Extract_Mcp
    ```
 
-4. **Log in.** Restart Claude Code, run `/mcp`, select **docai** → **Authenticate**, and sign in through the browser. Tokens are stored and refreshed automatically; the `search_docai_documents` tool and `docai://documents/{id}` resources become available.
+4. **Log in.** Restart Claude Code, run `/mcp`, select **extract** → **Authenticate**, and sign in through the browser. Tokens are stored and refreshed automatically; the `search_extract_documents` tool and `extract://documents/{id}` resources become available.
 
 ## Typical flow
 
-1. Client calls `search_docai_documents` with a required `documentTypeCode` (and optionally `lifecycleStatus`, plus zero or more `fieldFilters` — each names a field with a `Value` for equality or a `Min`/`Max` numeric/date range; multiple filters are AND-ed). If the user hasn't named a document type, the client asks first.
-2. The tool returns thin rows, each with a `docai://documents/{id}` uri.
+1. Client calls `search_extract_documents` with a required `documentTypeCode` (and optionally `lifecycleStatus`, plus zero or more `fieldFilters` — each names a field with a `Value` for equality or a `Min`/`Max` numeric/date range; multiple filters are AND-ed). If the user hasn't named a document type, the client asks first.
+2. The tool returns thin rows, each with a `extract://documents/{id}` uri.
 3. Client calls `resources/read` on a uri to pull that document's full Markdown.
 
 ## Notes & limits

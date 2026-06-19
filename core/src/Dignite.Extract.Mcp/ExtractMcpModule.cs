@@ -34,7 +34,7 @@ public class ExtractMcpModule : AbpModule
             .WithTools<DocumentTools>()
             // resources/list dynamically enumerates document types visible to the current principal.
             // AI uses it to discover documentTypeCode values, then reads each
-            // docai://document-types/{code} resource to get the field schema. Documents themselves
+            // extract://document-types/{code} resource to get the field schema. Documents themselves
             // are not enumerated because their count is unbounded; they are discovered through the
             // search tool. The read path is still automatically routed by DocumentTypeResources'
             // UriTemplate. list and read responsibilities stay separate: this handler only fills

@@ -1,7 +1,7 @@
 {
   "culture": "ja",
   "texts": {
-    "Permission:Extract": "Document AI",
+    "Permission:Extract": "Dignite Extract",
     "Permission:Documents": "ドキュメント",
     "Permission:Documents.Upload": "ドキュメントのアップロード",
     "Permission:Documents.Delete": "ドキュメントの削除",

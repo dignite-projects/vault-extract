@@ -33,7 +33,7 @@ export class HomeComponent {
 
   private readonly entryPoints: HomeEntryPoint[] = [
     {
-      title: 'Document AI',
+      title: 'Dignite Extract',
       description: 'Open the module for document intake, review queues, schema management, and exports.',
       route: '/documents',
       iconClass: 'fas fa-file-lines',

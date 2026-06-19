@@ -13,7 +13,7 @@ export class DocumentTypeService {
   create = (input: CreateDocumentTypeDto, config?: Partial<Rest.Config>) =>
     this.restService.request<any, DocumentTypeDto>({
       method: 'POST',
-      url: '/api/document-ai/document-types',
+      url: '/api/extract/document-types',
       body: input,
     },
     { apiName: this.apiName,...config });
@@ -22,7 +22,7 @@ export class DocumentTypeService {
   delete = (id: string, config?: Partial<Rest.Config>) =>
     this.restService.request<any, void>({
       method: 'DELETE',
-      url: `/api/document-ai/document-types/${id}`,
+      url: `/api/extract/document-types/${id}`,
     },
     { apiName: this.apiName,...config });
   
@@ -30,7 +30,7 @@ export class DocumentTypeService {
   getDeleted = (config?: Partial<Rest.Config>) =>
     this.restService.request<any, DocumentTypeDto[]>({
       method: 'GET',
-      url: '/api/document-ai/document-types/deleted',
+      url: '/api/extract/document-types/deleted',
     },
     { apiName: this.apiName,...config });
   
@@ -38,7 +38,7 @@ export class DocumentTypeService {
   getVisible = (config?: Partial<Rest.Config>) =>
     this.restService.request<any, DocumentTypeDto[]>({
       method: 'GET',
-      url: '/api/document-ai/document-types',
+      url: '/api/extract/document-types',
     },
     { apiName: this.apiName,...config });
   
@@ -46,7 +46,7 @@ export class DocumentTypeService {
   restore = (id: string, config?: Partial<Rest.Config>) =>
     this.restService.request<any, DocumentTypeDto>({
       method: 'POST',
-      url: `/api/document-ai/document-types/${id}/restore`,
+      url: `/api/extract/document-types/${id}/restore`,
     },
     { apiName: this.apiName,...config });
   
@@ -54,7 +54,7 @@ export class DocumentTypeService {
   update = (id: string, input: UpdateDocumentTypeDto, config?: Partial<Rest.Config>) =>
     this.restService.request<any, DocumentTypeDto>({
       method: 'PUT',
-      url: `/api/document-ai/document-types/${id}`,
+      url: `/api/extract/document-types/${id}`,
       body: input,
     },
     { apiName: this.apiName,...config });

@@ -40,7 +40,7 @@
     "Extract:CabinetNameAlreadyExists": "当前作用域下已存在名为 '{Name}' 的文件柜。",
     "Extract:InvalidCabinetId": "所选文件柜在当前作用域下不存在。",
     "Document:PendingReviewMessage": "文档需要人工审核。请根据下方原因选择或创建合适的文档类型，或重新上传更合适的源文件。",
-    "Permission:Extract": "Document AI",
+    "Permission:Extract": "Dignite Extract",
     "Permission:Documents": "文档",
     "Permission:Documents.Upload": "上传文档",
     "Permission:Documents.Delete": "删除文档",
@@ -145,7 +145,7 @@
     "Document:Reprocess:Reclassification:Queued": "已开始批量重新分类，将在后台处理。",
 
     "Document:Upload": "上传文档",
-    "Document:Home:Subtitle": "将文件上传到 Document AI 通道，并进入提取 Markdown、通用元数据与类型绑定字段的处理流程。",
+    "Document:Home:Subtitle": "将文件上传到 Dignite Extract 通道，并进入提取 Markdown、通用元数据与类型绑定字段的处理流程。",
     "Document:Home:PrimaryAction": "主要操作",
     "Document:Home:UploadTitle": "上传文档内容",
     "Document:Home:UploadSubtitle": "拖放文件，或从设备中选择文件。每个通过校验的文件都会立即进入处理流水线。",

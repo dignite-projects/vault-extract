@@ -19,5 +19,5 @@ public static class VisionLlmOcrConsts
     /// can never drift between the two sides.
     /// </para>
     /// </summary>
-    public const string VisionChatClientKey = "docai-vision-ocr";
+    public const string VisionChatClientKey = "extract-vision-ocr";
 }

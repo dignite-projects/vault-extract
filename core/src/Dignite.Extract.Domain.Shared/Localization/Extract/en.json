@@ -2,7 +2,7 @@
   "culture": "en",
   "texts": {
     "MyAccount": "My account",
-    "SamplePageMessage": "A sample page for the Document AI module",
+    "SamplePageMessage": "A sample page for the Dignite Extract module",
     "Back": "Back",
     "Delete": "Delete",
     "AreYouSure": "Are you sure?",
@@ -20,7 +20,7 @@
     "Menu:DocumentRecycleBin": "Recycle Bin",
 
     "Document:Documents": "Documents",
-    "Document:Home:Subtitle": "Upload files into the Document AI channel and monitor the operator paths that turn them into Markdown, metadata, and type-bound fields.",
+    "Document:Home:Subtitle": "Upload files into the Dignite Extract channel and monitor the operator paths that turn them into Markdown, metadata, and type-bound fields.",
     "Document:Home:PrimaryAction": "Primary action",
     "Document:Home:UploadTitle": "Upload document content",
     "Document:Home:UploadSubtitle": "Drop files here or choose them from your device. Each accepted file enters the processing pipeline immediately.",
@@ -286,7 +286,7 @@
 
     "Failed": "Failed",
 
-    "Permission:Extract": "Document AI",
+    "Permission:Extract": "Dignite Extract",
     "Permission:Documents": "Documents",
     "Permission:Documents.Upload": "Upload Documents",
     "Permission:Documents.Delete": "Delete Documents",

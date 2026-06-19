@@ -14,7 +14,7 @@ namespace Dignite.Extract.Mcp.Documents;
 
 /// <summary>
 /// Exposes Extract documents as MCP resources on the read path. The resource template
-/// <c>docai://documents/{id}</c> returns the document Markdown body plus a system-metadata header.
+/// <c>extract://documents/{id}</c> returns the document Markdown body plus a system-metadata header.
 /// Document discovery goes through the search tool instead of putting thousands of documents into
 /// resources/list.
 /// <para>
@@ -87,7 +87,7 @@ public sealed class DocumentResources
     private static string BuildPayload(DocumentDto document)
     {
         var sb = new StringBuilder();
-        sb.Append("<!-- docai document metadata\n");
+        sb.Append("<!-- extract document metadata\n");
         sb.Append($"id: {document.Id}\n");
         if (!string.IsNullOrEmpty(document.DocumentTypeCode))
         {

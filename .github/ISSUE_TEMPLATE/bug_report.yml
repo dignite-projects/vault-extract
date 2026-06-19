@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a defect in Dignite Document AI (channel-layer backend, OCR pipeline, exit contracts, or operator UI).
+description: Report a defect in Dignite Extract (channel-layer backend, OCR pipeline, exit contracts, or operator UI).
 labels: ["bug"]
 body:
   - type: markdown

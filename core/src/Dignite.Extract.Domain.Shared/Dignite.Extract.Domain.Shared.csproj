@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <RootNamespace>Dignite.Extract</RootNamespace>
     <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
-    <Description>Shared kernel of Dignite Document AI: constants, enums, error codes and localization resources usable from any layer.</Description>
+    <Description>Shared kernel of Dignite Extract: constants, enums, error codes and localization resources usable from any layer.</Description>
   </PropertyGroup>
 
   <ItemGroup>

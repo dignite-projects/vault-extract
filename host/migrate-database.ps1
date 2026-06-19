@@ -1,3 +1,3 @@
-dotnet run --project Dignite.DocumentAI --migrate-database
+dotnet run --project src/Dignite.Extract.Host.csproj --migrate-database
 
 exit $LASTEXITCODE

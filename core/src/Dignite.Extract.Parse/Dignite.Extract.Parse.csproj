@@ -6,7 +6,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <RootNamespace>Dignite.Extract.Parse</RootNamespace>
-    <Description>Text-extraction orchestration for Dignite Document AI: the default ITextExtractor implementation that dispatches by file extension between OCR and Markdown providers (with OCR fallback for PDFs without a text layer), plus the IMarkdownTextProvider contract.</Description>
+    <Description>Text-extraction orchestration for Dignite Extract: the default ITextExtractor implementation that dispatches by file extension between OCR and Markdown providers (with OCR fallback for PDFs without a text layer), plus the IMarkdownTextProvider contract.</Description>
   </PropertyGroup>
 
   <ItemGroup>

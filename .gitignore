@@ -408,7 +408,7 @@ FodyWeavers.xsd
 # ABP Studio
 **/.abpstudio/
 
-# Dignite Document AI-specific
+# Dignite Extract-specific
 # (log directories are already covered by [Ll]og/ / [Ll]ogs/ rules above)
 *.db
 *.db-shm
@@ -448,12 +448,12 @@ appsettings.Development.json
 appsettings.Production.json
 appsettings.Staging.json
 
-# Benchmark dataset (desensitized real data — not committed)
-core/test/Dignite.DocumentAI.Application.Tests/Benchmarks/rag-gold-dataset.json
-
 # Node.js artifacts from benchmark embedding generation script
 core/test/**/Benchmarks/package.json
 core/test/**/Benchmarks/package-lock.json
+
+# Benchmark dataset (desensitized real data - not committed)
+core/test/Dignite.Extract.Application.Tests/Benchmarks/rag-gold-dataset.json
 # Angular NX monorepo Node.js files are tracked
 !angular/package.json
 !angular/package-lock.json

@@ -19,13 +19,13 @@
     <PropertyGroup Label="NuGet package metadata">
         <Authors>Dignite</Authors>
         <Company>Dignite</Company>
-        <Product>Dignite Document AI</Product>
+        <Product>Dignite Extract</Product>
         <Copyright>© Dignite</Copyright>
         <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
         <PackageProjectUrl>https://github.com/dignite-projects/document-ai</PackageProjectUrl>
         <RepositoryUrl>https://github.com/dignite-projects/document-ai</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
-        <PackageTags>abp;document-ai;document-processing;ocr;markdown;mcp</PackageTags>
+        <PackageTags>abp;extract;document-processing;ocr;markdown;mcp</PackageTags>
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <PackageIcon>icon.png</PackageIcon>
     </PropertyGroup>

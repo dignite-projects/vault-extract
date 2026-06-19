@@ -6,7 +6,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <RootNamespace>Dignite.Extract.Parse.Pdf</RootNamespace>
-    <Description>PDF Markdown text provider for Dignite Document AI based on PdfPig: extracts the digital text layer and embedded raster images from PDFs, transcribes each image through the host-selected IOcrProvider, and inlines the transcription into the Markdown at the image's reading position. Vector-only graphics are an accepted blind spot.</Description>
+    <Description>PDF Markdown text provider for Dignite Extract based on PdfPig: extracts the digital text layer and embedded raster images from PDFs, transcribes each image through the host-selected IOcrProvider, and inlines the transcription into the Markdown at the image's reading position. Vector-only graphics are an accepted blind spot.</Description>
   </PropertyGroup>
 
   <ItemGroup>

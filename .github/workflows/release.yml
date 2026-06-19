@@ -7,8 +7,8 @@
 # the version number; a guard step fails the run when the pushed tag does not match
 # common.props, or the npm package version falls out of lockstep.
 #
-# npm package (@dignite/document-ai) is published automatically via NPM_TOKEN secret.
-# The version lives in angular/packages/document-ai/package.json and must stay in
+# npm package (@dignite/extract) is published automatically via NPM_TOKEN secret.
+# The version lives in angular/packages/extract/package.json and must stay in
 # lockstep with common.props <Version> (enforced by the guard step above).
 
 name: Release
@@ -42,9 +42,9 @@ jobs:
             echo "::error::Tag $TAG does not match <Version>$VERSION</Version> in common.props."
             exit 1
           fi
-          NPM_VERSION=$(node -p "require('./angular/packages/document-ai/package.json').version")
+          NPM_VERSION=$(node -p "require('./angular/packages/extract/package.json').version")
           if [ "$NPM_VERSION" != "$VERSION" ]; then
-            echo "::error::npm version $NPM_VERSION (angular/packages/document-ai/package.json) is not in lockstep with common.props $VERSION."
+            echo "::error::npm version $NPM_VERSION (angular/packages/extract/package.json) is not in lockstep with common.props $VERSION."
             exit 1
           fi
 
@@ -118,7 +118,7 @@ jobs:
         working-directory: angular
 
       - name: Build npm package
-        run: npx nx build document-ai --configuration production
+        run: npx nx build extract --configuration production
         working-directory: angular
 
       - name: Publish to npm
@@ -129,7 +129,7 @@ jobs:
             echo "::notice::NPM_TOKEN secret is not configured; skipping npm publish."
             exit 0
           fi
-          npm publish ./dist/document-ai --access public
+          npm publish ./dist/extract --access public
         working-directory: angular
 
       # Extract this version's section from CHANGELOG.md as the draft release body. The heading
