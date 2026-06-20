@@ -49,3 +49,21 @@ paths:
   - otherwise apply incoming → persist `EventTime` as the high-water mark for that key
 - **Design trade-off**: giving up "in-flight replacement" in exchange for channel-layer simplification. Repeated triggers on the same document (e.g. OCR retry, operator reclassify) make downstream receive N events, naturally discarding old versions by EventTime — consistent with the downstream business consumer's existing idempotency implementation path (e.g. the common message-queue consumer pattern), solvable downstream with a single `WHERE Version >` line
 - **If the downstream is also an ABP project**: it can enable ABP's built-in inbox (`builder.ConfigureEventInbox()`), consuming exactly-once automatically by `MessageId`, sparing even the `EventTime` comparison
+
+## Embedded sub-document content overlap (parent inline vs. sub-document, #387)
+
+When a document spawns sub-documents the same content can reach the egress twice. This is a **cross-document content overlap** — a separate concern from the `EventTime` replay idempotency above. Two cases, only one overlaps:
+
+- **Container (multi-document bundle)**: the container's own `DocumentReadyEto` is **suppressed** (a container has no confirmed type — see Ready gate), so the egress carries only its sub-documents. **No overlap.**
+- **Concrete parent with an embedded standalone document** (e.g. a contract with an embedded invoice image): the parent stays a concrete, type-confirmed document and fires its own `DocumentReadyEto`, **and** the embedded figure is also spawned as a sub-document running its own pipeline + egress (its own `DocumentReadyEto` once it obtains a confirmed type). The embedded figure's OCR transcription is therefore carried **twice** — once inline in the parent's Markdown (wrapped `*[Image OCR p:N]*…*[End OCR]*`, kept in egress since #381) and once as the sub-document's payload. (Today this embedded-spawn path is figure-only; born-digital embedded spans split only via the container path.)
+
+**This is deliberate (option A, #387)**: the parent's Markdown stays a faithful, single-read-complete rendering of the original file, and the sub-document is an *additional* finer-grained typed projection. The `*[Image OCR p:N]*…*[End OCR]*` markers are both provenance and the dedup key.
+
+**Downstream obligation**: a `*[Image OCR …]*…*[End OCR]*` span in a parent's Markdown is the **same content** as a spawned sub-document linked by `OriginDocumentId == parent.Id` (exposed on `DocumentReadyEto` / `DocumentDto` / `DocumentListItemDto` / MCP search). A consumer that ingests **both** the parent and its sub-documents must dedup — pick one:
+
+- **strip the marked spans** from the parent's Markdown before chunking / indexing (the markers are self-describing — no id needed), **or**
+- **skip the sub-documents** and index only the parent's inline.
+
+Never index both. `EventTime` idempotency does **not** cover this: it dedups redelivery of the same `(DocumentId, EventType)`, not the same content across two different documents — the overlap is resolved structurally via the markers + `OriginDocumentId`.
+
+**Worked example (RAG chunker)**: a contract arrives (`DocumentReadyEto`, type `contract`) whose Markdown contains an inline `*[Image OCR p:3]*…invoice…*[End OCR]*` span; an invoice sub-document arrives separately (`DocumentReadyEto`, type `invoice`, `OriginDocumentId` = the contract). Index the contract with that span **stripped** (its chunks then hold only contract prose) and index the invoice sub on its own. The invoice content is embedded once, retrievable as a standalone typed unit, not double-weighted.

@@ -82,7 +82,9 @@ Four egress channels: **REST API** (HTTP, generic programmatic access) / **MCP s
 
 **Delivery semantics**: ABP transactional outbox → **at-least-once, events are never lost**; dedup / replacement is the downstream's responsibility via `EventTime` idempotency; the channel layer maintains no event state table and does no in-flight replacement.
 
-> Full event-contract table, Ready-gate details, EventTime idempotency rules, and the #196 OCR-confidence removal: see `.claude/rules/integration-events.md` (auto-loaded when editing ETO / EventHandler).
+**Embedded sub-document overlap**: a concrete parent inlines an embedded standalone document's OCR in its own Markdown (`*[Image OCR]*…*[End OCR]*`, since #381) **and** delivers it as a separate sub-document, so the content is carried twice; a consumer ingesting both must dedup the marked spans against the sub-documents (`OriginDocumentId`). This cross-document content overlap is **not** covered by `EventTime` idempotency (#387).
+
+> Full event-contract table, Ready-gate details, EventTime idempotency rules, the embedded sub-document overlap / dedup contract (#387), and the #196 OCR-confidence removal: see `.claude/rules/integration-events.md` (auto-loaded when editing ETO / EventHandler).
 
 ## OUT of scope (explicitly not done)
 
