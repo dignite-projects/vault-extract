@@ -81,6 +81,7 @@
     "Document:Pipeline:RetryFailed": "重试流水线失败。",
     "Menu:Home": "首页",
     "Menu:Documents": "文档",
+    "Menu:DocumentOverview": "概览",
     "Menu:DocumentList": "文档列表",
     "Menu:DocumentReviewQueue": "审核队列",
     "Menu:DocumentRecycleBin": "回收站",

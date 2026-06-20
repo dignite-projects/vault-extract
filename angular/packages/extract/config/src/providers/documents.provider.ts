@@ -21,6 +21,15 @@ export function provideExtract(): EnvironmentProviders {
           layout: eLayoutType.application,
         },
         {
+          path: '/documents/overview',
+          name: '::Menu:DocumentOverview',
+          iconClass: 'fas fa-chart-bar',
+          parentName: '::Menu:Documents',
+          requiredPolicy: EXTRACT_PERMISSIONS.Documents.Default,
+          order: 0,
+          layout: eLayoutType.application,
+        },
+        {
           path: '/documents/list',
           name: '::Menu:DocumentList',
           iconClass: 'fas fa-list',

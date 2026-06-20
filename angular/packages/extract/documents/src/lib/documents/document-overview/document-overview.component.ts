@@ -26,13 +26,13 @@ import { DocumentUploadComponent } from '../document-upload/document-upload.comp
 import { formatBytes } from '../../shared/format-bytes';
 
 @Component({
-  selector: 'lib-document-home',
-  templateUrl: './document-home.component.html',
-  styleUrls: ['./document-home.component.scss'],
+  selector: 'lib-document-overview',
+  templateUrl: './document-overview.component.html',
+  styleUrls: ['./document-overview.component.scss'],
   imports: [CommonModule, RouterModule, LocalizationPipe, DocumentUploadComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class DocumentHomeComponent implements OnInit {
+export class DocumentOverviewComponent implements OnInit {
   private readonly permissionService = inject(PermissionService);
   private readonly statisticsService = inject(DocumentStatisticsService);
   private readonly cabinetService = inject(CabinetService);

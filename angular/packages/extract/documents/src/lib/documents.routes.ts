@@ -5,10 +5,15 @@ import { EXTRACT_PERMISSIONS } from '@dignite/extract';
 export const DOCUMENTS_ROUTES: Routes = [
   {
     path: '',
+    pathMatch: 'full',
+    redirectTo: 'overview',
+  },
+  {
+    path: 'overview',
     canActivate: [authGuard, permissionGuard],
     data: { requiredPolicy: EXTRACT_PERMISSIONS.Documents.Default },
     loadComponent: () =>
-      import('./documents/document-home/document-home.component').then(c => c.DocumentHomeComponent),
+      import('./documents/document-overview/document-overview.component').then(c => c.DocumentOverviewComponent),
   },
   {
     path: 'list',

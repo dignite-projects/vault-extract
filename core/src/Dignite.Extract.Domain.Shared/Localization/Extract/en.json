@@ -15,6 +15,7 @@
 
     "Menu:Home": "Home",
     "Menu:Documents": "Documents",
+    "Menu:DocumentOverview": "Overview",
     "Menu:DocumentList": "Document List",
     "Menu:DocumentReviewQueue": "Review Queue",
     "Menu:DocumentRecycleBin": "Recycle Bin",
