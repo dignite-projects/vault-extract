@@ -69,4 +69,26 @@ internal static class PdfFixtures
 
         return builder.Build();
     }
+
+    /// <summary>
+    /// Builds a multi-page PDF — one page per inner list of (Text, baselineY) lines — needed to exercise the
+    /// cross-page running header/footer detection (#383), which has no signal on a single page.
+    /// </summary>
+    public static byte[] BuildMultiPage(
+        IReadOnlyList<IReadOnlyList<(string Text, double BaselineY)>> pages)
+    {
+        var builder = new PdfDocumentBuilder();
+        var font = builder.AddStandard14Font(Standard14Font.Helvetica);
+
+        foreach (var texts in pages)
+        {
+            var page = builder.AddPage(PageWidth, PageHeight);
+            foreach (var (text, baselineY) in texts)
+            {
+                page.AddText(text, 12, new PdfPoint(50, baselineY), font);
+            }
+        }
+
+        return builder.Build();
+    }
 }

@@ -137,10 +137,18 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
 
             var languageHints = ResolveLanguageHints(context);
 
-            foreach (var pageContent in pages)
+            // #383: detect running headers / footers + page numbers (content that repeats in the top/bottom
+            // edge band across pages) once over all pages, so it does not pollute the Markdown body. Position
+            // only selects candidates; a line is dropped only when its digit-normalized text repeats across
+            // enough pages — so a per-page signature / seal / total / footnote is preserved, and a single-page
+            // document drops nothing.
+            var runningContent = PdfRunningHeaderFooter.Detect(pages.ConvertAll(p => p.Words));
+
+            for (var pageIndex = 0; pageIndex < pages.Count; pageIndex++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
+                var pageContent = pages[pageIndex];
                 var figures = new List<PdfReadingOrder.Figure>();
 
                 List<IPdfImage> images;
@@ -253,7 +261,15 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
                     }
                 }
 
-                var pageMarkdown = PdfReadingOrder.RenderPage(pageContent.Words, figures, _options.ReconstructTables);
+                // #383: drop the words of any running header/footer / page-number lines detected across pages,
+                // then render. Filter the page's own word list by reference identity (the drop set holds the
+                // same Word instances).
+                var droppable = runningContent[pageIndex];
+                var renderWords = droppable.Count == 0
+                    ? pageContent.Words
+                    : pageContent.Words.Where(w => !droppable.Contains(w)).ToList();
+
+                var pageMarkdown = PdfReadingOrder.RenderPage(renderWords, figures, _options.ReconstructTables);
                 if (!string.IsNullOrWhiteSpace(pageMarkdown))
                 {
                     pageMarkdowns.Add(pageMarkdown);

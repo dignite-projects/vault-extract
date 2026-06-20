@@ -31,4 +31,8 @@
     <ProjectReference Include="..\Dignite.Extract.Ocr\Dignite.Extract.Ocr.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Dignite.Extract.Ocr.VisionLlm.Tests" />
+  </ItemGroup>
+
 </Project>

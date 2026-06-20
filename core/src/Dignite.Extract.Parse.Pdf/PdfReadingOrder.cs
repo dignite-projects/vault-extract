@@ -50,6 +50,15 @@ internal static class PdfReadingOrder
     /// <summary>A reconstructed visual line of the text layer.</summary>
     public readonly record struct TextLine(PdfRectangle Bounds, string Text);
 
+    /// <summary>
+    /// A reconstructed visual line plus the <see cref="Word"/> instances it was built from (left-to-right,
+    /// matching <see cref="Text"/>). Lets <see cref="PdfRunningHeaderFooter"/> map a detected running
+    /// header/footer line back to the exact words to drop from the page before rendering (#383). The word
+    /// instances are the same references that were passed in, so callers can filter the original word list by
+    /// reference identity.
+    /// </summary>
+    internal readonly record struct LineWithWords(PdfRectangle Bounds, string Text, IReadOnlyList<Word> Words);
+
     // Only bind a nearby text line to a figure when it reads like a figure/table caption. Keeps ordinary
     // adjacent body text from being relocated into the figure block.
     // Latin labels use a word boundary (so "figured"/"tablet" don't match). CJK labels (图/圖/図/表 — zh-Hans,
@@ -91,10 +100,28 @@ internal static class PdfReadingOrder
     /// </summary>
     public static IReadOnlyList<TextLine> GroupWordsIntoLines(IReadOnlyList<Word> words)
     {
+        var withWords = GroupWordsIntoLinesWithWords(words);
+        var lines = new List<TextLine>(withWords.Count);
+        foreach (var line in withWords)
+        {
+            lines.Add(new TextLine(line.Bounds, line.Text));
+        }
+
+        return lines;
+    }
+
+    /// <summary>
+    /// Same line reconstruction as <see cref="GroupWordsIntoLines"/>, but each returned line also carries the
+    /// <see cref="Word"/> instances it was built from (left-to-right, matching the line text). Used by
+    /// <see cref="PdfRunningHeaderFooter"/> to drop the exact words of a detected running header/footer line
+    /// from the page before rendering (#383).
+    /// </summary>
+    internal static IReadOnlyList<LineWithWords> GroupWordsIntoLinesWithWords(IReadOnlyList<Word> words)
+    {
         var meaningful = words.Where(w => !string.IsNullOrWhiteSpace(w.Text)).ToList();
         if (meaningful.Count == 0)
         {
-            return Array.Empty<TextLine>();
+            return Array.Empty<LineWithWords>();
         }
 
         // Process top-to-bottom so a line cluster accretes its words in vertical order.
@@ -131,13 +158,12 @@ internal static class PdfReadingOrder
             }
         }
 
-        var lines = new List<TextLine>(clusters.Count);
+        var lines = new List<LineWithWords>(clusters.Count);
         for (var i = 0; i < clusters.Count; i++)
         {
-            var text = string.Join(
-                " ",
-                clusters[i].OrderBy(w => w.BoundingBox.Left).Select(w => w.Text));
-            lines.Add(new TextLine(clusterBounds[i], text));
+            var orderedWords = clusters[i].OrderBy(w => w.BoundingBox.Left).ToList();
+            var text = string.Join(" ", orderedWords.Select(w => w.Text));
+            lines.Add(new LineWithWords(clusterBounds[i], text, orderedWords));
         }
 
         return lines
