@@ -38,7 +38,7 @@ export interface FieldDefinitionDto extends EntityDto<string> {
 }
 
 export interface GetFieldDefinitionListInput {
-  documentTypeId: string;
+  documentTypeId?: string | null;
   onlyDeleted?: boolean;
 }
 

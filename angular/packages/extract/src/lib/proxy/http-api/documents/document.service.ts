@@ -49,7 +49,7 @@ export class DocumentService {
     this.restService.request<any, PagedResultDto<DocumentListItemDto>>({
       method: 'GET',
       url: '/api/extract/documents',
-      params: { lifecycleStatus: input.lifecycleStatus, documentTypeCode: input.documentTypeCode, reviewDisposition: input.reviewDisposition, hasReviewReasons: input.hasReviewReasons, isDeleted: input.isDeleted, cabinetId: input.cabinetId, fieldFilters: input.fieldFilters, sorting: input.sorting, skipCount: input.skipCount, maxResultCount: input.maxResultCount },
+      params: { lifecycleStatus: input.lifecycleStatus, documentTypeCode: input.documentTypeCode, reviewDisposition: input.reviewDisposition, hasReviewReasons: input.hasReviewReasons, isDeleted: input.isDeleted, cabinetId: input.cabinetId, originDocumentId: input.originDocumentId, fieldFilters: input.fieldFilters, sorting: input.sorting, skipCount: input.skipCount, maxResultCount: input.maxResultCount },
     },
     { apiName: this.apiName,...config });
   

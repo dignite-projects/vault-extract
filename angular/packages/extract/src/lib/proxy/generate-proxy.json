@@ -1572,6 +1572,18 @@
                 },
                 {
                   "nameOnMethod": "input",
+                  "name": "OriginDocumentId",
+                  "jsonName": null,
+                  "type": "System.Guid?",
+                  "typeSimple": "string?",
+                  "isOptional": false,
+                  "defaultValue": null,
+                  "constraintTypes": null,
+                  "bindingSourceId": "ModelBinding",
+                  "descriptorName": "input"
+                },
+                {
+                  "nameOnMethod": "input",
                   "name": "FieldFilters",
                   "jsonName": null,
                   "type": "System.Collections.Generic.List<Dignite.Extract.Documents.DocumentFieldFilter>",
@@ -2252,6 +2264,48 @@
               "allowAnonymous": null,
               "authorizeDatas": [],
               "implementFrom": "Dignite.Extract.Documents.IDocumentAppService"
+            }
+          }
+        },
+        "Dignite.Extract.HttpApi.Documents.DocumentStatisticsController": {
+          "controllerName": "DocumentStatistics",
+          "controllerGroupName": "DocumentStatistics",
+          "isRemoteService": true,
+          "isIntegrationService": false,
+          "apiVersion": null,
+          "type": "Dignite.Extract.HttpApi.Documents.DocumentStatisticsController",
+          "interfaces": [
+            {
+              "type": "Dignite.Extract.Documents.IDocumentStatisticsAppService",
+              "name": "IDocumentStatisticsAppService",
+              "methods": [
+                {
+                  "name": "GetAsync",
+                  "parametersOnMethod": [],
+                  "returnValue": {
+                    "type": "Dignite.Extract.Documents.DocumentStatisticsDto",
+                    "typeSimple": "Dignite.Extract.Documents.DocumentStatisticsDto"
+                  }
+                }
+              ]
+            }
+          ],
+          "actions": {
+            "GetAsync": {
+              "uniqueName": "GetAsync",
+              "name": "GetAsync",
+              "httpMethod": "GET",
+              "url": "api/extract/document-statistics",
+              "supportedVersions": [],
+              "parametersOnMethod": [],
+              "parameters": [],
+              "returnValue": {
+                "type": "Dignite.Extract.Documents.DocumentStatisticsDto",
+                "typeSimple": "Dignite.Extract.Documents.DocumentStatisticsDto"
+              },
+              "allowAnonymous": null,
+              "authorizeDatas": [],
+              "implementFrom": "Dignite.Extract.Documents.IDocumentStatisticsAppService"
             }
           }
         },
@@ -3044,8 +3098,8 @@
                   "nameOnMethod": "input",
                   "name": "DocumentTypeId",
                   "jsonName": null,
-                  "type": "System.Guid",
-                  "typeSimple": "string",
+                  "type": "System.Guid?",
+                  "typeSimple": "string?",
                   "isOptional": false,
                   "defaultValue": null,
                   "constraintTypes": null,
@@ -6883,6 +6937,32 @@
           "isNullable": true
         },
         {
+          "name": "OriginDocumentId",
+          "jsonName": null,
+          "type": "System.Guid?",
+          "typeSimple": "string?",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true
+        },
+        {
+          "name": "IsContainer",
+          "jsonName": null,
+          "type": "System.Boolean",
+          "typeSimple": "boolean",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
           "name": "DocumentTypeCode",
           "jsonName": null,
           "type": "System.String",
@@ -7205,6 +7285,32 @@
           "isNullable": true
         },
         {
+          "name": "OriginDocumentId",
+          "jsonName": null,
+          "type": "System.Guid?",
+          "typeSimple": "string?",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true
+        },
+        {
+          "name": "IsContainer",
+          "jsonName": null,
+          "type": "System.Boolean",
+          "typeSimple": "boolean",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
           "name": "DocumentTypeCode",
           "jsonName": null,
           "type": "System.String",
@@ -7358,15 +7464,117 @@
       "enumNames": [
         "None",
         "UnresolvedClassification",
-        "MissingRequiredFields"
+        "MissingRequiredFields",
+        "SegmentationIncomplete"
       ],
       "enumValues": [
         0,
         1,
-        2
+        2,
+        4
       ],
       "genericArguments": null,
       "properties": null
+    },
+    "Dignite.Extract.Documents.DocumentStatisticsDto": {
+      "baseType": null,
+      "isEnum": false,
+      "enumNames": null,
+      "enumValues": null,
+      "genericArguments": null,
+      "properties": [
+        {
+          "name": "TotalCount",
+          "jsonName": null,
+          "type": "System.Int64",
+          "typeSimple": "number",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "UploadedCount",
+          "jsonName": null,
+          "type": "System.Int64",
+          "typeSimple": "number",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "ProcessingCount",
+          "jsonName": null,
+          "type": "System.Int64",
+          "typeSimple": "number",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "ReadyCount",
+          "jsonName": null,
+          "type": "System.Int64",
+          "typeSimple": "number",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "FailedCount",
+          "jsonName": null,
+          "type": "System.Int64",
+          "typeSimple": "number",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "NeedsReviewCount",
+          "jsonName": null,
+          "type": "System.Int64",
+          "typeSimple": "number",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "TotalStorageBytes",
+          "jsonName": null,
+          "type": "System.Int64",
+          "typeSimple": "number",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        }
+      ]
     },
     "Dignite.Extract.Documents.DocumentTypes.CreateDocumentTypeDto": {
       "baseType": null,
@@ -8350,15 +8558,15 @@
         {
           "name": "DocumentTypeId",
           "jsonName": null,
-          "type": "System.Guid",
-          "typeSimple": "string",
-          "isRequired": true,
+          "type": "System.Guid?",
+          "typeSimple": "string?",
+          "isRequired": false,
           "minLength": null,
           "maxLength": null,
           "minimum": null,
           "maximum": null,
           "regex": null,
-          "isNullable": false
+          "isNullable": true
         },
         {
           "name": "OnlyDeleted",
@@ -8610,6 +8818,19 @@
         },
         {
           "name": "CabinetId",
+          "jsonName": null,
+          "type": "System.Guid?",
+          "typeSimple": "string?",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true
+        },
+        {
+          "name": "OriginDocumentId",
           "jsonName": null,
           "type": "System.Guid?",
           "typeSimple": "string?",

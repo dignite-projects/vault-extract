@@ -8,7 +8,7 @@ import type { DocumentStatisticsDto } from '../../documents/models';
 export class DocumentStatisticsService {
   private restService = inject(RestService);
   apiName = 'Default';
-
+  
 
   get = (config?: Partial<Rest.Config>) =>
     this.restService.request<any, DocumentStatisticsDto>({
