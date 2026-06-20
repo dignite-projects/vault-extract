@@ -26,6 +26,7 @@
     "Extract:DocumentInRecycleBin": "该文件已在回收站中 ({FileName})。",
     "Extract:DocumentFileTooLarge": "文件 '{FileName}' 超过了允许的最大大小 {MaxBytes} 字节。",
     "Extract:DocumentUnsupportedFileType": "文件 '{FileName}' 的类型 ('{ContentType}') 不受支持。请上传受支持的图片或 PDF。",
+    "Extract:DocumentNoSourceBlob": "该文档没有可供下载的源文件。",
     "Extract:UnknownPipelineCode": "流水线 '{PipelineCode}' 不支持重试。",
     "Extract:PipelineNeverRan": "流水线 '{PipelineCode}' 尚未运行。",
     "Extract:PipelineRetryInProgress": "流水线 '{PipelineCode}' 已有进行中的尝试。",

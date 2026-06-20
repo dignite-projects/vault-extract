@@ -19,11 +19,11 @@ namespace Dignite.Extract.Documents.Segments;
 /// the first-class, restorable artifact).
 /// </para>
 /// <para>
-/// <b>The slice text lives on the row</b> (<see cref="SliceText"/>), mirroring <c>DocumentFigure.Transcription</c>:
-/// it seeds the spawned derived document's text extraction (no re-extraction, so the exact slice is preserved —
-/// the #346 "never regenerate slice text" decision), and the derived document's own <c>FileOrigin</c> blob is
-/// written fresh from it at spawn time (derived-owned, so it outlives the container). <see cref="SegmentKey"/> is
-/// the SHA-256 of the slice text and doubles as the derived document's <c>FileOrigin.ContentHash</c> /
+/// <b>The slice text lives on the row</b> (<see cref="SliceText"/>): it seeds the spawned derived document's
+/// Markdown directly (no re-extraction, so the exact slice is preserved — the #346 "never regenerate slice text"
+/// decision). The derived sub-document carries <b>no <c>FileOrigin</c></b> (it has no source blob of its own; its
+/// text originates from this row, not from re-extracting a file), so this row is the only durable home of the slice.
+/// <see cref="SegmentKey"/> is the SHA-256 of the slice text and doubles as the derived document's
 /// <c>OriginConstituentKey</c>, giving idempotent routing (unique <c>(SourceDocumentId, SegmentKey)</c>);
 /// <see cref="Ordinal"/> is reading-order provenance only. A container's status is sticky (#346), so within one mode
 /// a key collision only ever comes from a job retry; the one cross-mode case — a concrete document's embedded-figure
@@ -40,17 +40,17 @@ public class DocumentSegment : CreationAuditedAggregateRoot<Guid>, IMultiTenant
 
     /// <summary>
     /// SHA-256 (lowercase hex) of the slice text. Doubles as the derived document's
-    /// <c>OriginConstituentKey</c> / <c>FileOrigin.ContentHash</c> and is unique per source
+    /// <c>OriginConstituentKey</c> and is unique per source
     /// (<c>(SourceDocumentId, SegmentKey)</c>), so a job retry never duplicate-spawns.
     /// </summary>
     public virtual string SegmentKey { get; private set; } = default!;
 
     /// <summary>
-    /// The Markdown slice text. Working state on this aggregate: it seeds the derived document's text extraction
-    /// (skipping re-extraction so the exact slice is preserved) and is written to the derived document's
-    /// <c>FileOrigin</c> blob at spawn time. It is <b>not</b> a channel text egress, so it does not conflict with
-    /// Markdown-first (which governs the <see cref="Document"/> aggregate's text payload). Mirrors
-    /// <c>DocumentFigure.Transcription</c> (nvarchar(max), not indexed).
+    /// The Markdown slice text. Working state on this aggregate: it seeds the derived document's Markdown directly
+    /// (skipping re-extraction so the exact slice is preserved) — the derived sub-document has no <c>FileOrigin</c>
+    /// blob, so this row is where its text originates. It is <b>not</b> a channel text egress, so it does not conflict
+    /// with Markdown-first (which governs the <see cref="Document"/> aggregate's text payload). Stored as
+    /// nvarchar(max), not indexed.
     /// </summary>
     public virtual string SliceText { get; private set; } = default!;
 

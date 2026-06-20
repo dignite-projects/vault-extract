@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
@@ -17,6 +16,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Volo.Abp.BackgroundJobs;
 using Volo.Abp.BlobStoring;
@@ -64,7 +64,6 @@ public class DocumentSegmentationJob_Tests : ExtractTestBase<DocumentSegmentatio
     private readonly IBackgroundJobManager _backgroundJobManager;
     private readonly IDistributedEventBus _eventBus;
     private readonly DocumentSegmentationWorkflow _workflow;
-    private readonly IBlobContainer<ExtractDocumentContainer> _blobContainer;
     private readonly IGuidGenerator _guidGenerator;
 
     public DocumentSegmentationJob_Tests()
@@ -75,7 +74,6 @@ public class DocumentSegmentationJob_Tests : ExtractTestBase<DocumentSegmentatio
         _backgroundJobManager = GetRequiredService<IBackgroundJobManager>();
         _eventBus = GetRequiredService<IDistributedEventBus>();
         _workflow = GetRequiredService<DocumentSegmentationWorkflow>();
-        _blobContainer = GetRequiredService<IBlobContainer<ExtractDocumentContainer>>();
         _guidGenerator = GetRequiredService<IGuidGenerator>();
     }
 
@@ -97,13 +95,13 @@ public class DocumentSegmentationJob_Tests : ExtractTestBase<DocumentSegmentatio
 
             var derived = await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId);
             derived.Count.ShouldBe(2);
-            // Each derived sub-document is keyed by its slice hash (= the segment key) and carries a Markdown FileOrigin.
-            derived.ShouldAllBe(d => d.FileOrigin.ContentType == "text/markdown");
+            // Each derived sub-document carries NO FileOrigin (no source blob): its Markdown is seeded from the
+            // segment's SliceText, and its identity is the OriginConstituentKey (= the segment key / slice hash).
+            derived.ShouldAllBe(d => d.FileOrigin == null);
             foreach (var d in derived)
             {
                 d.OriginConstituentKey.ShouldNotBeNull();
                 segments.ShouldContain(s => s.SegmentKey == d.OriginConstituentKey && s.RoutedDocumentId == d.Id);
-                d.FileOrigin.ContentHash.ShouldBe(d.OriginConstituentKey);
             }
         });
 
@@ -610,9 +608,14 @@ public class DocumentSegmentationJob_Tests : ExtractTestBase<DocumentSegmentatio
         // operator sees it even after ABP exhausts retries.
         var containerId = await ArrangeContainerAsync("Invoice A first\nInvoice B second");
         StubSplit(("Invoice A", true), ("Invoice B", true));
-        _blobContainer
-            .When(x => x.SaveAsync(Arg.Any<string>(), Arg.Any<Stream>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()))
-            .Do(_ => throw new InvalidOperationException("blob store down"));
+        // A sub-document has no source blob to write, so the canonical Phase B failure is now an egress step inside the
+        // spawn UoW. Make DocumentUploadedEto publishing throw: it runs after the derived insert but before the
+        // segment's Spawned mark is flushed, so the segment is left Pending (ABP then retries) and the job rethrows.
+        // (The test UoW disables transactions, so the autosaved derived row is not rolled back here as the spawn UoW
+        // would in production — this test asserts the retry contract: container flagged + segment Pending + rethrow.)
+        _eventBus
+            .PublishAsync(Arg.Any<DocumentUploadedEto>())
+            .ThrowsAsync(new InvalidOperationException("event bus down"));
 
         await Should.ThrowAsync<AggregateException>(
             () => _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId }));
@@ -623,7 +626,6 @@ public class DocumentSegmentationJob_Tests : ExtractTestBase<DocumentSegmentatio
                 .ShouldBe(DocumentReviewReasons.SegmentationIncomplete);
             (await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId))
                 .ShouldAllBe(s => s.Status == DocumentSegmentStatus.Pending);
-            (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).ShouldBeEmpty();
         });
     }
 

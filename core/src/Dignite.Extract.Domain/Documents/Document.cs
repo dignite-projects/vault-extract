@@ -17,8 +17,8 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     // Multi-tenancy
     public virtual Guid? TenantId { get; private set; }
 
-    /// <summary>File origin information (immutable).</summary>
-    public virtual FileOrigin FileOrigin { get; private set; } = default!;
+    /// <summary>File origin information (immutable). Null for derived sub-documents that carry no source blob (figure spans seeded from segment SliceText).</summary>
+    public virtual FileOrigin? FileOrigin { get; private set; }
 
     /// <summary>
     /// Owning cabinet (manual organization dimension, #194). Nullable; null means "uncategorized".
@@ -71,7 +71,7 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// <summary>
     /// Display title for the document, written after a successful text extraction pipeline run and immutable afterward.
     /// Extracted from <see cref="Markdown"/> by <see cref="MarkdownTitleExtractor"/>; if extraction fails, upstream falls back to the file name without extension.
-    /// Historical records from before the migration may be null; read paths should fall back to <see cref="FileOrigin"/>.OriginalFileName / <see cref="FileOrigin"/>.BlobName.
+    /// Historical records from before the migration may be null; read paths should fall back to <see cref="FileOrigin"/>?.OriginalFileName / <see cref="FileOrigin"/>?.BlobName.
     /// </summary>
     public virtual string? Title { get; private set; }
 
@@ -140,9 +140,8 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
 
     /// <summary>
     /// Content-derived stable key of the source constituent this document was derived from (#306 figure path /
-    /// #346 born-digital path): the SHA-256 of the figure bytes <b>or</b> of the Markdown slice, equal to this
-    /// document's <c>FileOrigin.ContentHash</c>. NOT bbox (which drifts, #210). Unique together with
-    /// <see cref="OriginDocumentId"/> so re-extraction / routing retry never duplicate-spawn.
+    /// #346 born-digital path): the SHA-256 of the Markdown slice text. NOT bbox (which drifts, #210). Unique
+    /// together with <see cref="OriginDocumentId"/> so re-extraction / routing retry never duplicate-spawn.
     /// <c>null</c> for normally-uploaded documents.
     /// </summary>
     public virtual string? OriginConstituentKey { get; private set; }
@@ -168,12 +167,12 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     public Document(
         Guid id,
         Guid? tenantId,
-        FileOrigin fileOrigin,
+        FileOrigin? fileOrigin,
         Guid? cabinetId = null)
         : base(id)
     {
         TenantId = tenantId;
-        FileOrigin = Check.NotNull(fileOrigin, nameof(fileOrigin));
+        FileOrigin = fileOrigin;
         CabinetId = cabinetId;
         LifecycleStatus = DocumentLifecycleStatus.Uploaded;
     }
@@ -183,13 +182,13 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// (#306 / #346, Scenario B): an embedded figure (image path) or a Markdown slice (born-digital path). It is a
     /// normal peer <see cref="Document"/> that runs the full pipeline + egress; the only difference is the
     /// back-reference (<see cref="OriginDocumentId"/> / <see cref="OriginConstituentKey"/>).
-    /// <paramref name="originConstituentKey"/> equals <paramref name="fileOrigin"/>'s <c>ContentHash</c> (the
-    /// constituent content hash), tying storage and routing idempotency together.
+    /// <paramref name="fileOrigin"/> is <c>null</c> for figure sub-documents (no source blob; Markdown is seeded
+    /// from the segment SliceText instead of re-extracting a blob).
     /// </summary>
     public static Document CreateDerived(
         Guid id,
         Guid? tenantId,
-        FileOrigin fileOrigin,
+        FileOrigin? fileOrigin,
         Guid originDocumentId,
         string originConstituentKey)
     {

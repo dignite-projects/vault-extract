@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
@@ -14,7 +13,6 @@ using Dignite.Extract.Documents.Segments;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Volo.Abp.BackgroundJobs;
-using Volo.Abp.BlobStoring;
 using Volo.Abp.DependencyInjection;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Guids;
@@ -52,9 +50,8 @@ namespace Dignite.Extract.Documents.Pipelines.Segmentation;
 /// segment; the unique index is the duplicate-spawn backstop; per-segment faults are isolated and surfaced.
 /// </para>
 /// <para>
-/// <b>UoW discipline</b> (background-jobs.md): the LLM detection, blob reads, and slice-blob writes run outside any
-/// UoW; only the segment-row inserts and each derived-document insert + status change + pipeline enqueue run inside
-/// short UoWs.
+/// <b>UoW discipline</b> (background-jobs.md): the LLM detection and blob reads run outside any UoW; only the
+/// segment-row inserts and each derived-document insert + status change + pipeline enqueue run inside short UoWs.
 /// </para>
 /// </summary>
 [BackgroundJobName("Extract.DocumentSegmentation")]
@@ -66,7 +63,6 @@ public class DocumentSegmentationJob
     private readonly IDocumentTypeRepository _documentTypeRepository;
     private readonly DocumentSegmentationWorkflow _segmentationWorkflow;
     private readonly DerivedDocumentSpawner _derivedDocumentSpawner;
-    private readonly IBlobContainer<ExtractDocumentContainer> _blobContainer;
     private readonly ICurrentTenant _currentTenant;
     private readonly IGuidGenerator _guidGenerator;
     private readonly IUnitOfWorkManager _unitOfWorkManager;
@@ -79,7 +75,6 @@ public class DocumentSegmentationJob
         IDocumentTypeRepository documentTypeRepository,
         DocumentSegmentationWorkflow segmentationWorkflow,
         DerivedDocumentSpawner derivedDocumentSpawner,
-        IBlobContainer<ExtractDocumentContainer> blobContainer,
         ICurrentTenant currentTenant,
         IGuidGenerator guidGenerator,
         IUnitOfWorkManager unitOfWorkManager,
@@ -91,7 +86,6 @@ public class DocumentSegmentationJob
         _documentTypeRepository = documentTypeRepository;
         _segmentationWorkflow = segmentationWorkflow;
         _derivedDocumentSpawner = derivedDocumentSpawner;
-        _blobContainer = blobContainer;
         _currentTenant = currentTenant;
         _guidGenerator = guidGenerator;
         _unitOfWorkManager = unitOfWorkManager;
@@ -195,7 +189,7 @@ public class DocumentSegmentationJob
         return new DetectionContext(
             sourceDocumentId,
             source.TenantId,
-            source.FileOrigin.UploadedByUserName,
+            source.FileOrigin?.UploadedByUserName ?? string.Empty,
             markdown,
             source.IsContainer,
             alreadySegmented,
@@ -455,60 +449,31 @@ public class DocumentSegmentationJob
     private async Task SpawnDerivedDocumentAsync(
         PendingSegment segment, DetectionContext context, CancellationToken cancellationToken)
     {
-        // External (no UoW): write the clean slice to an independent, derived-document-owned blob so the derived
-        // document outlives the source (the source's permanent delete reclaims the source/segment rows, not this blob).
-        var sliceBytes = Encoding.UTF8.GetBytes(segment.SliceText);
-        var derivedBlobName = _guidGenerator.Create().ToString("N") + ".md";
-        using (var saveStream = new MemoryStream(sliceBytes, writable: false))
-        {
-            await _blobContainer.SaveAsync(derivedBlobName, saveStream, overrideExisting: true, cancellationToken);
-        }
-
-        var shortKey = segment.SegmentKey.Length > 8 ? segment.SegmentKey[..8] : segment.SegmentKey;
-        var fileOrigin = new FileOrigin(
-            blobName: derivedBlobName,
-            uploadedByUserName: context.UploadedByUserName,
-            contentType: "text/markdown",
-            contentHash: segment.SegmentKey,
-            fileSize: sliceBytes.LongLength,
-            originalFileName: $"segment-{shortKey}.md");
-
-        try
-        {
-            // Shared complete-phase UoW (#358): insert the derived document, mark this segment Spawned, publish
-            // DocumentUploadedEto, and queue text extraction — atomically. The reload guard is kind-aware (#371):
-            var spawnedId = await _derivedDocumentSpawner.SpawnAsync<DocumentSegment>(
-                context.SourceDocumentId,
-                context.TenantId,
-                segment.SegmentKey,
-                fileOrigin,
-                reloadClaimable: async () =>
-                {
-                    var entity = await _segmentRepository.FindAsync(segment.SegmentId);
-                    if (entity is not { Status: DocumentSegmentStatus.Pending })
-                    {
-                        return null;
-                    }
-
-                    return await IsStillSpawnableAsync(context.SourceDocumentId, entity.Kind) ? entity : null;
-                },
-                markSpawned: async (entity, derivedId) =>
-                {
-                    entity.MarkSpawned(derivedId);
-                    await _segmentRepository.UpdateAsync(entity);
-                },
-                cancellationToken);
-
-            if (spawnedId is null)
+        // Shared complete-phase UoW (#358): insert the derived document, mark this segment Spawned, publish
+        // DocumentUploadedEto, and queue text extraction — atomically. The reload guard is kind-aware (#371).
+        // FileOrigin is null: sub-documents carry no source blob; their Markdown is seeded from segment.SliceText
+        // by DocumentParseBackgroundJob instead of re-extracting a blob.
+        await _derivedDocumentSpawner.SpawnAsync<DocumentSegment>(
+            context.SourceDocumentId,
+            context.TenantId,
+            segment.SegmentKey,
+            fileOrigin: null,
+            reloadClaimable: async () =>
             {
-                await TryDeleteBlobAsync(derivedBlobName);
-            }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            await TryDeleteBlobAsync(derivedBlobName);
-            throw;
-        }
+                var entity = await _segmentRepository.FindAsync(segment.SegmentId);
+                if (entity is not { Status: DocumentSegmentStatus.Pending })
+                {
+                    return null;
+                }
+
+                return await IsStillSpawnableAsync(context.SourceDocumentId, entity.Kind) ? entity : null;
+            },
+            markSpawned: async (entity, derivedId) =>
+            {
+                entity.MarkSpawned(derivedId);
+                await _segmentRepository.UpdateAsync(entity);
+            },
+            cancellationToken);
     }
 
     /// <summary>
@@ -636,18 +601,6 @@ public class DocumentSegmentationJob
     {
         var source = await _documentRepository.FindAsync(sourceId, includeDetails: false);
         return source is { IsContainer: true } ? source : null;
-    }
-
-    private async Task TryDeleteBlobAsync(string blobName)
-    {
-        try
-        {
-            await _blobContainer.DeleteAsync(blobName);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Failed to delete blob {BlobName} during sub-document detection cleanup.", blobName);
-        }
     }
 
     private static int? ExtractFirstPage(string markedSliceText)

@@ -25,6 +25,8 @@ public static class ExtractErrorCodes
         // not in whitelist).
         public const string FileTooLarge = "Extract:DocumentFileTooLarge";
         public const string UnsupportedFileType = "Extract:DocumentUnsupportedFileType";
+        // Derived sub-documents spawned from segment SliceText have no source blob; download is unavailable.
+        public const string NoSourceBlob = "Extract:DocumentNoSourceBlob";
     }
 
     public static class DocumentType

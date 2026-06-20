@@ -108,13 +108,19 @@ public class DocumentParseBackgroundJob
             }
             else
             {
+                // Sub-documents derived from segment SliceText always have SeedMarkdown set; a null BlobName here
+                // indicates a configuration or data inconsistency — fail fast rather than NPE on GetAsync.
+                if (workItem.BlobName is null)
+                    throw new InvalidOperationException(
+                        $"Document has no source blob and no seed Markdown (run {workItem.RunId}).");
+
                 // The caller owns the blob stream. With the FileSystem provider this is a FileStream holding an OS file handle,
                 // so it must be disposed, consistent with DocumentAppService.GetBlobAsync disposeStream:true.
                 // Use await using so it is released when this try block (External phase) ends; CompleteRunAsync no longer needs it.
                 await using var blobStream = await _blobContainer.GetAsync(workItem.BlobName);
                 var ctx = new TextExtractionContext
                 {
-                    ContentType = workItem.ContentType,
+                    ContentType = workItem.ContentType!,
                     FileExtension = Path.GetExtension(workItem.OriginalFileName ?? string.Empty),
                     LanguageHints = { "ja", "en" }
                 };
@@ -177,9 +183,9 @@ public class DocumentParseBackgroundJob
 
         return new ParseWorkItem(
             run.Id,
-            document.FileOrigin.BlobName,
-            document.FileOrigin.ContentType,
-            document.FileOrigin.OriginalFileName,
+            document.FileOrigin?.BlobName,
+            document.FileOrigin?.ContentType,
+            document.FileOrigin?.OriginalFileName,
             seedMarkdown,
             seedProviderName);
     }
@@ -361,8 +367,8 @@ public class DocumentParseBackgroundJob
 
     private sealed record ParseWorkItem(
         Guid RunId,
-        string BlobName,
-        string ContentType,
+        string? BlobName,
+        string? ContentType,
         string? OriginalFileName,
         string? SeedMarkdown,
         string? SeedProviderName);

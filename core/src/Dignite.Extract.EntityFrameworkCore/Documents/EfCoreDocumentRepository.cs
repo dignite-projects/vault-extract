@@ -33,7 +33,7 @@ public class EfCoreDocumentRepository
         var dbSet = await GetDbSetAsync();
         return await dbSet
             .FirstOrDefaultAsync(
-                d => d.FileOrigin.BlobName == blobName,
+                d => d.FileOrigin != null && d.FileOrigin.BlobName == blobName,
                 GetCancellationToken(cancellationToken));
     }
 
@@ -46,7 +46,7 @@ public class EfCoreDocumentRepository
             var dbSet = await GetDbSetAsync();
             return await dbSet
                 .FirstOrDefaultAsync(
-                    d => d.FileOrigin.ContentHash == contentHash,
+                    d => d.FileOrigin != null && d.FileOrigin.ContentHash == contentHash,
                     GetCancellationToken(cancellationToken));
         }
     }
@@ -204,7 +204,7 @@ public class EfCoreDocumentRepository
                 // attention, so it is INCLUDED in NeedsReview below — the review-queue list (DocumentAppService.ApplyFilter)
                 // counts it too, so the dashboard count and the queue never drift (#333).
                 Count = g.Sum(d => d.IsContainer ? 0L : 1L),
-                Bytes = g.Sum(d => d.IsContainer ? 0L : d.FileOrigin.FileSize),
+                Bytes = g.Sum(d => d.IsContainer ? 0L : (d.FileOrigin != null ? d.FileOrigin.FileSize : 0L)),
                 NeedsReview = g.Sum(d =>
                     d.ReviewReasons != DocumentReviewReasons.None
                     && d.ReviewDisposition != DocumentReviewDisposition.Rejected

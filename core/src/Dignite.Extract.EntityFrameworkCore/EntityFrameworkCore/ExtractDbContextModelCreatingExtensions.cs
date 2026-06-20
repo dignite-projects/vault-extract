@@ -78,7 +78,7 @@ public static class ExtractDbContextModelCreatingExtensions
             // resume gate for the unified sub-document pass); not exposed at the egress.
             b.Property(x => x.IsSegmented).IsRequired();
 
-            // #306 / #346 Scenario B back-reference: content-derived key of the source constituent (= FileOrigin.ContentHash).
+            // #306 / #346 Scenario B back-reference: SHA-256 of the clean constituent Markdown slice.
             b.Property(x => x.OriginConstituentKey).HasMaxLength(DocumentConsts.MaxOriginConstituentKeyLength);
 
             // Text extraction provenance (#210): provider name + archived manifest, serialized as a whole into a typed JSON column (#206 cross-DB principle).
@@ -92,25 +92,21 @@ public static class ExtractDbContextModelCreatingExtensions
                 .HasForeignKey(f => f.DocumentId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            // FileOrigin is optional: user-uploaded documents always have one; derived sub-documents spawned from
+            // segment SliceText carry no source blob and store null. All owned columns are nullable in the DB so that
+            // sub-document rows can write null for the whole owned entity.
             b.OwnsOne(x => x.FileOrigin, fo =>
             {
-                fo.Property(x => x.BlobName)
-                    .IsRequired()
-                    .HasMaxLength(FileOriginConsts.MaxBlobNameLength);
-                fo.Property(x => x.UploadedByUserName)
-                    .IsRequired()
-                    .HasMaxLength(FileOriginConsts.MaxUploadedByUserNameLength);
+                fo.Property(x => x.BlobName).HasMaxLength(FileOriginConsts.MaxBlobNameLength);
+                fo.Property(x => x.UploadedByUserName).HasMaxLength(FileOriginConsts.MaxUploadedByUserNameLength);
                 fo.Property(x => x.OriginalFileName).HasMaxLength(FileOriginConsts.MaxOriginalFileNameLength);
-                fo.Property(x => x.ContentType)
-                    .IsRequired()
-                    .HasMaxLength(FileOriginConsts.MaxContentTypeLength);
-                fo.Property(x => x.ContentHash)
-                    .IsRequired()
-                    .HasMaxLength(FileOriginConsts.MaxContentHashLength);
+                fo.Property(x => x.ContentType).HasMaxLength(FileOriginConsts.MaxContentTypeLength);
+                fo.Property(x => x.ContentHash).HasMaxLength(FileOriginConsts.MaxContentHashLength);
 
                 fo.HasIndex(x => x.BlobName);
                 fo.HasIndex(x => x.ContentHash);
             });
+            b.Navigation(x => x.FileOrigin).IsRequired(false);
 
             // The DocumentPipelineRun FK + CASCADE are declared explicitly in the child-side configuration block (#216).
 

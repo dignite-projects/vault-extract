@@ -331,6 +331,10 @@ public class DocumentAppService : ExtractAppService, IDocumentAppService
 
         // Only fetch the blob stream: scalar fields + owned FileOrigin are loaded with the entity, and no child collection is needed.
         var document = await _documentRepository.GetAsync(id, includeDetails: false);
+
+        if (document.FileOrigin is null)
+            throw new BusinessException(ExtractErrorCodes.Document.NoSourceBlob);
+
         var stream = await _blobContainer.GetAsync(document.FileOrigin.BlobName);
 
         return new RemoteStreamContent(
@@ -369,15 +373,18 @@ public class DocumentAppService : ExtractAppService, IDocumentAppService
 
         await _documentRepository.HardDeleteAsync(id);
 
-        try
+        if (document.FileOrigin is not null)
         {
-            await _blobContainer.DeleteAsync(document.FileOrigin.BlobName);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex,
-                "Failed to delete blob {BlobName} for document {DocumentId}.",
-                document.FileOrigin.BlobName, id);
+            try
+            {
+                await _blobContainer.DeleteAsync(document.FileOrigin.BlobName);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex,
+                    "Failed to delete blob {BlobName} for document {DocumentId}.",
+                    document.FileOrigin.BlobName, id);
+            }
         }
 
         // #210: permanently delete archived native payload blobs together, using stable keys from the manifest and no prefix cleanup.
@@ -458,7 +465,7 @@ public class DocumentAppService : ExtractAppService, IDocumentAppService
         if (document.IsDeleted)
         {
             throw new BusinessException(ExtractErrorCodes.Document.InRecycleBin)
-                .WithData("FileName", document.FileOrigin.BlobName);
+                .WithData("FileName", document.FileOrigin?.BlobName);
         }
 
         var latestRun = await _pipelineRunManager.EnsureRetryableAsync(id, input.PipelineCode);
@@ -488,7 +495,7 @@ public class DocumentAppService : ExtractAppService, IDocumentAppService
         if (document.IsDeleted)
         {
             throw new BusinessException(ExtractErrorCodes.Document.InRecycleBin)
-                .WithData("FileName", document.FileOrigin.BlobName);
+                .WithData("FileName", document.FileOrigin?.BlobName);
         }
 
         // Automatic classification input is Document.Markdown. If text extraction has not produced text yet, reclassification cannot run.
@@ -522,7 +529,7 @@ public class DocumentAppService : ExtractAppService, IDocumentAppService
         if (document.IsDeleted)
         {
             throw new BusinessException(ExtractErrorCodes.Document.InRecycleBin)
-                .WithData("FileName", document.FileOrigin.BlobName);
+                .WithData("FileName", document.FileOrigin?.BlobName);
         }
 
         // Field extraction hangs off DocumentType; unclassified documents have nothing to extract against.

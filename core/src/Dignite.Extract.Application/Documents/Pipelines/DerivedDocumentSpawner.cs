@@ -80,15 +80,15 @@ public class DerivedDocumentSpawner : ITransientDependency
     /// </typeparam>
     /// <param name="sourceDocumentId">The source document the constituent belongs to (the derived doc's <c>OriginDocumentId</c>).</param>
     /// <param name="tenantId">The source/derived tenant; the UoW and the delegates run under this tenant.</param>
-    /// <param name="constituentKey">The content-derived key (the derived doc's <c>OriginConstituentKey</c>, == <paramref name="fileOrigin"/>.ContentHash).</param>
-    /// <param name="fileOrigin">The derived document's file origin, already pointing at a blob the caller wrote.</param>
+    /// <param name="constituentKey">The content-derived key (the derived doc's <c>OriginConstituentKey</c>): SHA-256 of the clean slice text.</param>
+    /// <param name="fileOrigin">The derived document's file origin, or <c>null</c> for sub-documents with no source blob (figure spans seeded from segment SliceText).</param>
     /// <param name="reloadClaimable">Reloads the candidate inside the UoW; returns it when still claimable, or <c>null</c> to abort.</param>
     /// <param name="markSpawned">Marks the (reloaded) candidate spawned with the derived document id and persists it.</param>
     public virtual async Task<Guid?> SpawnAsync<TCandidate>(
         Guid sourceDocumentId,
         Guid? tenantId,
         string constituentKey,
-        FileOrigin fileOrigin,
+        FileOrigin? fileOrigin,
         Func<Task<TCandidate?>> reloadClaimable,
         Func<TCandidate, Guid, Task> markSpawned,
         CancellationToken cancellationToken = default)
@@ -120,9 +120,9 @@ public class DerivedDocumentSpawner : ITransientDependency
                     DocumentId = derived.Id,
                     TenantId = derived.TenantId,
                     EventTime = _clock.Now,
-                    FileName = fileOrigin.OriginalFileName,
-                    FileSize = fileOrigin.FileSize,
-                    ContentType = fileOrigin.ContentType
+                    FileName = fileOrigin?.OriginalFileName,
+                    FileSize = fileOrigin?.FileSize ?? 0,
+                    ContentType = fileOrigin?.ContentType
                 });
 
             // Run the derived document through the full normal pipeline. Its text-extraction job seeds Markdown from
