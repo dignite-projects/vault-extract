@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Reflection;
-using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,7 +17,6 @@ using Microsoft.Extensions.Options;
 using NSubstitute;
 using Shouldly;
 using Volo.Abp.BackgroundJobs;
-using Volo.Abp.BlobStoring;
 using Volo.Abp.EventBus.Distributed;
 using Volo.Abp.Modularity;
 using Xunit;
@@ -37,10 +34,6 @@ public class DocumentClassificationJobTestModule : AbpModule
         context.Services.AddSingleton(Substitute.For<IDocumentRepository>());
         context.Services.AddSingleton(Substitute.For<IDistributedEventBus>());
         context.Services.AddSingleton(Substitute.For<IBackgroundJobManager>());
-        // #371: classification now reads the marked-Markdown blob (GetAllBytesOrNullAsync) to see [Image OCR] figure
-        // spans for the embedded-document signal. A substitute container returns null from GetOrNullAsync, so the job
-        // falls back to Document.Markdown — preserving these tests' clean-Markdown classification behavior.
-        context.Services.AddSingleton(Substitute.For<IBlobContainer<ExtractDocumentContainer>>());
         // #216: Manager + background-job BeginRun / CompleteRun / FailRun all use IDocumentPipelineRunRepository.
         context.Services.AddSingleton(PipelineRunRepositoryFake.Create());
 
@@ -87,7 +80,6 @@ public class DocumentClassificationBackgroundJob_Tests
     private readonly DocumentClassificationWorkflow _workflow;
     private readonly IDistributedEventBus _eventBus;
     private readonly IBackgroundJobManager _backgroundJobManager;
-    private readonly IBlobContainer<ExtractDocumentContainer> _markedBlobContainer;
 
     public DocumentClassificationBackgroundJob_Tests()
     {
@@ -97,7 +89,6 @@ public class DocumentClassificationBackgroundJob_Tests
         _workflow = GetRequiredService<DocumentClassificationWorkflow>();
         _eventBus = GetRequiredService<IDistributedEventBus>();
         _backgroundJobManager = GetRequiredService<IBackgroundJobManager>();
-        _markedBlobContainer = GetRequiredService<IBlobContainer<ExtractDocumentContainer>>();
     }
 
     [Fact]
@@ -275,27 +266,17 @@ public class DocumentClassificationBackgroundJob_Tests
     [Fact]
     public async Task FigureBearing_InWindow_Document_Routes_Even_Without_Embedded_Signal()
     {
-        // #379 (HIGH) — the within-window embedded-figure recall hole. A figure-bearing document whose MARKED Markdown
-        // fits INSIDE the classification truncation window (MaxTextLengthPerExtraction = 8000) but whose embedded
-        // figure the multi-objective classifier under-flagged (ContainsEmbeddedDocument = false) must STILL route the
-        // unified pass — figure recall now keys purely on the deterministic ImageOcrMarkup.Contains signal, decoupled
-        // from both the LLM flag and the truncation window. On the pre-#379 code (figure arm gated on
-        // markedLength > window) this in-window document never routed and never entered review — a silent recall miss.
-        // The focused segmentation pass then owns the per-span standalone-vs-element judgment (a decorative figure is a
-        // clean no-op there, not a review flag).
-        var doc = CreateDocument("A short contract body with an embedded invoice photo.");
+        // #379 (HIGH) — the within-window embedded-figure recall hole. A figure-bearing document whose Document.Markdown
+        // fits INSIDE the classification truncation window (MaxTextLengthPerExtraction = 8000) but whose embedded figure
+        // the multi-objective classifier under-flagged (ContainsEmbeddedDocument = false) must STILL route the unified
+        // pass — figure recall keys purely on the deterministic ImageOcrMarkup.Contains signal over Document.Markdown
+        // (#381: the *[Image OCR]* markers now live in Document.Markdown itself), decoupled from both the LLM flag and
+        // the truncation window. The focused segmentation pass then owns the per-span standalone-vs-element judgment (a
+        // decorative figure is a clean no-op there, not a review flag).
+        var markdown = "Contract body.\n" + ImageOcrMarkup.Wrap("INVOICE\nVendor: Acme\nTotal: $4,200", pageNumber: 2);
+        markdown.Length.ShouldBeLessThan(8000); // guards the in-window premise (distinct from the over-window case below)
+        var doc = CreateDocument(markdown);
         SetupDocumentRepository(doc);
-
-        // A real salted [Image OCR] span, comfortably inside the 8000 window (so the classifier saw it; the point is it
-        // under-flagged, not that the tail was truncated). GetAllBytesOrNullAsync is an extension over the interface
-        // GetOrNullAsync(Stream), so stub the latter.
-        var markedMarkdown = "Contract body.\n" + ImageOcrMarkup.Wrap("INVOICE\nVendor: Acme\nTotal: $4,200", pageNumber: 2);
-        markedMarkdown.Length.ShouldBeLessThan(8000); // guards the in-window premise (distinct from the over-window case below)
-        var markedBytes = Encoding.UTF8.GetBytes(markedMarkdown);
-        var markedBlobName = DocumentConsts.MarkedMarkdownBlobPrefix + doc.Id;
-        _markedBlobContainer
-            .GetOrNullAsync(markedBlobName, Arg.Any<CancellationToken>())
-            .Returns(_ => new MemoryStream(markedBytes));
 
         _workflow
             .RunAsync(Arg.Any<IReadOnlyList<DocumentType>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -319,22 +300,15 @@ public class DocumentClassificationBackgroundJob_Tests
     [Fact]
     public async Task FigureBearing_OverWindow_Document_Routes_Even_Without_Embedded_Signal()
     {
-        // #371/#379: a figure-bearing document whose MARKED Markdown exceeds the classification truncation window
+        // #371/#379: a figure-bearing document whose Document.Markdown exceeds the classification truncation window
         // (MaxTextLengthPerExtraction = 8000) may carry an embedded figure the classifier never saw (the tail was
-        // truncated out of the prompt). It must route even when ContainsEmbeddedDocument is false. Since #379 routing
-        // is window-INDEPENDENT (keyed on ImageOcrMarkup.Contains), so this is now one instance of the general
-        // figure-bearing trigger rather than a special over-window fallback arm.
-        var doc = CreateDocument("Leading body text used as the clean fallback Markdown.");
+        // truncated out of the prompt). It must route even when ContainsEmbeddedDocument is false. Routing is
+        // window-INDEPENDENT: ImageOcrMarkup.Contains is evaluated over the FULL Document.Markdown (#381), not the
+        // truncated classification input, so the figure marker at the tail is still detected.
+        var markdown = ImageOcrMarkup.Wrap(new string('x', 9000), pageNumber: 2);
+        markdown.Length.ShouldBeGreaterThan(8000); // guards the over-window premise
+        var doc = CreateDocument(markdown);
         SetupDocumentRepository(doc);
-
-        // Marked-Markdown blob: a real salted [Image OCR] span (so ImageOcrMarkup.Contains == true) padded beyond the
-        // window. GetAllBytesOrNullAsync is an extension over the interface GetOrNullAsync(Stream), so stub the latter.
-        var markedMarkdown = ImageOcrMarkup.Wrap(new string('x', 9000), pageNumber: 2);
-        var markedBytes = Encoding.UTF8.GetBytes(markedMarkdown);
-        var markedBlobName = DocumentConsts.MarkedMarkdownBlobPrefix + doc.Id;
-        _markedBlobContainer
-            .GetOrNullAsync(markedBlobName, Arg.Any<CancellationToken>())
-            .Returns(_ => new MemoryStream(markedBytes));
 
         _workflow
             .RunAsync(Arg.Any<IReadOnlyList<DocumentType>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())

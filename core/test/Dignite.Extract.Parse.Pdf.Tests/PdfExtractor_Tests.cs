@@ -107,20 +107,20 @@ public class PdfExtractor_Tests
 
         var result = await CreateExtractor().ExtractAsync(new MemoryStream(pdf), PdfContext());
 
-        // #371: the figure no longer rides an out-of-band Figures list — its transcription travels IN-BAND in
-        // the (marked) Markdown, bracketed by [Image OCR p:N]…[End OCR] sentinels carrying the 1-based page
-        // anchor. UsedOcr stays false (a digital extraction) and FigureOcrCount still records the embedded-image OCR.
+        // #371/#381: the figure no longer rides an out-of-band Figures list — its transcription travels IN-BAND in
+        // Document.Markdown (the egress payload), bracketed by *[Image OCR p:N]*…*[End OCR]* provenance markers
+        // carrying the 1-based page anchor. UsedOcr stays false (a digital extraction) and FigureOcrCount still records the embedded-image OCR.
         result.UsedOcr.ShouldBeFalse();
         result.FigureOcrCount.ShouldBe(1);
 
         result.Markdown.ShouldContain("INVOICE No. 42");
-        result.Markdown.ShouldContain(ImageOcrMarkup.CloseMarker); // "[End OCR]"
-        // The single fixture page is page 1, so the open sentinel carries the page anchor "[Image OCR p:1]"
-        // (the page-anchored form, NOT the bare OpenMarker "[Image OCR]").
-        result.Markdown.ShouldContain(ImageOcrMarkup.OpenPagePrefix + "1]");
+        result.Markdown.ShouldContain(ImageOcrMarkup.CloseMarker); // "*[End OCR]*"
+        // The single fixture page is page 1, so the open marker carries the page anchor "*[Image OCR p:1]*"
+        // (the page-anchored form, NOT the bare OpenMarker "*[Image OCR]*").
+        result.Markdown.ShouldContain(ImageOcrMarkup.OpenPagePrefix + "1]*");
 
-        // The transcription sits between the open and close sentinels (the bracketed figure span).
-        var open = result.Markdown.IndexOf(ImageOcrMarkup.OpenPagePrefix + "1]", StringComparison.Ordinal);
+        // The transcription sits between the open and close markers (the bracketed figure span).
+        var open = result.Markdown.IndexOf(ImageOcrMarkup.OpenPagePrefix + "1]*", StringComparison.Ordinal);
         var transcription = result.Markdown.IndexOf("INVOICE No. 42", StringComparison.Ordinal);
         var close = result.Markdown.IndexOf(ImageOcrMarkup.CloseMarker, StringComparison.Ordinal);
         open.ShouldBeGreaterThanOrEqualTo(0);
@@ -135,7 +135,7 @@ public class PdfExtractor_Tests
 
         var result = await CreateExtractor().ExtractAsync(new MemoryStream(pdf), PdfContext());
 
-        // No figure → no in-band [Image OCR] sentinels at all, and no OCR ran.
+        // No figure → no in-band *[Image OCR]* markers at all, and no OCR ran.
         ImageOcrMarkup.Contains(result.Markdown).ShouldBeFalse();
         result.Markdown.ShouldNotContain(ImageOcrMarkup.CloseMarker);
         result.FigureOcrCount.ShouldBe(0);

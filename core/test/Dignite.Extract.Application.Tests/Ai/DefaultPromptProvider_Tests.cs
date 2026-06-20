@@ -61,7 +61,7 @@ public class DefaultPromptProvider_Tests
     public void Segmentation_Prompt_Is_The_Unified_Sub_Document_Detection_Prompt()
     {
         // #371: the unified pass decides per span isSubDocument over the marked Markdown, recognizing embedded-image
-        // OCR regions by their in-band [Image OCR] sentinels (the #359 "do not split an inlined figure" guard is
+        // OCR regions by their in-band *[Image OCR]* markers (the #359 "do not split an inlined figure" guard is
         // dissolved — figure spans are now first-class detection candidates). Pin the unified framing so it cannot be
         // silently reworded away without a deliberate test update.
         var instructions = _provider.GetSegmentationPrompt("en").SystemInstructions;
@@ -75,7 +75,7 @@ public class DefaultPromptProvider_Tests
     {
         // #371: container detection and the embedded-standalone-document signal both ride the classification call.
         // The unified sub-document pass keys off containsEmbeddedDocument, and the prompt names the in-band
-        // [Image OCR] sentinels that mark each embedded-image OCR region. Pin the wording so the signal cannot be
+        // *[Image OCR]* markers that mark each embedded-image OCR region. Pin the wording so the signal cannot be
         // silently dropped or reworded away without a deliberate test update.
         var instructions = _provider.GetClassificationPrompt("en").SystemInstructions;
 

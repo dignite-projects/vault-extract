@@ -28,9 +28,9 @@ namespace Dignite.Extract.Documents.Pipelines.Segmentation;
 /// Unified sub-document detection job (#371): the one Markdown-borne, LLM-decided pass that folds born-digital
 /// container segmentation (#346) and figure routing (#306/#365) into a single decision. Enqueued from the
 /// classification complete-phase when the source is a container <b>or</b> a concrete document that embeds a
-/// standalone document, it runs <see cref="DocumentSegmentationWorkflow"/> over the source's <b>marked</b> Markdown
-/// (the working copy still carrying the <c>[Image OCR]…[End OCR]</c> figure sentinels) and spawns each standalone
-/// span as a derived <see cref="Document"/> seeded from its (stripped, clean) slice.
+/// standalone document, it runs <see cref="DocumentSegmentationWorkflow"/> over the source's <c>Document.Markdown</c>
+/// (which retains the inline <c>*[Image OCR]*…*[End OCR]*</c> figure provenance markers, #381) and spawns each
+/// standalone span as a derived <see cref="Document"/> seeded from its (stripped, clean) slice.
 /// <para>
 /// <b>One identity model, one spawn sink.</b> Every span — text or figure — is keyed by the SHA-256 of its clean
 /// slice text and spawned through the shared <see cref="DerivedDocumentSpawner"/> as a text-only sub-document; a
@@ -142,7 +142,7 @@ public class DocumentSegmentationJob
         }
     }
 
-    /// <summary>Load phase (short UoW + a post-UoW blob read): snapshot the source's tenant/uploader, marked Markdown, container flag, parent context, and whether the document is already marked segmented (#377, the precise resume gate).</summary>
+    /// <summary>Load phase (short UoW): snapshot the source's tenant/uploader, Document.Markdown (with inline figure markers, #381), container flag, parent context, and whether the document is already marked segmented (#377, the precise resume gate).</summary>
     protected virtual async Task<DetectionContext?> LoadAsync(Guid sourceDocumentId)
     {
         Document? source;
@@ -185,12 +185,9 @@ public class DocumentSegmentationJob
             await uow.CompleteAsync();
         }
 
-        // Marked Markdown is an external blob read -> outside the UoW. Fall back to the clean Document.Markdown when
-        // there is no marked artifact (a non-figure container, or an archive that failed open): the detection then
-        // runs on clean text, which simply has no figure spans to recognize.
-        var markedMarkdown = await TryReadMarkedMarkdownAsync(sourceDocumentId)
-                             ?? source.Markdown
-                             ?? string.Empty;
+        // #381: detect over Document.Markdown, which now retains the *[Image OCR]* figure provenance markers inline
+        // (no separate marked artifact anymore). A non-figure source simply has no figure spans to recognize.
+        var markdown = source.Markdown ?? string.Empty;
 
         var detection = new SubDocumentDetectionContext(
             source.IsContainer, source.Title, parentTypeCode, parentTypeDisplayName);
@@ -199,21 +196,21 @@ public class DocumentSegmentationJob
             sourceDocumentId,
             source.TenantId,
             source.FileOrigin.UploadedByUserName,
-            markedMarkdown,
+            markdown,
             source.IsContainer,
             alreadySegmented,
             detection);
     }
 
     /// <summary>
-    /// Phase A: one LLM detection (external, no UoW) over the marked Markdown -> deterministic slicing -> per-span
+    /// Phase A: one LLM detection (external, no UoW) over Document.Markdown -> deterministic slicing -> per-span
     /// kind/clean-text/key/page -> a short UoW that inserts the spawnable segment rows. A container with an
     /// untrusted / &lt;2 / over-cap / unparseable result is flagged <see cref="DocumentReviewReasons.SegmentationIncomplete"/>;
     /// an embedded-document parent degrades the same conditions to a logged no-op (it extracts normally).
     /// </summary>
     protected virtual async Task DetectAndPersistAsync(DetectionContext context, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(context.MarkedMarkdown))
+        if (string.IsNullOrWhiteSpace(context.Markdown))
         {
             await IncompleteOrSkipAsync(context, "the source has no Markdown to segment");
             return;
@@ -221,11 +218,11 @@ public class DocumentSegmentationJob
 
         // The whole Markdown is fed (boundaries can be anywhere), so an unbounded source is an unbounded prompt-token
         // cost. Above the cap, degrade to a review signal (container) / a logged skip (embedded-document).
-        if (context.MarkedMarkdown.Length > _behaviorOptions.MaxSegmentationMarkdownLength)
+        if (context.Markdown.Length > _behaviorOptions.MaxSegmentationMarkdownLength)
         {
             await IncompleteOrSkipAsync(
                 context,
-                $"the Markdown ({context.MarkedMarkdown.Length} chars) exceeds the segmentation limit of {_behaviorOptions.MaxSegmentationMarkdownLength}");
+                $"the Markdown ({context.Markdown.Length} chars) exceeds the segmentation limit of {_behaviorOptions.MaxSegmentationMarkdownLength}");
             return;
         }
 
@@ -238,7 +235,7 @@ public class DocumentSegmentationJob
         {
             try
             {
-                outcome = await _segmentationWorkflow.RunAsync(context.MarkedMarkdown, context.Detection, cancellationToken);
+                outcome = await _segmentationWorkflow.RunAsync(context.Markdown, context.Detection, cancellationToken);
             }
             catch (Exception ex) when (IsSchemaDeserializationError(ex))
             {
@@ -254,7 +251,7 @@ public class DocumentSegmentationJob
             return;
         }
 
-        if (!MarkdownSlicer.TrySlice(context.MarkedMarkdown, outcome.Boundaries, out var markedSlices))
+        if (!MarkdownSlicer.TrySlice(context.Markdown, outcome.Boundaries, out var markedSlices))
         {
             await IncompleteOrSkipAsync(context, "the LLM split could not be verified against the Markdown");
             return;
@@ -641,23 +638,6 @@ public class DocumentSegmentationJob
         return source is { IsContainer: true } ? source : null;
     }
 
-    private async Task<string?> TryReadMarkedMarkdownAsync(Guid documentId)
-    {
-        var blobName = DocumentConsts.MarkedMarkdownBlobPrefix + documentId;
-        try
-        {
-            var bytes = await _blobContainer.GetAllBytesOrNullAsync(blobName);
-            return bytes is null ? null : Encoding.UTF8.GetString(bytes);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex,
-                "Failed to read marked Markdown blob {BlobName} for source {SourceId}; falling back to Document.Markdown.",
-                blobName, documentId);
-            return null;
-        }
-    }
-
     private async Task TryDeleteBlobAsync(string blobName)
     {
         try
@@ -686,12 +666,12 @@ public class DocumentSegmentationJob
     private static bool IsSchemaDeserializationError(Exception ex)
         => ex is JsonException || ex.GetBaseException() is JsonException;
 
-    /// <summary>Per-source detection context loaded once up front: provenance, the marked Markdown to detect over, the container flag, whether a prior split exists, and the parent context for the LLM.</summary>
+    /// <summary>Per-source detection context loaded once up front: provenance, the Document.Markdown to detect over (with inline figure markers, #381), the container flag, whether a prior split exists, and the parent context for the LLM.</summary>
     protected sealed record DetectionContext(
         Guid SourceDocumentId,
         Guid? TenantId,
         string UploadedByUserName,
-        string MarkedMarkdown,
+        string Markdown,
         bool IsContainer,
         bool AlreadySegmented,
         SubDocumentDetectionContext Detection);
@@ -705,6 +685,6 @@ public class DocumentSegmentationJob
 
 public class DocumentSegmentationJobArgs
 {
-    /// <summary>The source document whose marked Markdown should be analyzed for standalone sub-documents.</summary>
+    /// <summary>The source document whose Markdown (with inline figure markers, #381) should be analyzed for standalone sub-documents.</summary>
     public Guid SourceDocumentId { get; set; }
 }

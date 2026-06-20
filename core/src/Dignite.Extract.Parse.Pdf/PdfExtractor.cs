@@ -253,10 +253,11 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
                     if (transcription.Length > 0)
                     {
                         // Inline output (#301): woven into the page Markdown at the reading position, bracketed by
-                        // [Image OCR p:N]…[End OCR] sentinels (#371) carrying the page anchor. The figure span — its
-                        // transcription + page — now travels entirely in the (marked) Markdown; the unified
-                        // sub-document detection pass routes it from there, so no separate out-of-band figure list /
-                        // candidate crop is produced (the #306 TextExtractionResult.Figures channel is retired).
+                        // *[Image OCR p:N]*…*[End OCR]* provenance markers (#371/#381) carrying the page anchor. The
+                        // figure span — its transcription + page — travels entirely in Document.Markdown (the markers
+                        // stay in the egress); the unified sub-document detection pass routes it from there, so no
+                        // separate out-of-band figure list / candidate crop is produced (the #306
+                        // TextExtractionResult.Figures channel is retired).
                         figures.Add(new PdfReadingOrder.Figure(image.BoundingBox, transcription, pageContent.Page.Number));
                     }
                 }

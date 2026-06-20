@@ -259,8 +259,8 @@ public class PdfReadingOrder_Tests
     public void Render_does_not_escape_the_ocr_transcription_of_a_figure()
     {
         // A figure transcription is OCR-provider Markdown (here, a table); it is intentional structure and
-        // must be emitted verbatim, never escaped. #371: it is now bracketed by the salted [Image OCR]…[End OCR]
-        // sentinels (#376; no page anchor here — the Figure carries no page number), but the transcription is verbatim.
+        // must be emitted verbatim, never escaped. #371/#381: it is now bracketed by the *[Image OCR]*…*[End OCR]*
+        // provenance markers (no page anchor here — the Figure carries no page number), but the transcription is verbatim.
         var figures = new List<PdfReadingOrder.Figure>
         {
             new(new PdfRectangle(0, 400, 200, 520), "| a | b |\n| --- | --- |\n| 1 | 2 |")

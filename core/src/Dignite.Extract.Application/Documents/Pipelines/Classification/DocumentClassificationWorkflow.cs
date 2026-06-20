@@ -160,7 +160,7 @@ public class DocumentClassificationWorkflow : ITransientDependency
             // dominates the type guess downstream — the BackgroundJob takes the container branch and ignores typeCode.
             IsContainer = parsed?.IsContainer ?? false,
             // #371: a non-container parent that embeds a standalone document (e.g. an invoice photo inside a
-            // contract — a figure span the classification input shows bracketed by [Image OCR]…[End OCR]) still
+            // contract — a figure span the classification input shows bracketed by *[Image OCR]*…*[End OCR]*) still
             // triggers the unified sub-document detection pass. Rides the same call (zero extra LLM cost).
             ContainsEmbeddedDocument = parsed?.ContainsEmbeddedDocument ?? false
         };
@@ -249,7 +249,7 @@ public class DocumentClassificationWorkflow : ITransientDependency
         /// <summary>
         /// #371: <c>true</c> when the document is NOT a container but contains an embedded image that is itself a
         /// complete standalone document (an invoice photo inside a contract) — a figure span the classification input
-        /// shows bracketed by <c>[Image OCR]…[End OCR]</c>. Triggers the unified sub-document detection pass for a
+        /// shows bracketed by <c>*[Image OCR]*…*[End OCR]*</c>. Triggers the unified sub-document detection pass for a
         /// concrete-typed parent. Conservative (the prompt's reject-list); ignored when <see cref="IsContainer"/> is set.
         /// </summary>
         public bool ContainsEmbeddedDocument { get; set; }

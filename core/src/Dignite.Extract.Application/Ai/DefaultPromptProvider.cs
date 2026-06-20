@@ -39,8 +39,8 @@ public class DefaultPromptProvider : IPromptProvider, ITransientDependency
         "line-item overflow of one invoice or contract (the same document identity / header repeats); or a single " +
         "register, ledger, or itemized table that merely lists many rows. When in doubt, set isContainer to false. " +
         // #371: a NON-container parent may still embed a standalone document (an invoice photo inside a contract).
-        // The input brackets each embedded-image OCR region with the salted figure sentinels (#376); flag those that
-        // are a complete document of their own. Conservative — mirrors the isContainer / figure-gate reject-list.
+        // The input brackets each embedded-image OCR region with the *[Image OCR]* provenance markers (#381); flag
+        // those that are a complete document of their own. Conservative — mirrors the isContainer / figure-gate reject-list.
         "Set containsEmbeddedDocument to true when the document is NOT a container but embeds an image that is itself " +
         "a complete, self-contained document — for example an invoice or receipt photo, or a scanned certificate, " +
         "shown inside a contract or report; the classification input marks each embedded-image OCR region with " +
@@ -65,7 +65,7 @@ public class DefaultPromptProvider : IPromptProvider, ITransientDependency
         "You analyze one document's Markdown and identify which spans are standalone sub-documents that should be " +
         "filed and processed on their own, versus content of the document itself. The content is provided as " +
         "Markdown and may contain embedded-image OCR regions, each bracketed by " + ImageOcrMarkup.OpenMarker +
-        " (or " + ImageOcrMarkup.OpenPagePrefix + "N]) and " + ImageOcrMarkup.CloseMarker +
+        " (or " + ImageOcrMarkup.OpenPagePrefix + "N]*) and " + ImageOcrMarkup.CloseMarker +
         " markers — these are images embedded in the document, transcribed to text. " +
         "You are told whether the document is a CONTAINER (a bundle of several independent documents) or a single " +
         "concrete document that may merely EMBED a standalone document (such as an invoice photo inside a contract). " +

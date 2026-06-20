@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Dignite.Extract.Abstractions.Documents;
@@ -11,7 +10,6 @@ using Dignite.Extract.Documents.Pipelines.Segmentation;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Volo.Abp.BackgroundJobs;
-using Volo.Abp.BlobStoring;
 using Volo.Abp.DependencyInjection;
 using Volo.Abp.EventBus.Distributed;
 using Volo.Abp.MultiTenancy;
@@ -31,9 +29,6 @@ public class DocumentClassificationBackgroundJob
     private readonly ExtractBehaviorOptions _aiOptions;
     private readonly ICurrentTenant _currentTenant;
     private readonly IBackgroundJobManager _backgroundJobManager;
-    // #371: classification reads the MARKED Markdown (with [Image OCR] sentinels) so the embedded-document signal
-    // can recognize figure spans; the blob is the same artifact the unified pass reads.
-    private readonly IBlobContainer<ExtractDocumentContainer> _blobContainer;
 
     public DocumentClassificationBackgroundJob(
         IDocumentRepository documentRepository,
@@ -47,8 +42,7 @@ public class DocumentClassificationBackgroundJob
         IClock clock,
         IOptions<ExtractBehaviorOptions> aiOptions,
         ICurrentTenant currentTenant,
-        IBackgroundJobManager backgroundJobManager,
-        IBlobContainer<ExtractDocumentContainer> blobContainer)
+        IBackgroundJobManager backgroundJobManager)
         : base(documentRepository, runRepository, pipelineRunManager, pipelineRunAccessor, unitOfWorkManager)
     {
         _documentTypeRepository = documentTypeRepository;
@@ -58,7 +52,6 @@ public class DocumentClassificationBackgroundJob
         _aiOptions = aiOptions.Value;
         _currentTenant = currentTenant;
         _backgroundJobManager = backgroundJobManager;
-        _blobContainer = blobContainer;
     }
 
     public override async Task ExecuteAsync(DocumentClassificationJobArgs args)
@@ -67,11 +60,12 @@ public class DocumentClassificationBackgroundJob
 
         try
         {
-            // #371: classify over the MARKED Markdown (external blob read, no UoW) so the embedded-document signal
-            // sees the [Image OCR] figure spans; fall back to the clean Document.Markdown when there is no artifact.
-            var marked = await TryReadMarkedMarkdownAsync(workItem.DocumentId) ?? workItem.Markdown;
-            var outcome = await ClassifyAsync(workItem, marked);
-            await CompleteRunAsync(workItem, outcome, ImageOcrMarkup.Contains(marked));
+            // #381: classify over Document.Markdown, which now retains the *[Image OCR]* figure provenance markers
+            // (no separate marked artifact anymore). The embedded-document signal sees the figure spans directly, and
+            // the figure-bearing recall trigger keys on ImageOcrMarkup.Contains over the same text.
+            var markdown = workItem.Markdown;
+            var outcome = await ClassifyAsync(workItem, markdown);
+            await CompleteRunAsync(workItem, outcome, ImageOcrMarkup.Contains(markdown));
         }
         catch (Exception ex)
         {
@@ -156,28 +150,6 @@ public class DocumentClassificationBackgroundJob
     private static bool IsSchemaDeserializationError(Exception ex)
         => ex is JsonException || ex.GetBaseException() is JsonException;
 
-    /// <summary>
-    /// External read (no UoW): the marked Markdown artifact (#371) for the document, or <c>null</c> when there is
-    /// none (a non-figure document, or an archive that failed open) — the caller then classifies over the clean
-    /// <c>Document.Markdown</c>. Fails open: a read error degrades to <c>null</c>, never faulting classification.
-    /// </summary>
-    private async Task<string?> TryReadMarkedMarkdownAsync(Guid documentId)
-    {
-        var blobName = DocumentConsts.MarkedMarkdownBlobPrefix + documentId;
-        try
-        {
-            var bytes = await _blobContainer.GetAllBytesOrNullAsync(blobName);
-            return bytes is null ? null : Encoding.UTF8.GetString(bytes);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex,
-                "Failed to read marked Markdown blob {BlobName} for document {DocumentId}; classifying over the clean Document.Markdown.",
-                blobName, documentId);
-            return null;
-        }
-    }
-
     private async Task ApplyClassificationResultAsync(
         Document document,
         DocumentPipelineRun run,
@@ -200,7 +172,7 @@ public class DocumentClassificationBackgroundJob
             await PipelineRunManager.CompleteClassificationAsContainerAsync(document, run);
 
             // Enqueued in the SAME UoW as the completion so the container marker and the detection job commit
-            // atomically via the outbox. The unified pass (#371) reads the marked Markdown and splits both text and
+            // atomically via the outbox. The unified pass (#371) reads Document.Markdown and splits both text and
             // figure spans — there is no separate figure-routing job anymore.
             await _backgroundJobManager.EnqueueAsync(
                 new DocumentSegmentationJobArgs { SourceDocumentId = document.Id });
@@ -248,10 +220,10 @@ public class DocumentClassificationBackgroundJob
 
         // #371/#379: a non-container parent may still embed a standalone document to route to its own sub-document.
         // Enqueue the unified pass when the classifier flagged it, OR — deterministically — whenever the source is
-        // figure-bearing (its marked Markdown carries an [Image OCR] sentinel). Keying figure recall on the
+        // figure-bearing (its Document.Markdown carries an *[Image OCR]* marker). Keying figure recall on the
         // already-computed, zero-cost ImageOcrMarkup.Contains signal (#379) makes the focused segmentation LLM the
         // single standalone-vs-element decision-maker, closing the within-window hole where a multi-objective
-        // classifier under-flagged an embedded figure (ContainsEmbeddedDocument=false) on a doc whose marked Markdown
+        // classifier under-flagged an embedded figure (ContainsEmbeddedDocument=false) on a doc whose Document.Markdown
         // fit inside the classification truncation window — previously the figure arm fired only beyond that window,
         // so an in-window embedded document was never routed and never entered review (a silent recall miss).
         // No structural pre-check guards the figure arm: this trigger is only reached for a non-container parent, where

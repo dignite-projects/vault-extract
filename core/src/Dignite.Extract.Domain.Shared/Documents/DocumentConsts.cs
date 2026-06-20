@@ -60,15 +60,6 @@ public static class DocumentConsts
     public static long MaxNativePayloadArchiveBytes { get; set; } = 16L * 1024 * 1024;
 
     /// <summary>
-    /// Blob key prefix for the marked-Markdown pipeline artifact (#371): the working Markdown still carrying the
-    /// in-band <c>[Image OCR]…[End OCR]</c> figure sentinels, written by text extraction and read by classification
-    /// (the embedded-document signal) and the unified sub-document pass. Stable per-document key
-    /// (<c>markdown-marked/{documentId}</c>, re-extraction overwrites, no orphans); never exposed at the egress —
-    /// <c>Document.Markdown</c> is persisted with the sentinels stripped.
-    /// </summary>
-    public const string MarkedMarkdownBlobPrefix = "markdown-marked/";
-
-    /// <summary>
     /// Hard per-call result limit for programmatic / LLM-triggered retrieval, such as MCP search tools.
     /// Fail-closed safety gate: prevents prompt injection from inducing broad queries that explode LLM context or create cost attacks.
     /// Compile-time <c>const</c>: the safety boundary cannot be enlarged by runtime configuration.

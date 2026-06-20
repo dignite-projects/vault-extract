@@ -46,7 +46,7 @@ public class DocumentSegmentationJobTestModule : AbpModule
         context.Services.AddSingleton(workflow);
 
         // Lower the caps so the bound tests don't need 50 slices / 200k chars. All other tests in this class use
-        // <= 2 distinct slices and < 130-char Markdown (the salted figure sentinels, #376, add ~18 chars per figure),
+        // <= 2 distinct slices and < 130-char Markdown (the *[Image OCR p:N]* / *[End OCR]* figure markers add ~30 chars per figure),
         // so they are unaffected.
         context.Services.Configure<ExtractBehaviorOptions>(o =>
         {
@@ -116,8 +116,8 @@ public class DocumentSegmentationJob_Tests : ExtractTestBase<DocumentSegmentatio
     [Fact]
     public async Task Embedded_Figure_Span_In_A_Concrete_Document_Spawns_One_Figure_Sub_Document()
     {
-        // #371 (b): a single concrete-typed document (NOT a container) whose MARKED Markdown carries an inlined,
-        // sentinel-bracketed image-invoice transcription that the LLM returns standalone. The unified pass routes
+        // #371 (b): a single concrete-typed document (NOT a container) whose Document.Markdown carries an inlined,
+        // marker-bracketed image-invoice transcription that the LLM returns standalone. The unified pass routes
         // ONLY that figure span (kind Figure) into one derived sub-document; the parent keeps its own type and is
         // never flagged (it extracts normally — figure routing is orthogonal to its own content).
         var invoiceText = "INVOICE No 42 Total 100";
@@ -128,7 +128,7 @@ public class DocumentSegmentationJob_Tests : ExtractTestBase<DocumentSegmentatio
             markdown: "Contract body", asContainer: false, markedMarkdown: marked);
 
         // The figure span's first line IS the open sentinel — that is the verbatim marker the LLM returns for it.
-        StubSplit(("Contract body", false), (ImageOcrMarkup.OpenPagePrefix + "1]", true));
+        StubSplit(("Contract body", false), (ImageOcrMarkup.OpenPagePrefix + "1]*", true));
 
         await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = docId });
 
@@ -159,7 +159,7 @@ public class DocumentSegmentationJob_Tests : ExtractTestBase<DocumentSegmentatio
     [Fact]
     public async Task Inlined_Figure_Span_In_A_Container_Spawns_Exactly_One_Invoice_Sub_Document()
     {
-        // #356/#359 REGRESSION: a born-digital container whose MARKED Markdown carries an inlined, sentinel-bracketed
+        // #356/#359 REGRESSION: a born-digital container whose Document.Markdown carries an inlined, marker-bracketed
         // image-invoice transcription (#301) between two real text documents, and the LLM returns that figure span
         // standalone alongside the two text documents. Under the unified pass (#371) figure and text spans share one
         // identity (SHA-256 of the clean span text) and one spawn sink, so the inlined invoice can spawn at most ONCE:
@@ -172,7 +172,7 @@ public class DocumentSegmentationJob_Tests : ExtractTestBase<DocumentSegmentatio
 
         StubSplit(
             ("Service A-B", true),
-            (ImageOcrMarkup.OpenPagePrefix + "1]", true),
+            (ImageOcrMarkup.OpenPagePrefix + "1]*", true),
             ("Lease X-Y", true));
 
         await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
@@ -201,7 +201,7 @@ public class DocumentSegmentationJob_Tests : ExtractTestBase<DocumentSegmentatio
     public async Task Text_Constituent_Embedding_An_Inline_Figure_Is_Kind_Text_Not_Figure()
     {
         // #371 hardening (own /code-review): a genuine text constituent (a contract) that embeds an inline figure —
-        // its MARKED slice is prose PLUS an [Image OCR] block (#301) — must be recorded Kind.Text. The span's kind is
+        // its slice is prose PLUS an *[Image OCR]* block (#301) — must be recorded Kind.Text. The span's kind is
         // the kind of its OPENING boundary (prose), NOT "does the body contain a sentinel somewhere". Otherwise it
         // would be mislabeled Figure and survive the container→type retraction (which keeps Kind==Figure), a
         // #364-class stale-sub-document leak. The child's seed also strips the sentinels (the inline figure is just
@@ -211,7 +211,7 @@ public class DocumentSegmentationJob_Tests : ExtractTestBase<DocumentSegmentatio
             markdown: "Contract A clauses\nmore clauses\nContract B clauses", asContainer: true, markedMarkdown: marked);
 
         // The LLM returns each contract as ONE span keyed on its prose first line; the inline figure stays inside
-        // contract A's span rather than being emitted as its own [Image OCR] boundary.
+        // contract A's span rather than being emitted as its own *[Image OCR]* boundary.
         StubSplit(
             ("Contract A clauses", true),
             ("Contract B clauses", true));
@@ -222,7 +222,7 @@ public class DocumentSegmentationJob_Tests : ExtractTestBase<DocumentSegmentatio
         {
             var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId);
             segments.Count.ShouldBe(2);
-            // Both opened on prose -> both Kind.Text, even though contract A's slice body carries an [Image OCR]
+            // Both opened on prose -> both Kind.Text, even though contract A's slice body carries an *[Image OCR]*
             // block. NONE mislabeled Figure.
             segments.ShouldAllBe(s => s.Kind == DocumentSegmentKind.Text);
 
@@ -245,8 +245,8 @@ public class DocumentSegmentationJob_Tests : ExtractTestBase<DocumentSegmentatio
         var sourceId = await ArrangeContainerAsync(
             markdown: "Parent contract body text", asContainer: false, markedMarkdown: marked);
 
-        // The LLM omits the parent-body span and returns only the figure boundary (its [Image OCR] line).
-        StubSplit((ImageOcrMarkup.OpenPagePrefix + "2]", true));
+        // The LLM omits the parent-body span and returns only the figure boundary (its *[Image OCR]* line).
+        StubSplit((ImageOcrMarkup.OpenPagePrefix + "2]*", true));
 
         await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = sourceId });
 
@@ -292,7 +292,7 @@ public class DocumentSegmentationJob_Tests : ExtractTestBase<DocumentSegmentatio
         // The container split re-detects all three spans, INCLUDING the already-routed figure.
         StubSplit(
             ("Invoice A first", true),
-            (ImageOcrMarkup.OpenPagePrefix + "1]", true),
+            (ImageOcrMarkup.OpenPagePrefix + "1]*", true),
             ("Invoice B second", true));
 
         await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
@@ -321,7 +321,7 @@ public class DocumentSegmentationJob_Tests : ExtractTestBase<DocumentSegmentatio
     {
         // #377 edge 1: a concrete doc with one already-routed figure is re-recognized as a container; the
         // container-mode re-split returns exactly ONE new text constituent and (non-deterministically) OMITS the
-        // figure's [Image OCR] boundary this run. The "≥2 real bundle" guard must count the surviving figure row
+        // figure's *[Image OCR]* boundary this run. The "≥2 real bundle" guard must count the surviving figure row
         // toward the bundle (not just this run's spans), so the legitimate text constituent is PERSISTED rather than
         // dropped and the container flagged incomplete. Pre-#377 the guard saw prepared.Count == 1 < 2 and flagged.
         var figureText = "INVOICE No 9 Total 9";
@@ -371,8 +371,8 @@ public class DocumentSegmentationJob_Tests : ExtractTestBase<DocumentSegmentatio
             markdown: "scan bundle", asContainer: true, markedMarkdown: marked);
 
         StubSplit(
-            (ImageOcrMarkup.OpenPagePrefix + "1]", true),
-            (ImageOcrMarkup.OpenPagePrefix + "2]", true));
+            (ImageOcrMarkup.OpenPagePrefix + "1]*", true),
+            (ImageOcrMarkup.OpenPagePrefix + "2]*", true));
 
         // First run: splits the two figures, persists them, sets IsSegmented.
         await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
@@ -715,10 +715,14 @@ public class DocumentSegmentationJob_Tests : ExtractTestBase<DocumentSegmentatio
                     fileSize: 2048,
                     originalFileName: "bundle.pdf"));
 
+            // #381: the unified pass reads Document.Markdown, which now carries the inline *[Image OCR]*…*[End OCR]*
+            // figure markers (no separate marked artifact). A figure test supplies that marked content via
+            // markedMarkdown and it becomes Document.Markdown; a non-figure test just passes plain markdown.
+            var documentMarkdown = markedMarkdown ?? markdown;
             typeof(Document)
                 .GetProperty(nameof(Document.Markdown))!
                 .GetSetMethod(nonPublic: true)!
-                .Invoke(doc, [markdown]);
+                .Invoke(doc, [documentMarkdown]);
 
             // The segmentation job only runs for actual containers; mark it unless the test wants a doc that was
             // reclassified away from container (IsContainer == false).
@@ -731,20 +735,6 @@ public class DocumentSegmentationJob_Tests : ExtractTestBase<DocumentSegmentatio
 
             await _documentRepository.InsertAsync(doc, autoSave: true);
         });
-
-        // #371: the unified pass reads the MARKED Markdown blob (the working copy still carrying the
-        // [Image OCR]…[End OCR] figure sentinels), falling back to Document.Markdown when there is no marked blob.
-        // Seed the marked blob only when a test needs in-band figure spans; otherwise the clean Markdown fallback
-        // is exercised.
-        if (markedMarkdown is not null)
-        {
-            var blobName = DocumentConsts.MarkedMarkdownBlobPrefix + containerId;
-            // GetAllBytesOrNullAsync is an IBlobContainer EXTENSION method (NSubstitute cannot stub an extension
-            // method); stub the underlying GetOrNullAsync to return a FRESH stream per call so the extension reads
-            // the bytes back each time the job loads the marked Markdown.
-            _blobContainer.GetOrNullAsync(blobName, Arg.Any<CancellationToken>())
-                .Returns(_ => new MemoryStream(Encoding.UTF8.GetBytes(markedMarkdown)));
-        }
 
         return containerId;
     }

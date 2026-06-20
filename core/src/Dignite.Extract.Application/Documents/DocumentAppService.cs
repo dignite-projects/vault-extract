@@ -397,21 +397,6 @@ public class DocumentAppService : ExtractAppService, IDocumentAppService
             }
         }
 
-        // #371: permanently delete the marked-Markdown pipeline artifact (if any) together, using its stable
-        // per-document key (best-effort, like the original file / native payload blobs). Only figure-bearing
-        // documents have one; DeleteAsync on a missing blob is a no-op for the file-system / typical providers.
-        var markedMarkdownBlobName = DocumentConsts.MarkedMarkdownBlobPrefix + id;
-        try
-        {
-            await _blobContainer.DeleteAsync(markedMarkdownBlobName);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex,
-                "Failed to delete marked Markdown blob {BlobName} for document {DocumentId}.",
-                markedMarkdownBlobName, id);
-        }
-
         // Notify downstream consumers: the Document is unrecoverable, so derived data should be physically deleted.
         await _distributedEventBus.PublishAsync(
             new DocumentPermanentlyDeletedEto

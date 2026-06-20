@@ -234,7 +234,7 @@ public static class ExtractDbContextModelCreatingExtensions
             b.Property(x => x.Ordinal).IsRequired();
             // #371: which span kind this segment was carved from (Text constituent vs embedded Figure); drives the
             // container→type retraction filter (#364). PageNumber is a nullable recovery anchor (page) for
-            // Figure-kind rows, parsed from the [Image OCR p:N] sentinel; neither is indexed.
+            // Figure-kind rows, parsed from the *[Image OCR p:N]* marker; neither is indexed.
             b.Property(x => x.Kind).IsRequired();
             b.Property(x => x.Status).IsRequired();
 

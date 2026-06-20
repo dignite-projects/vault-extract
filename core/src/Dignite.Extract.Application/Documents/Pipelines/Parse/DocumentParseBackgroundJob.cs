@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Dignite.Extract.Abstractions.Documents;
@@ -123,15 +122,12 @@ public class DocumentParseBackgroundJob
                 result = await _textExtractor.ExtractAsync(blobStream, ctx, _cancellationTokenProvider.Token);
             }
 
-            // #371: the PDF provider brackets each embedded-figure transcription with [Image OCR p:N]…[End OCR]
-            // sentinels. Archive the marked Markdown as an internal pipeline artifact (read by classification's
-            // embedded-document signal + the unified sub-document pass to recognize figure spans), then strip the
-            // sentinels IN PLACE so Document.Markdown — the egress payload — and the title below are clean
-            // (Markdown-first). For a document with no figure sentinels (most uploads, all seeded sub-documents)
-            // this is a no-op: archiving is skipped and Strip returns the input unchanged.
-            await ArchiveMarkedMarkdownAsync(args.DocumentId, result.Markdown);
-            result.Markdown = ImageOcrMarkup.Strip(result.Markdown);
-
+            // #381: the PDF provider brackets each embedded-figure transcription with *[Image OCR p:N]*…*[End OCR]*
+            // provenance markers (#371). These are no longer stripped — they are MarkItDown-style annotations that
+            // stay in Document.Markdown (the egress payload) so any consumer — human, RAG engine, LLM — can see the
+            // bracketed text came from OCR. The title generated below therefore runs over the marked Markdown, which
+            // is fine: the markers are ordinary italic-annotated content, exactly as a re-ingested MarkItDown document
+            // already carries them.
             var title = await TryGenerateTitleAsync(result.Markdown, _cancellationTokenProvider.Token)
                 ?? MarkdownTitleExtractor.ExtractTitle(result.Markdown)
                 ?? FallbackTitleFromFileName(workItem.OriginalFileName);
@@ -219,7 +215,7 @@ public class DocumentParseBackgroundJob
         // Advance classification as soon as text extraction completes. OCR has no quality gate:
         // #196 found average OCR confidence does not predict real quality. Quality issues are handled later through classification review
         // plus operator rerun / re-upload. Figure sub-document routing now rides classification (#371): the embedded
-        // [Image OCR] sentinels make the classifier flag an embedded document and enqueue the unified pass — no
+        // *[Image OCR]* markers make the classifier flag an embedded document and enqueue the unified pass — no
         // separate figure-routing enqueue here anymore.
         await _pipelineJobScheduler.QueueAsync(document, ExtractPipelines.Classification);
 
@@ -256,40 +252,6 @@ public class DocumentParseBackgroundJob
         var manifest = await TryArchiveNativePayloadAsync(documentId, result.NativePayload);
         return new DocumentParseMetadata(
             result.ProviderName, manifest, result.IsComplete, result.IncompleteReason);
-    }
-
-    /// <summary>
-    /// External phase (no UoW): archives the <b>marked</b> Markdown (#371) — the working Markdown still carrying
-    /// the in-band <c>[Image OCR]…[End OCR]</c> figure sentinels — under the stable per-document key
-    /// <c>markdown-marked/{documentId}</c>, so classification (the embedded-document signal) and the unified
-    /// sub-document pass can recognize figure spans. <c>Document.Markdown</c> itself is persisted with the
-    /// sentinels stripped (Markdown-first); this marked copy is a pipeline-internal artifact only.
-    /// <para>
-    /// Skips a document with no figure sentinels (the consumers fall back to the clean <c>Document.Markdown</c>),
-    /// and <b>fails open</b>: a write failure only loses the figure-span hint, never the text extraction itself.
-    /// The stable key is overwritten on re-extraction and reclaimed on permanent delete, so a failed-completion
-    /// write leaves at most one overwrite-stable orphan (like the native payload archive).
-    /// </para>
-    /// </summary>
-    protected virtual async Task ArchiveMarkedMarkdownAsync(Guid documentId, string? markedMarkdown)
-    {
-        if (string.IsNullOrEmpty(markedMarkdown) || !ImageOcrMarkup.Contains(markedMarkdown))
-        {
-            return;
-        }
-
-        var blobName = DocumentConsts.MarkedMarkdownBlobPrefix + documentId;
-        try
-        {
-            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(markedMarkdown), writable: false);
-            await _blobContainer.SaveAsync(blobName, stream, overrideExisting: true);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex,
-                "Failed to archive marked Markdown for document {DocumentId} to blob {BlobName}; classification and the unified sub-document pass will fall back to Document.Markdown.",
-                documentId, blobName);
-        }
     }
 
     private async Task<NativePayloadManifest?> TryArchiveNativePayloadAsync(Guid documentId, NativePayload? payload)

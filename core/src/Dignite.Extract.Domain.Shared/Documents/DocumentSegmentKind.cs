@@ -15,7 +15,7 @@ namespace Dignite.Extract.Documents.Segments;
 /// retraction (#364: <see cref="Text"/> children are retracted — they existed only because the parent was a bundle —
 /// while <see cref="Figure"/> children are kept, exactly as a freshly-uploaded concrete document keeps an embedded
 /// figure). The per-span clean-text derivation (<c>ExtractBodies</c> for a figure body vs <c>Strip</c> for a text
-/// span) is decided at carve time from the slice's opening sentinel, before the kind is recorded.
+/// span) is decided at carve time from the slice's opening marker, before the kind is recorded.
 /// </summary>
 public enum DocumentSegmentKind
 {
@@ -23,9 +23,9 @@ public enum DocumentSegmentKind
     Text = 0,
 
     /// <summary>
-    /// An embedded-figure OCR span (#306): in the marked Markdown it was bracketed by the in-band
-    /// <c>[Image OCR]…[End OCR]</c> sentinels. Spawned as a text-only sub-document (the transcription); no image
-    /// crop is persisted.
+    /// An embedded-figure OCR span (#306): in the document Markdown it was bracketed by the in-band
+    /// <c>*[Image OCR]*…*[End OCR]*</c> provenance markers. Spawned as a text-only sub-document (the transcription);
+    /// no image crop is persisted.
     /// </summary>
     Figure = 1
 }

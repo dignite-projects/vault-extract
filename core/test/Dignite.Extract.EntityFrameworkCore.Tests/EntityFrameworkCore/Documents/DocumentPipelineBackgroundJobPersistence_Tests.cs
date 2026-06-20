@@ -123,13 +123,12 @@ public class DocumentPipelineBackgroundJobPersistence_Tests
     }
 
     [Fact]
-    public async Task Text_Extraction_Job_Archives_Marked_Markdown_And_Persists_Clean_Markdown()
+    public async Task Text_Extraction_Job_Keeps_Figure_Markers_In_Egress_Markdown()
     {
-        // #371 Markdown-first egress invariant: when extraction produces [Image OCR]-marked Markdown, the job archives
-        // the marked copy to the pipeline-internal markdown-marked/{id} blob (the classifier + segmentation pass read
-        // it) AND strips the sentinels before the write-once SetMarkdown, so the persisted Document.Markdown (the
-        // egress text payload) is sentinel-free. Without this, routing scaffolding would leak into the channel text
-        // consumed by RAG / classification / egress, or the classifier would lose its embedded-document signal.
+        // #381: figure OCR transcriptions are bracketed with *[Image OCR]*…*[End OCR]* provenance markers that STAY in
+        // Document.Markdown (the egress payload), MarkItDown-style — they are no longer stripped, and there is no
+        // separate marked-Markdown artifact. Downstream (RAG / classification / egress) sees the OCR provenance, and
+        // the pipeline reads the same inline markers to recognize the figure span.
         var documentId = _guidGenerator.Create();
         var textExtractionRunId = await ArrangeQueuedParseAsync(documentId);
 
@@ -145,22 +144,21 @@ public class DocumentPipelineBackgroundJobPersistence_Tests
             PipelineRunId = textExtractionRunId
         });
 
-        // (a) The marked copy is archived to the pipeline-internal blob (overrideExisting for re-extraction).
-        await _blobContainer.Received(1).SaveAsync(
-            DocumentConsts.MarkedMarkdownBlobPrefix + documentId,
-            Arg.Any<Stream>(),
-            true,
-            Arg.Any<CancellationToken>());
+        // (a) No separate marked-Markdown artifact is archived (and there is no native payload here either), so the
+        // job writes no blob at all — the markers live in Document.Markdown itself.
+        await _blobContainer.DidNotReceive().SaveAsync(
+            Arg.Any<string>(), Arg.Any<Stream>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
 
-        // (b) The persisted egress payload is sentinel-free, yet the figure transcription body is retained inline.
+        // (b) The persisted egress payload retains the markers verbatim AND the figure transcription body inline.
         await WithUnitOfWorkAsync(async () =>
         {
             var doc = await _documentRepository.GetAsync(documentId, includeDetails: false);
             doc.Markdown.ShouldNotBeNull();
             var markdown = doc.Markdown!;
-            ImageOcrMarkup.Contains(markdown).ShouldBeFalse();
+            ImageOcrMarkup.Contains(markdown).ShouldBeTrue();
             markdown.ShouldContain(figureBody);
-            markdown.ShouldNotContain("9f1d3a7c"); // the sentinel salt must never reach the egress Markdown
+            markdown.ShouldContain("*[Image OCR p:3]*");
+            markdown.ShouldContain("*[End OCR]*");
         });
     }
 

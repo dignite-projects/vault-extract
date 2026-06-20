@@ -13,8 +13,8 @@ using Volo.Abp.DependencyInjection;
 namespace Dignite.Extract.Documents.Pipelines.Segmentation;
 
 /// <summary>
-/// Unified sub-document detection pass (#371): one LLM pass over a source document's <b>marked</b> Markdown (the
-/// working Markdown still carrying the <c>[Image OCR]…[End OCR]</c> figure sentinels) that decides, per span —
+/// Unified sub-document detection pass (#371): one LLM pass over a source document's <c>Document.Markdown</c> (which
+/// retains the inline <c>*[Image OCR]*…*[End OCR]*</c> figure provenance markers, #381) that decides, per span —
 /// text spans and figure spans alike — whether it is a standalone sub-document or content of the parent. It folds
 /// the born-digital container segmentation (#346) and the figure-document gate (#306/#365) into a single decision
 /// made with full surrounding context.
@@ -58,7 +58,7 @@ public class DocumentSegmentationWorkflow : ITransientDependency
             return outcome;
         }
 
-        // The WHOLE (marked) Markdown is fed: sub-document boundaries can be anywhere, and a truncated tail would
+        // The WHOLE Markdown is fed: sub-document boundaries can be anywhere, and a truncated tail would
         // silently lose the last documents. Output stays small regardless of input size because only short verbatim
         // markers are returned.
         var userMessage = $$"""
@@ -157,7 +157,7 @@ public class DocumentSegmentationWorkflow : ITransientDependency
         {
             /// <summary>
             /// The verbatim first line / opening snippet of the span, copied exactly from the Markdown — for an
-            /// embedded-image span this first line is the <c>[Image OCR]</c> / <c>[Image OCR p:N]</c> marker line.
+            /// embedded-image span this first line is the <c>*[Image OCR]*</c> / <c>*[Image OCR p:N]*</c> marker line.
             /// </summary>
             public string StartMarker { get; set; } = default!;
 

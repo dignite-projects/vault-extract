@@ -6,14 +6,14 @@ namespace Dignite.Extract.Documents.Pipelines.Segmentation;
 
 /// <summary>
 /// A span boundary proposed by the unified sub-document detection pass (#346/#371): a <b>verbatim</b> start marker
-/// copied from the source Markdown (the <c>[Image OCR]</c> marker line for a figure span) plus whether the span it
+/// copied from the source Markdown (the <c>*[Image OCR]*</c> marker line for a figure span) plus whether the span it
 /// opens is itself a standalone sub-document (vs the parent's own content / a cover / an element of the parent).
 /// </summary>
 public sealed record SegmentBoundary(string StartMarker, bool IsSubDocument);
 
 /// <summary>
 /// A deterministically-cut span of a source document's Markdown (#346/#371). <see cref="IsFigure"/> is the span's
-/// STRUCTURAL kind — true when its opening boundary marker is an <c>[Image OCR]</c> sentinel line (the span IS a
+/// STRUCTURAL kind — true when its opening boundary marker is an <c>*[Image OCR]*</c> marker line (the span IS a
 /// figure), false for a text span even when it embeds an inline figure block (#371: kind comes from the boundary,
 /// not from scanning the body).
 /// </summary>
@@ -82,7 +82,7 @@ public static class MarkdownSlicer
             }
 
             // #371: the span's figure-ness is a structural property of the boundary the LLM opened it with — an
-            // [Image OCR] sentinel line means the span IS a figure; a prose first line means a text span (even if
+            // *[Image OCR]* marker line means the span IS a figure; a prose first line means a text span (even if
             // it embeds an inline figure block). Carry it here rather than scanning the slice body downstream.
             slices.Add(new MarkdownSlice(
                 text, boundaries[i].IsSubDocument, slices.Count, ImageOcrMarkup.IsOpenLine(boundaries[i].StartMarker)));

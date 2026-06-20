@@ -67,7 +67,7 @@ public class DocumentSegment : CreationAuditedAggregateRoot<Guid>, IMultiTenant
 
     /// <summary>
     /// 1-based source page of a <see cref="DocumentSegmentKind.Figure"/> span (#371): a lightweight provenance anchor
-    /// parsed from the <c>[Image OCR p:N]</c> sentinel (the crop itself is not persisted, per Markdown-first). It
+    /// parsed from the <c>*[Image OCR p:N]*</c> marker (the crop itself is not persisted, per Markdown-first). It
     /// records <b>where</b> the figure came from; <b>no code re-parses the source to recover the image</b> — the
     /// anchor only keeps that possible out-of-band should a future need arise. <c>null</c> for a
     /// <see cref="DocumentSegmentKind.Text"/> span or a page-less source. Provenance only — never identity (#210).
