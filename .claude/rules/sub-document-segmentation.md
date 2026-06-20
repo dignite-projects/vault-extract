@@ -1,0 +1,80 @@
+---
+description: "Dignite Extract sub-document segmentation subsystem: the two-representation model (DocumentSegment ledger + derived Document), the two-Kind red line, the field lifecycle contract, and the cross-entity invariant (decision record: #390)"
+paths:
+  - "**/Segmentation/**/*.cs"
+  - "**/DerivedDocumentSpawner.cs"
+  - "**/ContainerMarker*.cs"
+  - "**/Segments/**/*.cs"
+  - "**/DocumentSegment*.cs"
+---
+
+# Sub-document Segmentation
+
+> Auto-loaded when editing the segmentation / sub-document detection subsystem. This is the densest, most-iterated
+> subsystem in the channel (#306 → #346 → #355/#356/#359 → #364/#365 → #371/#372/#373 → #377/#379 → #381). Read this
+> **before** touching it: the field-level "is this redundant?" questions are almost always answered by the
+> two-representation model below, recorded as the resolution of #390.
+
+## Two representations of a sub-document — on purpose
+
+A sub-document exists first as a **`DocumentSegment`** (pre-spawn ledger row) and then as a **derived `Document`**
+(post-spawn first-class artifact). This is deliberate denormalization, not accidental duplication:
+
+- **Detection is a single expensive LLM pass.** We need a persistent "detected but not yet spawned" state so the job
+  is resumable / idempotent without re-paying the LLM split. A `Document` cannot serve this role — the moment one
+  exists, the whole pipeline (parse → classify → extract) takes it over; it cannot sit as a "pending slice".
+- **Retraction (#364) needs `Kind` to outlive spawn.** A container→type reclassify retracts `Text` children but keeps
+  `Figure` children; that decision reads the ledger row after the derived document already exists.
+
+Therefore `DocumentSegment` is a **durable internal ledger**, **not** a transient work queue:
+
+- It is **never deleted after parse success** (the "delete-segment-after-parse" aggressive simplification is a
+  boundary change, explicitly deferred — #390 Decision 4; open an issue if ever pursued).
+- It is **never on any egress** (REST / MCP / ETO). Downstream discovers sub-documents only as `Document` rows with
+  `OriginDocumentId` set. Verified zero references in `*.Application.Contracts` / `*.Mcp` / `*.Abstractions`. Keep it
+  that way — exposing the ledger would make an internal work-queue into a channel contract.
+
+The fields mirrored between the two representations are intentional copies made at spawn time:
+`DocumentSegment.SegmentKey → Document.OriginConstituentKey`, `SourceDocumentId → OriginDocumentId`,
+`SliceText → Document.Markdown` (one-way seed), `TenantId → TenantId`.
+
+## 🚦 RED LINE: the subsystem assumes exactly two Kinds {Text, Figure}
+
+`DocumentSegmentKind.IsContainerIndependent()` (exhaustive switch, throws on an unhandled kind), the
+`Strip` vs `ExtractBodies` child-seed split, and the **Text-only** retraction filter in
+`ContainerMarkerClearedEventHandler` are all **binary**. Adding a third `DocumentSegmentKind`
+(Table / Signature / Attachment / …) is a **CHANNEL BOUNDARY change**:
+
+> **STOP and open a GitHub issue** to re-review *every* `IsContainerIndependent()` call site and the
+> container→type retraction semantics **before** writing code.
+
+The exhaustive switch throwing at runtime on an unhandled kind is the **backstop** (it prevents a silent wrong
+default — the #364-class missed-branch bug, hardened in #379), not a license to add a kind quietly.
+
+## Field lifecycle contract (do not add / remove without updating #390)
+
+| Field | Status | Note |
+|---|---|---|
+| `SourceDocumentId`, `SegmentKey`, `Kind`, `Status`, `RoutedDocumentId`, `Ordinal` | **contract** | the idempotency + retraction lifecycle |
+| `RoutedDocumentId` | **keep explicit** | reconstructable from `(OriginDocumentId, OriginConstituentKey)`, but the explicit pointer is the ledger's purpose (idempotency + retraction clarity); reconstructing the join is more complex, not less |
+| `SliceText` | **transient one-way seed** | duplicated by `Document.Markdown` after parse; bounded duplication is accepted; **do not add a parse→segment writeback to clear it** (couples parse job to the ledger for a low-value saving) |
+| `PageNumber` | **retained provenance** | deliberate out-of-band anchor (Markdown-first "named, strongly-typed, nullable extension field" rule); write-only by design, not dead weight |
+
+Watch for accreted residue: a fast-iterated subsystem leaves write-only fields / never-assigned enum values / dead
+projections. #390 removed three (`DocumentSegmentStatus.NotADocument`, `DetectionContext.UploadedByUserName`,
+`PendingSegment.SliceText`). Re-run a dead-code sweep when adding the next iteration.
+
+## Cross-entity invariant (two coupled state machines)
+
+`DocumentSegment` (`Status` Pending/Spawned + `Kind`) and `Document` (`IsContainer` / `IsSegmented`) are two coupled
+state machines. The coupling rules:
+
+- **All** container↔concrete transitions flow through `Document.SetContainerFlag`, which clears `IsSegmented`
+  (#378/#379 — the single choke point so the coupled invariant cannot leak).
+- `IsSegmented` is the **precise resume gate** (#377): set atomically with the segment rows on terminal SUCCESS;
+  do not infer completion from segment-row `Kind`.
+- A non-document slice (cover / index / transmittal) is **skipped, not persisted** — there is no terminal
+  "not a document" row state.
+
+Changes to these transitions must be covered by the cross-entity invariant tests (container→type→container round
+trips: assert segment-row + sub-document terminal states). When in doubt, this is a boundary — open an issue.
