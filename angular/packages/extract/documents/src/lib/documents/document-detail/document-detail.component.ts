@@ -361,8 +361,22 @@ export class DocumentDetailComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.documentId = this.route.snapshot.paramMap.get('id')!;
-    this.loadDocument();
+    // React to the :id route param rather than reading a one-time snapshot. Navigating between documents
+    // that share this route — a sub-document's "view parent"/"view siblings" actions, or any /documents/:id
+    // link — reuses this component instance, so ngOnInit does not fire again. Without reacting to the param
+    // the URL would change but the loaded document would not. Reload whenever the id actually changes,
+    // dropping the previous document's cached file blob and resetting the tab so a stale preview never
+    // carries over to the new document.
+    this.route.paramMap
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(params => {
+        const id = params.get('id');
+        if (!id || id === this.documentId) return;
+        this.documentId = id;
+        this.fileBlob.reset();
+        this.activeTab.set('preview');
+        this.loadDocument();
+      });
   }
 
   refresh(): void {

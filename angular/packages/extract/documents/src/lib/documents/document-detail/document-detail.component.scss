@@ -14,7 +14,11 @@
 }
 
 // Markdown preview (#274): typography for HTML rendered by marked. Content has passed Angular DomSanitizer.
-.markdown-body {
+// The HTML is injected via [innerHTML], so it carries no emulated-encapsulation attribute; descendant rules
+// must pierce with :host ::ng-deep to reach it (the same pattern the list uses for its innerHTML cells).
+// Without this, every rule below — including the table borders — silently never applied and tables rendered
+// borderless.
+:host ::ng-deep .markdown-body {
   font-size: 0.9rem;
   line-height: 1.6;
   word-wrap: break-word;

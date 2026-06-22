@@ -60,6 +60,19 @@ export class DocumentFileBlobService implements OnDestroy {
     this.hasError.set(false);
   }
 
+  // Drop the cached blob entirely and return to the pristine state. Used when the host component is reused
+  // for a different document (the detail page reacts to :id route changes instead of being re-created), so
+  // the previous document's blob never leaks into the new one's preview. Revokes the object URL — a fresh
+  // ensureLoaded() will fetch and mint a new one.
+  reset(): void {
+    const url = this.blobUrl();
+    if (url) URL.revokeObjectURL(url);
+    this.blobUrl.set(null);
+    this.safeResourceUrl.set(null);
+    this.isLoading.set(false);
+    this.hasError.set(false);
+  }
+
   // Flag a render failure (e.g. <img> decode error after the blob downloaded fine).
   markError(): void {
     this.hasError.set(true);

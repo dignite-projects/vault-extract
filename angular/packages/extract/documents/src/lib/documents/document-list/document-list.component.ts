@@ -158,6 +158,11 @@ export class DocumentListComponent implements OnInit {
     // Seed filters from query params first so the overview cards (#335) can deep-link into a
     // cabinet- or type-filtered list before the initial load runs.
     this.applyQueryParamFilters();
+    // Seed page + sorting into the ListService BEFORE hookToQuery so the initial fetch uses them (the
+    // query$ pipe debounces, so these synchronous seeds coalesce with the constructor's default into a
+    // single request). This is what makes Back restore the exact page/sort the operator left, not just the
+    // filters.
+    this.applyQueryParamPaging();
     this.hookListQuery();
     // Review-queue badge total — only fetched/shown for operators who can open the queue (#284).
     this.loadReviewQueueCount();
@@ -178,10 +183,12 @@ export class DocumentListComponent implements OnInit {
     this.list.getWithoutPageReset();
   }
 
-  // Overview deep-links (#335) carry cabinetId / documentTypeCode in the URL. Seed the matching
-  // filter signals once on load; the top dropdowns are bound to the same signals so they reflect the
-  // applied value, and loadDocumentTypes() picks up a seeded typeFilter to load its field columns. The
-  // URL is a one-time seed — dropdown changes afterwards are not written back to the URL.
+  // Overview deep-links (#335) carry cabinetId / documentTypeCode in the URL, and every filter change now
+  // writes the active filter set back via writeFiltersToUrl(). Seed the matching filter signals once on
+  // load; the top dropdowns are bound to the same signals so they reflect the applied value, and
+  // loadDocumentTypes() picks up a seeded typeFilter to load its field columns. Because the filters live in
+  // the URL, opening a document and navigating Back restores the exact filtered view instead of resetting
+  // to the unfiltered default.
   private applyQueryParamFilters(): void {
     const params = this.route.snapshot.queryParamMap;
     const cabinetId = params.get('cabinetId');
@@ -192,6 +199,13 @@ export class DocumentListComponent implements OnInit {
     if (typeCode) {
       this.typeFilter.set(typeCode);
     }
+    const lifecycleStatus = params.get('lifecycleStatus');
+    if (lifecycleStatus) {
+      const parsed = Number(lifecycleStatus);
+      if (!Number.isNaN(parsed)) {
+        this.lifecycleFilter.set(parsed as DocumentLifecycleStatus);
+      }
+    }
     // #354: deep-link into a container's sub-documents (the parent row may not be loaded, so the banner falls
     // back to showing the id until/unless the operator navigated via the in-list "view sub-documents" action).
     const originDocumentId = params.get('originDocumentId');
@@ -201,6 +215,27 @@ export class DocumentListComponent implements OnInit {
     // #395: overview needs-review entry points deep-link here with ?review=1.
     if (params.get('review')) {
       this.reviewFilter.set(true);
+    }
+  }
+
+  // Seed the ListService's page + sorting from the URL. ABP's ListService has no built-in URL binding, but
+  // page / sortKey / sortOrder are public read/write, so writing them here makes the first fetch (and the
+  // restored view after Back) start on the right page and ordering. The header sort arrow is owned by the
+  // table and not re-seeded, so only the data ordering is restored — acceptable, and the only sortable
+  // column is the default creationTime.
+  private applyQueryParamPaging(): void {
+    const params = this.route.snapshot.queryParamMap;
+    const page = Number(params.get('page'));
+    if (Number.isInteger(page) && page > 0) {
+      this.list.page = page;
+    }
+    const sorting = params.get('sorting');
+    if (sorting) {
+      const [key, order] = sorting.split(' ');
+      if (key && (order === 'asc' || order === 'desc')) {
+        this.list.sortKey = key;
+        this.list.sortOrder = order;
+      }
     }
   }
 
@@ -276,6 +311,14 @@ export class DocumentListComponent implements OnInit {
         this.isLoading.set(status === 'loading');
       });
 
+    // query$ is the single funnel for every page / sort / filter change (the table writes page+sort here
+    // directly; our filter handlers reach it via refreshListFromFirstPage). Persist the full view state to
+    // the URL on each emit so table-driven pagination and sorting survive a round-trip to a document and
+    // Back, alongside the filters. (It is debounced inside ListService, so this does not fire per keystroke.)
+    this.list.query$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => this.writeStateToUrl());
+
     this.list
       .hookToQuery(query =>
         this.documentService.getList({
@@ -295,12 +338,41 @@ export class DocumentListComponent implements OnInit {
   }
 
   private refreshListFromFirstPage(): void {
+    // Reset to page 1 first (the setter triggers the refetch), then persist — so the URL records page 0,
+    // not the page the operator was on before changing the filter. The debounced query$ subscription will
+    // also fire and re-persist the same state; writing here too keeps the URL correct synchronously, so a
+    // filter-then-immediately-open-a-document sequence still records the new filters before navigating away.
     if (this.list.page === 0) {
       this.list.get();
-      return;
+    } else {
+      this.list.page = 0;
     }
+    this.writeStateToUrl();
+  }
 
-    this.list.page = 0;
+  // Mirror the active filters AND the ListService's page/sorting into the URL query string. replaceUrl keeps
+  // rapid changes from piling up Back-button steps (each replaces the current /documents/list entry rather
+  // than pushing a new one); null values are dropped by the merge handling, so cleared filters and the
+  // default page/sort leave a clean URL. applyQueryParamFilters + applyQueryParamPaging re-seed from here on
+  // Back, restoring the exact view.
+  private writeStateToUrl(): void {
+    const sorting = this.list.sortOrder
+      ? `${this.list.sortKey} ${this.list.sortOrder}`
+      : null;
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: {
+        lifecycleStatus: this.lifecycleFilter() ?? null,
+        documentTypeCode: this.typeFilter() || null,
+        cabinetId: this.cabinetFilter() || null,
+        originDocumentId: this.originDocumentIdFilter() || null,
+        review: this.reviewFilter() ? 1 : null,
+        page: this.list.page > 0 ? this.list.page : null,
+        sorting,
+      },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
   }
 
   private buildFilter(): Partial<GetDocumentListInput> {
