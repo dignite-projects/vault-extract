@@ -528,4 +528,49 @@ public class PdfExtractor_Tests
             result.Markdown.ShouldContain(token);
         }
     }
+
+    [Fact]
+    public async Task Does_not_swallow_a_close_heading_or_full_width_note_into_the_table()
+    {
+        // The real 料金表 failure (#310 follow-up): the fee table is wrapped tightly by a section heading just
+        // above it and a full-width footnote just below — both within an ordinary line gap, so the gap/height
+        // guards alone cannot separate them. Before the fix the footnote was chained into the table cluster
+        // (collapsing the column bands -> the whole table degraded to column-by-column paragraphs), and the
+        // heading became a spurious leading table row. The grid must reconstruct with the proper header row, the
+        // heading must be peeled back out to its own line, and the footnote must stay OUTSIDE the table.
+        var pdf = PdfFixtures.BuildPositioned(new[]
+        {
+            ("Fee Schedule below", 50.0, 724.0), // section heading, one line gap above the grid -> chains in, peeled
+
+            ("Service", 50.0, 694.0), ("Charge", 210.0, 694.0), ("Remark", 380.0, 694.0),
+            ("Basic", 50.0, 666.0), ("100", 210.0, 666.0), ("standard", 380.0, 666.0),
+            ("Premium", 50.0, 638.0), ("200", 210.0, 638.0), ("priority", 380.0, 638.0),
+
+            // Full-width footnote one ordinary line gap below the last row — it bridges every column gutter.
+            ("All charges exclude consumption tax and are subject to change.", 50.0, 610.0)
+        });
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(pdf), PdfContext());
+
+        // The grid reconstructs with the real header row (proves the heading was peeled, not promoted to the
+        // header row, and that the footnote did not collapse the columns).
+        result.Markdown.ShouldContain("| Service | Charge | Remark |");
+        result.Markdown.ShouldContain("| Basic | 100 | standard |");
+        result.Markdown.ShouldContain("| Premium | 200 | priority |");
+
+        // The footnote is present but NOT a table row (it stayed an ordinary paragraph).
+        result.Markdown.ShouldContain("All charges exclude consumption tax and are subject to change.");
+        result.Markdown.ShouldNotContain("| All charges");
+
+        // The heading is present but never became a table cell.
+        result.Markdown.ShouldContain("Fee Schedule below");
+        result.Markdown.ShouldNotContain("| Fee Schedule below");
+
+        // Reading order is preserved: heading above the table, footnote below it.
+        var heading = result.Markdown.IndexOf("Fee Schedule below", StringComparison.Ordinal);
+        var table = result.Markdown.IndexOf("| Service | Charge | Remark |", StringComparison.Ordinal);
+        var note = result.Markdown.IndexOf("All charges exclude", StringComparison.Ordinal);
+        heading.ShouldBeLessThan(table);
+        table.ShouldBeLessThan(note);
+    }
 }

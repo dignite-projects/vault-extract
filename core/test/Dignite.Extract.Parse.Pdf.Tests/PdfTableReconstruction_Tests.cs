@@ -205,6 +205,52 @@ public class PdfTableReconstruction_Tests
     }
 
     [Fact]
+    public void Reattaches_a_tall_cell_whose_wrap_lines_bracket_the_data_row()
+    {
+        // The #310 料金表 備考 failure: a cell taller than its single-line row siblings wraps to a second visual
+        // line, and the two lines sit ABOVE and BELOW the row's single-line cells (not tight under the row), so
+        // the step-4 continuation fold cannot capture them and they land as two stray mono-column rows
+        // interleaving the data row. The magnet pass (step 4b) must pull both fragments back into the row's
+        // empty Note cell, top-to-bottom.
+        var cells = new List<PdfTableReconstruction.Cell>
+        {
+            Cell("Item", 50, 90, 700), Cell("Qty", 150, 190, 700), Cell("Note", 250, 290, 700),
+            Cell("note1", 250, 290, 668),                         // tall Note cell, upper line (above the data row)
+            Cell("Apple", 50, 90, 660), Cell("5", 150, 175, 660), // data row — Note cell empty on this line
+            Cell("note2", 250, 290, 652),                         // tall Note cell, lower line (below the data row)
+            Cell("Pear", 50, 90, 620), Cell("9", 150, 175, 620), Cell("plain", 250, 290, 620)
+        };
+
+        PdfTableReconstruction.TryRender(cells).ShouldBe(
+            "| Item | Qty | Note |\n" +
+            "| --- | --- | --- |\n" +
+            "| Apple | 5 | note1 note2 |\n" +
+            "| Pear | 9 | plain |");
+    }
+
+    [Fact]
+    public void Does_not_pull_a_sparse_cell_a_full_row_away_into_a_neighbor()
+    {
+        // The magnet only reaches an IMMEDIATELY adjacent mono-column fragment (within the continuation pitch).
+        // A genuinely sparse cell a full row away from the empty-Note row stays its own row — it is not a wrapped
+        // cell (the column-3-empty variant of the #329 "|  | E |" guard).
+        var cells = new List<PdfTableReconstruction.Cell>
+        {
+            Cell("Item", 50, 90, 700), Cell("Qty", 150, 190, 700), Cell("Note", 250, 290, 700),
+            Cell("Apple", 50, 90, 660), Cell("5", 150, 175, 660), // data row, Note empty
+            Cell("Pear", 50, 90, 620), Cell("9", 150, 175, 620), Cell("ok", 250, 290, 620),
+            Cell("late", 250, 290, 580) // col-3 only, a full row below the Pear row — not a wrap of the Apple row
+        };
+
+        PdfTableReconstruction.TryRender(cells).ShouldBe(
+            "| Item | Qty | Note |\n" +
+            "| --- | --- | --- |\n" +
+            "| Apple | 5 |  |\n" +
+            "| Pear | 9 | ok |\n" +
+            "|  |  | late |");
+    }
+
+    [Fact]
     public void Escapes_inline_markdown_metacharacters_in_a_cell()
     {
         // #329 review: a cell is source text; literal * [ ] < ` must be escaped (like the paragraph path,

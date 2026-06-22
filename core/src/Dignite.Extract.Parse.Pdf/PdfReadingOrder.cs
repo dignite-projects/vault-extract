@@ -94,6 +94,11 @@ internal static class PdfReadingOrder
     // ClusterTableCandidateBlocks.
     private const double RowHeightSimilarityRatio = 0.4;
 
+    // Horizontal gutter scale for the structural break check (ClusterTableCandidateBlocks). Mirrors
+    // PdfTableReconstruction.ColumnGutterScale so the cluster's notion of a column gutter matches the
+    // reconstructor's: a horizontal gap wider than this many median-block-heights separates two columns.
+    private const double ColumnGutterScale = 0.8;
+
     /// <summary>
     /// Reconstructs visual lines from the page's words: clusters words whose vertical ranges overlap into
     /// one line, orders words left-to-right within a line, and returns lines top-to-bottom.
@@ -497,16 +502,32 @@ internal static class PdfReadingOrder
             return TableClusters.Empty;
         }
 
+        var gutterThreshold = medianHeight * ColumnGutterScale;
         var result = new TableClusters();
-        foreach (var cluster in ClusterTableCandidateBlocks(blocks, medianHeight))
+        foreach (var clusterRows in ClusterTableCandidateBlocks(blocks, medianHeight))
         {
+            // Peel leading heading / caption / intro rows (the "第3条（料金）" heading + "本業務の料金は…" intro
+            // above the grid, the "別紙1 料金表" caption) before reconstruction. They enter the cluster from the
+            // top — where no column structure is established yet, so the chaining bridge-guard cannot reject
+            // them — and then either become spurious leading table rows or, worse, a full-width intro line
+            // bridges and MERGES two real columns (the 料金表's 区分+内容). Trailing body text needs no peel: by
+            // the time the grid is below it, the column structure exists and the chaining bridge-guard already
+            // refuses to chain it in.
+            var coreRows = TrimLeadingNonGridRows(clusterRows, blocks, gutterThreshold);
+            if (coreRows.Count == 0)
+            {
+                continue;
+            }
+
+            var coreBlocks = coreRows.SelectMany(row => row).ToList();
+
             // Reconstruct from the cluster's WORDS, not its blocks: RecursiveXYCut's block granularity is not
             // stable for tables (#329 review) — a generous row pitch is cut into per-cell blocks, but a tight
             // row pitch is cut into per-COLUMN blocks (each column one tall block of stacked rows). Feeding
             // words lets TryRender derive the grid from real glyph geometry either way; its column x-projection
             // + visual-row clustering + wrapped-cell merge handle both, including a 備考 cell wrapping to two
             // lines (whether or not the segmenter pre-merged it).
-            var cells = cluster
+            var cells = coreBlocks
                 .SelectMany(bi => blocks[bi].TextLines.SelectMany(line => line.Words))
                 .Where(word => !string.IsNullOrWhiteSpace(word.Text))
                 .Select(word => new PdfTableReconstruction.Cell(word.BoundingBox, word.Text))
@@ -518,10 +539,13 @@ internal static class PdfReadingOrder
                 continue;
             }
 
-            var lead = cluster[0]; // cluster is sorted ascending, so [0] is the lead (lowest-index) block
+            // Lead = lowest-index core block: the table is emitted at its reading position, and any peeled
+            // (lower-index) heading/intro block falls through to the paragraph pass at its own earlier position,
+            // so the heading still renders above the table.
+            var lead = coreBlocks.Min();
             result.MarkdownByLead[lead] = table;
-            result.BlocksByLead[lead] = cluster;
-            foreach (var bi in cluster)
+            result.BlocksByLead[lead] = coreBlocks;
+            foreach (var bi in coreBlocks)
             {
                 result.LeadByBlock[bi] = lead;
             }
@@ -531,15 +555,106 @@ internal static class PdfReadingOrder
     }
 
     /// <summary>
-    /// Groups blocks into table-candidate clusters. RecursiveXYCut cuts a table into per-CELL blocks (its
-    /// column gutters and row gaps both exceed the cut threshold), so a cluster is built in two steps:
-    /// (1) union blocks whose vertical ranges overlap into <i>visual rows</i>; (2) chain vertically adjacent
-    /// rows (gap within <see cref="RowGroupGapScale"/> median-heights) into one cluster — which stops at the
-    /// larger gap to a title / body paragraph above or below. Each cluster's indices are sorted ascending so
-    /// the lead block is first; a lone row forms a singleton cluster (later rejected by
-    /// <see cref="PdfTableReconstruction.TryRender"/> for having too few rows).
+    /// Drops leading rows of a table-candidate cluster that are not grid rows — a section heading, a table
+    /// caption, or an introductory sentence sitting just above the grid — returning the remaining rows
+    /// (top to bottom). A leading row is peeled when it is <b>mono-column</b> (all its blocks fall in a single
+    /// column band: a heading / caption / title) or <b>gutter-bridging</b> (a block spans across a column
+    /// gutter: a full-width intro sentence). The column model is recomputed after each peel, so removing a
+    /// full-width intro that had merged two columns lets those columns re-separate for the rows below it.
+    /// Peeling stops at the first real grid row (the header or a data row, which spans ≥2 columns without
+    /// bridging). Only the leading edge is peeled: a mono-column row in the interior or at the bottom may be a
+    /// sparse data row or a wrapped-cell continuation and is kept. Peeled blocks are simply excluded from the
+    /// table, so they fall through to the paragraph path at their own reading position (non-lossy).
     /// </summary>
-    private static List<List<int>> ClusterTableCandidateBlocks(IReadOnlyList<DlaTextBlock> blocks, double medianHeight)
+    private static List<List<int>> TrimLeadingNonGridRows(
+        List<List<int>> clusterRows, IReadOnlyList<DlaTextBlock> blocks, double gutterThreshold)
+    {
+        var rows = new List<List<int>>(clusterRows);
+        while (rows.Count > 0)
+        {
+            var bands = ColumnBands(rows.SelectMany(row => row).Select(bi => blocks[bi].BoundingBox), gutterThreshold);
+            if (bands.Count < 2)
+            {
+                // No column structure across the remaining rows → not a grid; let TryRender reject it as a whole
+                // rather than peel every row one by one.
+                break;
+            }
+
+            if (IsLeadingNonGridRow(rows[0], bands, blocks))
+            {
+                rows.RemoveAt(0);
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        return rows;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="row"/> reads as a heading / caption / intro rather than a grid row, given the
+    /// current column <paramref name="bands"/>: true when every block sits in one band (mono-column) or any
+    /// block bridges a gutter (a full-width line). A genuine header / data row spans ≥2 bands without bridging.
+    /// </summary>
+    private static bool IsLeadingNonGridRow(
+        IReadOnlyList<int> row, IReadOnlyList<(double Left, double Right)> bands, IReadOnlyList<DlaTextBlock> blocks)
+    {
+        var occupied = new HashSet<int>();
+        foreach (var bi in row)
+        {
+            var box = blocks[bi].BoundingBox;
+            if (BridgesAnyGutter(box, bands))
+            {
+                return true;
+            }
+
+            occupied.Add(BandOf(box, bands));
+        }
+
+        return occupied.Count <= 1;
+    }
+
+    /// <summary>Index of the column band containing the box's horizontal centre (nearest band as a fallback).</summary>
+    private static int BandOf(PdfRectangle box, IReadOnlyList<(double Left, double Right)> bands)
+    {
+        var centre = (box.Left + box.Right) / 2.0;
+        for (var i = 0; i < bands.Count; i++)
+        {
+            if (centre >= bands[i].Left && centre <= bands[i].Right)
+            {
+                return i;
+            }
+        }
+
+        var nearest = 0;
+        var best = double.MaxValue;
+        for (var i = 0; i < bands.Count; i++)
+        {
+            var d = Math.Min(Math.Abs(centre - bands[i].Left), Math.Abs(centre - bands[i].Right));
+            if (d < best)
+            {
+                best = d;
+                nearest = i;
+            }
+        }
+
+        return nearest;
+    }
+
+    /// <summary>
+    /// Groups blocks into table-candidate clusters, each returned as its list of <i>visual rows</i> (top to
+    /// bottom, every row a list of block indices). RecursiveXYCut cuts a table into per-CELL blocks (its column
+    /// gutters and row gaps both exceed the cut threshold), so a cluster is built in two steps: (1) union blocks
+    /// whose vertical ranges overlap into visual rows; (2) chain vertically adjacent rows (gap within
+    /// <see cref="RowGroupGapScale"/> median-heights, comparable height, no column-bridging) into one cluster —
+    /// which stops at the larger gap to a title / body paragraph above or below, and at a full-width body line
+    /// below the grid. The row structure is preserved (not flattened) so <see cref="DetectTableClusters"/> can
+    /// peel leading heading / caption / intro rows before reconstruction. A lone row forms a singleton cluster
+    /// (later rejected by <see cref="PdfTableReconstruction.TryRender"/> for having too few rows).
+    /// </summary>
+    private static List<List<List<int>>> ClusterTableCandidateBlocks(IReadOnlyList<DlaTextBlock> blocks, double medianHeight)
     {
         var n = blocks.Count;
 
@@ -590,14 +705,25 @@ internal static class PdfReadingOrder
             .OrderByDescending(group => group.Max(bi => blocks[bi].BoundingBox.Top))
             .ToList();
 
-        // 2. Chain rows whose vertical gap stays within the threshold AND whose height is comparable into one
-        // cluster. The height check stops a tall multi-line body / title block (a RecursiveXYCut paragraph
-        // leaf) from being chained onto a table's short cell rows even when it sits close, and keeps a
-        // paragraph-dominated page (large page-wide median -> large gap threshold) from over-merging (#329
-        // review). A wider gap, or a height mismatch, starts a new cluster.
+        // 2. Chain rows whose vertical gap stays within the threshold AND whose height is comparable AND whose
+        // blocks do not break the table's column structure, into one cluster. Three guards:
+        //   - gap: a wider vertical gap cuts the table off from a title / body paragraph farther above or below.
+        //   - height: a tall multi-line body / title block (a RecursiveXYCut paragraph leaf) is not chained onto
+        //     a table's short cell rows even when it sits close, and a paragraph-dominated page (large page-wide
+        //     median -> large gap threshold) cannot over-merge (#329 review).
+        //   - column structure (#310 follow-up): a row containing a block that BRIDGES the candidate's already
+        //     established column gutters (a full-page-width note / clause paragraph below the grid, e.g. the
+        //     日本語 料金表's "※上記金額…" / "本契約の成立を…" footnotes) is body text, not a table row — without
+        //     this guard those single-line full-width paragraphs are gap+height-comparable to the cell rows, so
+        //     they get chained in, collapse the column bands when the whole cluster is reconstructed, and sink
+        //     the entire table back to paragraph linearization. The gap/height guards alone cannot separate them
+        //     (the footnote sits one ordinary line-gap below the last cell row); only the column geometry can.
+        // Any guard failing starts a new cluster, so the trailing body text reconstructs (or degrades) on its own.
         var gapThreshold = medianHeight * RowGroupGapScale;
-        var clusters = new List<List<int>>();
-        var current = new List<int>(rows[0]);
+        var gutterThreshold = medianHeight * ColumnGutterScale;
+        var clusters = new List<List<List<int>>>();
+        var current = new List<List<int>> { rows[0] };
+        var currentFlat = new List<int>(rows[0]);
         var currentBottom = rows[0].Min(bi => blocks[bi].BoundingBox.Bottom);
         var currentRowHeight = PdfGeometry.Median(rows[0].Select(bi => blocks[bi].BoundingBox.Height));
         for (var i = 1; i < rows.Count; i++)
@@ -608,29 +734,119 @@ internal static class PdfReadingOrder
             var heightComparable = tallerHeight <= 0
                 || Math.Min(currentRowHeight, rowHeight) >= tallerHeight * RowHeightSimilarityRatio;
 
-            if (currentBottom - rowTop <= gapThreshold && heightComparable)
+            if (currentBottom - rowTop <= gapThreshold
+                && heightComparable
+                && !RowBridgesColumns(currentFlat, rows[i], blocks, gutterThreshold))
             {
-                current.AddRange(rows[i]);
+                current.Add(rows[i]);
+                currentFlat.AddRange(rows[i]);
                 currentBottom = Math.Min(currentBottom, rows[i].Min(bi => blocks[bi].BoundingBox.Bottom));
                 currentRowHeight = rowHeight;
             }
             else
             {
                 clusters.Add(current);
-                current = new List<int>(rows[i]);
+                current = new List<List<int>> { rows[i] };
+                currentFlat = new List<int>(rows[i]);
                 currentBottom = rows[i].Min(bi => blocks[bi].BoundingBox.Bottom);
                 currentRowHeight = rowHeight;
             }
         }
 
         clusters.Add(current);
+        return clusters;
+    }
 
-        foreach (var cluster in clusters)
+    /// <summary>
+    /// Whether any block of <paramref name="candidateRow"/> bridges a column gutter already established by the
+    /// blocks accumulated in <paramref name="clusterBlocks"/> — i.e. its horizontal extent spans across the
+    /// empty space that separates two of the candidate table's columns. Such a block is a full-width body line
+    /// (a footnote / clause paragraph / section heading), not a table cell, so the row must not be chained into
+    /// the table candidate. Returns <c>false</c> until at least two column bands exist (no gutter to bridge yet),
+    /// so the leading rows of a table still accumulate normally.
+    /// </summary>
+    private static bool RowBridgesColumns(
+        IReadOnlyList<int> clusterBlocks,
+        IReadOnlyList<int> candidateRow,
+        IReadOnlyList<DlaTextBlock> blocks,
+        double gutterThreshold)
+    {
+        var bands = ColumnBands(clusterBlocks.Select(bi => blocks[bi].BoundingBox), gutterThreshold);
+        if (bands.Count < 2)
         {
-            cluster.Sort();
+            return false;
         }
 
-        return clusters;
+        foreach (var bi in candidateRow)
+        {
+            if (BridgesAnyGutter(blocks[bi].BoundingBox, bands))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="box"/> straddles the empty gutter between any two adjacent column
+    /// <paramref name="bands"/> — i.e. it reaches into band k (or its left gutter) AND past the start of band
+    /// k+1. A real table cell never does (the gutter is empty by definition); a full-width body line (heading /
+    /// footnote / clause paragraph) does.
+    /// </summary>
+    private static bool BridgesAnyGutter(PdfRectangle box, IReadOnlyList<(double Left, double Right)> bands)
+    {
+        var left = Math.Min(box.Left, box.Right);
+        var right = Math.Max(box.Left, box.Right);
+        for (var k = 0; k < bands.Count - 1; k++)
+        {
+            if (left <= bands[k].Right && right >= bands[k + 1].Left)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Projects the boxes' horizontal extents onto the x-axis and splits them into column bands at gutters wider
+    /// than <paramref name="gutterThreshold"/> (overlapping/abutting extents merge into one band). Mirrors
+    /// <see cref="PdfTableReconstruction"/>'s own column detection so the cluster's column model matches the one
+    /// the reconstructor will later apply. Each band is the <c>[left, right]</c> extent of one column's content.
+    /// </summary>
+    private static List<(double Left, double Right)> ColumnBands(IEnumerable<PdfRectangle> boxes, double gutterThreshold)
+    {
+        var intervals = boxes
+            .Select(b => (Left: Math.Min(b.Left, b.Right), Right: Math.Max(b.Left, b.Right)))
+            .OrderBy(iv => iv.Left)
+            .ToList();
+
+        var bands = new List<(double Left, double Right)>();
+        if (intervals.Count == 0)
+        {
+            return bands;
+        }
+
+        var left = intervals[0].Left;
+        var right = intervals[0].Right;
+        for (var i = 1; i < intervals.Count; i++)
+        {
+            var iv = intervals[i];
+            if (iv.Left - right > gutterThreshold)
+            {
+                bands.Add((left, right));
+                left = iv.Left;
+                right = iv.Right;
+            }
+            else
+            {
+                right = Math.Max(right, iv.Right);
+            }
+        }
+
+        bands.Add((left, right));
+        return bands;
     }
 
     /// <summary>

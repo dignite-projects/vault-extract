@@ -133,6 +133,13 @@ internal static class PdfTableReconstruction
 
         // 4. Fold wrapped-cell continuation lines into their parent row.
         var rows = MergeRows(visualLines, lineColumns, columns.Count, medianHeight * ContinuationPitchScale);
+
+        // 4b. Re-attach stray single-cell fragments: a cell taller than its row's single-line siblings wraps to a
+        // second visual line that falls OUTSIDE the row's y-band (above or below it), so step 4 — which only
+        // folds a continuation tight against the CURRENT row — leaves it as its own mono-column row interleaved
+        // with the data row (the #310 料金表 備考 cell "本契約に付随する無償提供。税別対象外", whose two lines
+        // bracket the "0円" row). Pull such a fragment into the adjacent data row's empty cell.
+        CoalesceStrayCellFragments(rows, medianHeight * ContinuationPitchScale);
         if (rows.Count < MinRows)
         {
             return null;
@@ -142,14 +149,14 @@ internal static class PdfTableReconstruction
         // whose cell wraps across several single-column continuation lines must not be diluted below the ratio
         // by those continuation lines — the fold in step 4 has already collapsed them into their parent row.
         // A multi-column BODY layout still fails here (each of its rows lives in one column).
-        var crossColumnRows = rows.Count(row => row.Count(cell => cell.Length > 0) >= 2);
+        var crossColumnRows = rows.Count(row => row.FilledCount >= 2);
         if ((double)crossColumnRows / rows.Count < MinCrossColumnRowRatio)
         {
             return null;
         }
 
         // 6. Fill ratio: reject a sparse scatter that lands in a few bands but isn't a real table.
-        var filled = rows.Sum(row => row.Count(cell => cell.Length > 0));
+        var filled = rows.Sum(row => row.FilledCount);
         if ((double)filled / (rows.Count * columns.Count) < MinFillRatio)
         {
             return null;
@@ -258,23 +265,43 @@ internal static class PdfTableReconstruction
         return lines;
     }
 
+    /// <summary>A reconstructed table row: its cells (one per column, empty string when unfilled) and y-band.</summary>
+    private sealed class GridRow
+    {
+        public GridRow(string[] cells, double top, double bottom)
+        {
+            Cells = cells;
+            Top = top;
+            Bottom = bottom;
+        }
+
+        public string[] Cells { get; }
+
+        /// <summary>Highest edge of the lines that formed the row (PDF user space: larger Y = higher).</summary>
+        public double Top { get; set; }
+
+        /// <summary>Lowest edge of the lines that formed the row.</summary>
+        public double Bottom { get; set; }
+
+        public int FilledCount => Cells.Count(c => c.Length > 0);
+    }
+
     /// <summary>
     /// Folds wrapped-cell continuation lines into their parent table row. A visual line is a continuation when
     /// it occupies a STRICT subset of the current row's columns (a wrapped cell only continues columns the row
     /// already has) AND sits within <paramref name="continuationPitch"/> below it; its text is appended to the
     /// matching columns (space-joined). Otherwise it starts a new row. Returns rectangular rows
-    /// (<paramref name="columnCount"/> cells each, empty string for an unfilled cell).
+    /// (<paramref name="columnCount"/> cells each, empty string for an unfilled cell), each carrying its y-band.
     /// </summary>
-    private static List<string[]> MergeRows(
+    private static List<GridRow> MergeRows(
         List<List<Cell>> visualLines,
         List<Dictionary<int, List<Cell>>> lineColumns,
         int columnCount,
         double continuationPitch)
     {
-        var rows = new List<string[]>();
-        string[]? current = null;
+        var rows = new List<GridRow>();
+        GridRow? current = null;
         HashSet<int>? currentColumns = null;
-        var currentBottom = 0.0;
 
         for (var i = 0; i < visualLines.Count; i++)
         {
@@ -291,17 +318,17 @@ internal static class PdfTableReconstruction
                 // rows is worse than splitting the rare all-cells-wrap case (#329 review; see class remarks).
                 && occupied.Count < currentColumns!.Count
                 && occupied.IsSubsetOf(currentColumns)     // and only columns the parent row already has
-                && currentBottom - lineTop <= continuationPitch; // and tight against it (a single-line wrap)
+                && current!.Bottom - lineTop <= continuationPitch; // and tight against it (a single-line wrap)
 
             if (isContinuation)
             {
                 foreach (var (column, list) in byColumn)
                 {
                     var text = JoinLineCells(list);
-                    current![column] = current[column].Length == 0 ? text : current[column] + " " + text;
+                    current!.Cells[column] = current.Cells[column].Length == 0 ? text : current.Cells[column] + " " + text;
                 }
 
-                currentBottom = lineBottom;
+                current!.Bottom = lineBottom;
                 continue;
             }
 
@@ -310,19 +337,19 @@ internal static class PdfTableReconstruction
                 rows.Add(current);
             }
 
-            current = new string[columnCount];
+            var cells = new string[columnCount];
             for (var c = 0; c < columnCount; c++)
             {
-                current[c] = string.Empty;
+                cells[c] = string.Empty;
             }
 
             foreach (var (column, list) in byColumn)
             {
-                current[column] = JoinLineCells(list);
+                cells[column] = JoinLineCells(list);
             }
 
+            current = new GridRow(cells, lineTop, lineBottom);
             currentColumns = occupied;
-            currentBottom = lineBottom;
         }
 
         if (current != null)
@@ -331,6 +358,91 @@ internal static class PdfTableReconstruction
         }
 
         return rows;
+    }
+
+    /// <summary>
+    /// Re-attaches stray single-cell fragment rows to the adjacent data row whose matching cell is empty. A cell
+    /// that is taller than its row's single-line siblings wraps to a second visual line whose y sits OUTSIDE the
+    /// row's band, so <see cref="MergeRows"/> (which folds only a continuation tight against the row it is
+    /// currently building) cannot capture it and leaves it as its own mono-column row interleaved next to the
+    /// data row. For every multi-cell row this pulls in the immediately adjacent (within
+    /// <paramref name="pitch"/>, above or below) mono-column rows that fill one of its empty columns, appending
+    /// their text top-to-bottom, and drops the consumed fragments. A fragment whose column the data row already
+    /// fills, or that sits a full row away, is left untouched — so a genuinely sparse row (the #329
+    /// "<c>|  | E |</c>" cases) is preserved.
+    /// </summary>
+    private static void CoalesceStrayCellFragments(List<GridRow> rows, double pitch)
+    {
+        var consumed = new bool[rows.Count];
+
+        for (var i = 0; i < rows.Count; i++)
+        {
+            if (consumed[i] || rows[i].FilledCount < 2)
+            {
+                continue; // only a substantial (multi-cell) data row attracts stray fragments
+            }
+
+            var host = rows[i];
+            for (var column = 0; column < host.Cells.Length; column++)
+            {
+                if (host.Cells[column].Length != 0)
+                {
+                    continue; // the magnet only fills an EMPTY cell of the host row
+                }
+
+                // Gather adjacent mono-column-`column` fragments above and below, nearest-first, while they stay
+                // within the host row's band expanded by `pitch`.
+                var fragments = new List<int>();
+                for (var j = i - 1; j >= 0 && IsStrayFragment(rows, consumed, j, column, host, pitch); j--)
+                {
+                    fragments.Add(j);
+                }
+
+                fragments.Reverse(); // above fragments now top-to-bottom
+                for (var j = i + 1; j < rows.Count && IsStrayFragment(rows, consumed, j, column, host, pitch); j++)
+                {
+                    fragments.Add(j);
+                }
+
+                foreach (var j in fragments)
+                {
+                    host.Cells[column] = host.Cells[column].Length == 0
+                        ? rows[j].Cells[column]
+                        : host.Cells[column] + " " + rows[j].Cells[column];
+                    host.Top = Math.Max(host.Top, rows[j].Top);
+                    host.Bottom = Math.Min(host.Bottom, rows[j].Bottom);
+                    consumed[j] = true;
+                }
+            }
+        }
+
+        for (var i = rows.Count - 1; i >= 0; i--)
+        {
+            if (consumed[i])
+            {
+                rows.RemoveAt(i);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Whether row <paramref name="j"/> is an unconsumed stray fragment that can fold into <paramref name="host"/>'s
+    /// <paramref name="column"/>: it fills exactly that one column and its y-band lies within the host's band
+    /// expanded by <paramref name="pitch"/> (immediately adjacent, not a full row away).
+    /// </summary>
+    private static bool IsStrayFragment(
+        List<GridRow> rows, bool[] consumed, int j, int column, GridRow host, double pitch)
+    {
+        if (consumed[j])
+        {
+            return false;
+        }
+
+        var row = rows[j];
+        return row.FilledCount == 1
+            && row.Cells[column].Length > 0
+            && row.Bottom <= host.Top + pitch
+            && row.Top >= host.Bottom - pitch;
     }
 
     /// <summary>Joins the fragments that landed in one cell of one visual line, left to right, with a single space.</summary>
@@ -344,10 +456,10 @@ internal static class PdfTableReconstruction
     /// as well as the pipe/newline — so table cells get the same #320 source-text protection the paragraph
     /// path has (a plain cell-escape would leave a literal <c>*</c>/<c>[</c> in a contract cell to be re-parsed).
     /// </summary>
-    private static string RenderGrid(List<string[]> rows)
+    private static string RenderGrid(List<GridRow> rows)
     {
         var escaped = rows
-            .Select(row => (IReadOnlyList<string>)row.Select(MarkdownText.EscapeInlineCell).ToArray())
+            .Select(row => (IReadOnlyList<string>)row.Cells.Select(MarkdownText.EscapeInlineCell).ToArray())
             .ToList();
         return MarkdownText.RenderTable(escaped);
     }
