@@ -140,6 +140,16 @@ internal static class PdfTableReconstruction
         // with the data row (the #310 料金表 備考 cell "本契約に付随する無償提供。税別対象外", whose two lines
         // bracket the "0円" row). Pull such a fragment into the adjacent data row's empty cell.
         CoalesceStrayCellFragments(rows, medianHeight * ContinuationPitchScale);
+
+        // 4c. Merge a run of consecutive single-column lines that are tight against each other (within the
+        // continuation pitch) into one row. This catches a key-value row whose short label and multi-line value
+        // sit on SEPARATE visual lines in DIFFERENT columns (the 契約目的 row: label "契約目的" alone on one line,
+        // its value "甲の…定める。" wrapping across the line above and the line below it) — none of those lines is
+        // a multi-cell "host" for step 4b, so they would otherwise render as three half-empty rows that sever the
+        // label from its value. A run of single-column lines this tightly stacked is one record's cells, not
+        // several records (which sit a full row-pitch apart); a multi-cell record line breaks the run, so two
+        // real records are never merged.
+        CoalesceMonoColumnRuns(rows, medianHeight * ContinuationPitchScale);
         if (rows.Count < MinRows)
         {
             return null;
@@ -160,6 +170,16 @@ internal static class PdfTableReconstruction
         if ((double)filled / (rows.Count * columns.Count) < MinFillRatio)
         {
             return null;
+        }
+
+        // 7. Bullet list, not a table: a left column made entirely of list-bullet glyphs (•, ・, ‣, …) is a
+        // bullet list — "marker | item text" — that happens to be a clean 2-column grid geometrically. Render it
+        // as a real Markdown list instead of a table (and instead of letting it fall back to the paragraph path,
+        // where the column-wise reading order would strand every bullet away from its text). Only the leading
+        // column is checked — that is where a list marker sits.
+        if (IsBulletMarkerColumn(rows, 0))
+        {
+            return RenderBulletList(rows);
         }
 
         return RenderGrid(rows);
@@ -443,6 +463,119 @@ internal static class PdfTableReconstruction
             && row.Cells[column].Length > 0
             && row.Bottom <= host.Top + pitch
             && row.Top >= host.Bottom - pitch;
+    }
+
+    /// <summary>
+    /// Merges each maximal run of consecutive single-column rows that are tight against one another (each within
+    /// <paramref name="pitch"/> of the previous) into one row, concatenating per column top-to-bottom. Such a
+    /// run is one record whose cells (a short label, a wrapped value) landed on separate visual lines in
+    /// different columns; a multi-cell row breaks the run, so two genuine records — which sit a full row-pitch
+    /// apart, not within the continuation pitch — are never merged. Runs of length 1 are left untouched (a lone
+    /// sparse cell stays its own row, preserving the #329 "<c>|  | E |</c>" behavior).
+    /// </summary>
+    private static void CoalesceMonoColumnRuns(List<GridRow> rows, double pitch)
+    {
+        var i = 0;
+        while (i < rows.Count)
+        {
+            if (rows[i].FilledCount != 1)
+            {
+                i++;
+                continue;
+            }
+
+            // Extend the run while the next row is also single-column and sits within the pitch below this one.
+            var end = i;
+            while (end + 1 < rows.Count
+                   && rows[end + 1].FilledCount == 1
+                   && rows[end].Bottom - rows[end + 1].Top <= pitch)
+            {
+                end++;
+            }
+
+            if (end > i)
+            {
+                var host = rows[i];
+                for (var k = i + 1; k <= end; k++)
+                {
+                    for (var c = 0; c < host.Cells.Length; c++)
+                    {
+                        if (rows[k].Cells[c].Length == 0)
+                        {
+                            continue;
+                        }
+
+                        host.Cells[c] = host.Cells[c].Length == 0
+                            ? rows[k].Cells[c]
+                            : host.Cells[c] + " " + rows[k].Cells[c];
+                    }
+
+                    host.Bottom = Math.Min(host.Bottom, rows[k].Bottom);
+                }
+
+                rows.RemoveRange(i + 1, end - i);
+            }
+
+            i++;
+        }
+    }
+
+    /// <summary>
+    /// Single-glyph list bullets that mark a list item, never tabular data. Deliberately excludes the ASCII
+    /// <c>-</c> and <c>*</c>, which appear as legitimate cell content (a dash for "none", a footnote star).
+    /// </summary>
+    private static readonly char[] BulletMarkers =
+        { '•', '·', '・', '‣', '◦', '▪', '●', '○', '∙', '▸', '►', '∘', '⦁' };
+
+    /// <summary>
+    /// Whether column <paramref name="column"/> is a bullet-marker column: it has at least one non-empty cell and
+    /// every non-empty cell is a single list-bullet glyph (see <see cref="BulletMarkers"/>). Such a column is a
+    /// list marker, so the grid is a bullet list rather than a table.
+    /// </summary>
+    private static bool IsBulletMarkerColumn(List<GridRow> rows, int column)
+    {
+        var any = false;
+        foreach (var row in rows)
+        {
+            var cell = row.Cells[column];
+            if (cell.Length == 0)
+            {
+                continue;
+            }
+
+            var trimmed = cell.Trim();
+            if (trimmed.Length != 1 || Array.IndexOf(BulletMarkers, trimmed[0]) < 0)
+            {
+                return false;
+            }
+
+            any = true;
+        }
+
+        return any;
+    }
+
+    /// <summary>
+    /// Renders the rows as a GFM bullet list, one <c>- item</c> per row, where the item text is the row's
+    /// non-marker columns joined left to right (the leading column is the bullet glyph and is dropped). Item
+    /// text is source text, so it is inline-escaped like the paragraph path (#320); a row with no text beyond
+    /// the marker is skipped.
+    /// </summary>
+    private static string RenderBulletList(List<GridRow> rows)
+    {
+        var items = new List<string>();
+        foreach (var row in rows)
+        {
+            var text = string.Join(" ", row.Cells.Skip(1).Where(c => c.Length > 0));
+            if (text.Length == 0)
+            {
+                continue;
+            }
+
+            items.Add("- " + MarkdownText.EscapeInline(text));
+        }
+
+        return string.Join("\n", items);
     }
 
     /// <summary>Joins the fragments that landed in one cell of one visual line, left to right, with a single space.</summary>

@@ -572,7 +572,10 @@ internal static class PdfReadingOrder
         var rows = new List<List<int>>(clusterRows);
         while (rows.Count > 0)
         {
-            var bands = ColumnBands(rows.SelectMany(row => row).Select(bi => blocks[bi].BoundingBox), gutterThreshold);
+            // Seed the column model from the remaining MULTI-CELL rows only, so a leading full-width title or a
+            // centred stamp/watermark (both single-block rows) neither collapses the columns to one band nor
+            // injects a spurious one — the grid below stays visible and the title/watermark is then peeled.
+            var bands = ColumnBandsFromRows(rows, blocks, gutterThreshold);
             if (bands.Count < 2)
             {
                 // No column structure across the remaining rows → not a grid; let TryRender reject it as a whole
@@ -718,12 +721,14 @@ internal static class PdfReadingOrder
         //     they get chained in, collapse the column bands when the whole cluster is reconstructed, and sink
         //     the entire table back to paragraph linearization. The gap/height guards alone cannot separate them
         //     (the footnote sits one ordinary line-gap below the last cell row); only the column geometry can.
+        //     The column model is seeded only from the cluster's MULTI-CELL rows (see ColumnBandsFromRows), so a
+        //     full-width title or a centred stamp/watermark above the grid contributes no column and cannot
+        //     disable this guard.
         // Any guard failing starts a new cluster, so the trailing body text reconstructs (or degrades) on its own.
         var gapThreshold = medianHeight * RowGroupGapScale;
         var gutterThreshold = medianHeight * ColumnGutterScale;
         var clusters = new List<List<List<int>>>();
         var current = new List<List<int>> { rows[0] };
-        var currentFlat = new List<int>(rows[0]);
         var currentBottom = rows[0].Min(bi => blocks[bi].BoundingBox.Bottom);
         var currentRowHeight = PdfGeometry.Median(rows[0].Select(bi => blocks[bi].BoundingBox.Height));
         for (var i = 1; i < rows.Count; i++)
@@ -736,10 +741,9 @@ internal static class PdfReadingOrder
 
             if (currentBottom - rowTop <= gapThreshold
                 && heightComparable
-                && !RowBridgesColumns(currentFlat, rows[i], blocks, gutterThreshold))
+                && !RowBridgesColumns(current, rows[i], blocks, gutterThreshold))
             {
                 current.Add(rows[i]);
-                currentFlat.AddRange(rows[i]);
                 currentBottom = Math.Min(currentBottom, rows[i].Min(bi => blocks[bi].BoundingBox.Bottom));
                 currentRowHeight = rowHeight;
             }
@@ -747,7 +751,6 @@ internal static class PdfReadingOrder
             {
                 clusters.Add(current);
                 current = new List<List<int>> { rows[i] };
-                currentFlat = new List<int>(rows[i]);
                 currentBottom = rows[i].Min(bi => blocks[bi].BoundingBox.Bottom);
                 currentRowHeight = rowHeight;
             }
@@ -759,19 +762,19 @@ internal static class PdfReadingOrder
 
     /// <summary>
     /// Whether any block of <paramref name="candidateRow"/> bridges a column gutter already established by the
-    /// blocks accumulated in <paramref name="clusterBlocks"/> — i.e. its horizontal extent spans across the
-    /// empty space that separates two of the candidate table's columns. Such a block is a full-width body line
-    /// (a footnote / clause paragraph / section heading), not a table cell, so the row must not be chained into
-    /// the table candidate. Returns <c>false</c> until at least two column bands exist (no gutter to bridge yet),
-    /// so the leading rows of a table still accumulate normally.
+    /// rows accumulated in <paramref name="clusterRows"/> — i.e. its horizontal extent spans across the empty
+    /// space that separates two of the candidate table's columns. Such a block is a full-width body line (a
+    /// footnote / clause paragraph / section heading), not a table cell, so the row must not be chained into the
+    /// table candidate. Returns <c>false</c> until at least two column bands exist (no gutter to bridge yet), so
+    /// the leading rows of a table still accumulate normally.
     /// </summary>
     private static bool RowBridgesColumns(
-        IReadOnlyList<int> clusterBlocks,
+        IReadOnlyList<IReadOnlyList<int>> clusterRows,
         IReadOnlyList<int> candidateRow,
         IReadOnlyList<DlaTextBlock> blocks,
         double gutterThreshold)
     {
-        var bands = ColumnBands(clusterBlocks.Select(bi => blocks[bi].BoundingBox), gutterThreshold);
+        var bands = ColumnBandsFromRows(clusterRows, blocks, gutterThreshold);
         if (bands.Count < 2)
         {
             return false;
@@ -847,6 +850,26 @@ internal static class PdfReadingOrder
 
         bands.Add((left, right));
         return bands;
+    }
+
+    /// <summary>
+    /// Column bands for a table candidate, seeded <b>only from its multi-cell rows</b> (rows of ≥2 blocks). A
+    /// single-block row reveals no column structure — it is a title, a section heading, a table caption, a
+    /// stamp / watermark, or a full-width prose line, and its one box spans no gutter — so letting it seed the
+    /// model would either collapse the columns to one band (a full-width title masking the grid below it) or
+    /// inject a spurious column (a centred watermark like the 契約書案 draft stamp above the 委託者/受託者
+    /// key-value grid). Only a row that actually carries several cells shows where the columns and their gutters
+    /// are. The candidate row being tested for bridging is judged against this clean model, so a full-width body
+    /// line still bridges and is rejected, while the title/watermark simply contribute nothing.
+    /// </summary>
+    private static List<(double Left, double Right)> ColumnBandsFromRows(
+        IReadOnlyList<IReadOnlyList<int>> rows, IReadOnlyList<DlaTextBlock> blocks, double gutterThreshold)
+    {
+        var boxes = rows
+            .Where(row => row.Count >= 2)
+            .SelectMany(row => row)
+            .Select(bi => blocks[bi].BoundingBox);
+        return ColumnBands(boxes, gutterThreshold);
     }
 
     /// <summary>

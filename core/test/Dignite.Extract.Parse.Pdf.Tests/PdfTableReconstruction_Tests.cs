@@ -251,6 +251,47 @@ public class PdfTableReconstruction_Tests
     }
 
     [Fact]
+    public void Merges_a_key_value_row_whose_label_and_wrapped_value_are_on_separate_lines()
+    {
+        // The page-1 契約目的 row: the short label sits on its own visual line in column 0, and its long value
+        // wraps across the line ABOVE and the line BELOW the label, in column 1 — so no single line is a
+        // multi-cell "host" for the stray-fragment magnet. The three tightly-stacked single-column lines are one
+        // record and must merge into one row (label + the whole value), keeping the label bound to its value.
+        var cells = new List<PdfTableReconstruction.Cell>
+        {
+            Cell("Party", 50, 100, 700), Cell("Acme Corporation", 200, 320, 700),
+
+            Cell("provides", 200, 280, 666),  // value line 1 (col 1), above the label
+            Cell("Purpose", 50, 110, 658),    // label (col 0), on its own line
+            Cell("the services", 200, 300, 650), // value line 2 (col 1), below the label
+
+            Cell("Domain", 50, 100, 600), Cell("example.com", 200, 290, 600)
+        };
+
+        PdfTableReconstruction.TryRender(cells).ShouldBe(
+            "| Party | Acme Corporation |\n" +
+            "| --- | --- |\n" +
+            "| Purpose | provides the services |\n" +
+            "| Domain | example.com |");
+    }
+
+    [Fact]
+    public void Renders_a_bullet_first_column_grid_as_a_markdown_list()
+    {
+        // A left column of list-bullet glyphs ("• | item text") is a bullet list, not tabular data, even though
+        // it forms a clean 2-column grid. It must render as a real Markdown list, not a table.
+        var cells = new List<PdfTableReconstruction.Cell>
+        {
+            Cell("•", 50, 56, 700), Cell("First item", 90, 200, 700),
+            Cell("•", 50, 56, 660), Cell("Second item", 90, 210, 660),
+            Cell("•", 50, 56, 620), Cell("Third item", 90, 205, 620)
+        };
+
+        PdfTableReconstruction.TryRender(cells).ShouldBe(
+            "- First item\n- Second item\n- Third item");
+    }
+
+    [Fact]
     public void Escapes_inline_markdown_metacharacters_in_a_cell()
     {
         // #329 review: a cell is source text; literal * [ ] < ` must be escaped (like the paragraph path,

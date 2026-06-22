@@ -573,4 +573,36 @@ public class PdfExtractor_Tests
         heading.ShouldBeLessThan(table);
         table.ShouldBeLessThan(note);
     }
+
+    [Fact]
+    public async Task Reconstructs_a_key_value_table_under_a_full_width_title()
+    {
+        // The page-1 委託者/受託者/契約目的/対象ドメイン key-value form: a clean 2-column label→value grid sitting
+        // one line below a FULL-WIDTH title. The title spans the whole content width, so if it were allowed to
+        // seed the column model it would collapse it to a single band and the grid would never be detected
+        // (the table would linearize). Because the column model is seeded only from multi-cell rows, the
+        // single-block title contributes nothing, the grid is found, and the title is peeled above it.
+        var pdf = PdfFixtures.BuildPositioned(new[]
+        {
+            // A long single-line title spanning the full content width, one line gap above the grid.
+            ("Master Services Agreement For The Provision Of Web Services", 50.0, 716.0),
+
+            ("Provider", 50.0, 690.0), ("Acme Corporation Limited", 230.0, 690.0),
+            ("Client", 50.0, 662.0), ("Beta Industries LLC", 230.0, 662.0),
+            ("Domain", 50.0, 634.0), ("example dot com", 230.0, 634.0)
+        });
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(pdf), PdfContext());
+
+        // The key-value grid reconstructs (proves the full-width title did not collapse the column model).
+        result.Markdown.ShouldContain("| Provider | Acme Corporation Limited |");
+        result.Markdown.ShouldContain("| Client | Beta Industries LLC |");
+        result.Markdown.ShouldContain("| Domain | example dot com |");
+
+        // The title is present but is not a table row, and sits above the table.
+        result.Markdown.ShouldContain("Master Services Agreement");
+        result.Markdown.ShouldNotContain("| Master Services Agreement");
+        result.Markdown.IndexOf("Master Services Agreement", StringComparison.Ordinal)
+            .ShouldBeLessThan(result.Markdown.IndexOf("| Provider |", StringComparison.Ordinal));
+    }
 }
