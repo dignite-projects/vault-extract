@@ -52,4 +52,13 @@ public class PdfHeadingScale_Tests
         PdfHeadingScale.IsBoldFont("BCDEEE+YuGothic-Regular").ShouldBeFalse();
         PdfHeadingScale.IsBoldFont(null).ShouldBeFalse();
     }
+
+    [Fact]
+    public void IsItalicFont_reads_the_slant_from_the_font_name()
+    {
+        PdfHeadingScale.IsItalicFont("Times-Italic").ShouldBeTrue();
+        PdfHeadingScale.IsItalicFont("Helvetica-Oblique").ShouldBeTrue();
+        PdfHeadingScale.IsItalicFont("BCDEEE+YuGothic-Regular").ShouldBeFalse();
+        PdfHeadingScale.IsItalicFont(null).ShouldBeFalse();
+    }
 }

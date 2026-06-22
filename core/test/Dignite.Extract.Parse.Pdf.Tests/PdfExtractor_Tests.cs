@@ -723,4 +723,37 @@ public class PdfExtractor_Tests
         result.Markdown.ShouldContain("First paragraph");
         result.Markdown.ShouldNotContain("#");
     }
+
+    [Fact]
+    public async Task Wraps_inline_bold_and_italic_runs_in_body_prose_but_not_in_a_heading()
+    {
+        // #403 inline emphasis: a bold / italic span *inside* a body line is wrapped (**…** / _…_), honoring the
+        // source's inline weight & slant. A bold *heading* line stays a heading only — no redundant ** inside the
+        // `#` (the heading already encodes the emphasis, and doubling it would be noise).
+        (string, bool, bool)[] Run(params (string Text, bool Bold, bool Italic)[] runs) => runs;
+        var pdf = PdfFixtures.BuildStyledLines(new (double, double, IReadOnlyList<(string, bool, bool)>)[]
+        {
+            // 16pt bold, alone on its line → heading.
+            (720.0, 16.0, Run(("Confidentiality", true, false))),
+
+            // One body line, mixed styles: regular → bold run → regular → italic run → regular.
+            (690.0, 11.0, Run(
+                ("The clause states the", false, false),
+                ("Confidential", true, false),          // inline bold
+                ("Information", false, false),
+                ("may", false, true),                   // inline italic
+                ("be protected.", false, false))),
+
+            (662.0, 11.0, Run(("A following paragraph of ordinary body weight for context.", false, false)))
+        });
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(pdf), PdfContext());
+
+        // The bold and italic spans inside the body line are wrapped; the surrounding prose is untouched.
+        result.Markdown.ShouldContain(
+            "The clause states the **Confidential** Information _may_ be protected.");
+        // The bold heading is a heading, not a bolded line: no ** inside the `#`.
+        result.Markdown.ShouldContain("# Confidentiality");
+        result.Markdown.ShouldNotContain("**Confidentiality**");
+    }
 }

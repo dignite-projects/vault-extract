@@ -137,5 +137,11 @@ internal sealed class PdfHeadingScale
                || fontName.Contains("Heavy", StringComparison.OrdinalIgnoreCase)
                || fontName.Contains("Semibold", StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>Whether <paramref name="fontName"/> denotes an italic / oblique face.</summary>
+    public static bool IsItalicFont(string? fontName)
+        => fontName is not null
+           && (fontName.Contains("Italic", StringComparison.OrdinalIgnoreCase)
+               || fontName.Contains("Oblique", StringComparison.OrdinalIgnoreCase));
+
     private static readonly IReadOnlyDictionary<int, int> EmptyLevels = new Dictionary<int, int>();
 }

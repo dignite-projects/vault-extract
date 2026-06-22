@@ -49,9 +49,14 @@ internal static class PdfReadingOrder
     /// <summary>
     /// A reconstructed visual line of the text layer. <see cref="MaxFontSize"/> (largest glyph point size) and
     /// <see cref="Bold"/> (line is predominantly bold) carry the typographic signal used for heading detection
-    /// (#403); both default to neutral values so a line built without font data behaves as before.
+    /// (#403). <see cref="StyledText"/> is the line's Markdown text with inline emphasis already applied
+    /// (bold/italic runs wrapped and the rest inline-escaped) — used for rendering, while plain <see cref="Text"/>
+    /// stays the detection signal (header/footer dedup, caption matching); it is <c>null</c> when the line was
+    /// built without font data, in which case the renderer falls back to escaping <see cref="Text"/>. All
+    /// font-derived fields default to neutral values so a line built by a test still behaves as before.
     /// </summary>
-    public readonly record struct TextLine(PdfRectangle Bounds, string Text, double MaxFontSize = 0, bool Bold = false);
+    public readonly record struct TextLine(
+        PdfRectangle Bounds, string Text, double MaxFontSize = 0, bool Bold = false, string? StyledText = null);
 
     /// <summary>
     /// A reconstructed visual line plus the <see cref="Word"/> instances it was built from (left-to-right,
@@ -118,10 +123,93 @@ internal static class PdfReadingOrder
         var lines = new List<TextLine>(withWords.Count);
         foreach (var line in withWords)
         {
-            lines.Add(new TextLine(line.Bounds, line.Text, LineMaxFontSize(line.Words), IsLineBold(line.Words)));
+            lines.Add(new TextLine(
+                line.Bounds, line.Text, LineMaxFontSize(line.Words), IsLineBold(line.Words),
+                StyledLineText(line.Words)));
         }
 
         return lines;
+    }
+
+    /// <summary>
+    /// Builds the line's Markdown text with inline emphasis (#403): consecutive words of the same weight/slant
+    /// form a run that is wrapped in <c>**…**</c> (bold), <c>_…_</c> (italic), or <c>***…***</c> (both); each
+    /// run's content is inline-escaped exactly as the plain path would escape it, so only the deliberate
+    /// emphasis markers stay live. Runs are space-joined, matching the plain line's word join.
+    /// </summary>
+    private static string StyledLineText(IReadOnlyList<Word> words)
+    {
+        var runs = new List<string>();
+        var current = new List<string>();
+        var currentBold = false;
+        var currentItalic = false;
+
+        void FlushRun()
+        {
+            if (current.Count == 0)
+            {
+                return;
+            }
+
+            var escaped = MarkdownText.EscapeInline(string.Join(" ", current));
+            runs.Add((currentBold, currentItalic) switch
+            {
+                (true, true) => "***" + escaped + "***",
+                (true, false) => "**" + escaped + "**",
+                (false, true) => "_" + escaped + "_",
+                _ => escaped
+            });
+            current.Clear();
+        }
+
+        foreach (var word in words)
+        {
+            var bold = IsWordBold(word);
+            var italic = IsWordItalic(word);
+            if (current.Count > 0 && (bold != currentBold || italic != currentItalic))
+            {
+                FlushRun();
+            }
+
+            currentBold = bold;
+            currentItalic = italic;
+            current.Add(word.Text);
+        }
+
+        FlushRun();
+        return string.Join(" ", runs);
+    }
+
+    /// <summary>Whether the majority of a word's glyphs are bold.</summary>
+    private static bool IsWordBold(Word word)
+    {
+        long total = 0, bold = 0;
+        foreach (var letter in word.Letters)
+        {
+            total++;
+            if (PdfHeadingScale.IsBoldFont(letter.FontName))
+            {
+                bold++;
+            }
+        }
+
+        return total > 0 && bold * 2 >= total;
+    }
+
+    /// <summary>Whether the majority of a word's glyphs are italic.</summary>
+    private static bool IsWordItalic(Word word)
+    {
+        long total = 0, italic = 0;
+        foreach (var letter in word.Letters)
+        {
+            total++;
+            if (PdfHeadingScale.IsItalicFont(letter.FontName))
+            {
+                italic++;
+            }
+        }
+
+        return total > 0 && italic * 2 >= total;
     }
 
     /// <summary>The largest glyph point size on the line (its heading-candidate size, mirroring PyMuPDF4LLM's
@@ -313,9 +401,14 @@ internal static class PdfReadingOrder
                 // paragraph (FlushParagraph), since only a paragraph's first line sits at line start. A figure
                 // transcription is OCR-provider Markdown (intentional structure) and is never escaped.
                 // #403: classify the line as a heading from its font size + boldness (0 = body); a heading line
-                // is emitted as its own "# …" block in step 4, never folded into a paragraph.
+                // is emitted as its own "# …" block in step 4, never folded into a paragraph. Body lines carry
+                // inline emphasis (StyledText, bold/italic runs already wrapped + escaped); a heading is rendered
+                // plain (the "#" already signals it, so its text is not also bolded) via the inline-escaped Text.
                 var headingLevel = headingScale?.ClassifyLine(lines[i].MaxFontSize, lines[i].Bold) ?? 0;
-                items.Add(Item.ForText(lines[i].Bounds, MarkdownText.EscapeInline(lines[i].Text), headingLevel));
+                var text = headingLevel == 0 && lines[i].StyledText is not null
+                    ? lines[i].StyledText!
+                    : MarkdownText.EscapeInline(lines[i].Text);
+                items.Add(Item.ForText(lines[i].Bounds, text, headingLevel));
             }
         }
 
