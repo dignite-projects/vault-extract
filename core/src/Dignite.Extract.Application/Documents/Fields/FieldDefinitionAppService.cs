@@ -111,7 +111,8 @@ public class FieldDefinitionAppService : ExtractAppService, IFieldDefinitionAppS
             input.DataType,
             input.DisplayOrder,
             input.IsRequired,
-            input.AllowMultiple);
+            input.AllowMultiple,
+            input.IsUniqueKey);
 
         await _repository.InsertAsync(entity, autoSave: true);
         return ObjectMapper.Map<FieldDefinition, FieldDefinitionDto>(entity);
@@ -157,7 +158,7 @@ public class FieldDefinitionAppService : ExtractAppService, IFieldDefinitionAppS
             }
         }
 
-        entity.Update(input.Name, input.DisplayName, input.Prompt, input.DataType, input.DisplayOrder, input.IsRequired, input.AllowMultiple);
+        entity.Update(input.Name, input.DisplayName, input.Prompt, input.DataType, input.DisplayOrder, input.IsRequired, input.AllowMultiple, input.IsUniqueKey);
         await _repository.UpdateAsync(entity, autoSave: true);
         return ObjectMapper.Map<FieldDefinition, FieldDefinitionDto>(entity);
     }

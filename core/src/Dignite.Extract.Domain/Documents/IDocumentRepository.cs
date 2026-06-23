@@ -16,6 +16,26 @@ public interface IDocumentRepository : IRepository<Document, Guid>
         string contentHash,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Duplicate-detection candidate query (#411): Ids of <b>other</b> documents in the current layer with the same
+    /// <see cref="Document.DocumentTypeId"/> and the same <see cref="Document.FieldFingerprint"/> as the document
+    /// being extracted. Two documents sharing a (type, fingerprint) are likely the same business entity re-uploaded.
+    /// <para>
+    /// <paramref name="documentId"/> (the document being checked) is excluded so a document never matches itself.
+    /// <c>IMultiTenant</c> + <c>ISoftDelete</c> global filters apply automatically by ambient state, so the result
+    /// stays within the document's own layer and excludes recycle-bin documents. The result is hard-capped at
+    /// <paramref name="maxResults"/> (<c>DocumentConsts.MaxDuplicateCandidates</c>) — a fingerprint shared by many
+    /// documents never returns an unbounded set. Pure EF Core LINQ (equality on the indexed fingerprint column), no
+    /// raw SQL.
+    /// </para>
+    /// </summary>
+    Task<List<Guid>> FindDuplicateCandidateIdsAsync(
+        Guid documentId,
+        Guid documentTypeId,
+        string fieldFingerprint,
+        int maxResults,
+        CancellationToken cancellationToken = default);
+
     Task HardDeleteAsync(Guid id, CancellationToken cancellationToken = default);
 
     /// <summary>

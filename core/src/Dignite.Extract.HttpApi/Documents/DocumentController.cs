@@ -79,6 +79,12 @@ public class DocumentController : ExtractController, IDocumentAppService
         return _documentAppService.RejectReviewAsync(id, input);
     }
 
+    [HttpPost("{id}/review/allow-duplicate")]
+    public virtual Task<DocumentDto> AllowDuplicateAsync(Guid id)
+    {
+        return _documentAppService.AllowDuplicateAsync(id);
+    }
+
     [HttpPost("{id}/retry-pipeline")]
     public virtual Task RetryPipelineAsync(Guid id, [FromBody] RetryPipelineInput input)
     {

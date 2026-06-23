@@ -5,6 +5,7 @@ export enum DocumentReviewReasons {
   UnresolvedClassification = 1,
   MissingRequiredFields = 2,
   SegmentationIncomplete = 4,
+  DuplicateSuspected = 8,
 }
 
 export const documentReviewReasonsOptions = mapEnumToOptions(DocumentReviewReasons);

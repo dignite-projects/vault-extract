@@ -9,7 +9,15 @@ import type { ConfirmClassificationInput, DocumentDto, DocumentListItemDto, GetD
 export class DocumentService {
   private restService = inject(RestService);
   apiName = 'Default';
-  
+
+
+  allowDuplicate = (id: string, config?: Partial<Rest.Config>) =>
+    this.restService.request<any, DocumentDto>({
+      method: 'POST',
+      url: `/api/extract/documents/${id}/review/allow-duplicate`,
+    },
+    { apiName: this.apiName,...config });
+
 
   confirmClassification = (id: string, input: ConfirmClassificationInput, config?: Partial<Rest.Config>) =>
     this.restService.request<any, DocumentDto>({

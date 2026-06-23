@@ -30,4 +30,7 @@ public class CreateFieldDefinitionDto
 
     /// <summary>Whether multiple values are allowed (#212). Only <see cref="FieldDataType.Text"/> fields may be true; enabling it for non-text fields fails loudly at the entity layer.</summary>
     public bool AllowMultiple { get; set; }
+
+    /// <summary>Whether this field is part of the type's duplicate-detection unique key (#411). The normalized values of all unique-key fields are hashed into the document's fingerprint to flag duplicate re-uploads.</summary>
+    public bool IsUniqueKey { get; set; }
 }

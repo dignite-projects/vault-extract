@@ -307,6 +307,16 @@ public class DocumentPipelineRunManager : DomainService
     }
 
     /// <summary>
+    /// Re-derives <see cref="Document.LifecycleStatus"/> from the current pipeline runs + review reasons <b>without
+    /// changing any run</b> (#411). Operator review-resolution paths that only mutate a blocking review reason — e.g.
+    /// <c>AllowDuplicateAsync</c> clearing <see cref="DocumentReviewReasons.DuplicateSuspected"/> — call this so the
+    /// Ready gate is re-evaluated and the document can transition to Ready (emitting <c>DocumentReadyEto</c>) when no
+    /// other blocking reason remains. The caller persists the document afterward; <see cref="DeriveLifecycleAsync"/>
+    /// only mutates in-memory lifecycle + queues the transition LocalEvent.
+    /// </summary>
+    public virtual Task ReDeriveLifecycleAsync(Document document) => DeriveLifecycleAsync(document);
+
+    /// <summary>
     /// Derives Document.LifecycleStatus from the latest runs of all key pipelines.
     /// <para>
     /// Latest runs are provided by <see cref="IDocumentPipelineRunRepository.GetLatestRunsByCodesAsync"/>. That repository already
@@ -325,6 +335,14 @@ public class DocumentPipelineRunManager : DomainService
 
         foreach (var pipelineCode in ExtractPipelines.KeyPipelines)
         {
+            // #411: field-extraction is a key pipeline so the duplicate check can gate Ready, but a container runs
+            // no field extraction (it holds no single type's fields) — exempt it from that requirement so it still
+            // reaches Ready lifecycle (its DocumentReadyEto is separately suppressed in DocumentReadyEventHandler).
+            if (document.IsContainer && pipelineCode == ExtractPipelines.FieldExtraction)
+            {
+                continue;
+            }
+
             if (!latestRuns.TryGetValue(pipelineCode, out var latestRun))
             {
                 allSucceeded = false;

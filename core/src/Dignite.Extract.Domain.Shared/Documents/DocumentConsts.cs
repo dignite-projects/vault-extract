@@ -53,6 +53,19 @@ public static class DocumentConsts
     public static int MaxOriginConstituentKeyLength { get; set; } = 64;
 
     /// <summary>
+    /// Length of <see cref="Document.FieldFingerprint"/> (#411): the SHA-256 (lowercase hex) of this document type's
+    /// normalized unique-key field values, used to detect duplicate re-uploads of the same business entity. Matches
+    /// <see cref="FileOriginConsts.MaxContentHashLength"/> (both are SHA-256 hex).
+    /// </summary>
+    public static int MaxFieldFingerprintLength { get; set; } = 64;
+
+    /// <summary>
+    /// Hard cap on the number of duplicate-candidate document Ids surfaced to the operator (#411). Fail-closed bound
+    /// on the fingerprint-collision query so a fingerprint shared by many documents cannot return an unbounded set.
+    /// </summary>
+    public const int MaxDuplicateCandidates = 20;
+
+    /// <summary>
     /// Native payload archive size limit in bytes, default 16 MiB (#210).
     /// Over limit -> log warning, set manifest null, and text extraction still succeeds (archive fails open).
     /// May be overridden by tests or host, same static mutable pattern as MaxTitleLength.

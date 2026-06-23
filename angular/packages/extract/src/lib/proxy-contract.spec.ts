@@ -33,7 +33,8 @@ describe('proxy enum contract (smoke)', () => {
     expect(DocumentReviewReasons.UnresolvedClassification).toBe(1);
     expect(DocumentReviewReasons.MissingRequiredFields).toBe(2);
     expect(DocumentReviewReasons.SegmentationIncomplete).toBe(4);
-    expect(documentReviewReasonsOptions).toHaveLength(4);
+    expect(DocumentReviewReasons.DuplicateSuspected).toBe(8);
+    expect(documentReviewReasonsOptions).toHaveLength(5);
   });
 
   it('DocumentLifecycleStatus matches backend values', () => {

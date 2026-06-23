@@ -45,6 +45,17 @@ public interface IDocumentAppService : IApplicationService
     /// </summary>
     Task<DocumentDto> RejectReviewAsync(Guid id, RejectReviewInput input);
 
+    /// <summary>
+    /// Operator resolves a <see cref="DocumentReviewReasons.DuplicateSuspected"/> flag by deciding the document is
+    /// <b>not</b> a duplicate (or is an acceptable re-upload) (#411): sets the durable <c>DuplicateAllowed</c>
+    /// override, clears the blocking duplicate reason, and re-derives lifecycle — which releases the document to Ready
+    /// and emits <see cref="Abstractions.Documents.DocumentReadyEto"/> if no other blocking reason remains. The
+    /// override survives later re-extraction so the document is not re-flagged. The opposite resolution — confirming
+    /// the duplicate — is the existing <see cref="DeleteAsync"/> (soft-delete → <c>DocumentDeletedEto</c> → downstream
+    /// retracts).
+    /// </summary>
+    Task<DocumentDto> AllowDuplicateAsync(Guid id);
+
     Task RetryPipelineAsync(Guid id, RetryPipelineInput input);
 
     /// <summary>

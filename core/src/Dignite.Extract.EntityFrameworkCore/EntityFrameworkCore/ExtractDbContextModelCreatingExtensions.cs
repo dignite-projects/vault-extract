@@ -152,6 +152,17 @@ public static class ExtractDbContextModelCreatingExtensions
             b.HasIndex(x => new { x.OriginDocumentId, x.OriginConstituentKey })
                 .IsUnique()
                 .HasFilter("[OriginDocumentId] IS NOT NULL AND [IsDeleted] = 0");
+
+            // #411: duplicate-detection fingerprint (SHA-256 hex of this type's normalized unique-key field values).
+            // DuplicateAllowed (the operator's "not a duplicate" override) is a plain bool, auto-mapped by convention.
+            b.Property(x => x.FieldFingerprint).HasMaxLength(DocumentConsts.MaxFieldFingerprintLength);
+
+            // Collision lookup (FindDuplicateCandidateIdsAsync): other documents in the same layer + type with the
+            // same fingerprint. (TenantId, DocumentTypeId, FieldFingerprint) matches the query WHERE (the IMultiTenant
+            // filter supplies TenantId; the repository filters DocumentTypeId + FieldFingerprint). The leading
+            // (TenantId, DocumentTypeId) prefix also covers the list-page filter, but the existing dedicated
+            // (TenantId, DocumentTypeId) index above is kept to avoid an index drop on a populated table.
+            b.HasIndex(x => new { x.TenantId, x.DocumentTypeId, x.FieldFingerprint });
         });
 
         builder.Entity<DocumentExtractedField>(b =>

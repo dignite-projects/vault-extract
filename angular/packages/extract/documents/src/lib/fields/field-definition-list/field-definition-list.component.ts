@@ -156,6 +156,8 @@ export class FieldDefinitionListComponent implements OnInit {
     // FieldDefinition.ValidateMultiValue invariant. For non-text fields, applyAllowMultiplePolicy forces
     // false and disables the control; getRawValue still returns false before submit.
     allowMultiple: [false],
+    // #411: whether this field participates in the type's duplicate-detection unique key.
+    isUniqueKey: [false],
   });
 
   // Drives the template: allow checking "multiple values" only when dataType === Text.
@@ -348,6 +350,7 @@ export class FieldDefinitionListComponent implements OnInit {
       displayOrder: nextOrder,
       isRequired: false,
       allowMultiple: false,
+      isUniqueKey: false,
     });
     this.form.controls.name.enable();
     this.applyAllowMultiplePolicy(FieldDataType.Text);
@@ -371,6 +374,7 @@ export class FieldDefinitionListComponent implements OnInit {
       displayOrder: field.displayOrder,
       isRequired: field.isRequired,
       allowMultiple: field.allowMultiple,
+      isUniqueKey: field.isUniqueKey ?? false,
     });
     this.form.controls.name.enable();
     this.applyAllowMultiplePolicy(field.dataType ?? FieldDataType.Text);
@@ -508,6 +512,7 @@ export class FieldDefinitionListComponent implements OnInit {
         // For non-text fields the control is disabled, but getRawValue still carries it back after the
         // policy has set it to false.
         allowMultiple: raw.allowMultiple,
+        isUniqueKey: raw.isUniqueKey,
       };
       this.service.create(input)
         .pipe(takeUntilDestroyed(this.destroyRef))
@@ -524,6 +529,7 @@ export class FieldDefinitionListComponent implements OnInit {
         displayOrder: raw.displayOrder,
         isRequired: raw.isRequired,
         allowMultiple: raw.allowMultiple,
+        isUniqueKey: raw.isUniqueKey,
       })
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({

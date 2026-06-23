@@ -127,6 +127,14 @@
                 {{ '::Document:ConfirmClassification' | abpLocalization }}
               </button>
             }
+            <!-- #411: resolve a suspected duplicate — "Allow" releases it (not a duplicate / acceptable re-upload);
+                 confirming the duplicate is the Delete action in the header toolbar. -->
+            @if (needsDuplicateReview()) {
+              <button type="button" class="btn btn-sm btn-success" (click)="allowDuplicate()" [disabled]="isAllowingDuplicate()">
+                <i class="fas fa-check-double me-1"></i>
+                {{ '::Document:Review:AllowDuplicate' | abpLocalization }}
+              </button>
+            }
             <button type="button" class="btn btn-sm btn-outline-danger" (click)="openRejectDialog()">
               <i class="fas fa-ban me-1"></i>
               {{ '::Document:Review:Reject' | abpLocalization }}
@@ -342,6 +350,16 @@
                         </span>
                         @if (detail.missingFieldNames?.length) {
                           <span class="text-muted ms-1">{{ detail.missingFieldNames!.join('、') }}</span>
+                        }
+                        <!-- #411: suspected-duplicate candidates — open each to compare before allowing / discarding. -->
+                        @if (detail.duplicateCandidateDocumentIds?.length) {
+                          <span class="text-muted ms-1">
+                            {{ '::Document:ReviewReason:DuplicateCandidates' | abpLocalization }}
+                            @for (candidateId of detail.duplicateCandidateDocumentIds; track candidateId; let i = $index) {
+                              <button type="button" class="btn btn-link btn-sm p-0 ms-1 align-baseline"
+                                (click)="openDocument(candidateId)">#{{ i + 1 }}</button>
+                            }
+                          </span>
                         }
                       </div>
                     }

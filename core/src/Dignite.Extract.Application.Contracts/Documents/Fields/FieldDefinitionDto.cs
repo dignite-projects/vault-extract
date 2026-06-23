@@ -18,4 +18,7 @@ public class FieldDefinitionDto : EntityDto<Guid>
 
     /// <summary>Whether multiple values are allowed (#212). When true, only <see cref="FieldDataType.Text"/> field output is rendered as a JSON array.</summary>
     public bool AllowMultiple { get; set; }
+
+    /// <summary>Whether this field is part of the type's duplicate-detection unique key (#411). The normalized values of all unique-key fields are hashed into the document's fingerprint to flag duplicate re-uploads.</summary>
+    public bool IsUniqueKey { get; set; }
 }

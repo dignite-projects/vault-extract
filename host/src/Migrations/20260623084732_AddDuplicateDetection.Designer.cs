@@ -4,6 +4,7 @@ using Dignite.Extract.Host.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Volo.Abp.EntityFrameworkCore;
 
@@ -12,9 +13,11 @@ using Volo.Abp.EntityFrameworkCore;
 namespace Dignite.Extract.Host.Migrations
 {
     [DbContext(typeof(ExtractHostDbContext))]
-    partial class ExtractHostDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260623084732_AddDuplicateDetection")]
+    partial class AddDuplicateDetection
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

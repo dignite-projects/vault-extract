@@ -144,6 +144,8 @@ export class DocumentDetailComponent implements OnInit {
   showRejectDialog = signal(false);
   rejectReason = signal('');
   isRejecting = signal(false);
+  // #411: in-flight guard for the "Allow duplicate" operator action.
+  isAllowingDuplicate = signal(false);
 
   readonly DocumentLifecycleStatus = DocumentLifecycleStatus;
   readonly DocumentReviewDisposition = DocumentReviewDisposition;
@@ -214,6 +216,14 @@ export class DocumentDetailComponent implements OnInit {
   needsClassification = computed(() =>
     this.canEditFields &&
     (((this.document()?.reviewReasons ?? DocumentReviewReasons.None) & DocumentReviewReasons.UnresolvedClassification)
+      !== DocumentReviewReasons.None),
+  );
+
+  // #411: a suspected duplicate AND the operator may act — drives the "Allow" CTA (release as not a duplicate).
+  // The opposite resolution (confirm the duplicate) is the existing Delete action.
+  needsDuplicateReview = computed(() =>
+    this.canEditFields &&
+    (((this.document()?.reviewReasons ?? DocumentReviewReasons.None) & DocumentReviewReasons.DuplicateSuspected)
       !== DocumentReviewReasons.None),
   );
 
@@ -595,6 +605,11 @@ export class DocumentDetailComponent implements OnInit {
     this.router.navigate(['/documents', originDocumentId]);
   }
 
+  // #411: open a suspected-duplicate candidate so the operator can compare it before allowing / discarding.
+  openDocument(documentId: string): void {
+    this.router.navigate(['/documents', documentId]);
+  }
+
   // #354: list the sibling sub-documents (all those derived from the same source, including this one),
   // reusing the list's originDocumentId provenance filter via a deep-link query param.
   viewSiblingDocuments(): void {
@@ -755,6 +770,28 @@ export class DocumentDetailComponent implements OnInit {
       });
   }
 
+  // #411: operator decides a suspected duplicate is not a duplicate (or is an acceptable re-upload). The backend
+  // sets the durable DuplicateAllowed override, clears the blocking reason, and re-derives lifecycle (releasing the
+  // document to Ready + DocumentReadyEto when nothing else blocks). Reload so the badge / banner reflect the change.
+  allowDuplicate(): void {
+    const doc = this.document();
+    if (!doc || this.isAllowingDuplicate()) return;
+    this.isAllowingDuplicate.set(true);
+    this.documentService.allowDuplicate(doc.id!)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.isAllowingDuplicate.set(false);
+          this.toaster.success('::Document:Review:DuplicateAllowed', '::Success');
+          this.loadDocument();
+        },
+        error: () => {
+          this.isAllowingDuplicate.set(false);
+          this.toaster.error('::Document:Review:ActionFailed', '::Error');
+        },
+      });
+  }
+
   getStatusBadgeClass(status: DocumentLifecycleStatus | undefined): string {
     switch (status) {
       case DocumentLifecycleStatus.Uploaded:   return 'badge bg-secondary';
@@ -794,6 +831,8 @@ export class DocumentDetailComponent implements OnInit {
         return '::Document:ReviewReason:MissingRequiredFields';
       case DocumentReviewReasons.SegmentationIncomplete:
         return '::Document:ReviewReason:SegmentationIncomplete';
+      case DocumentReviewReasons.DuplicateSuspected:
+        return '::Document:ReviewReason:DuplicateSuspected';
       default:
         return '::Document:NeedsReview';
     }

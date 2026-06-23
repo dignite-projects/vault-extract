@@ -83,6 +83,12 @@ public class DocumentPipelineRunManagerTests : ExtractDomainTestBase<ExtractDoma
         // Classification
         var classRun = await _manager.StartAsync(doc, ExtractPipelines.Classification);
         await _manager.CompleteClassificationAsync(doc, classRun, CreateContractType(), 0.92);
+        // #411: field-extraction is now a key pipeline, so Ready is withheld until it succeeds too.
+        doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.Processing);
+
+        // Field extraction
+        var fieldRun = await _manager.StartAsync(doc, ExtractPipelines.FieldExtraction);
+        await _manager.CompleteAsync(doc, fieldRun);
 
         doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.Ready);
     }
@@ -102,11 +108,41 @@ public class DocumentPipelineRunManagerTests : ExtractDomainTestBase<ExtractDoma
         await _manager.CompleteAsync(doc, textRun);
         var classRun = await _manager.StartAsync(doc, ExtractPipelines.Classification);
         await _manager.CompleteClassificationAsync(doc, classRun, CreateContractType(), 0.92);
+        // #411: field-extraction must also succeed before Ready (it is a key pipeline now).
+        var fieldRun = await _manager.StartAsync(doc, ExtractPipelines.FieldExtraction);
+        await _manager.CompleteAsync(doc, fieldRun);
 
         // Critical pipelines succeeded, type is confirmed, and no blocking reason exists, so Ready. MRF
         // is non-blocking and remains present.
         doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.Ready);
         doc.ReviewReasons.ShouldBe(DocumentReviewReasons.MissingRequiredFields);
+    }
+
+    // #411: DuplicateSuspected is a blocking reason. Even with all three key pipelines succeeded, a suspected
+    // duplicate withholds Ready so downstream never consumes it; the document waits in the operator review queue.
+    [Fact]
+    public async Task DuplicateSuspected_Blocks_Ready_Even_When_All_KeyPipelines_Succeed()
+    {
+        var doc = CreateDocument();
+
+        var textRun = await _manager.StartAsync(doc, ExtractPipelines.Parse);
+        await _manager.CompleteAsync(doc, textRun);
+        var classRun = await _manager.StartAsync(doc, ExtractPipelines.Classification);
+        await _manager.CompleteClassificationAsync(doc, classRun, CreateContractType(), 0.92);
+
+        // Field extraction succeeds but detects a duplicate fingerprint -> sets the blocking reason.
+        var fieldRun = await _manager.StartAsync(doc, ExtractPipelines.FieldExtraction);
+        doc.SetReviewReason(DocumentReviewReasons.DuplicateSuspected, present: true);
+        await _manager.CompleteAsync(doc, fieldRun);
+
+        doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.Processing);
+
+        // Operator decides it is not a duplicate -> clearing the reason + re-deriving releases it to Ready.
+        doc.AllowDuplicate();
+        doc.DuplicateAllowed.ShouldBeTrue();
+        await _manager.ReDeriveLifecycleAsync(doc);
+
+        doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.Ready);
     }
 
     // #346: a container is a correct outcome with no type. Completing classification as a container marks the

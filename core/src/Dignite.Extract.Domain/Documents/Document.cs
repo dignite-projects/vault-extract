@@ -101,6 +101,30 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// </summary>
     public virtual DocumentParseMetadata? ExtractionMetadata { get; private set; }
 
+    // === Duplicate detection (#411) ===
+
+    /// <summary>
+    /// Content-derived stable key for duplicate re-upload detection (#411): the SHA-256 (lowercase hex) of this
+    /// document type's <b>normalized unique-key field values</b> (the <c>FieldDefinition.IsUniqueKey</c> set). Two
+    /// documents in the same layer + same <see cref="DocumentTypeId"/> sharing this value are likely the same
+    /// business entity (e.g. the same receipt scanned twice). Written by the field extraction stage via
+    /// <see cref="SetFieldFingerprint"/>; <c>null</c> when the type declares no unique-key fields, or when not all of
+    /// them have an extracted value (a partial key is not fingerprinted, to avoid false collisions). Derived from
+    /// <see cref="ExtractedFieldValues"/> and therefore recomputed on every re-extraction; cleared whenever the type
+    /// is retracted or the document becomes a container.
+    /// </summary>
+    public virtual string? FieldFingerprint { get; private set; }
+
+    /// <summary>
+    /// Durable operator override (#411): the operator reviewed a <see cref="DocumentReviewReasons.DuplicateSuspected"/>
+    /// flag and decided this document is <b>not</b> a duplicate (or is an acceptable re-upload). When true, the field
+    /// extraction stage does <b>not</b> re-raise <c>DuplicateSuspected</c> on subsequent re-extractions (#289 bulk /
+    /// manual reclassify), so the operator's decision survives. Reset to false whenever the document is
+    /// (re)classified or its type is retracted — a new type context is a fresh duplicate-review decision. Set by
+    /// <c>AllowDuplicateAsync</c>.
+    /// </summary>
+    public virtual bool DuplicateAllowed { get; private set; }
+
     // === Container marker (#346) ===
 
     /// <summary>
@@ -339,6 +363,34 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         ReviewReasons = present ? (ReviewReasons | reason) : (ReviewReasons & ~reason);
     }
 
+    /// <summary>
+    /// Writes the duplicate-detection fingerprint (#411): the SHA-256 of this type's normalized unique-key field
+    /// values, computed by the field extraction stage after <see cref="SetFields"/>. <c>null</c> / whitespace clears
+    /// it (no unique-key fields configured, or a partial key). Unlike <see cref="SetMarkdown"/> this is <b>not</b>
+    /// write-once: the fingerprint is derived from <see cref="ExtractedFieldValues"/> and must track every
+    /// re-extraction. <c>public</c> because the compute point lives in the Application layer (<c>FieldExtractionService</c>),
+    /// the same cross-assembly reason as <see cref="SetReviewReason"/>.
+    /// </summary>
+    public void SetFieldFingerprint(string? fieldFingerprint)
+    {
+        FieldFingerprint = string.IsNullOrWhiteSpace(fieldFingerprint)
+            ? null
+            : Check.Length(fieldFingerprint, nameof(fieldFingerprint), DocumentConsts.MaxFieldFingerprintLength);
+    }
+
+    /// <summary>
+    /// Records the operator's "not a duplicate / acceptable re-upload" decision (#411): clears the
+    /// <see cref="DocumentReviewReasons.DuplicateSuspected"/> reason and sets <see cref="DuplicateAllowed"/> so a later
+    /// re-extraction does not re-raise it. Lifecycle re-derivation (which may now release the document to Ready) is
+    /// done by the Application caller through <c>DocumentPipelineRunManager</c>. <c>public</c> for the same
+    /// cross-assembly reason as <see cref="SetReviewReason"/>.
+    /// </summary>
+    public void AllowDuplicate()
+    {
+        DuplicateAllowed = true;
+        SetReviewReason(DocumentReviewReasons.DuplicateSuspected, present: false);
+    }
+
         // High-confidence path: classification is decided -> clear UnresolvedClassification and reset disposition to NotReviewed.
     internal void ApplyAutomaticClassificationResult(
         Guid documentTypeId,
@@ -358,6 +410,8 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         var wasContainer = IsContainer;
         SetContainerFlag(false);
         SetReviewReason(DocumentReviewReasons.SegmentationIncomplete, present: false);
+        // #411: a (re)classification is a fresh duplicate-review context; the cascade re-extraction recomputes the fingerprint.
+        ResetDuplicateDetectionState();
         ReviewDisposition = DocumentReviewDisposition.NotReviewed;
         RejectionReason = null; // #284 review-fix: leaving Rejected disposition -> clear stale rejection reason; only Rejected should have one.
         if (wasContainer)
@@ -384,6 +438,8 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         ClassificationConfidence = 0;
         SetReviewReason(DocumentReviewReasons.UnresolvedClassification, present: true);
         SetReviewReason(DocumentReviewReasons.MissingRequiredFields, present: false);
+        // #411: no type -> no fields -> no fingerprint basis; clear duplicate-detection state alongside the fields.
+        ResetDuplicateDetectionState();
         ReviewDisposition = DocumentReviewDisposition.NotReviewed;
         RejectionReason = null; // #284 review-fix: leaving Rejected disposition -> clear stale rejection reason.
         _extractedFieldValues.Clear();
@@ -429,6 +485,8 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         SetReviewReason(DocumentReviewReasons.UnresolvedClassification, present: false);
         SetReviewReason(DocumentReviewReasons.MissingRequiredFields, present: false);
         SetReviewReason(DocumentReviewReasons.SegmentationIncomplete, present: false);
+        // #411: a container holds no single type's fields, so it has no duplicate fingerprint.
+        ResetDuplicateDetectionState();
         ReviewDisposition = DocumentReviewDisposition.NotReviewed;
         RejectionReason = null;
         _extractedFieldValues.Clear();
@@ -481,6 +539,21 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         IsSegmented = false;
     }
 
+    /// <summary>
+    /// Resets duplicate-detection state (#411) on every (re)classification or type retraction. The
+    /// <see cref="FieldFingerprint"/> is derived from one type's unique-key fields, the
+    /// <see cref="DocumentReviewReasons.DuplicateSuspected"/> flag is recomputed by the next extraction, and the
+    /// <see cref="DuplicateAllowed"/> operator override belongs to the prior type context — so all three are stale
+    /// once the type changes. The concrete-type paths then re-extract and recompute the fingerprint; the retraction /
+    /// container paths leave it null because the document holds no type's fields.
+    /// </summary>
+    private void ResetDuplicateDetectionState()
+    {
+        FieldFingerprint = null;
+        DuplicateAllowed = false;
+        SetReviewReason(DocumentReviewReasons.DuplicateSuspected, present: false);
+    }
+
     internal void ConfirmClassification(Guid documentTypeId)
     {
         DocumentTypeId = Check.NotDefaultOrNull<Guid>(documentTypeId, nameof(documentTypeId));
@@ -498,6 +571,8 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         var wasContainer = IsContainer;
         SetContainerFlag(false);
         SetReviewReason(DocumentReviewReasons.SegmentationIncomplete, present: false);
+        // #411: operator (re)confirmed a type; the cascade re-extraction recomputes the fingerprint for the new context.
+        ResetDuplicateDetectionState();
         ReviewDisposition = DocumentReviewDisposition.Confirmed;
         RejectionReason = null; // #284 review-fix: rejection is recoverable; clear stale rejection reason after Reclassify / Confirm.
         if (wasContainer)

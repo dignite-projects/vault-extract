@@ -53,6 +53,17 @@ public class FieldDefinition : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// </summary>
     public virtual bool AllowMultiple { get; private set; }
 
+    /// <summary>
+    /// Whether this field participates in the document type's <b>duplicate-detection unique key</b> (#411). The
+    /// normalized values of all <see cref="IsUniqueKey"/> fields are hashed into
+    /// <see cref="Documents.Document.FieldFingerprint"/> after extraction; two documents in the same layer + type
+    /// sharing that fingerprint are flagged <see cref="DocumentReviewReasons.DuplicateSuspected"/> (a likely
+    /// re-upload of the same business entity, e.g. an invoice number + date + amount). Independent of
+    /// <see cref="IsRequired"/>: a unique-key field that has no extracted value makes the key partial, and a partial
+    /// key is not fingerprinted (no false collisions). Any <see cref="FieldDataType"/> may participate.
+    /// </summary>
+    public virtual bool IsUniqueKey { get; private set; }
+
     protected FieldDefinition() { }
 
     public FieldDefinition(
@@ -65,7 +76,8 @@ public class FieldDefinition : FullAuditedAggregateRoot<Guid>, IMultiTenant
         FieldDataType dataType,
         int displayOrder = 0,
         bool isRequired = false,
-        bool allowMultiple = false)
+        bool allowMultiple = false,
+        bool isUniqueKey = false)
         : base(id)
     {
         TenantId = tenantId;
@@ -77,6 +89,7 @@ public class FieldDefinition : FullAuditedAggregateRoot<Guid>, IMultiTenant
         DisplayOrder = displayOrder;
         IsRequired = isRequired;
         AllowMultiple = ValidateMultiValue(allowMultiple, dataType);
+        IsUniqueKey = isUniqueKey;
     }
 
     /// <summary>
@@ -85,7 +98,7 @@ public class FieldDefinition : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// Narrowing <paramref name="allowMultiple"/> from multi to single is also forbidden when values exist, preventing Order&gt;0 rows from becoming orphans.
     /// Both are asserted by AppService before calling this method.
     /// </summary>
-    public void Update(string name, string displayName, string? prompt, FieldDataType dataType, int displayOrder, bool isRequired, bool allowMultiple)
+    public void Update(string name, string displayName, string? prompt, FieldDataType dataType, int displayOrder, bool isRequired, bool allowMultiple, bool isUniqueKey)
     {
         Name = ValidateName(name);
         DisplayName = ValidateDisplayName(displayName);
@@ -94,6 +107,7 @@ public class FieldDefinition : FullAuditedAggregateRoot<Guid>, IMultiTenant
         DisplayOrder = displayOrder;
         IsRequired = isRequired;
         AllowMultiple = ValidateMultiValue(allowMultiple, dataType);
+        IsUniqueKey = isUniqueKey;
     }
 
     private static string ValidateName(string name)

@@ -118,12 +118,16 @@ public class DocumentReprocessing_Tests : ExtractEntityFrameworkCoreTestBase
         collected.Distinct().Count().ShouldBe(4); // No duplicates.
     }
 
+    // #411: field-extraction became a KEY pipeline so the duplicate check can gate Ready. This reverses the former
+    // lifecycle-neutral property: Ready is withheld until field extraction succeeds, and a re-extraction of an
+    // already-Ready document bounces Ready -> Processing -> Ready (downstream absorbs the re-fired DocumentReadyEto
+    // via EventTime idempotency).
     [Fact]
-    public async Task FieldExtraction_Run_Is_Lifecycle_Neutral_On_Ready_Document()
+    public async Task FieldExtraction_Gates_Ready_And_ReExtraction_Bounces_Lifecycle()
     {
         var documentId = _guidGenerator.Create();
 
-        // Build a Ready document: text-extraction + classification key pipelines both Succeeded, with a type.
+        // text-extraction + classification succeeded (a type assigned), but field extraction has not run yet.
         await WithUnitOfWorkAsync(async () =>
         {
             await EnsureTypeAsync(TypeAId, "type.a");
@@ -139,16 +143,27 @@ public class DocumentReprocessing_Tests : ExtractEntityFrameworkCoreTestBase
             await _documentRepository.UpdateAsync(doc, autoSave: true);
         });
 
-        (await ReloadLifecycleAsync(documentId)).ShouldBe(DocumentLifecycleStatus.Ready);
+        // Ready is withheld until the (now key) field-extraction pipeline succeeds.
+        (await ReloadLifecycleAsync(documentId)).ShouldBe(DocumentLifecycleStatus.Processing);
 
-        // Run a complete field-extraction run: Pending -> Running -> Succeeded, asserting lifecycle remains Ready
-        // throughout.
+        // First field-extraction run completes -> Ready.
         await WithUnitOfWorkAsync(async () =>
         {
             var doc = await _documentRepository.GetAsync(documentId);
             var fe = await _pipelineRunManager.StartAsync(doc, ExtractPipelines.FieldExtraction);
-            // StartAsync has already Queue(Pending) -> Begin(Running), deriving lifecycle at each step.
-            doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.Ready);
+            await _pipelineRunManager.CompleteAsync(doc, fe);
+            await _documentRepository.UpdateAsync(doc, autoSave: true);
+        });
+
+        (await ReloadLifecycleAsync(documentId)).ShouldBe(DocumentLifecycleStatus.Ready);
+
+        // A re-extraction run bounces an already-Ready document Ready -> Processing (while Running) -> Ready.
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var doc = await _documentRepository.GetAsync(documentId);
+            var fe = await _pipelineRunManager.StartAsync(doc, ExtractPipelines.FieldExtraction);
+            // StartAsync ran Queue(Pending) -> Begin(Running); the new run is not yet Succeeded, so Ready is withdrawn.
+            doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.Processing);
             await _pipelineRunManager.CompleteAsync(doc, fe);
             doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.Ready);
             await _documentRepository.UpdateAsync(doc, autoSave: true);

@@ -46,5 +46,16 @@ public enum DocumentReviewReasons
     /// type to gate), so this only routes it into the operator queue so a human can split / reclassify it instead
     /// of it silently producing zero sub-documents. Maintained by the segmentation job.
     /// </summary>
-    SegmentationIncomplete = 1 << 2
+    SegmentationIncomplete = 1 << 2,
+
+    /// <summary>
+    /// Another document in the same layer + document type has the same <see cref="Documents.Document.FieldFingerprint"/>
+    /// (the SHA-256 of this type's normalized unique-key field values, #411) — a likely duplicate re-upload of the
+    /// same business entity (e.g. the same receipt scanned twice). <b>blocking</b>: the document is withheld from
+    /// Ready so downstream never consumes a suspected duplicate, and it enters the operator review queue. The
+    /// operator either releases it (<c>AllowDuplicateAsync</c> — not a duplicate / acceptable re-upload) or discards
+    /// it (<c>DeleteAsync</c> — confirmed duplicate). Maintained by the field extraction stage, which only sets it
+    /// when <see cref="Documents.Document.DuplicateAllowed"/> is false (so an operator override survives re-extraction).
+    /// </summary>
+    DuplicateSuspected = 1 << 3
 }

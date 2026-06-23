@@ -100,6 +100,7 @@ export interface ReviewReasonDetailDto {
   reason?: DocumentReviewReasons;
   isBlocking?: boolean;
   missingFieldNames?: string[] | null;
+  duplicateCandidateDocumentIds?: string[] | null;
 }
 
 export interface UpdateDocumentCabinetInput {

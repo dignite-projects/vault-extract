@@ -215,13 +215,19 @@ public class FieldExtractionService : ITransientDependency
                 }
 
                 // #284: no field definitions implies no required fields, so clear MissingRequiredFields when reclassifying to a type without fields.
+                // #411: a type with no fields has no unique key, so there is no fingerprint and no duplicate basis — clear both too.
                 var hadFields = blankDocument.ExtractedFieldValues.Count > 0;
                 var hadMissingRequired =
                     (blankDocument.ReviewReasons & DocumentReviewReasons.MissingRequiredFields) != DocumentReviewReasons.None;
-                if (hadFields || hadMissingRequired)
+                var hadFingerprint = blankDocument.FieldFingerprint != null;
+                var hadDuplicateSuspected =
+                    (blankDocument.ReviewReasons & DocumentReviewReasons.DuplicateSuspected) != DocumentReviewReasons.None;
+                if (hadFields || hadMissingRequired || hadFingerprint || hadDuplicateSuspected)
                 {
                     blankDocument.SetFields(Array.Empty<DocumentFieldValue>());
                     blankDocument.SetReviewReason(DocumentReviewReasons.MissingRequiredFields, present: false);
+                    blankDocument.SetFieldFingerprint(null);
+                    blankDocument.SetReviewReason(DocumentReviewReasons.DuplicateSuspected, present: false);
                     await _documentRepository.UpdateAsync(blankDocument, autoSave: true);
                 }
 
@@ -338,6 +344,31 @@ public class FieldExtractionService : ITransientDependency
             document.SetReviewReason(
                 DocumentReviewReasons.MissingRequiredFields,
                 _reviewEvaluator.MissingRequiredFieldsPresent(requiredIds, extractedIds));
+
+            // #411: compute the duplicate fingerprint from this type's unique-key fields, then flag a suspected
+            // duplicate re-upload. The fingerprint is derived from the just-written field values; a collision with
+            // another document in the same layer + type sets the blocking DuplicateSuspected reason. Because
+            // field-extraction is a key pipeline (#411), the run's Ready derivation in DocumentFieldExtractionBackgroundJob
+            // then withholds DocumentReadyEto until an operator resolves it. DuplicateAllowed (the operator's prior
+            // "not a duplicate" override) suppresses re-flagging on re-extraction. The collision query relies on the
+            // ambient IMultiTenant + ISoftDelete filters (tenant restored via ICurrentTenant.Change above) and is
+            // hard-capped, so it never returns a cross-layer or unbounded set.
+            var fingerprint = FieldFingerprintCalculator.Compute(document.ExtractedFieldValues, currentDefinitions);
+            document.SetFieldFingerprint(fingerprint);
+
+            var duplicateSuspected = false;
+            if (fingerprint != null && !document.DuplicateAllowed)
+            {
+                var candidateIds = await _documentRepository.FindDuplicateCandidateIdsAsync(
+                    document.Id,
+                    documentTypeId,
+                    fingerprint,
+                    DocumentConsts.MaxDuplicateCandidates,
+                    _cancellationTokenProvider.Token);
+                duplicateSuspected = candidateIds.Count > 0;
+            }
+
+            document.SetReviewReason(DocumentReviewReasons.DuplicateSuspected, duplicateSuspected);
 
             // FieldsExtractedEto.FieldCount is the logical field count (distinct fields with values), not the expanded row count.
             var fieldCount = fieldValues.Select(v => v.FieldDefinitionId).Distinct().Count();

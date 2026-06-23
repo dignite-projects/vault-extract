@@ -10,6 +10,7 @@ export interface CreateFieldDefinitionDto {
   displayOrder?: number;
   isRequired?: boolean;
   allowMultiple?: boolean;
+  isUniqueKey?: boolean;
 }
 
 export interface DraftFieldDefinitionInput {
@@ -35,6 +36,7 @@ export interface FieldDefinitionDto extends EntityDto<string> {
   displayOrder?: number;
   isRequired?: boolean;
   allowMultiple?: boolean;
+  isUniqueKey?: boolean;
 }
 
 export interface GetFieldDefinitionListInput {
@@ -50,4 +52,5 @@ export interface UpdateFieldDefinitionDto {
   displayOrder?: number;
   isRequired?: boolean;
   allowMultiple?: boolean;
+  isUniqueKey?: boolean;
 }

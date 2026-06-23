@@ -232,6 +232,14 @@
                   </label>
                 </div>
                 <div class="form-text">{{ '::FieldDefinition:AllowMultipleHint' | abpLocalization }}</div>
+                <!-- #411: unique-key fields form the duplicate-detection fingerprint. -->
+                <div class="form-check mt-2">
+                  <input type="checkbox" class="form-check-input" id="isUniqueKey" formControlName="isUniqueKey" />
+                  <label class="form-check-label" for="isUniqueKey">
+                    {{ '::FieldDefinition:IsUniqueKey' | abpLocalization }}
+                  </label>
+                </div>
+                <div class="form-text">{{ '::FieldDefinition:IsUniqueKeyHint' | abpLocalization }}</div>
               </div>
             </div>
           </div>

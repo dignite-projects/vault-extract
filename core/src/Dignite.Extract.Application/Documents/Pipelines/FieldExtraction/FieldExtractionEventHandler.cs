@@ -1,39 +1,36 @@
 using System.Threading.Tasks;
 using Dignite.Extract.Abstractions.Documents;
+using Volo.Abp.BackgroundJobs;
 using Volo.Abp.DependencyInjection;
 using Volo.Abp.EventBus.Distributed;
-using Volo.Abp.Uow;
 
 namespace Dignite.Extract.Documents.Pipelines.FieldExtraction;
 
 /// <summary>
 /// Unified field extraction EventHandler (field architecture v2). Subscribes to
 /// <see cref="DocumentClassifiedEto"/> and cascades field extraction after classification completes.
-/// Since #289 step 1, the core extraction action (read field definitions -> LLM -> guardrails ->
-/// <c>SetFields</c> -> publish <see cref="FieldsExtractedEto"/>) lives in reusable
-/// <see cref="FieldExtractionService"/>. This handler only adapts the event layer: early-return for
-/// empty TypeCode and translate event payload into engine input, including stale reclassification
-/// event early-return optimization.
 /// <para>
-/// Cross-tenant guard, in-flight reclassification race guard, and three-stage short-UoW discipline
-/// are all centralized in the engine (CLAUDE.md "Security Covenant" +
-/// <c>.claude/rules/background-jobs.md</c>). The handler keeps
-/// <c>[UnitOfWork(IsDisabled = true)]</c> to disable ambient UoW, letting each engine stage create its
-/// own <c>requiresNew</c> short UoW and ensuring external LLM calls are never wrapped in a long
-/// transaction.
+/// Since #411 the cascade <b>enqueues <see cref="DocumentFieldExtractionBackgroundJob"/></b> rather than calling
+/// <see cref="FieldExtractionService"/> inline. The reason is the Ready gate: <c>field-extraction</c> became a key
+/// pipeline (so the duplicate check can withhold <c>DocumentReadyEto</c>), which means the cascade path must also
+/// create a <c>DocumentPipelineRun</c> for field extraction — and the run-managed three-stage job
+/// (BeginRun → external LLM extraction → CompleteRun → DeriveLifecycle) is exactly where that run is created and
+/// where Ready is re-derived once extraction succeeds. Routing through the job unifies the cascade and the
+/// on-demand / bulk (#289) trigger on one execution path. The stale-reclassify-event hint (the event's TypeCode)
+/// is forwarded via <see cref="DocumentFieldExtractionJobArgs.ExpectedEventTypeCode"/> so the engine keeps its
+/// early-exit optimization.
 /// </para>
 /// </summary>
 public class FieldExtractionEventHandler
     : IDistributedEventHandler<DocumentClassifiedEto>, ITransientDependency
 {
-    private readonly FieldExtractionService _fieldExtractionService;
+    private readonly IBackgroundJobManager _backgroundJobManager;
 
-    public FieldExtractionEventHandler(FieldExtractionService fieldExtractionService)
+    public FieldExtractionEventHandler(IBackgroundJobManager backgroundJobManager)
     {
-        _fieldExtractionService = fieldExtractionService;
+        _backgroundJobManager = backgroundJobManager;
     }
 
-    [UnitOfWork(IsDisabled = true)]
     public virtual async Task HandleEventAsync(DocumentClassifiedEto eventData)
     {
         if (string.IsNullOrWhiteSpace(eventData.DocumentTypeCode))
@@ -41,11 +38,14 @@ public class FieldExtractionEventHandler
             return;
         }
 
-        // Pass the event TypeCode as a stale reclassification early-return hint. The engine extracts
-        // by the Document's current DocumentTypeId (#207).
-        await _fieldExtractionService.ExtractAsync(
-            eventData.DocumentId,
-            eventData.TenantId,
-            expectedEventTypeCode: eventData.DocumentTypeCode);
+        // Enqueued in the ambient event-handler UoW so the job persists transactionally with event consumption.
+        // The engine extracts by the Document's current DocumentTypeId (#207); ExpectedEventTypeCode is only the
+        // stale-reclassify-event early-exit hint.
+        await _backgroundJobManager.EnqueueAsync(
+            new DocumentFieldExtractionJobArgs
+            {
+                DocumentId = eventData.DocumentId,
+                ExpectedEventTypeCode = eventData.DocumentTypeCode
+            });
     }
 }

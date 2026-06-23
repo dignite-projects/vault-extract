@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Dignite.Extract.Documents;
@@ -8,7 +9,8 @@ namespace Dignite.Extract.Documents;
 /// <c>ReviewReasonPolicy</c>, so clients do not re-decide which reasons are blocking.
 /// <see cref="MissingFieldNames"/> is populated only for
 /// <see cref="DocumentReviewReasons.MissingRequiredFields"/> and contains display names of missing
-/// required fields.
+/// required fields. <see cref="DuplicateCandidateDocumentIds"/> is populated only for
+/// <see cref="DocumentReviewReasons.DuplicateSuspected"/> (#411).
 /// </summary>
 public class ReviewReasonDetailDto
 {
@@ -20,4 +22,11 @@ public class ReviewReasonDetailDto
 
     /// <summary>Display names of missing required fields, non-empty only for MissingRequiredFields.</summary>
     public List<string>? MissingFieldNames { get; set; }
+
+    /// <summary>
+    /// Ids of other documents suspected to be the same business entity (same layer + type + field fingerprint),
+    /// non-empty only for <see cref="DocumentReviewReasons.DuplicateSuspected"/> (#411). The operator follows these to
+    /// compare candidates side by side before allowing or discarding. Recomputed on read and hard-capped.
+    /// </summary>
+    public List<Guid>? DuplicateCandidateDocumentIds { get; set; }
 }

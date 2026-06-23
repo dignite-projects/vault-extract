@@ -84,7 +84,7 @@ public class FieldDefinitionTests
     {
         var def = CreateDefinition("amount", "Amount");
         Should.Throw<BusinessException>(() =>
-                def.Update("amount", "Bad\nName", "Extract", FieldDataType.Text, 0, false, false))
+                def.Update("amount", "Bad\nName", "Extract", FieldDataType.Text, 0, false, false, false))
             .Code.ShouldBe(ExtractErrorCodes.FieldDefinition.InvalidDisplayName);
     }
 
@@ -96,7 +96,7 @@ public class FieldDefinitionTests
         var def = CreateDefinition("amt", "Amount");
         def.Name.ShouldBe("amt");
 
-        def.Update("total_amount", "Amount", "Extract", FieldDataType.Text, 0, false, false);
+        def.Update("total_amount", "Amount", "Extract", FieldDataType.Text, 0, false, false, false);
 
         def.Name.ShouldBe("total_amount");
     }
@@ -107,7 +107,7 @@ public class FieldDefinitionTests
         // Unlocking rename does not skip the regex allowlist; invalid Name is still rejected.
         var def = CreateDefinition("amount", "Amount");
         Should.Throw<BusinessException>(() =>
-                def.Update("bad name", "Amount", "Extract", FieldDataType.Text, 0, false, false))
+                def.Update("bad name", "Amount", "Extract", FieldDataType.Text, 0, false, false, false))
             .Code.ShouldBe(ExtractErrorCodes.FieldDefinition.InvalidName);
     }
 
@@ -195,7 +195,7 @@ public class FieldDefinitionTests
     {
         var def = CreateDefinition("amount", "Amount");
         Should.Throw<BusinessException>(() =>
-                def.Update("amount", "Amount", "Extract", FieldDataType.Number, 0, false, allowMultiple: true))
+                def.Update("amount", "Amount", "Extract", FieldDataType.Number, 0, false, allowMultiple: true, isUniqueKey: false))
             .Code.ShouldBe(ExtractErrorCodes.FieldDefinition.MultiValueRequiresStringType);
     }
 

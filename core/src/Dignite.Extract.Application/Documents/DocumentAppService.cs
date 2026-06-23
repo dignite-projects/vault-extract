@@ -532,7 +532,7 @@ public class DocumentAppService : ExtractAppService, IDocumentAppService
     /// <summary>
     /// "Field re-extraction only" (#289 scenario 2, single-document version): reruns only the <c>field-extraction</c> pipeline on the existing classification,
     /// without reclassification or OCR. Reuses the same background job and shared extraction engine as bulk field re-extraction.
-    /// <c>field-extraction</c> is lifecycle-neutral (not in KeyPipelines), so a Ready document remains Ready after re-extraction and is not moved back to Processing.
+    /// #411: <c>field-extraction</c> is now a key pipeline, so re-extracting an already-Ready document bounces it Ready -&gt; Processing -&gt; Ready (re-firing DocumentReadyEto, absorbed downstream via EventTime), and a newly-detected duplicate parks it in the review queue instead of returning to Ready.
     /// </summary>
     [Authorize(ExtractPermissions.Documents.ConfirmClassification)]
     public virtual async Task ReextractFieldsAsync(Guid id)
@@ -673,6 +673,23 @@ public class DocumentAppService : ExtractAppService, IDocumentAppService
     {
         var document = await _documentRepository.GetAsync(id, includeDetails: true);
         document.RejectReview(input.Reason);
+        await _documentRepository.UpdateAsync(document, autoSave: true);
+        return await MapToDtoAsync(document);
+    }
+
+    /// <summary>
+    /// #411: operator decides a suspected duplicate is acceptable. Sets the durable <c>DuplicateAllowed</c> override
+    /// and clears the blocking <see cref="DocumentReviewReasons.DuplicateSuspected"/> reason, then re-derives lifecycle
+    /// so the document is released to Ready (emitting <c>DocumentReadyEto</c>) when no other blocking reason remains.
+    /// Reuses the review-resolution permission (same as Confirm / Reclassify / Reject). The opposite resolution —
+    /// confirming the duplicate — is the existing <see cref="DeleteAsync"/>.
+    /// </summary>
+    [Authorize(ExtractPermissions.Documents.ConfirmClassification)]
+    public virtual async Task<DocumentDto> AllowDuplicateAsync(Guid id)
+    {
+        var document = await _documentRepository.GetAsync(id, includeDetails: true);
+        document.AllowDuplicate();
+        await _pipelineRunManager.ReDeriveLifecycleAsync(document);
         await _documentRepository.UpdateAsync(document, autoSave: true);
         return await MapToDtoAsync(document);
     }
@@ -879,6 +896,20 @@ public class DocumentAppService : ExtractAppService, IDocumentAppService
             });
         }
 
+        // #411: a suspected duplicate. Recompute the candidate document Ids on read (no separate storage) so the
+        // operator can open them side by side before allowing or discarding. If the fingerprint no longer collides
+        // (the colliding document was deleted in the meantime), the candidate list is empty but the reason — owned by
+        // the field extraction stage — is still shown; the operator can Allow to release it.
+        if ((document.ReviewReasons & DocumentReviewReasons.DuplicateSuspected) != DocumentReviewReasons.None)
+        {
+            details.Add(new ReviewReasonDetailDto
+            {
+                Reason = DocumentReviewReasons.DuplicateSuspected,
+                IsBlocking = ReviewReasonPolicy.IsBlocking(DocumentReviewReasons.DuplicateSuspected),
+                DuplicateCandidateDocumentIds = await BuildDuplicateCandidateIdsAsync(document)
+            });
+        }
+
         // If all reason-bit details were skipped (for example MRF is the only reason but field names are temporarily empty),
         // return null rather than an empty array. This keeps "no details" semantics consistent with frontend reviewReasonDetails?.length checks.
         // RequiresReview is still determined independently by the upstream predicate.
@@ -910,6 +941,27 @@ public class DocumentAppService : ExtractAppService, IDocumentAppService
             .Where(d => d.IsRequired && !extractedIds.Contains(d.Id))
             .Select(d => d.DisplayName)
             .ToList();
+    }
+
+    /// <summary>
+    /// #411: recomputes the duplicate-candidate document Ids for the detail page — other documents in the same layer +
+    /// type sharing this document's <see cref="Document.FieldFingerprint"/>. Computed on read (no separate storage),
+    /// hard-capped by <see cref="DocumentConsts.MaxDuplicateCandidates"/>, and tenant-/soft-delete-isolated by the
+    /// repository's ambient global filters. Returns empty when there is no fingerprint (defensive: a set
+    /// DuplicateSuspected reason normally implies one).
+    /// </summary>
+    protected virtual async Task<List<Guid>> BuildDuplicateCandidateIdsAsync(Document document)
+    {
+        if (document.FieldFingerprint == null || !document.DocumentTypeId.HasValue)
+        {
+            return new List<Guid>();
+        }
+
+        return await _documentRepository.FindDuplicateCandidateIdsAsync(
+            document.Id,
+            document.DocumentTypeId.Value,
+            document.FieldFingerprint,
+            DocumentConsts.MaxDuplicateCandidates);
     }
 
     /// <summary>
