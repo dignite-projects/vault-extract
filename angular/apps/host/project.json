@@ -25,6 +25,11 @@
           "apps/host/src/favicon.ico",
           "apps/host/src/assets",
           {
+            "glob": "**/*",
+            "input": "apps/host/src/favicon",
+            "output": "favicon"
+          },
+          {
             "glob": "web.config",
             "input": "apps/host",
             "output": "."
