@@ -1,15 +1,16 @@
-# Release workflow (standby): 0.1.0 is not tagged yet; this workflow is in place but
-# will not trigger until a matching tag is pushed or it is run manually.
-# Triggers: push a v* tag (for example v0.1.0) or use workflow_dispatch. Manual runs
-# only build / pack / upload artifacts and do not create a GitHub Release.
+# Release workflow. The version is read from <Version> in common.props (the single source of
+# truth); a pushed v* tag must match it (guard step below), but tags do not drive the number.
 #
-# Note: NuGet package versions come from <Version> in common.props. Tags do not drive
-# the version number; a guard step fails the run when the pushed tag does not match
-# common.props, or the npm package version falls out of lockstep.
+# Routing by channel, derived from the SemVer pre-release suffix in <Version>:
+#   - Pre-release (e.g. 0.2.0-preview.3) -> NuGet packages pushed to GitHub Packages only.
+#   - Stable      (e.g. 0.2.0)           -> NuGet to NuGet.org, npm (@dignite/extract) to npmjs.
 #
-# npm package (@dignite/extract) is published automatically via NPM_TOKEN secret.
-# The version lives in angular/packages/extract/package.json and must stay in
-# lockstep with common.props <Version> (enforced by the guard step above).
+# Triggers: push a v* tag (e.g. v0.2.0 or v0.2.0-preview.3) or use workflow_dispatch. For churny
+# pre-release builds prefer workflow_dispatch: no tag, no draft Release, no lockstep check - just
+# bump <Version> in common.props, run, and the packages land in GitHub Packages.
+#
+# The npm version in angular/packages/extract/package.json must stay in lockstep with common.props
+# <Version> (enforced by the guard step on tag pushes).
 
 name: Release
 
@@ -25,6 +26,7 @@ jobs:
 
     permissions:
       contents: write # Required by softprops/action-gh-release to create a draft Release
+      packages: write # Required to push pre-release NuGet packages to GitHub Packages
 
     steps:
       - name: Checkout
@@ -46,6 +48,22 @@ jobs:
           if [ "$NPM_VERSION" != "$VERSION" ]; then
             echo "::error::npm version $NPM_VERSION (angular/packages/extract/package.json) is not in lockstep with common.props $VERSION."
             exit 1
+          fi
+
+      # Derive the release channel from the SemVer pre-release suffix in common.props <Version>:
+      # a hyphen (0.2.0-preview.3) routes packages to GitHub Packages only; a clean version
+      # (0.2.0) is a stable release that goes to NuGet.org / npmjs. Runs on every trigger.
+      - name: Determine release channel
+        id: channel
+        run: |
+          VERSION=$(sed -n 's/.*<Version>\(.*\)<\/Version>.*/\1/p' common.props | head -n1)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$VERSION" == *-* ]]; then
+            echo "channel=preview" >> "$GITHUB_OUTPUT"
+            echo "::notice::Version $VERSION is a pre-release -> GitHub Packages only."
+          else
+            echo "channel=stable" >> "$GITHUB_OUTPUT"
+            echo "::notice::Version $VERSION is stable -> NuGet.org / npmjs."
           fi
 
       - name: Setup .NET
@@ -92,14 +110,26 @@ jobs:
           path: artifacts/*.nupkg
           if-no-files-found: error
 
-      # Secrets cannot be referenced directly in if: expressions. Inject through env and check in
-      # the shell; skip the push when not configured.
-      - name: Push to NuGet.org
+      # Pre-release builds go to GitHub Packages only (private to the org, authenticated with the
+      # workflow's built-in GITHUB_TOKEN). The package's <RepositoryUrl> in common.props links it
+      # to dignite-projects/dignite-extract, which GitHub Packages requires for the push.
+      - name: Push to GitHub Packages (pre-release)
+        if: steps.channel.outputs.channel == 'preview'
+        run: |
+          dotnet nuget push ./artifacts/*.nupkg \
+            --api-key "${{ secrets.GITHUB_TOKEN }}" \
+            --source https://nuget.pkg.github.com/dignite-projects/index.json \
+            --skip-duplicate
+
+      # Stable builds go to the public NuGet.org. Secrets cannot be referenced directly in if:
+      # expressions, so inject through env and check in the shell; skip the push when not configured.
+      - name: Push to NuGet.org (stable)
+        if: steps.channel.outputs.channel == 'stable'
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
           if [ -z "$NUGET_API_KEY" ]; then
-            echo "::notice::NUGET_API_KEY secret is not configured; skipping NuGet push (packages were uploaded as workflow artifacts)."
+            echo "::notice::NUGET_API_KEY secret is not configured; skipping NuGet.org push (packages were uploaded as workflow artifacts)."
             exit 0
           fi
           dotnet nuget push ./artifacts/*.nupkg \
@@ -121,7 +151,12 @@ jobs:
         run: npx nx build extract --configuration production
         working-directory: angular
 
-      - name: Publish to npm
+      # npm publishes to npmjs only on stable builds. Pre-release UI builds are still compiled
+      # above (validation) but not published anywhere: GitHub Packages npm would force the scope to
+      # @dignite-projects/* (it must match the repo owner), colliding with the public @dignite/*
+      # brand. A vertical that needs a pre-release UI lib consumes it as a pinned `npm pack` tarball.
+      - name: Publish to npm (stable)
+        if: steps.channel.outputs.channel == 'stable'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
@@ -154,5 +189,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           draft: true
+          prerelease: ${{ steps.channel.outputs.channel == 'preview' }}
           body_path: release-notes.md
           files: artifacts/*.nupkg
