@@ -12,7 +12,7 @@ Dignite Extract Host (ASP.NET Core)
   └─► OCR provider — Vision LLM (default, via IChatClient) / PaddleOCR sidecar / Azure Document Intelligence — text extraction
                                                                                                     
                   ↓ exports                                                                         
-   REST API / MCP server / DistributedEventBus / Webhook — downstream consumers (RAG / business systems)
+   REST API / MCP server / DistributedEventBus / Webhook (planned) — downstream consumers (RAG / business systems)
 ```
 
 All Dignite Extract state lives in the single SQL Server database. Markdown + event payloads flow out to downstream consumers; downstream consumers are responsible for their own storage (vector DB / business aggregates / search index).

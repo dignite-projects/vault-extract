@@ -11,7 +11,7 @@ An ABP framework project. Most rules under `.claude/rules/` carry a `paths:` glo
 Content requiring IDP: scans / photos / PDF images / Office files / digital-born documents
     ↓
 [Dignite Extract channel]: OCR + Markdown + common metadata + optional custom field extraction
-    ↓ (REST / EventBus / MCP server / Webhook)
+    ↓ (REST / EventBus / MCP server / Webhook — planned)
     ├─→ Downstream RAG platform (RAG Q&A)
     ├─→ Finance / CLM / HR / ERP and other business systems
     ├─→ Claude Desktop / Cursor / any MCP client
@@ -74,7 +74,7 @@ Fields are organized into two kinds: **system common fields** (auto-produced by 
 
 ## Egress contracts
 
-Four egress channels: **REST API** (HTTP, generic programmatic access) / **MCP server** (Claude Desktop / Cursor / any MCP client) / **EventBus** (ABP DistributedEventBus, business systems / custom consumers) / **Webhook** (legacy systems).
+Three live egress channels: **REST API** (HTTP, generic programmatic access) / **MCP server** (Claude Desktop / Cursor / any MCP client) / **EventBus** (ABP DistributedEventBus, business systems / custom consumers); plus **Webhook** (legacy systems) — **planned, not yet implemented**.
 
 **Multi-stage events** (thin payloads — ID + key metadata, downstream pulls details back): `DocumentUploadedEto` → `OCRCompletedEto` → `DocumentClassifiedEto` → `FieldsExtractedEto` → `DocumentReadyEto`; plus lifecycle events `DocumentDeletedEto` / `DocumentRestoredEto` / `DocumentPermanentlyDeletedEto` (orthogonal to the pipeline).
 

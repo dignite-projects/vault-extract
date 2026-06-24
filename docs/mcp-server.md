@@ -1,6 +1,6 @@
 # MCP Server
 
-Dignite Extract exposes an **MCP (Model Context Protocol) server** as one of its channel exits, alongside REST, EventBus, and Webhook. It lets AI clients (Claude Desktop, Cursor, any MCP client) read Dignite Extract documents and search them — without writing custom integration code.
+Dignite Extract exposes an **MCP (Model Context Protocol) server** as one of its channel exits, alongside REST and EventBus (with Webhook planned). It lets AI clients (Claude Desktop, Cursor, any MCP client) read Dignite Extract documents and search them — without writing custom integration code.
 
 > **Dignite Extract is a channel layer.** The MCP server exposes documents as resources plus a structured **search tool** (metadata + extracted-field values, anchored to a document type). It does **not** do keyword/full-text or semantic / vector retrieval (those belong to a downstream RAG consumer — see CLAUDE.md "OUT of scope"). It is an MCP **server** only; Dignite Extract never acts as an MCP client.
 

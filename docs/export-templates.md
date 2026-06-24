@@ -1,6 +1,6 @@
 # Export Templates
 
-Export templates are Dignite Extract's **file-based egress** — the "last mile" to downstream systems that have no API and can only ingest files (Yayoi, freee, mid-market Yonyou, and similar accounting packages that import CSV). They sit alongside the four programmatic egresses (REST / MCP / EventBus / Webhook) but serve a different audience: a human who downloads a file and imports it into another system.
+Export templates are Dignite Extract's **file-based egress** — the "last mile" to downstream systems that have no API and can only ingest files (Yayoi, freee, mid-market Yonyou, and similar accounting packages that import CSV). They sit alongside the programmatic egresses (REST / MCP / EventBus, with Webhook planned) but serve a different audience: a human who downloads a file and imports it into another system.
 
 A template is **per-tenant configuration** following the same two-layer model as `DocumentType` and `FieldDefinition`. Dignite Extract ships **no built-in templates** — there is no industry vertical schema baked in. The export engine only does **field projection → rename → ordering → serialization**, with **zero business transformation** (no tax calculation, no account-code mapping, no currency conversion). Business formats are something tenants *compose* out of a template; Dignite Extract enables them rather than doing them.
 
