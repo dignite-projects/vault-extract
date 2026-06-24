@@ -179,3 +179,14 @@ public partial class DocumentStatisticsToDtoMapper : MapperBase<DocumentStatisti
     public override partial DocumentStatisticsDto Map(DocumentStatisticsModel source);
     public override partial void Map(DocumentStatisticsModel source, DocumentStatisticsDto destination);
 }
+
+/// <summary>
+/// DuplicateCandidateModel -> DuplicateCandidateDto (#411). A flat scalar projection (Id / Title / FileName /
+/// CreationTime); all property names match 1:1 so Mapperly maps them directly with no lookup.
+/// </summary>
+[Mapper(RequiredMappingStrategy = RequiredMappingStrategy.Target)]
+public partial class DuplicateCandidateToDtoMapper : MapperBase<DuplicateCandidateModel, DuplicateCandidateDto>
+{
+    public override partial DuplicateCandidateDto Map(DuplicateCandidateModel source);
+    public override partial void Map(DuplicateCandidateModel source, DuplicateCandidateDto destination);
+}

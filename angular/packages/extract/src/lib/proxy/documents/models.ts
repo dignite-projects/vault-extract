@@ -66,6 +66,13 @@ export interface DocumentStatisticsDto {
   totalStorageBytes?: number;
 }
 
+export interface DuplicateCandidateDto {
+  id?: string;
+  title?: string | null;
+  fileName?: string | null;
+  creationTime?: string;
+}
+
 export interface FileOriginDto {
   uploadedByUserName?: string;
   originalFileName?: string | null;
@@ -100,7 +107,7 @@ export interface ReviewReasonDetailDto {
   reason?: DocumentReviewReasons;
   isBlocking?: boolean;
   missingFieldNames?: string[] | null;
-  duplicateCandidateDocumentIds?: string[] | null;
+  duplicateCandidates?: DuplicateCandidateDto[] | null;
 }
 
 export interface UpdateDocumentCabinetInput {

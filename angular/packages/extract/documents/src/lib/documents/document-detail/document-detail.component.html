@@ -352,14 +352,19 @@
                           <span class="text-muted ms-1">{{ detail.missingFieldNames!.join('、') }}</span>
                         }
                         <!-- #411: suspected-duplicate candidates — open each to compare before allowing / discarding. -->
-                        @if (detail.duplicateCandidateDocumentIds?.length) {
-                          <span class="text-muted ms-1">
+                        @if (detail.duplicateCandidates?.length) {
+                          <div class="text-muted ms-1 mt-1">
                             {{ '::Document:ReviewReason:DuplicateCandidates' | abpLocalization }}
-                            @for (candidateId of detail.duplicateCandidateDocumentIds; track candidateId; let i = $index) {
-                              <button type="button" class="btn btn-link btn-sm p-0 ms-1 align-baseline"
-                                (click)="openDocument(candidateId)">#{{ i + 1 }}</button>
+                            @for (candidate of detail.duplicateCandidates; track candidate.id) {
+                              <button type="button" class="btn btn-link btn-sm p-0 ms-2 align-baseline text-start"
+                                (click)="openDocument(candidate.id!)">
+                                {{ candidate.title || candidate.fileName || candidate.id }}
+                                @if (candidate.creationTime) {
+                                  <span class="text-muted">· {{ candidate.creationTime | date:'yyyy-MM-dd' }}</span>
+                                }
+                              </button>
                             }
-                          </span>
+                          </div>
                         }
                       </div>
                     }

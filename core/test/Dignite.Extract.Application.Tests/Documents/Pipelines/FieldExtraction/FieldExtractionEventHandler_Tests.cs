@@ -376,9 +376,9 @@ public class FieldExtractionEventHandler_Tests
         _workflow.ExtractAsync(Arg.Any<IReadOnlyList<FieldExtractionDescriptor>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new Dictionary<string, JsonElement?> { ["receipt_no"] = JsonDocument.Parse("\"R-001\"").RootElement });
         // A colliding document exists in the same layer + type.
-        _documentRepository.FindDuplicateCandidateIdsAsync(
+        _documentRepository.FindDuplicateCandidatesAsync(
                 doc.Id, TypeId("receipt.general"), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(new List<Guid> { Guid.NewGuid() });
+            .Returns(new List<DuplicateCandidateModel> { new() { Id = Guid.NewGuid(), Title = "Existing receipt" } });
 
         await Extract(doc.Id, null, "receipt.general");
 
@@ -397,9 +397,9 @@ public class FieldExtractionEventHandler_Tests
             .Returns(new List<FieldDefinition> { CreateFieldDefinition("receipt.general", "receipt_no", FieldDataType.Text, isUniqueKey: true) });
         _workflow.ExtractAsync(Arg.Any<IReadOnlyList<FieldExtractionDescriptor>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new Dictionary<string, JsonElement?> { ["receipt_no"] = JsonDocument.Parse("\"R-001\"").RootElement });
-        _documentRepository.FindDuplicateCandidateIdsAsync(
+        _documentRepository.FindDuplicateCandidatesAsync(
                 doc.Id, TypeId("receipt.general"), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(new List<Guid>());
+            .Returns(new List<DuplicateCandidateModel>());
 
         await Extract(doc.Id, null, "receipt.general");
 
@@ -424,7 +424,7 @@ public class FieldExtractionEventHandler_Tests
 
         (doc.ReviewReasons & DocumentReviewReasons.DuplicateSuspected).ShouldBe(DocumentReviewReasons.None);
         // The override short-circuits the collision query entirely.
-        await _documentRepository.DidNotReceive().FindDuplicateCandidateIdsAsync(
+        await _documentRepository.DidNotReceive().FindDuplicateCandidatesAsync(
             Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
@@ -453,7 +453,7 @@ public class FieldExtractionEventHandler_Tests
 
         doc.FieldFingerprint.ShouldBeNull();
         (doc.ReviewReasons & DocumentReviewReasons.DuplicateSuspected).ShouldBe(DocumentReviewReasons.None);
-        await _documentRepository.DidNotReceive().FindDuplicateCandidateIdsAsync(
+        await _documentRepository.DidNotReceive().FindDuplicateCandidatesAsync(
             Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 

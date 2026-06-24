@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 
 namespace Dignite.Extract.Documents;
@@ -9,7 +8,7 @@ namespace Dignite.Extract.Documents;
 /// <c>ReviewReasonPolicy</c>, so clients do not re-decide which reasons are blocking.
 /// <see cref="MissingFieldNames"/> is populated only for
 /// <see cref="DocumentReviewReasons.MissingRequiredFields"/> and contains display names of missing
-/// required fields. <see cref="DuplicateCandidateDocumentIds"/> is populated only for
+/// required fields. <see cref="DuplicateCandidates"/> is populated only for
 /// <see cref="DocumentReviewReasons.DuplicateSuspected"/> (#411).
 /// </summary>
 public class ReviewReasonDetailDto
@@ -24,9 +23,10 @@ public class ReviewReasonDetailDto
     public List<string>? MissingFieldNames { get; set; }
 
     /// <summary>
-    /// Ids of other documents suspected to be the same business entity (same layer + type + field fingerprint),
-    /// non-empty only for <see cref="DocumentReviewReasons.DuplicateSuspected"/> (#411). The operator follows these to
-    /// compare candidates side by side before allowing or discarding. Recomputed on read and hard-capped.
+    /// Other documents suspected to be the same business entity (same layer + type + field fingerprint), non-empty
+    /// only for <see cref="DocumentReviewReasons.DuplicateSuspected"/> (#411). Each carries a title / file name +
+    /// upload time so the operator can recognize and open it to compare before allowing or discarding. Recomputed on
+    /// read and hard-capped.
     /// </summary>
-    public List<Guid>? DuplicateCandidateDocumentIds { get; set; }
+    public List<DuplicateCandidateDto>? DuplicateCandidates { get; set; }
 }

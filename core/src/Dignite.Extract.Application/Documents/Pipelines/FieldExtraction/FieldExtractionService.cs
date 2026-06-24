@@ -359,13 +359,13 @@ public class FieldExtractionService : ITransientDependency
             var duplicateSuspected = false;
             if (fingerprint != null && !document.DuplicateAllowed)
             {
-                var candidateIds = await _documentRepository.FindDuplicateCandidateIdsAsync(
+                var candidates = await _documentRepository.FindDuplicateCandidatesAsync(
                     document.Id,
                     documentTypeId,
                     fingerprint,
                     DocumentConsts.MaxDuplicateCandidates,
                     _cancellationTokenProvider.Token);
-                duplicateSuspected = candidateIds.Count > 0;
+                duplicateSuspected = candidates.Count > 0;
             }
 
             document.SetReviewReason(DocumentReviewReasons.DuplicateSuspected, duplicateSuspected);

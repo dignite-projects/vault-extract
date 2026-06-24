@@ -10,7 +10,7 @@ using Xunit;
 namespace Dignite.Extract.EntityFrameworkCore.Documents;
 
 /// <summary>
-/// Real EF integration tests (SQLite) for <see cref="IDocumentRepository.FindDuplicateCandidateIdsAsync"/> (#411):
+/// Real EF integration tests (SQLite) for <see cref="IDocumentRepository.FindDuplicateCandidatesAsync"/> (#411):
 /// the duplicate-detection collision query. Verifies it matches other documents in the same layer + type sharing a
 /// fingerprint, excludes the document itself / different types / different fingerprints / soft-deleted documents, and
 /// honors the hard result cap.
@@ -48,9 +48,12 @@ public class EfCoreDocumentRepositoryDuplicate_Tests : ExtractEntityFrameworkCor
         });
 
         var candidates = await WithUnitOfWorkAsync(() =>
-            _documentRepository.FindDuplicateCandidateIdsAsync(self, TypeAId, "fp-1", maxResults: 20));
+            _documentRepository.FindDuplicateCandidatesAsync(self, TypeAId, "fp-1", maxResults: 20));
 
-        candidates.ShouldBe(new[] { collides });
+        candidates.Select(c => c.Id).ShouldBe(new[] { collides });
+        // The projection carries the recognizable fields the operator UI shows.
+        candidates[0].Title.ShouldBe("Title " + collides.ToString("N")[..8]);
+        candidates[0].FileName.ShouldBe("test.pdf");
     }
 
     [Fact]
@@ -70,7 +73,7 @@ public class EfCoreDocumentRepositoryDuplicate_Tests : ExtractEntityFrameworkCor
         await WithUnitOfWorkAsync(() => _documentRepository.DeleteAsync(collides));
 
         var candidates = await WithUnitOfWorkAsync(() =>
-            _documentRepository.FindDuplicateCandidateIdsAsync(self, TypeAId, "fp-1", maxResults: 20));
+            _documentRepository.FindDuplicateCandidatesAsync(self, TypeAId, "fp-1", maxResults: 20));
 
         candidates.ShouldBeEmpty();
     }
@@ -91,7 +94,7 @@ public class EfCoreDocumentRepositoryDuplicate_Tests : ExtractEntityFrameworkCor
         });
 
         var candidates = await WithUnitOfWorkAsync(() =>
-            _documentRepository.FindDuplicateCandidateIdsAsync(self, TypeAId, "fp-1", maxResults: 2));
+            _documentRepository.FindDuplicateCandidatesAsync(self, TypeAId, "fp-1", maxResults: 2));
 
         candidates.Count.ShouldBe(2);
     }
@@ -117,6 +120,7 @@ public class EfCoreDocumentRepositoryDuplicate_Tests : ExtractEntityFrameworkCor
                 fileSize: 1024,
                 originalFileName: "test.pdf"));
         doc.SetMarkdown("# Body");
+        doc.SetTitle("Title " + id.ToString("N")[..8]);
         // Assign the type first (ApplyAutomaticClassificationResult resets duplicate-detection state), then set the
         // fingerprint as the field extraction stage would.
         doc.ApplyAutomaticClassificationResult(documentTypeId, 0.99);

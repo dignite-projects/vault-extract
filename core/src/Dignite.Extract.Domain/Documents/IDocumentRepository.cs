@@ -17,19 +17,22 @@ public interface IDocumentRepository : IRepository<Document, Guid>
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Duplicate-detection candidate query (#411): Ids of <b>other</b> documents in the current layer with the same
+    /// Duplicate-detection candidate query (#411): <b>other</b> documents in the current layer with the same
     /// <see cref="Document.DocumentTypeId"/> and the same <see cref="Document.FieldFingerprint"/> as the document
     /// being extracted. Two documents sharing a (type, fingerprint) are likely the same business entity re-uploaded.
+    /// Returns a lightweight <see cref="DuplicateCandidateModel"/> projection (Id + Title + file name + upload time)
+    /// so the operator can recognize each candidate without loading full rows; the field extraction stage uses only
+    /// the count to decide whether to flag <see cref="DocumentReviewReasons.DuplicateSuspected"/>.
     /// <para>
     /// <paramref name="documentId"/> (the document being checked) is excluded so a document never matches itself.
     /// <c>IMultiTenant</c> + <c>ISoftDelete</c> global filters apply automatically by ambient state, so the result
     /// stays within the document's own layer and excludes recycle-bin documents. The result is hard-capped at
     /// <paramref name="maxResults"/> (<c>DocumentConsts.MaxDuplicateCandidates</c>) — a fingerprint shared by many
-    /// documents never returns an unbounded set. Pure EF Core LINQ (equality on the indexed fingerprint column), no
-    /// raw SQL.
+    /// documents never returns an unbounded set. Pure EF Core LINQ (equality on the indexed fingerprint column,
+    /// projected with <c>AsNoTracking</c>), no raw SQL.
     /// </para>
     /// </summary>
-    Task<List<Guid>> FindDuplicateCandidateIdsAsync(
+    Task<List<DuplicateCandidateModel>> FindDuplicateCandidatesAsync(
         Guid documentId,
         Guid documentTypeId,
         string fieldFingerprint,

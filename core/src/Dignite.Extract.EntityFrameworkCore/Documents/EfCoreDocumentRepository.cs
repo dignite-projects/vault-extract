@@ -51,7 +51,7 @@ public class EfCoreDocumentRepository
         }
     }
 
-    public virtual async Task<List<Guid>> FindDuplicateCandidateIdsAsync(
+    public virtual async Task<List<DuplicateCandidateModel>> FindDuplicateCandidatesAsync(
         Guid documentId,
         Guid documentTypeId,
         string fieldFingerprint,
@@ -61,7 +61,8 @@ public class EfCoreDocumentRepository
         // #411: other documents in the current layer sharing this (type, fingerprint). The default IMultiTenant +
         // ISoftDelete global filters are intentionally NOT disabled, so the result stays within the document's own
         // layer and excludes recycle-bin documents. Equality on the indexed FieldFingerprint column; AsNoTracking +
-        // Select(Id) avoids materializing rows / Markdown; Take is the fail-closed cap on a widely-shared fingerprint.
+        // a scalar projection (Id/Title/file name/upload time, no Markdown) keeps it light; Take is the fail-closed
+        // cap on a widely-shared fingerprint.
         var dbSet = await GetDbSetAsync();
         return await dbSet
             .AsNoTracking()
@@ -69,7 +70,13 @@ public class EfCoreDocumentRepository
                      && d.FieldFingerprint == fieldFingerprint
                      && d.Id != documentId)
             .OrderBy(d => d.CreationTime)
-            .Select(d => d.Id)
+            .Select(d => new DuplicateCandidateModel
+            {
+                Id = d.Id,
+                Title = d.Title,
+                FileName = d.FileOrigin != null ? d.FileOrigin.OriginalFileName : null,
+                CreationTime = d.CreationTime
+            })
             .Take(maxResults)
             .ToListAsync(GetCancellationToken(cancellationToken));
     }

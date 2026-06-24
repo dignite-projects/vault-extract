@@ -906,7 +906,7 @@ public class DocumentAppService : ExtractAppService, IDocumentAppService
             {
                 Reason = DocumentReviewReasons.DuplicateSuspected,
                 IsBlocking = ReviewReasonPolicy.IsBlocking(DocumentReviewReasons.DuplicateSuspected),
-                DuplicateCandidateDocumentIds = await BuildDuplicateCandidateIdsAsync(document)
+                DuplicateCandidates = await BuildDuplicateCandidatesAsync(document)
             });
         }
 
@@ -944,24 +944,27 @@ public class DocumentAppService : ExtractAppService, IDocumentAppService
     }
 
     /// <summary>
-    /// #411: recomputes the duplicate-candidate document Ids for the detail page — other documents in the same layer +
-    /// type sharing this document's <see cref="Document.FieldFingerprint"/>. Computed on read (no separate storage),
-    /// hard-capped by <see cref="DocumentConsts.MaxDuplicateCandidates"/>, and tenant-/soft-delete-isolated by the
-    /// repository's ambient global filters. Returns empty when there is no fingerprint (defensive: a set
-    /// DuplicateSuspected reason normally implies one).
+    /// #411: recomputes the duplicate candidates for the detail page — other documents in the same layer + type
+    /// sharing this document's <see cref="Document.FieldFingerprint"/>, each projected with a title / file name +
+    /// upload time so the operator can recognize and open it. Computed on read (no separate storage), hard-capped by
+    /// <see cref="DocumentConsts.MaxDuplicateCandidates"/>, and tenant-/soft-delete-isolated by the repository's
+    /// ambient global filters. Returns empty when there is no fingerprint (defensive: a set DuplicateSuspected reason
+    /// normally implies one).
     /// </summary>
-    protected virtual async Task<List<Guid>> BuildDuplicateCandidateIdsAsync(Document document)
+    protected virtual async Task<List<DuplicateCandidateDto>> BuildDuplicateCandidatesAsync(Document document)
     {
         if (document.FieldFingerprint == null || !document.DocumentTypeId.HasValue)
         {
-            return new List<Guid>();
+            return new List<DuplicateCandidateDto>();
         }
 
-        return await _documentRepository.FindDuplicateCandidateIdsAsync(
+        var candidates = await _documentRepository.FindDuplicateCandidatesAsync(
             document.Id,
             document.DocumentTypeId.Value,
             document.FieldFingerprint,
             DocumentConsts.MaxDuplicateCandidates);
+
+        return ObjectMapper.Map<List<DuplicateCandidateModel>, List<DuplicateCandidateDto>>(candidates);
     }
 
     /// <summary>
