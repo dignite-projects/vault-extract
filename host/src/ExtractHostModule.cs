@@ -1,11 +1,11 @@
 using Dignite.Vault.Extract.Ai;
 using Dignite.Vault.Extract.Documents;
 using Dignite.Vault.Extract.EntityFrameworkCore;
-using Dignite.Vault.Extract.Host.Authentication;
 using Dignite.Vault.Extract.Host.Data;
 using Dignite.Vault.Extract.Host.HealthChecks;
 using Dignite.Vault.Extract.Host.Localization;
 using Dignite.Vault.Extract.Localization;
+using Dignite.Vault.Extract.Mcp.Authentication;
 using Dignite.Vault.Extract.Ocr.VisionLlm;
 using Dignite.Vault.Extract.Parse;
 using Dignite.Vault.Extract.Parse.ElBrunoMarkItDown;
@@ -24,11 +24,9 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.HttpOverrides;
-using ModelContextProtocol.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.OpenApi;
-using ModelContextProtocol.Authentication;
 using OpenIddict.Server.AspNetCore;
 using OpenIddict.Validation.AspNetCore;
 using Volo.Abp;
@@ -360,37 +358,26 @@ public class ExtractHostModule : AbpModule
 
         var selfUrl = configuration["App:SelfUrl"]?.TrimEnd('/');
 
-        context.Services.AddAuthentication().AddMcp(options =>
+        // #422: the discovery mechanics (McpAuth scheme registration, login-page hiding, challenge-only
+        // result-handler replacement) are owned by the Mcp egress module's AddExtractMcpDiscovery. The
+        // host keeps only the deployment-specific decisions: whether discovery is enabled (the authority
+        // guard above) and the ProtectedResourceMetadata values below.
+        context.Services.AddExtractMcpDiscovery(metadata =>
         {
-            options.ResourceMetadata = new ProtectedResourceMetadata
-            {
-                // RFC 9728 `resource`: the MCP server's canonical URI. The MCP authorization spec
-                // says a client SHOULD use the most-specific URI it can, so we advertise the full
-                // /mcp endpoint (not the bare host origin). The client echoes this back as the
-                // RFC 8707 `resource` parameter on /authorize + /token; OpenIddict accepts-but-
-                // ignores it because both resource gates are turned off in PreConfigureServices
-                // (see the rationale there), so the issued token's aud stays "VaultExtract". Set
-                // explicitly rather than left to handler inference so it remains correct behind a
-                // reverse proxy (inference derives it from request host/scheme headers).
-                Resource = string.IsNullOrWhiteSpace(selfUrl) ? null : $"{selfUrl}/mcp",
-                AuthorizationServers = new List<string> { authority },
-                ScopesSupported = new List<string> { "VaultExtract" },
-                BearerMethodsSupported = new List<string> { "header" },
-                ResourceName = "Extract MCP"
-            };
+            // RFC 9728 `resource`: the MCP server's canonical URI. The MCP authorization spec
+            // says a client SHOULD use the most-specific URI it can, so we advertise the full
+            // /mcp endpoint (not the bare host origin). The client echoes this back as the
+            // RFC 8707 `resource` parameter on /authorize + /token; OpenIddict accepts-but-
+            // ignores it because both resource gates are turned off in PreConfigureServices
+            // (see the rationale there), so the issued token's aud stays "VaultExtract". Set
+            // explicitly rather than left to handler inference so it remains correct behind a
+            // reverse proxy (inference derives it from request host/scheme headers).
+            metadata.Resource = string.IsNullOrWhiteSpace(selfUrl) ? null : $"{selfUrl}/mcp";
+            metadata.AuthorizationServers = new List<string> { authority };
+            metadata.ScopesSupported = new List<string> { "VaultExtract" };
+            metadata.BearerMethodsSupported = new List<string> { "header" };
+            metadata.ResourceName = "Extract MCP";
         });
-
-        // McpAuth is used only for /.well-known/oauth-protected-resource self-service and /mcp endpoint 401 challenge.
-        // It is not a user-interactive external login provider. Clear DisplayName so the ABP Account module will not render it as a login-page button.
-        context.Services.Configure<AuthenticationOptions>(options =>
-        {
-            var scheme = options.Schemes.FirstOrDefault(s => s.Name == McpAuthenticationDefaults.AuthenticationScheme);
-            if (scheme != null)
-                scheme.DisplayName = null;
-        });
-
-        // Override only challenge, not authenticate: preserve the principal enriched by ABP dynamic claims (see handler comments).
-        context.Services.Replace(ServiceDescriptor.Singleton<IAuthorizationMiddlewareResultHandler, McpDiscoveryAuthorizationResultHandler>());
     }
 
     private void ConfigureBundles(IHostEnvironment hostingEnvironment)

@@ -4,7 +4,6 @@ using System.Net.Http;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using System.Threading.Tasks;
-using Dignite.Vault.Extract.Host.Authentication;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
@@ -13,20 +12,19 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features.Authentication;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using ModelContextProtocol.Authentication;
 using Shouldly;
 using Xunit;
 
-namespace Dignite.Vault.Extract.Host.Authentication;
+namespace Dignite.Vault.Extract.Mcp.Authentication;
 
 /// <summary>
-/// #278 regression guard: locks down the implicit constraint explaining why /mcp must use a scheme-free
-/// authorization policy plus <see cref="McpDiscoveryAuthorizationResultHandler"/> directed challenge,
-/// instead of attaching McpAuth directly to the policy's AuthenticationSchemes.
+/// #278 regression guard (#422 migrated host -> Mcp egress test project alongside the relocated types):
+/// locks down the implicit constraint explaining why /mcp must use a scheme-free authorization policy
+/// plus <see cref="McpDiscoveryAuthorizationResultHandler"/> directed challenge, instead of attaching
+/// McpAuth directly to the policy's AuthenticationSchemes.
 ///
 /// Uses a minimal ASP.NET pipeline (TestServer) to mirror the host MCP wiring precisely: default token
 /// scheme, an enrichment middleware that mimics ABP UseDynamicClaims by rewriting the authentication
@@ -108,25 +106,23 @@ public class McpDiscoveryAuthorization_Tests
                 {
                     services.AddRouting();
 
-                    var auth = services
+                    services
                         .AddAuthentication(TokenScheme)
                         .AddScheme<AuthenticationSchemeOptions, StubTokenHandler>(TokenScheme, null);
-
-                    if (withDiscovery)
-                    {
-                        auth.AddMcp(options => options.ResourceMetadata = new ProtectedResourceMetadata
-                        {
-                            AuthorizationServers = new List<string> { "https://auth.example/" },
-                            ScopesSupported = new List<string> { "VaultExtract" },
-                            BearerMethodsSupported = new List<string> { "header" }
-                        });
-                    }
 
                     services.AddAuthorization();
 
                     if (withDiscovery)
                     {
-                        services.Replace(ServiceDescriptor.Singleton<IAuthorizationMiddlewareResultHandler, McpDiscoveryAuthorizationResultHandler>());
+                        // Drive the real reusable wiring (the #422 contract) instead of hand-rolling
+                        // AddMcp + the IAuthorizationMiddlewareResultHandler Replace, so a regression in
+                        // AddExtractMcpDiscovery (e.g. a dropped Replace) is caught by this guard.
+                        services.AddExtractMcpDiscovery(metadata =>
+                        {
+                            metadata.AuthorizationServers = new List<string> { "https://auth.example/" };
+                            metadata.ScopesSupported = new List<string> { "VaultExtract" };
+                            metadata.BearerMethodsSupported = new List<string> { "header" };
+                        });
                     }
                 });
                 web.Configure(app =>

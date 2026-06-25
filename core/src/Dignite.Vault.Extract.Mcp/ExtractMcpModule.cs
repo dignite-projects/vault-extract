@@ -10,7 +10,10 @@ namespace Dignite.Vault.Extract;
 /// Exposes channel documents as MCP resources + search tools for Claude Desktop / Cursor / any MCP
 /// client. MCP SDK dependencies stay in this project and do not leak into Application; endpoint
 /// mapping (<c>MapMcp</c>) remains host-only. Authentication reuses the host's existing OpenIddict
-/// Bearer setup through RequireAuthorization on the endpoint. Subscription + lifecycle notifications
+/// Bearer setup through RequireAuthorization on the endpoint; the optional #278 OAuth Protected
+/// Resource Metadata discovery flow is exported as the reusable
+/// <see cref="Authentication.McpDiscoveryServiceCollectionExtensions.AddExtractMcpDiscovery"/> so any
+/// host enables it with one call instead of re-authoring the handler (#422). Subscription + lifecycle notifications
 /// are future incremental work (#197). The outbound surface depends only on
 /// <c>Application.Contracts</c>, symmetric with REST: all read paths go through AppService interfaces
 /// and do not reach into Domain (#222).

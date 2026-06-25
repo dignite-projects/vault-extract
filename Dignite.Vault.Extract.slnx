@@ -42,8 +42,4 @@
         <Project Path="host/src/Dignite.Vault.Extract.Host.csproj" />
     </Folder>
 
-    <Folder Name="/host/test/">
-        <Project Path="host/test/Dignite.Vault.Extract.Host.Tests/Dignite.Vault.Extract.Host.Tests.csproj" />
-    </Folder>
-
 </Solution>

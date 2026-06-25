@@ -17,6 +17,9 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <!-- #422: the migrated #278 discovery regression guard spins up a minimal ASP.NET pipeline
+         (TestServer) to mirror the host MCP wiring without an ABP host / DB / OpenIddict. -->
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
   </ItemGroup>
 
   <ItemGroup>
