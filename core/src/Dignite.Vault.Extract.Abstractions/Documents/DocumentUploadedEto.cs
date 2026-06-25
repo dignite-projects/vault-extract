@@ -13,7 +13,7 @@ namespace Dignite.Vault.Extract.Abstractions.Documents;
 /// initializers at compile time and preventing default(DateTime) risk.
 /// </para>
 /// </summary>
-[EventName("Extract.Document.Uploaded")]
+[EventName("VaultExtract.Document.Uploaded")]
 public class DocumentUploadedEto
 {
     public string Version { get; init; } = "1.0";

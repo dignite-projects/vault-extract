@@ -4,8 +4,8 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Dignite.Vault.Extract.HttpApi.Documents;
 
-[Area("extract")]
-[Route("api/extract/document-statistics")]
+[Area("vault-extract")]
+[Route("api/vault-extract/document-statistics")]
 public class DocumentStatisticsController : ExtractController, IDocumentStatisticsAppService
 {
     private readonly IDocumentStatisticsAppService _documentStatisticsAppService;

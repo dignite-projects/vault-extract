@@ -117,7 +117,7 @@ public class McpDiscoveryAuthorization_Tests
                         auth.AddMcp(options => options.ResourceMetadata = new ProtectedResourceMetadata
                         {
                             AuthorizationServers = new List<string> { "https://auth.example/" },
-                            ScopesSupported = new List<string> { "Extract" },
+                            ScopesSupported = new List<string> { "VaultExtract" },
                             BearerMethodsSupported = new List<string> { "header" }
                         });
                     }

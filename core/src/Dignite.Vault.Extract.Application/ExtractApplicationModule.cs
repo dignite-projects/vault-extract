@@ -23,6 +23,6 @@ public class ExtractApplicationModule : AbpModule
         context.Services.AddMapperlyObjectMapper<ExtractApplicationModule>();
 
         var configuration = context.Services.GetConfiguration();
-        Configure<ExtractBehaviorOptions>(configuration.GetSection("ExtractBehavior"));
+        Configure<ExtractBehaviorOptions>(configuration.GetSection("Vault:ExtractBehavior"));
     }
 }

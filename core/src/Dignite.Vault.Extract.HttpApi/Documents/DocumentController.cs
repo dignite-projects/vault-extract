@@ -7,8 +7,8 @@ using Volo.Abp.Content;
 
 namespace Dignite.Vault.Extract.HttpApi.Documents;
 
-[Area("extract")]
-[Route("api/extract/documents")]
+[Area("vault-extract")]
+[Route("api/vault-extract/documents")]
 public class DocumentController : ExtractController, IDocumentAppService
 {
     private readonly IDocumentAppService _documentAppService;

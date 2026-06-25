@@ -54,7 +54,7 @@ namespace Dignite.Vault.Extract.Documents.Pipelines.Segmentation;
 /// segment-row inserts and each derived-document insert + status change + pipeline enqueue run inside short UoWs.
 /// </para>
 /// </summary>
-[BackgroundJobName("Extract.DocumentSegmentation")]
+[BackgroundJobName("VaultExtract.DocumentSegmentation")]
 public class DocumentSegmentationJob
     : AsyncBackgroundJob<DocumentSegmentationJobArgs>, ITransientDependency
 {

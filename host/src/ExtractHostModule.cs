@@ -163,9 +163,9 @@ public class ExtractHostModule : AbpModule
             builder.AddValidation(options =>
             {
                 // Single audience for the whole Extract API. REST and MCP are two exit adapters
-                // over the same OpenIddict-Bearer resource — every token's aud is "Extract",
+                // over the same OpenIddict-Bearer resource — every token's aud is "VaultExtract",
                 // regardless of how it was obtained (manual static Bearer or MCP Guided OAuth).
-                options.AddAudiences("Extract");
+                options.AddAudiences("VaultExtract");
                 options.UseLocalServer();
                 options.UseAspNetCore();
             });
@@ -176,7 +176,7 @@ public class ExtractHostModule : AbpModule
         // OpenIddict's default resource handling would reject that parameter two ways:
         //   - ValidateResources         → ID2190 (invalid_target) unless the URI is pre-registered;
         //   - ValidateResourcePermissions → ID2192 unless the client carries an `rsrc:<uri>` grant.
-        // Extract is a SINGLE protected resource (audience "Extract"); REST and MCP are just two
+        // Extract is a SINGLE protected resource (audience "VaultExtract"); REST and MCP are just two
         // exit adapters over it. The token aud is derived from the granted scope's resources during
         // sign-in, NOT from this request parameter — verified by decompiling OpenIddict 7.2.0:
         // nothing in OpenIddictServerHandlers narrows the principal's resources by the request
@@ -369,12 +369,12 @@ public class ExtractHostModule : AbpModule
                 // /mcp endpoint (not the bare host origin). The client echoes this back as the
                 // RFC 8707 `resource` parameter on /authorize + /token; OpenIddict accepts-but-
                 // ignores it because both resource gates are turned off in PreConfigureServices
-                // (see the rationale there), so the issued token's aud stays "Extract". Set
+                // (see the rationale there), so the issued token's aud stays "VaultExtract". Set
                 // explicitly rather than left to handler inference so it remains correct behind a
                 // reverse proxy (inference derives it from request host/scheme headers).
                 Resource = string.IsNullOrWhiteSpace(selfUrl) ? null : $"{selfUrl}/mcp",
                 AuthorizationServers = new List<string> { authority },
-                ScopesSupported = new List<string> { "Extract" },
+                ScopesSupported = new List<string> { "VaultExtract" },
                 BearerMethodsSupported = new List<string> { "header" },
                 ResourceName = "Extract MCP"
             };
@@ -472,7 +472,7 @@ public class ExtractHostModule : AbpModule
             configuration["AuthServer:Authority"]!,
             new Dictionary<string, string>
             {
-                {"Extract", "Extract API"}
+                {"VaultExtract", "Extract API"}
             },
             options =>
             {
@@ -506,7 +506,7 @@ public class ExtractHostModule : AbpModule
 
     private void ConfigureDataProtection(ServiceConfigurationContext context)
     {
-        context.Services.AddDataProtection().SetApplicationName("Extract");
+        context.Services.AddDataProtection().SetApplicationName("VaultExtract");
     }
 
     private void ConfigureVirtualFiles(IWebHostEnvironment hostingEnvironment)
@@ -562,9 +562,9 @@ public class ExtractHostModule : AbpModule
         // provider must come from appsettings.Development.json / user-secrets / env vars. Hosts that
         // target a non-OpenAI wire protocol replace this whole method (see docs/en/configuration/ai-provider.md) and
         // own their own validation.
-        var endpoint = configuration["Extract:Endpoint"];
-        var apiKey = configuration["Extract:ApiKey"];
-        var chatModelId = configuration["Extract:ChatModelId"];
+        var endpoint = configuration["Vault:Extract:Endpoint"];
+        var apiKey = configuration["Vault:Extract:ApiKey"];
+        var chatModelId = configuration["Vault:Extract:ChatModelId"];
         if (string.IsNullOrWhiteSpace(endpoint)
             || string.IsNullOrWhiteSpace(apiKey)
             || apiKey == "YOUR_API_KEY"
@@ -572,8 +572,8 @@ public class ExtractHostModule : AbpModule
         {
             throw new AbpException(
                 "Extract requires an LLM provider before it can start: document classification and " +
-                "field extraction have no non-LLM fallback. Set Extract:Endpoint, Extract:ApiKey, " +
-                "and Extract:ChatModelId in host/src/appsettings.Development.json (git-ignored), " +
+                "field extraction have no non-LLM fallback. Set Vault:Extract:Endpoint, Vault:Extract:ApiKey, " +
+                "and Vault:Extract:ChatModelId in host/src/appsettings.Development.json (git-ignored), " +
                 "user-secrets, or environment variables. For a zero-cost local option, point Endpoint at a " +
                 "local Ollama /v1 endpoint and use any non-empty token as the key. See docs/en/configuration/ai-provider.md.");
         }
@@ -588,7 +588,7 @@ public class ExtractHostModule : AbpModule
         // [FromKeyedServices(ExtractConsts.TitleGeneratorChatClientKey)]. Falls back
         // to ChatModelId when TitleGeneratorModelId is unset; hosts that want to cut cost
         // can point this at a small fast model (e.g. Qwen3-8B).
-        var titleGeneratorModelId = configuration["Extract:TitleGeneratorModelId"]
+        var titleGeneratorModelId = configuration["Vault:Extract:TitleGeneratorModelId"]
             ?? chatModelId;
         context.Services.AddKeyedChatClient(
             ExtractConsts.TitleGeneratorChatClientKey,
@@ -604,7 +604,7 @@ public class ExtractHostModule : AbpModule
         // ChatModelId when StructuredModelId is unset; production teams running tight
         // token budgets can point this at a smaller / cheaper model that can still
         // satisfy schema-bound output.
-        var structuredModelId = configuration["Extract:StructuredModelId"]
+        var structuredModelId = configuration["Vault:Extract:StructuredModelId"]
             ?? chatModelId;
         context.Services.AddKeyedChatClient(
             ExtractConsts.StructuredChatClientKey,
@@ -619,11 +619,11 @@ public class ExtractHostModule : AbpModule
         // back to ChatModelId, because the main chat model (e.g. DeepSeek-V3) may have no vision support.
         // Fail fast if unset, mirroring the provider-mandatory check above. Only wired because VisionLlm is
         // the enabled OCR provider; a host that switches back to PaddleOCR/Azure can drop this block.
-        var visionOcrModelId = configuration["Extract:VisionOcrModelId"];
+        var visionOcrModelId = configuration["Vault:Extract:VisionOcrModelId"];
         if (string.IsNullOrWhiteSpace(visionOcrModelId))
         {
             throw new AbpException(
-                "VisionLlm is the configured OCR provider but Extract:VisionOcrModelId is not set. " +
+                "VisionLlm is the configured OCR provider but Vault:Extract:VisionOcrModelId is not set. " +
                 "Point it at a vision-capable model (e.g. Qwen/Qwen3-VL-8B-Instruct on SiliconFlow) in " +
                 "host/src/appsettings.Development.json (git-ignored), user-secrets, or environment variables. " +
                 "See docs/en/text-extraction/ocr-vision-llm.md.");

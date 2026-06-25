@@ -13,17 +13,19 @@ The split keeps credentials (`ApiKey`) out of any `IOptions<>` flowing into busi
 
 ## Required before first run
 
-An LLM provider is **mandatory**. `DocumentClassificationWorkflow` and `FieldExtractionWorkflow` have no non-LLM fallback, so a host with no provider cannot classify documents or extract fields. To make this unmissable, `ExtractHostModule.ConfigureAI` **fails fast at startup**: if `Extract:Endpoint`, `Extract:ApiKey`, or `Extract:ChatModelId` is missing — or `ApiKey` is still the committed `"YOUR_API_KEY"` placeholder — the host throws before serving any request, with a message pointing here.
+An LLM provider is **mandatory**. `DocumentClassificationWorkflow` and `FieldExtractionWorkflow` have no non-LLM fallback, so a host with no provider cannot classify documents or extract fields. To make this unmissable, `ExtractHostModule.ConfigureAI` **fails fast at startup**: if `Vault:Extract:Endpoint`, `Vault:Extract:ApiKey`, or `Vault:Extract:ChatModelId` is missing — or `ApiKey` is still the committed `"YOUR_API_KEY"` placeholder — the host throws before serving any request, with a message pointing here.
 
 Supply credentials in `host/src/appsettings.Development.json` (git-ignored), [user-secrets](https://learn.microsoft.com/aspnet/core/security/app-secrets), or environment variables. **Do not** edit the committed `appsettings.json` — its placeholder is exactly what the startup guard checks against, and a real key there would leak into source control. The cheapest first-run path is a local [Ollama](#trying-alternative-providers) endpoint; otherwise any OpenAI-compatible provider works (see [Picking a chat model](#picking-a-chat-model)).
 
 ## Provider wiring (`Extract`)
 
 ```json
-"Extract": {
-  "Endpoint": "https://api.openai.com/v1",
-  "ApiKey": "YOUR_API_KEY",
-  "ChatModelId": "gpt-4o-mini"
+"Vault": {
+  "Extract": {
+    "Endpoint": "https://api.openai.com/v1",
+    "ApiKey": "YOUR_API_KEY",
+    "ChatModelId": "gpt-4o-mini"
+  }
 }
 ```
 
@@ -67,7 +69,7 @@ For **production**, prefer a model that's strict about schema compliance. Models
 
 Both clients are registered with `UseOpenTelemetry()` + `UseLogging()`. Neither has `UseFunctionInvocation` (no tool calling anywhere in Dignite Vault Extract) or `UseDistributedCache` (every prompt is document-content-derived and therefore unique per call — cache lookups would always miss).
 
-> **Optional third client — vision OCR.** Enabling the [vision-LLM OCR provider](../text-extraction/ocr-vision-llm.md) (#259) adds a third keyed client for a multimodal (vision) model. Its key (`VisionLlmOcrConsts.VisionChatClientKey`) lives in the `Dignite.Vault.Extract.Ocr.VisionLlm` project, **not** `ExtractConsts` — an OCR provider sits below the Application layer and must not depend on it. Register it in your `ConfigureAI` override only when you enable that provider; the vision model id **cannot** fall back to `ChatModelId` (the main chat model may not be vision-capable), so it requires its own `Extract:VisionOcrModelId`.
+> **Optional third client — vision OCR.** Enabling the [vision-LLM OCR provider](../text-extraction/ocr-vision-llm.md) (#259) adds a third keyed client for a multimodal (vision) model. Its key (`VisionLlmOcrConsts.VisionChatClientKey`) lives in the `Dignite.Vault.Extract.Ocr.VisionLlm` project, **not** `ExtractConsts` — an OCR provider sits below the Application layer and must not depend on it. Register it in your `ConfigureAI` override only when you enable that provider; the vision model id **cannot** fall back to `ChatModelId` (the main chat model may not be vision-capable), so it requires its own `Vault:Extract:VisionOcrModelId`.
 
 > **Provider-switch gotcha**: When switching `Endpoint` to a non-OpenAI provider (SiliconFlow, Ollama via `/v1` shim, OpenRouter, etc.), override **all three** model id keys together in your environment-specific config — `ChatModelId` alone is not enough if the provider doesn't recognize the default `gpt-4o-mini` placeholder that may be inherited from base `appsettings.json`. The simplest fix: copy all three overrides into your `appsettings.Development.json` / `appsettings.Production.json` / env vars whenever you change `Endpoint`.
 
@@ -167,9 +169,11 @@ For the full set of `IChatClient`-compatible providers (Anthropic, Microsoft Fou
 These knobs describe *how Dignite Vault Extract calls the model* (language hint, text truncation). They are bound to `ExtractBehaviorOptions` and reach every pipeline through `IOptions<>`.
 
 ```json
-"ExtractBehavior": {
-  "DefaultLanguage": "ja",
-  "MaxTextLengthPerExtraction": 8000
+"Vault": {
+  "ExtractBehavior": {
+    "DefaultLanguage": "ja",
+    "MaxTextLengthPerExtraction": 8000
+  }
 }
 ```
 

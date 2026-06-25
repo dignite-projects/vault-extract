@@ -13,8 +13,8 @@ using Volo.Abp.EntityFrameworkCore;
 namespace Dignite.Vault.Extract.Host.Migrations
 {
     [DbContext(typeof(ExtractHostDbContext))]
-    [Migration("20260620123853_SubDocumentUniqueIndexExcludesSoftDeleted")]
-    partial class SubDocumentUniqueIndexExcludesSoftDeleted
+    [Migration("20260625062949_Initial")]
+    partial class Initial
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -90,7 +90,7 @@ namespace Dignite.Vault.Extract.Host.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("ExtractCabinets", (string)null);
+                    b.ToTable("VaultCabinets", (string)null);
                 });
 
             modelBuilder.Entity("Dignite.Vault.Extract.Documents.Document", b =>
@@ -131,6 +131,9 @@ namespace Dignite.Vault.Extract.Host.Migrations
                     b.Property<Guid?>("DocumentTypeId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<bool>("DuplicateAllowed")
+                        .HasColumnType("bit");
+
                     b.Property<string>("ExtraProperties")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)")
@@ -138,6 +141,10 @@ namespace Dignite.Vault.Extract.Host.Migrations
 
                     b.Property<string>("ExtractionMetadata")
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("FieldFingerprint")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
 
                     b.Property<bool>("IsContainer")
                         .HasColumnType("bit");
@@ -212,7 +219,9 @@ namespace Dignite.Vault.Extract.Host.Migrations
 
                     b.HasIndex("TenantId", "DocumentTypeId");
 
-                    b.ToTable("ExtractDocuments", (string)null);
+                    b.HasIndex("TenantId", "DocumentTypeId", "FieldFingerprint");
+
+                    b.ToTable("VaultDocuments", (string)null);
                 });
 
             modelBuilder.Entity("Dignite.Vault.Extract.Documents.DocumentExtractedField", b =>
@@ -262,7 +271,7 @@ namespace Dignite.Vault.Extract.Host.Migrations
 
                     b.HasIndex("TenantId", "FieldDefinitionId", "TextValue", "DocumentId");
 
-                    b.ToTable("ExtractDocumentExtractedFields", (string)null);
+                    b.ToTable("VaultDocumentExtractedFields", (string)null);
                 });
 
             modelBuilder.Entity("Dignite.Vault.Extract.Documents.DocumentTypes.DocumentType", b =>
@@ -339,7 +348,7 @@ namespace Dignite.Vault.Extract.Host.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("ExtractDocumentTypes", (string)null);
+                    b.ToTable("VaultDocumentTypes", (string)null);
                 });
 
             modelBuilder.Entity("Dignite.Vault.Extract.Documents.Exports.ExportTemplate", b =>
@@ -413,7 +422,7 @@ namespace Dignite.Vault.Extract.Host.Migrations
 
                     b.HasIndex("DocumentTypeId");
 
-                    b.ToTable("ExtractExportTemplates", (string)null);
+                    b.ToTable("VaultExportTemplates", (string)null);
                 });
 
             modelBuilder.Entity("Dignite.Vault.Extract.Documents.Fields.FieldDefinition", b =>
@@ -476,6 +485,9 @@ namespace Dignite.Vault.Extract.Host.Migrations
                     b.Property<bool>("IsRequired")
                         .HasColumnType("bit");
 
+                    b.Property<bool>("IsUniqueKey")
+                        .HasColumnType("bit");
+
                     b.Property<DateTime?>("LastModificationTime")
                         .HasColumnType("datetime2")
                         .HasColumnName("LastModificationTime");
@@ -503,7 +515,7 @@ namespace Dignite.Vault.Extract.Host.Migrations
 
                     b.HasIndex("TenantId", "DocumentTypeId");
 
-                    b.ToTable("ExtractFieldDefinitions", (string)null);
+                    b.ToTable("VaultFieldDefinitions", (string)null);
                 });
 
             modelBuilder.Entity("Dignite.Vault.Extract.Documents.Pipelines.DocumentPipelineRun", b =>
@@ -557,7 +569,7 @@ namespace Dignite.Vault.Extract.Host.Migrations
                     b.HasIndex("DocumentId", "PipelineCode", "AttemptNumber")
                         .IsUnique();
 
-                    b.ToTable("ExtractDocumentPipelineRuns", (string)null);
+                    b.ToTable("VaultDocumentPipelineRuns", (string)null);
                 });
 
             modelBuilder.Entity("Dignite.Vault.Extract.Documents.Segments.DocumentSegment", b =>
@@ -625,7 +637,7 @@ namespace Dignite.Vault.Extract.Host.Migrations
                     b.HasIndex("SourceDocumentId", "SegmentKey")
                         .IsUnique();
 
-                    b.ToTable("ExtractDocumentSegments", (string)null);
+                    b.ToTable("VaultDocumentSegments", (string)null);
                 });
 
             modelBuilder.Entity("Volo.Abp.AuditLogging.AuditLog", b =>
@@ -2561,7 +2573,7 @@ namespace Dignite.Vault.Extract.Host.Migrations
 
                             b1.HasIndex("ContentHash");
 
-                            b1.ToTable("ExtractDocuments");
+                            b1.ToTable("VaultDocuments");
 
                             b1.WithOwner()
                                 .HasForeignKey("DocumentId");

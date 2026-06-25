@@ -18,7 +18,7 @@ using Volo.Abp.Uow;
 
 namespace Dignite.Vault.Extract.Documents.Pipelines.Classification;
 
-[BackgroundJobName("Extract.DocumentClassification")]
+[BackgroundJobName("VaultExtract.DocumentClassification")]
 public class DocumentClassificationBackgroundJob
     : DocumentPipelineBackgroundJobBase<DocumentClassificationJobArgs>, ITransientDependency
 {

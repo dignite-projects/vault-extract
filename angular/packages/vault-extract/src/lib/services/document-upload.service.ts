@@ -28,7 +28,7 @@ export class DocumentUploadService {
       formData.append('CabinetId', cabinetId);
     }
     return this.rest.request<FormData, DocumentDto>(
-      { method: 'POST', url: '/api/extract/documents/upload', body: formData },
+      { method: 'POST', url: '/api/vault-extract/documents/upload', body: formData },
       { apiName: this.apiName },
     );
   };

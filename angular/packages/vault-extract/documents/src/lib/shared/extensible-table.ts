@@ -2,12 +2,12 @@ import { EntityProp, ExtensionsService } from '@abp/ng.components/extensible';
 import type { ABP } from '@abp/ng.core';
 
 export const EXTRACT_TABLES = {
-  Cabinets: 'Extract.Cabinets',
-  Documents: 'Extract.Documents',
-  DocumentRecycleBin: 'Extract.DocumentRecycleBin',
-  DocumentTypes: 'Extract.DocumentTypes',
-  ExportTemplates: 'Extract.ExportTemplates',
-  FieldDefinitions: 'Extract.FieldDefinitions',
+  Cabinets: 'VaultExtract.Cabinets',
+  Documents: 'VaultExtract.Documents',
+  DocumentRecycleBin: 'VaultExtract.DocumentRecycleBin',
+  DocumentTypes: 'VaultExtract.DocumentTypes',
+  ExportTemplates: 'VaultExtract.ExportTemplates',
+  FieldDefinitions: 'VaultExtract.FieldDefinitions',
 } as const;
 
 export interface ClientPagedResult<T> {

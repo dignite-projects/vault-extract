@@ -5,9 +5,9 @@ const baseUrl = 'http://localhost:4200';
 const oAuthConfig = {
   issuer: 'https://localhost:44348/',
   redirectUri: baseUrl,
-  clientId: 'Extract_App',
+  clientId: 'VaultExtract_App',
   responseType: 'code',
-  scope: 'offline_access Extract',
+  scope: 'offline_access VaultExtract',
   requireHttps: true,
 };
 

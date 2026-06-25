@@ -7,8 +7,8 @@ using Volo.Abp.Content;
 
 namespace Dignite.Vault.Extract.HttpApi.Documents.Exports;
 
-[Area("extract")]
-[Route("api/extract/export-templates")]
+[Area("vault-extract")]
+[Route("api/vault-extract/export-templates")]
 public class ExportTemplateController : ExtractController, IExportTemplateAppService
 {
     private readonly IExportTemplateAppService _exportTemplateAppService;

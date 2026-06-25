@@ -6,8 +6,8 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Dignite.Vault.Extract.HttpApi.Documents.DocumentTypes;
 
-[Area("extract")]
-[Route("api/extract/document-types")]
+[Area("vault-extract")]
+[Route("api/vault-extract/document-types")]
 public class DocumentTypeController : ExtractController, IDocumentTypeAppService
 {
     private readonly IDocumentTypeAppService _documentTypeAppService;

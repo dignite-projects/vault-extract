@@ -54,7 +54,7 @@ Run this check when any of the following is true:
 1. The user edited `core/src/Dignite.Vault.Extract.Domain/Documents/Document.cs`.
 2. The user added a property to `core/src/Dignite.Vault.Extract.Application.Contracts/Documents/DocumentDto.cs`. The DTO is the external projection of `Document`, so polluting the DTO is equivalent to polluting the aggregate.
 3. The user says they want to "add field X to Document".
-4. A new EF Core migration touches the `ExtractDocuments` table.
+4. A new EF Core migration touches the `VaultDocuments` table.
 5. The user runs `/abp-document-boundary-check`.
 
 ## Execution Steps

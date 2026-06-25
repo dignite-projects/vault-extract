@@ -14,7 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "nx run-many -t lint",
-    "generate-proxy": "nx g @abp/nx.generators:generate-proxy --module=extract --apiName=Default --source=host --target=vault-extract --url=https://localhost:44348 --serviceType=application --no-interactive",
+    "generate-proxy": "nx g @abp/nx.generators:generate-proxy --module=vault-extract --apiName=Default --source=host --target=vault-extract --url=https://localhost:44348 --serviceType=application --no-interactive",
     "affected:build": "nx affected -t build",
     "affected:test": "vitest run"
   },

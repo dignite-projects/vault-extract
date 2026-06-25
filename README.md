@@ -65,18 +65,20 @@ Create `host/src/appsettings.Development.json` with your local SQL Server connec
   "StringEncryption": {
     "DefaultPassPhrase": "any-random-string-here"
   },
-  "Extract": {
-    "Endpoint": "https://api.openai.com/v1",
-    "ApiKey": "YOUR_REAL_API_KEY",
-    "ChatModelId": "gpt-4o-mini",
-    "VisionOcrModelId": "gpt-4o-mini"
+  "Vault": {
+    "Extract": {
+      "Endpoint": "https://api.openai.com/v1",
+      "ApiKey": "YOUR_REAL_API_KEY",
+      "ChatModelId": "gpt-4o-mini",
+      "VisionOcrModelId": "gpt-4o-mini"
+    }
   }
 }
 ```
 
 > This file is git-ignored. In Development mode, the application automatically generates temporary OpenIddict certificates — no `.pfx` file is needed. For LocalDB, the committed `appsettings.json` default (`Server=(LocalDb)\MSSQLLocalDB;...`) already works without any override.
 
-An LLM provider is **mandatory** — classification and field extraction have no non-LLM fallback, and the host fails fast at startup while `Extract:ApiKey` is still the committed placeholder. Any OpenAI-compatible endpoint works; with the default Vision LLM OCR provider, `VisionOcrModelId` must point at a vision-capable model. See [AI provider](./docs/en/configuration/ai-provider.md).
+An LLM provider is **mandatory** — classification and field extraction have no non-LLM fallback, and the host fails fast at startup while `Vault:Extract:ApiKey` is still the committed placeholder. Any OpenAI-compatible endpoint works; with the default Vision LLM OCR provider, `VisionOcrModelId` must point at a vision-capable model. See [AI provider](./docs/en/configuration/ai-provider.md).
 
 ### 3. Install client-side libraries
 

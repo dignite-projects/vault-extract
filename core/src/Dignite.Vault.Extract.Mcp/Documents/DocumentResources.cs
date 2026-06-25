@@ -14,7 +14,7 @@ namespace Dignite.Vault.Extract.Mcp.Documents;
 
 /// <summary>
 /// Exposes Extract documents as MCP resources on the read path. The resource template
-/// <c>extract://documents/{id}</c> returns the document Markdown body plus a system-metadata header.
+/// <c>vault-extract://documents/{id}</c> returns the document Markdown body plus a system-metadata header.
 /// Document discovery goes through the search tool instead of putting thousands of documents into
 /// resources/list.
 /// <para>

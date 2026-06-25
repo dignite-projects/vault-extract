@@ -299,7 +299,7 @@
 
     "Failed": "Failed",
 
-    "Permission:Extract": "Dignite Vault Extract",
+    "Permission:Extract": "Vault Extract",
     "Permission:Documents": "Documents",
     "Permission:Documents.Upload": "Upload Documents",
     "Permission:Documents.Delete": "Delete Documents",

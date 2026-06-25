@@ -22,7 +22,7 @@ namespace Dignite.Vault.Extract.Mcp.Documents;
 /// </remarks>
 public sealed record DocumentSearchResultItem
 {
-    /// <summary>MCP resource URI for reading the body (<c>extract://documents/{id}</c>).</summary>
+    /// <summary>MCP resource URI for reading the body (<c>vault-extract://documents/{id}</c>).</summary>
     public required string Uri { get; init; }
 
     public required Guid Id { get; init; }

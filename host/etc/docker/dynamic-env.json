@@ -8,9 +8,9 @@
   "oAuthConfig": {
     "issuer": "https://localhost:44348/",
     "redirectUri": "http://localhost:4200",
-    "clientId": "Extract_App",
+    "clientId": "VaultExtract_App",
     "responseType": "code",
-    "scope": "offline_access openid profile email phone Extract"
+    "scope": "offline_access openid profile email phone VaultExtract"
   },
   "apis": {
     "default": {

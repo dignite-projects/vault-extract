@@ -42,7 +42,7 @@ You are **read-only**. Output a review report so the main agent or user can deci
 
 ### 1.4 Index Changes
 
-- 🔴 `DropIndex` without recreating an equivalent index: losing indexes on hot tables such as `ExtractDocuments` and `ExtractDocumentPipelineRuns` can cause production query timeouts.
+- 🔴 `DropIndex` without recreating an equivalent index: losing indexes on hot tables such as `VaultDocuments` and `VaultDocumentPipelineRuns` can cause production query timeouts.
 - 🟡 `CreateIndex` on a large table holds a SQL Server schema modification lock by default and blocks reads and writes. Choose a remedy based on SQL Server edition:
   - **Enterprise Edition**: split out native SQL, for example `migrationBuilder.Sql("CREATE INDEX ... WITH (ONLINE = ON, MAXDOP = 4)")`. ONLINE index creation allows concurrent reads and writes during the build.
   - **Standard / Web Edition**: ONLINE index creation is unavailable. Run during a maintenance window or low-traffic period and coordinate with operations ahead of time.
@@ -69,7 +69,7 @@ You are **read-only**. Output a review report so the main agent or user can deci
 
 ### 1.9 ABP Table Prefix
 
-- 🟡 Does a new table name use the `Extract` prefix, following examples such as `ExtractDocuments` and `ExtractDocumentPipelineRuns`? Missing prefixes can collide with other modules.
+- 🟡 Does a new table name use the `Vault` prefix, following examples such as `VaultDocuments` and `VaultDocumentPipelineRuns`? Missing prefixes can collide with other modules.
 - 🟡 Does `OnModelCreating` use `b.ToTable(MyModuleDbProperties.DbTablePrefix + "Tables")` instead of hard-coded table names where appropriate?
 
 ### 1.10 Dangerous `Sql()` Blocks

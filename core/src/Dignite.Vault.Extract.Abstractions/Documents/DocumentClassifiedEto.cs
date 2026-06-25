@@ -12,7 +12,7 @@ namespace Dignite.Vault.Extract.Abstractions.Documents;
 /// marked <c>required</c>.
 /// </para>
 /// </summary>
-[EventName("Extract.Document.Classified")]
+[EventName("VaultExtract.Document.Classified")]
 public class DocumentClassifiedEto
 {
     public string Version { get; init; } = "1.0";

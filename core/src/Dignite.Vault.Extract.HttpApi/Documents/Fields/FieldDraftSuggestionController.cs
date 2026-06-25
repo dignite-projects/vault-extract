@@ -5,8 +5,8 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Dignite.Vault.Extract.HttpApi.Documents.Fields;
 
-[Area("extract")]
-[Route("api/extract/field-draft-suggestion")]
+[Area("vault-extract")]
+[Route("api/vault-extract/field-draft-suggestion")]
 public class FieldDraftSuggestionController : ExtractController, IFieldDraftSuggestionAppService
 {
     private readonly IFieldDraftSuggestionAppService _fieldDraftSuggestionAppService;

@@ -20,7 +20,7 @@ namespace Dignite.Vault.Extract.Abstractions.Documents;
 /// marked <c>required</c>.
 /// </para>
 /// </summary>
-[EventName("Extract.Document.Ready")]
+[EventName("VaultExtract.Document.Ready")]
 public class DocumentReadyEto
 {
     public string Version { get; init; } = "1.0";

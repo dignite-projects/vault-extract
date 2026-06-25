@@ -14,7 +14,7 @@ export class DocumentService {
   allowDuplicate = (id: string, config?: Partial<Rest.Config>) =>
     this.restService.request<any, DocumentDto>({
       method: 'POST',
-      url: `/api/extract/documents/${id}/review/allow-duplicate`,
+      url: `/api/vault-extract/documents/${id}/review/allow-duplicate`,
     },
     { apiName: this.apiName,...config });
   
@@ -22,7 +22,7 @@ export class DocumentService {
   confirmClassification = (id: string, input: ConfirmClassificationInput, config?: Partial<Rest.Config>) =>
     this.restService.request<any, DocumentDto>({
       method: 'POST',
-      url: `/api/extract/documents/${id}/confirm-classification`,
+      url: `/api/vault-extract/documents/${id}/confirm-classification`,
       body: input,
     },
     { apiName: this.apiName,...config });
@@ -31,7 +31,7 @@ export class DocumentService {
   delete = (id: string, config?: Partial<Rest.Config>) =>
     this.restService.request<any, void>({
       method: 'DELETE',
-      url: `/api/extract/documents/${id}`,
+      url: `/api/vault-extract/documents/${id}`,
     },
     { apiName: this.apiName,...config });
   
@@ -39,7 +39,7 @@ export class DocumentService {
   get = (id: string, config?: Partial<Rest.Config>) =>
     this.restService.request<any, DocumentDto>({
       method: 'GET',
-      url: `/api/extract/documents/${id}`,
+      url: `/api/vault-extract/documents/${id}`,
     },
     { apiName: this.apiName,...config });
   
@@ -48,7 +48,7 @@ export class DocumentService {
     this.restService.request<any, Blob>({
       method: 'GET',
       responseType: 'blob',
-      url: `/api/extract/documents/${id}/blob`,
+      url: `/api/vault-extract/documents/${id}/blob`,
     },
     { apiName: this.apiName,...config });
   
@@ -56,7 +56,7 @@ export class DocumentService {
   getList = (input: GetDocumentListInput, config?: Partial<Rest.Config>) =>
     this.restService.request<any, PagedResultDto<DocumentListItemDto>>({
       method: 'GET',
-      url: '/api/extract/documents',
+      url: '/api/vault-extract/documents',
       params: { lifecycleStatus: input.lifecycleStatus, documentTypeCode: input.documentTypeCode, reviewDisposition: input.reviewDisposition, hasReviewReasons: input.hasReviewReasons, isDeleted: input.isDeleted, cabinetId: input.cabinetId, originDocumentId: input.originDocumentId, fieldFilters: input.fieldFilters, sorting: input.sorting, skipCount: input.skipCount, maxResultCount: input.maxResultCount },
     },
     { apiName: this.apiName,...config });
@@ -65,7 +65,7 @@ export class DocumentService {
   permanentDelete = (id: string, config?: Partial<Rest.Config>) =>
     this.restService.request<any, void>({
       method: 'DELETE',
-      url: `/api/extract/documents/${id}/permanent`,
+      url: `/api/vault-extract/documents/${id}/permanent`,
     },
     { apiName: this.apiName,...config });
   
@@ -73,7 +73,7 @@ export class DocumentService {
   reclassify = (id: string, input: ReclassifyDocumentInput, config?: Partial<Rest.Config>) =>
     this.restService.request<any, DocumentDto>({
       method: 'POST',
-      url: `/api/extract/documents/${id}/reclassify`,
+      url: `/api/vault-extract/documents/${id}/reclassify`,
       body: input,
     },
     { apiName: this.apiName,...config });
@@ -82,7 +82,7 @@ export class DocumentService {
   reextractFields = (id: string, config?: Partial<Rest.Config>) =>
     this.restService.request<any, void>({
       method: 'POST',
-      url: `/api/extract/documents/${id}/reextract-fields`,
+      url: `/api/vault-extract/documents/${id}/reextract-fields`,
     },
     { apiName: this.apiName,...config });
   
@@ -90,7 +90,7 @@ export class DocumentService {
   rejectReview = (id: string, input: RejectReviewInput, config?: Partial<Rest.Config>) =>
     this.restService.request<any, DocumentDto>({
       method: 'POST',
-      url: `/api/extract/documents/${id}/review/reject`,
+      url: `/api/vault-extract/documents/${id}/review/reject`,
       body: input,
     },
     { apiName: this.apiName,...config });
@@ -99,7 +99,7 @@ export class DocumentService {
   rerecognize = (id: string, config?: Partial<Rest.Config>) =>
     this.restService.request<any, void>({
       method: 'POST',
-      url: `/api/extract/documents/${id}/rerecognize`,
+      url: `/api/vault-extract/documents/${id}/rerecognize`,
     },
     { apiName: this.apiName,...config });
   
@@ -107,7 +107,7 @@ export class DocumentService {
   restore = (id: string, config?: Partial<Rest.Config>) =>
     this.restService.request<any, void>({
       method: 'POST',
-      url: `/api/extract/documents/${id}/restore`,
+      url: `/api/vault-extract/documents/${id}/restore`,
     },
     { apiName: this.apiName,...config });
   
@@ -115,7 +115,7 @@ export class DocumentService {
   retryPipeline = (id: string, input: RetryPipelineInput, config?: Partial<Rest.Config>) =>
     this.restService.request<any, void>({
       method: 'POST',
-      url: `/api/extract/documents/${id}/retry-pipeline`,
+      url: `/api/vault-extract/documents/${id}/retry-pipeline`,
       body: input,
     },
     { apiName: this.apiName,...config });
@@ -124,7 +124,7 @@ export class DocumentService {
   updateCabinet = (id: string, input: UpdateDocumentCabinetInput, config?: Partial<Rest.Config>) =>
     this.restService.request<any, DocumentDto>({
       method: 'POST',
-      url: `/api/extract/documents/${id}/cabinet`,
+      url: `/api/vault-extract/documents/${id}/cabinet`,
       body: input,
     },
     { apiName: this.apiName,...config });
@@ -133,7 +133,7 @@ export class DocumentService {
   updateExtractedFields = (id: string, input: UpdateExtractedFieldsInput, config?: Partial<Rest.Config>) =>
     this.restService.request<any, DocumentDto>({
       method: 'POST',
-      url: `/api/extract/documents/${id}/extracted-fields`,
+      url: `/api/vault-extract/documents/${id}/extracted-fields`,
       body: input,
     },
     { apiName: this.apiName,...config });
@@ -142,7 +142,7 @@ export class DocumentService {
   upload = (input: UploadDocumentInput, config?: Partial<Rest.Config>) =>
     this.restService.request<any, DocumentDto>({
       method: 'POST',
-      url: '/api/extract/documents/upload',
+      url: '/api/vault-extract/documents/upload',
       params: { cabinetId: input.cabinetId },
       body: input.file,
     },

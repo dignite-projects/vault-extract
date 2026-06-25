@@ -4,7 +4,7 @@ namespace Dignite.Vault.Extract.Permissions;
 
 public class ExtractPermissions
 {
-    public const string GroupName = "Extract";
+    public const string GroupName = "VaultExtract";
 
     public static class Documents
     {

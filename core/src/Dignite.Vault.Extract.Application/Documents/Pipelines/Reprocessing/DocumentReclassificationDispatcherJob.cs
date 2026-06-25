@@ -31,7 +31,7 @@ namespace Dignite.Vault.Extract.Documents.Pipelines.Reprocessing;
 /// state from confidence: passing returns to Ready; failing goes to manual review.
 /// </para>
 /// </summary>
-[BackgroundJobName("Extract.DocumentReclassificationDispatcher")]
+[BackgroundJobName("VaultExtract.DocumentReclassificationDispatcher")]
 public class DocumentReclassificationDispatcherJob
     : AsyncBackgroundJob<DocumentReclassificationDispatcherArgs>, ITransientDependency
 {

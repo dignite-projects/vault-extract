@@ -12,7 +12,7 @@ namespace Dignite.Vault.Extract.Abstractions.Documents;
 /// <see cref="EventTime"/> is marked <c>required</c>.
 /// </para>
 /// </summary>
-[EventName("Extract.Document.Restored")]
+[EventName("VaultExtract.Document.Restored")]
 public class DocumentRestoredEto
 {
     public string Version { get; init; } = "1.0";

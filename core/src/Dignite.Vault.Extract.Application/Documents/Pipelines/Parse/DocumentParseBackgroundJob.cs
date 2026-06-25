@@ -24,7 +24,7 @@ using Volo.Abp.Uow;
 
 namespace Dignite.Vault.Extract.Documents.Pipelines.Parse;
 
-[BackgroundJobName("Extract.DocumentParse")]
+[BackgroundJobName("VaultExtract.DocumentParse")]
 public class DocumentParseBackgroundJob
     : DocumentPipelineBackgroundJobBase<DocumentParseJobArgs>, ITransientDependency
 {

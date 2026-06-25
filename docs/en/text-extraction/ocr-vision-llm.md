@@ -42,11 +42,11 @@ typeof(ExtractVisionLlmOcrModule),
 ```csharp
 // The vision model CANNOT fall back to ChatModelId — the main chat model (e.g. DeepSeek-V3)
 // may not be vision-capable. Require an explicit id and fail fast if missing.
-var visionModelId = configuration["Extract:VisionOcrModelId"];
+var visionModelId = configuration["Vault:Extract:VisionOcrModelId"];
 if (string.IsNullOrWhiteSpace(visionModelId))
 {
     throw new AbpException(
-        "VisionLlm OCR is enabled but Extract:VisionOcrModelId is not set.");
+        "VisionLlm OCR is enabled but Vault:Extract:VisionOcrModelId is not set.");
 }
 context.Services.AddKeyedChatClient(
     VisionLlmOcrConsts.VisionChatClientKey,
@@ -55,11 +55,13 @@ context.Services.AddKeyedChatClient(
     .UseLogging();
 ```
 
-**4. Configure the model** — in `appsettings.Development.json` / env vars (reuses the existing `Extract:Endpoint` + `ApiKey`; Qwen3-VL and the chat model can share one SiliconFlow endpoint/key):
+**4. Configure the model** — in `appsettings.Development.json` / env vars (reuses the existing `Vault:Extract:Endpoint` + `ApiKey`; Qwen3-VL and the chat model can share one SiliconFlow endpoint/key):
 
 ```json
-"Extract": {
-  "VisionOcrModelId": "Qwen/Qwen3-VL-8B-Instruct"
+"Vault": {
+  "Extract": {
+    "VisionOcrModelId": "Qwen/Qwen3-VL-8B-Instruct"
+  }
 }
 ```
 

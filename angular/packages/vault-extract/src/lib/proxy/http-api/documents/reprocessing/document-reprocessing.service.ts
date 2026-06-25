@@ -13,7 +13,7 @@ export class DocumentReprocessingService {
   previewFieldExtraction = (documentTypeId: string, config?: Partial<Rest.Config>) =>
     this.restService.request<any, FieldReextractionPreviewDto>({
       method: 'GET',
-      url: '/api/extract/document-reprocessing/field-extraction/preview',
+      url: '/api/vault-extract/document-reprocessing/field-extraction/preview',
       params: { documentTypeId },
     },
     { apiName: this.apiName,...config });
@@ -22,7 +22,7 @@ export class DocumentReprocessingService {
   previewReclassification = (input: ReclassificationScopeInput, config?: Partial<Rest.Config>) =>
     this.restService.request<any, ReclassificationPreviewDto>({
       method: 'POST',
-      url: '/api/extract/document-reprocessing/reclassification/preview',
+      url: '/api/vault-extract/document-reprocessing/reclassification/preview',
       body: input,
     },
     { apiName: this.apiName,...config });
@@ -31,7 +31,7 @@ export class DocumentReprocessingService {
   startFieldExtraction = (input: StartFieldReextractionInput, config?: Partial<Rest.Config>) =>
     this.restService.request<any, ReprocessingStartResultDto>({
       method: 'POST',
-      url: '/api/extract/document-reprocessing/field-extraction',
+      url: '/api/vault-extract/document-reprocessing/field-extraction',
       body: input,
     },
     { apiName: this.apiName,...config });
@@ -40,7 +40,7 @@ export class DocumentReprocessingService {
   startReclassification = (input: ReclassificationScopeInput, config?: Partial<Rest.Config>) =>
     this.restService.request<any, ReprocessingStartResultDto>({
       method: 'POST',
-      url: '/api/extract/document-reprocessing/reclassification',
+      url: '/api/vault-extract/document-reprocessing/reclassification',
       body: input,
     },
     { apiName: this.apiName,...config });

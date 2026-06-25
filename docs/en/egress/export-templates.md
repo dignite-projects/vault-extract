@@ -47,7 +47,7 @@ Two paths, both backed by the same `IExportTemplateAppService.ExportAsync`:
 
 - **Tenant isolation** is enforced by ABP's ambient `IMultiTenant` global filter on the `Documents` query (issue #206), per the `CLAUDE.md` security conventions.
 - **Per-export document cap** (`ExportTemplateConsts.MaxExportDocumentCount`, default 10000): if the selection matches more rows than the cap, the export **fails** (`ExportDocumentLimitExceeded`) rather than silently truncating — for accounting data, dropping vouchers is more dangerous than an error. Narrow the filter or select fewer documents.
-- Permissions: managing templates needs `Extract.Documents.Templates.*`; running an export needs `Extract.Documents.Export`.
+- Permissions: managing templates needs `VaultExtract.Documents.Templates.*`; running an export needs `VaultExtract.Documents.Export`.
 
 ## Example: composing a freee-style import CSV
 

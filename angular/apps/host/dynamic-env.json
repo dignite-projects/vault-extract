@@ -1,20 +1,20 @@
 {
   "production": true,
   "application": {
-    "baseUrl":"https://extract-web",
+    "baseUrl":"https://vault-extract-web",
     "name": "Dignite Vault Extract",
     "logoUrl": ""
   },
   "oAuthConfig": {
-    "issuer": "https://extract-api/",
-    "redirectUri": "https://extract-web",
-    "clientId": "Extract_App",
+    "issuer": "https://vault-extract-api/",
+    "redirectUri": "https://vault-extract-web",
+    "clientId": "VaultExtract_App",
     "responseType": "code",
-    "scope": "offline_access openid profile email phone Extract"
+    "scope": "offline_access openid profile email phone VaultExtract"
   },
   "apis": {
     "default": {
-      "url": "https://extract-api",
+      "url": "https://vault-extract-api",
       "rootNamespace": "Dignite.Vault.Extract"
     }
   }

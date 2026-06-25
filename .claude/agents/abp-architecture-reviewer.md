@@ -101,7 +101,7 @@ This is one of the easiest areas to get wrong in this project. See `.claude/skil
 
 - `core/src/Dignite.Vault.Extract.Domain/Documents/Document.cs`
 - `core/src/Dignite.Vault.Extract.Application.Contracts/Documents/DocumentDto.cs`
-- EF Core configuration or migrations touching the `ExtractDocuments` table
+- EF Core configuration or migrations touching the `VaultDocuments` table
 
 then invoke the `abp-document-boundary-check` skill, or perform the equivalent check yourself. Any suspicious business field, such as contract amount, invoice number, or expiration date, should be marked as a 🔴 hard violation.
 

@@ -464,55 +464,6 @@ namespace Dignite.Vault.Extract.Host.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "ExtractCabinets",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    Name = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
-                    Description = table.Column<string>(type: "nvarchar(512)", maxLength: 512, nullable: true),
-                    ExtraProperties = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    ConcurrencyStamp = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
-                    CreationTime = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    CreatorId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    LastModificationTime = table.Column<DateTime>(type: "datetime2", nullable: true),
-                    LastModifierId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    IsDeleted = table.Column<bool>(type: "bit", nullable: false, defaultValue: false),
-                    DeleterId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    DeletionTime = table.Column<DateTime>(type: "datetime2", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_ExtractCabinets", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "ExtractDocumentTypes",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    TypeCode = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
-                    DisplayName = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
-                    Description = table.Column<string>(type: "nvarchar(512)", maxLength: 512, nullable: true),
-                    ConfidenceThreshold = table.Column<double>(type: "float", nullable: false),
-                    Priority = table.Column<int>(type: "int", nullable: false),
-                    ExtraProperties = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    ConcurrencyStamp = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
-                    CreationTime = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    CreatorId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    LastModificationTime = table.Column<DateTime>(type: "datetime2", nullable: true),
-                    LastModifierId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    IsDeleted = table.Column<bool>(type: "bit", nullable: false, defaultValue: false),
-                    DeleterId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    DeletionTime = table.Column<DateTime>(type: "datetime2", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_ExtractDocumentTypes", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "OpenIddictApplications",
                 columns: table => new
                 {
@@ -574,6 +525,55 @@ namespace Dignite.Vault.Extract.Host.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_OpenIddictScopes", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "VaultCabinets",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    Name = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
+                    Description = table.Column<string>(type: "nvarchar(512)", maxLength: 512, nullable: true),
+                    ExtraProperties = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    ConcurrencyStamp = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
+                    CreationTime = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    CreatorId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    LastModificationTime = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    LastModifierId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    IsDeleted = table.Column<bool>(type: "bit", nullable: false, defaultValue: false),
+                    DeleterId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    DeletionTime = table.Column<DateTime>(type: "datetime2", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_VaultCabinets", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "VaultDocumentTypes",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    TypeCode = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
+                    DisplayName = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
+                    Description = table.Column<string>(type: "nvarchar(512)", maxLength: 512, nullable: true),
+                    ConfidenceThreshold = table.Column<double>(type: "float", nullable: false),
+                    Priority = table.Column<int>(type: "int", nullable: false),
+                    ExtraProperties = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    ConcurrencyStamp = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
+                    CreationTime = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    CreatorId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    LastModificationTime = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    LastModifierId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    IsDeleted = table.Column<bool>(type: "bit", nullable: false, defaultValue: false),
+                    DeleterId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    DeletionTime = table.Column<DateTime>(type: "datetime2", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_VaultDocumentTypes", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -830,125 +830,6 @@ namespace Dignite.Vault.Extract.Host.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "ExtractDocuments",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    FileOrigin_BlobName = table.Column<string>(type: "nvarchar(512)", maxLength: 512, nullable: false),
-                    FileOrigin_UploadedByUserName = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: false),
-                    FileOrigin_OriginalFileName = table.Column<string>(type: "nvarchar(512)", maxLength: 512, nullable: true),
-                    FileOrigin_ContentType = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: false),
-                    FileOrigin_ContentHash = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false),
-                    FileOrigin_FileSize = table.Column<long>(type: "bigint", nullable: false),
-                    CabinetId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    DocumentTypeId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    LifecycleStatus = table.Column<int>(type: "int", nullable: false),
-                    ReviewDisposition = table.Column<int>(type: "int", nullable: false),
-                    ReviewReasons = table.Column<int>(type: "int", nullable: false),
-                    Markdown = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    Title = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
-                    ClassificationConfidence = table.Column<double>(type: "float", nullable: false),
-                    RejectionReason = table.Column<string>(type: "nvarchar(2048)", maxLength: 2048, nullable: true),
-                    Language = table.Column<string>(type: "nvarchar(16)", maxLength: 16, nullable: true),
-                    ExtractionMetadata = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    IsContainer = table.Column<bool>(type: "bit", nullable: false),
-                    IsSegmented = table.Column<bool>(type: "bit", nullable: false),
-                    OriginDocumentId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    OriginConstituentKey = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: true),
-                    ExtraProperties = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    ConcurrencyStamp = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
-                    CreationTime = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    CreatorId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    LastModificationTime = table.Column<DateTime>(type: "datetime2", nullable: true),
-                    LastModifierId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    IsDeleted = table.Column<bool>(type: "bit", nullable: false, defaultValue: false),
-                    DeleterId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    DeletionTime = table.Column<DateTime>(type: "datetime2", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_ExtractDocuments", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_ExtractDocuments_ExtractCabinets_CabinetId",
-                        column: x => x.CabinetId,
-                        principalTable: "ExtractCabinets",
-                        principalColumn: "Id");
-                    table.ForeignKey(
-                        name: "FK_ExtractDocuments_ExtractDocumentTypes_DocumentTypeId",
-                        column: x => x.DocumentTypeId,
-                        principalTable: "ExtractDocumentTypes",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Restrict);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "ExtractExportTemplates",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    Name = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
-                    Format = table.Column<int>(type: "int", nullable: false),
-                    DocumentTypeId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    Columns = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    ExtraProperties = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    ConcurrencyStamp = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
-                    CreationTime = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    CreatorId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    LastModificationTime = table.Column<DateTime>(type: "datetime2", nullable: true),
-                    LastModifierId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    IsDeleted = table.Column<bool>(type: "bit", nullable: false, defaultValue: false),
-                    DeleterId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    DeletionTime = table.Column<DateTime>(type: "datetime2", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_ExtractExportTemplates", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_ExtractExportTemplates_ExtractDocumentTypes_DocumentTypeId",
-                        column: x => x.DocumentTypeId,
-                        principalTable: "ExtractDocumentTypes",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Restrict);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "ExtractFieldDefinitions",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    DocumentTypeId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    Name = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false),
-                    DisplayName = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
-                    Prompt = table.Column<string>(type: "nvarchar(1024)", maxLength: 1024, nullable: true),
-                    DataType = table.Column<int>(type: "int", nullable: false),
-                    DisplayOrder = table.Column<int>(type: "int", nullable: false),
-                    IsRequired = table.Column<bool>(type: "bit", nullable: false),
-                    AllowMultiple = table.Column<bool>(type: "bit", nullable: false),
-                    ExtraProperties = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    ConcurrencyStamp = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
-                    CreationTime = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    CreatorId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    LastModificationTime = table.Column<DateTime>(type: "datetime2", nullable: true),
-                    LastModifierId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    IsDeleted = table.Column<bool>(type: "bit", nullable: false, defaultValue: false),
-                    DeleterId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    DeletionTime = table.Column<DateTime>(type: "datetime2", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_ExtractFieldDefinitions", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_ExtractFieldDefinitions_ExtractDocumentTypes_DocumentTypeId",
-                        column: x => x.DocumentTypeId,
-                        principalTable: "ExtractDocumentTypes",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Restrict);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "OpenIddictAuthorizations",
                 columns: table => new
                 {
@@ -974,6 +855,128 @@ namespace Dignite.Vault.Extract.Host.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "VaultDocuments",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    FileOrigin_BlobName = table.Column<string>(type: "nvarchar(512)", maxLength: 512, nullable: true),
+                    FileOrigin_UploadedByUserName = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
+                    FileOrigin_OriginalFileName = table.Column<string>(type: "nvarchar(512)", maxLength: 512, nullable: true),
+                    FileOrigin_ContentType = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
+                    FileOrigin_ContentHash = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: true),
+                    FileOrigin_FileSize = table.Column<long>(type: "bigint", nullable: true),
+                    CabinetId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    DocumentTypeId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    LifecycleStatus = table.Column<int>(type: "int", nullable: false),
+                    ReviewDisposition = table.Column<int>(type: "int", nullable: false),
+                    ReviewReasons = table.Column<int>(type: "int", nullable: false),
+                    Markdown = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    Title = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
+                    ClassificationConfidence = table.Column<double>(type: "float", nullable: false),
+                    RejectionReason = table.Column<string>(type: "nvarchar(2048)", maxLength: 2048, nullable: true),
+                    Language = table.Column<string>(type: "nvarchar(16)", maxLength: 16, nullable: true),
+                    ExtractionMetadata = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    FieldFingerprint = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: true),
+                    DuplicateAllowed = table.Column<bool>(type: "bit", nullable: false),
+                    IsContainer = table.Column<bool>(type: "bit", nullable: false),
+                    IsSegmented = table.Column<bool>(type: "bit", nullable: false),
+                    OriginDocumentId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    OriginConstituentKey = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: true),
+                    ExtraProperties = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    ConcurrencyStamp = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
+                    CreationTime = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    CreatorId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    LastModificationTime = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    LastModifierId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    IsDeleted = table.Column<bool>(type: "bit", nullable: false, defaultValue: false),
+                    DeleterId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    DeletionTime = table.Column<DateTime>(type: "datetime2", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_VaultDocuments", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_VaultDocuments_VaultCabinets_CabinetId",
+                        column: x => x.CabinetId,
+                        principalTable: "VaultCabinets",
+                        principalColumn: "Id");
+                    table.ForeignKey(
+                        name: "FK_VaultDocuments_VaultDocumentTypes_DocumentTypeId",
+                        column: x => x.DocumentTypeId,
+                        principalTable: "VaultDocumentTypes",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "VaultExportTemplates",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    Name = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
+                    Format = table.Column<int>(type: "int", nullable: false),
+                    DocumentTypeId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Columns = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    ExtraProperties = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    ConcurrencyStamp = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
+                    CreationTime = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    CreatorId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    LastModificationTime = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    LastModifierId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    IsDeleted = table.Column<bool>(type: "bit", nullable: false, defaultValue: false),
+                    DeleterId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    DeletionTime = table.Column<DateTime>(type: "datetime2", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_VaultExportTemplates", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_VaultExportTemplates_VaultDocumentTypes_DocumentTypeId",
+                        column: x => x.DocumentTypeId,
+                        principalTable: "VaultDocumentTypes",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "VaultFieldDefinitions",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    DocumentTypeId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Name = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false),
+                    DisplayName = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
+                    Prompt = table.Column<string>(type: "nvarchar(1024)", maxLength: 1024, nullable: true),
+                    DataType = table.Column<int>(type: "int", nullable: false),
+                    DisplayOrder = table.Column<int>(type: "int", nullable: false),
+                    IsRequired = table.Column<bool>(type: "bit", nullable: false),
+                    AllowMultiple = table.Column<bool>(type: "bit", nullable: false),
+                    IsUniqueKey = table.Column<bool>(type: "bit", nullable: false),
+                    ExtraProperties = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    ConcurrencyStamp = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
+                    CreationTime = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    CreatorId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    LastModificationTime = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    LastModifierId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    IsDeleted = table.Column<bool>(type: "bit", nullable: false, defaultValue: false),
+                    DeleterId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    DeletionTime = table.Column<DateTime>(type: "datetime2", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_VaultFieldDefinitions", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_VaultFieldDefinitions_VaultDocumentTypes_DocumentTypeId",
+                        column: x => x.DocumentTypeId,
+                        principalTable: "VaultDocumentTypes",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "AbpEntityPropertyChanges",
                 columns: table => new
                 {
@@ -994,95 +997,6 @@ namespace Dignite.Vault.Extract.Host.Migrations
                         principalTable: "AbpEntityChanges",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "ExtractDocumentPipelineRuns",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    DocumentId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    PipelineCode = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
-                    Status = table.Column<int>(type: "int", nullable: false),
-                    AttemptNumber = table.Column<int>(type: "int", nullable: false),
-                    StartedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    CompletedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
-                    StatusMessage = table.Column<string>(type: "nvarchar(2048)", maxLength: 2048, nullable: true),
-                    ExtraProperties = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    ConcurrencyStamp = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_ExtractDocumentPipelineRuns", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_ExtractDocumentPipelineRuns_ExtractDocuments_DocumentId",
-                        column: x => x.DocumentId,
-                        principalTable: "ExtractDocuments",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "ExtractDocumentSegments",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    SourceDocumentId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    SegmentKey = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false),
-                    SliceText = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    Ordinal = table.Column<int>(type: "int", nullable: false),
-                    Kind = table.Column<int>(type: "int", nullable: false),
-                    PageNumber = table.Column<int>(type: "int", nullable: true),
-                    RoutedDocumentId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    Status = table.Column<int>(type: "int", nullable: false),
-                    ExtraProperties = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    ConcurrencyStamp = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
-                    CreationTime = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    CreatorId = table.Column<Guid>(type: "uniqueidentifier", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_ExtractDocumentSegments", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_ExtractDocumentSegments_ExtractDocuments_SourceDocumentId",
-                        column: x => x.SourceDocumentId,
-                        principalTable: "ExtractDocuments",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "ExtractDocumentExtractedFields",
-                columns: table => new
-                {
-                    DocumentId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    FieldDefinitionId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    Order = table.Column<int>(type: "int", nullable: false),
-                    TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    TextValue = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
-                    BooleanValue = table.Column<bool>(type: "bit", nullable: true),
-                    NumberValue = table.Column<decimal>(type: "decimal(38,6)", precision: 38, scale: 6, nullable: true),
-                    DateValue = table.Column<DateOnly>(type: "date", nullable: true),
-                    DateTimeValue = table.Column<DateTime>(type: "datetime2", nullable: true),
-                    LongTextValue = table.Column<string>(type: "nvarchar(max)", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_ExtractDocumentExtractedFields", x => new { x.DocumentId, x.FieldDefinitionId, x.Order });
-                    table.ForeignKey(
-                        name: "FK_ExtractDocumentExtractedFields_ExtractDocuments_DocumentId",
-                        column: x => x.DocumentId,
-                        principalTable: "ExtractDocuments",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "FK_ExtractDocumentExtractedFields_ExtractFieldDefinitions_FieldDefinitionId",
-                        column: x => x.FieldDefinitionId,
-                        principalTable: "ExtractFieldDefinitions",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
@@ -1117,6 +1031,95 @@ namespace Dignite.Vault.Extract.Host.Migrations
                         column: x => x.AuthorizationId,
                         principalTable: "OpenIddictAuthorizations",
                         principalColumn: "Id");
+                });
+
+            migrationBuilder.CreateTable(
+                name: "VaultDocumentPipelineRuns",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    DocumentId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    PipelineCode = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
+                    Status = table.Column<int>(type: "int", nullable: false),
+                    AttemptNumber = table.Column<int>(type: "int", nullable: false),
+                    StartedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    CompletedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    StatusMessage = table.Column<string>(type: "nvarchar(2048)", maxLength: 2048, nullable: true),
+                    ExtraProperties = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    ConcurrencyStamp = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_VaultDocumentPipelineRuns", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_VaultDocumentPipelineRuns_VaultDocuments_DocumentId",
+                        column: x => x.DocumentId,
+                        principalTable: "VaultDocuments",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "VaultDocumentSegments",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    SourceDocumentId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    SegmentKey = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false),
+                    SliceText = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    Ordinal = table.Column<int>(type: "int", nullable: false),
+                    Kind = table.Column<int>(type: "int", nullable: false),
+                    PageNumber = table.Column<int>(type: "int", nullable: true),
+                    RoutedDocumentId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    Status = table.Column<int>(type: "int", nullable: false),
+                    ExtraProperties = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    ConcurrencyStamp = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
+                    CreationTime = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    CreatorId = table.Column<Guid>(type: "uniqueidentifier", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_VaultDocumentSegments", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_VaultDocumentSegments_VaultDocuments_SourceDocumentId",
+                        column: x => x.SourceDocumentId,
+                        principalTable: "VaultDocuments",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "VaultDocumentExtractedFields",
+                columns: table => new
+                {
+                    DocumentId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    FieldDefinitionId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Order = table.Column<int>(type: "int", nullable: false),
+                    TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    TextValue = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
+                    BooleanValue = table.Column<bool>(type: "bit", nullable: true),
+                    NumberValue = table.Column<decimal>(type: "decimal(38,6)", precision: 38, scale: 6, nullable: true),
+                    DateValue = table.Column<DateOnly>(type: "date", nullable: true),
+                    DateTimeValue = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    LongTextValue = table.Column<string>(type: "nvarchar(max)", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_VaultDocumentExtractedFields", x => new { x.DocumentId, x.FieldDefinitionId, x.Order });
+                    table.ForeignKey(
+                        name: "FK_VaultDocumentExtractedFields_VaultDocuments_DocumentId",
+                        column: x => x.DocumentId,
+                        principalTable: "VaultDocuments",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_VaultDocumentExtractedFields_VaultFieldDefinitions_FieldDefinitionId",
+                        column: x => x.FieldDefinitionId,
+                        principalTable: "VaultFieldDefinitions",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateIndex(
@@ -1356,111 +1359,6 @@ namespace Dignite.Vault.Extract.Host.Migrations
                 column: "UserName");
 
             migrationBuilder.CreateIndex(
-                name: "IX_ExtractDocumentExtractedFields_FieldDefinitionId",
-                table: "ExtractDocumentExtractedFields",
-                column: "FieldDefinitionId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ExtractDocumentExtractedFields_TenantId_FieldDefinitionId_DateTimeValue_DocumentId",
-                table: "ExtractDocumentExtractedFields",
-                columns: new[] { "TenantId", "FieldDefinitionId", "DateTimeValue", "DocumentId" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ExtractDocumentExtractedFields_TenantId_FieldDefinitionId_DateValue_DocumentId",
-                table: "ExtractDocumentExtractedFields",
-                columns: new[] { "TenantId", "FieldDefinitionId", "DateValue", "DocumentId" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ExtractDocumentExtractedFields_TenantId_FieldDefinitionId_NumberValue_DocumentId",
-                table: "ExtractDocumentExtractedFields",
-                columns: new[] { "TenantId", "FieldDefinitionId", "NumberValue", "DocumentId" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ExtractDocumentExtractedFields_TenantId_FieldDefinitionId_TextValue_DocumentId",
-                table: "ExtractDocumentExtractedFields",
-                columns: new[] { "TenantId", "FieldDefinitionId", "TextValue", "DocumentId" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ExtractDocumentPipelineRuns_DocumentId_PipelineCode_AttemptNumber",
-                table: "ExtractDocumentPipelineRuns",
-                columns: new[] { "DocumentId", "PipelineCode", "AttemptNumber" },
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ExtractDocuments_CabinetId",
-                table: "ExtractDocuments",
-                column: "CabinetId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ExtractDocuments_CreationTime",
-                table: "ExtractDocuments",
-                column: "CreationTime");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ExtractDocuments_DocumentTypeId",
-                table: "ExtractDocuments",
-                column: "DocumentTypeId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ExtractDocuments_FileOrigin_BlobName",
-                table: "ExtractDocuments",
-                column: "FileOrigin_BlobName");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ExtractDocuments_FileOrigin_ContentHash",
-                table: "ExtractDocuments",
-                column: "FileOrigin_ContentHash");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ExtractDocuments_LifecycleStatus",
-                table: "ExtractDocuments",
-                column: "LifecycleStatus");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ExtractDocuments_OriginDocumentId_OriginConstituentKey",
-                table: "ExtractDocuments",
-                columns: new[] { "OriginDocumentId", "OriginConstituentKey" },
-                unique: true,
-                filter: "[OriginDocumentId] IS NOT NULL");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ExtractDocuments_ReviewDisposition",
-                table: "ExtractDocuments",
-                column: "ReviewDisposition");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ExtractDocuments_TenantId_DocumentTypeId",
-                table: "ExtractDocuments",
-                columns: new[] { "TenantId", "DocumentTypeId" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ExtractDocumentSegments_SourceDocumentId_Ordinal",
-                table: "ExtractDocumentSegments",
-                columns: new[] { "SourceDocumentId", "Ordinal" },
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ExtractDocumentSegments_SourceDocumentId_SegmentKey",
-                table: "ExtractDocumentSegments",
-                columns: new[] { "SourceDocumentId", "SegmentKey" },
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ExtractExportTemplates_DocumentTypeId",
-                table: "ExtractExportTemplates",
-                column: "DocumentTypeId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ExtractFieldDefinitions_DocumentTypeId",
-                table: "ExtractFieldDefinitions",
-                column: "DocumentTypeId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_ExtractFieldDefinitions_TenantId_DocumentTypeId",
-                table: "ExtractFieldDefinitions",
-                columns: new[] { "TenantId", "DocumentTypeId" });
-
-            migrationBuilder.CreateIndex(
                 name: "IX_OpenIddictApplications_ClientId",
                 table: "OpenIddictApplications",
                 column: "ClientId");
@@ -1489,6 +1387,116 @@ namespace Dignite.Vault.Extract.Host.Migrations
                 name: "IX_OpenIddictTokens_ReferenceId",
                 table: "OpenIddictTokens",
                 column: "ReferenceId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_VaultDocumentExtractedFields_FieldDefinitionId",
+                table: "VaultDocumentExtractedFields",
+                column: "FieldDefinitionId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_VaultDocumentExtractedFields_TenantId_FieldDefinitionId_DateTimeValue_DocumentId",
+                table: "VaultDocumentExtractedFields",
+                columns: new[] { "TenantId", "FieldDefinitionId", "DateTimeValue", "DocumentId" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_VaultDocumentExtractedFields_TenantId_FieldDefinitionId_DateValue_DocumentId",
+                table: "VaultDocumentExtractedFields",
+                columns: new[] { "TenantId", "FieldDefinitionId", "DateValue", "DocumentId" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_VaultDocumentExtractedFields_TenantId_FieldDefinitionId_NumberValue_DocumentId",
+                table: "VaultDocumentExtractedFields",
+                columns: new[] { "TenantId", "FieldDefinitionId", "NumberValue", "DocumentId" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_VaultDocumentExtractedFields_TenantId_FieldDefinitionId_TextValue_DocumentId",
+                table: "VaultDocumentExtractedFields",
+                columns: new[] { "TenantId", "FieldDefinitionId", "TextValue", "DocumentId" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_VaultDocumentPipelineRuns_DocumentId_PipelineCode_AttemptNumber",
+                table: "VaultDocumentPipelineRuns",
+                columns: new[] { "DocumentId", "PipelineCode", "AttemptNumber" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_VaultDocuments_CabinetId",
+                table: "VaultDocuments",
+                column: "CabinetId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_VaultDocuments_CreationTime",
+                table: "VaultDocuments",
+                column: "CreationTime");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_VaultDocuments_DocumentTypeId",
+                table: "VaultDocuments",
+                column: "DocumentTypeId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_VaultDocuments_FileOrigin_BlobName",
+                table: "VaultDocuments",
+                column: "FileOrigin_BlobName");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_VaultDocuments_FileOrigin_ContentHash",
+                table: "VaultDocuments",
+                column: "FileOrigin_ContentHash");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_VaultDocuments_LifecycleStatus",
+                table: "VaultDocuments",
+                column: "LifecycleStatus");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_VaultDocuments_OriginDocumentId_OriginConstituentKey",
+                table: "VaultDocuments",
+                columns: new[] { "OriginDocumentId", "OriginConstituentKey" },
+                unique: true,
+                filter: "[OriginDocumentId] IS NOT NULL AND [IsDeleted] = 0");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_VaultDocuments_ReviewDisposition",
+                table: "VaultDocuments",
+                column: "ReviewDisposition");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_VaultDocuments_TenantId_DocumentTypeId",
+                table: "VaultDocuments",
+                columns: new[] { "TenantId", "DocumentTypeId" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_VaultDocuments_TenantId_DocumentTypeId_FieldFingerprint",
+                table: "VaultDocuments",
+                columns: new[] { "TenantId", "DocumentTypeId", "FieldFingerprint" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_VaultDocumentSegments_SourceDocumentId_Ordinal",
+                table: "VaultDocumentSegments",
+                columns: new[] { "SourceDocumentId", "Ordinal" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_VaultDocumentSegments_SourceDocumentId_SegmentKey",
+                table: "VaultDocumentSegments",
+                columns: new[] { "SourceDocumentId", "SegmentKey" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_VaultExportTemplates_DocumentTypeId",
+                table: "VaultExportTemplates",
+                column: "DocumentTypeId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_VaultFieldDefinitions_DocumentTypeId",
+                table: "VaultFieldDefinitions",
+                column: "DocumentTypeId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_VaultFieldDefinitions_TenantId_DocumentTypeId",
+                table: "VaultFieldDefinitions",
+                columns: new[] { "TenantId", "DocumentTypeId" });
         }
 
         /// <inheritdoc />
@@ -1582,22 +1590,22 @@ namespace Dignite.Vault.Extract.Host.Migrations
                 name: "AbpUserTokens");
 
             migrationBuilder.DropTable(
-                name: "ExtractDocumentExtractedFields");
-
-            migrationBuilder.DropTable(
-                name: "ExtractDocumentPipelineRuns");
-
-            migrationBuilder.DropTable(
-                name: "ExtractDocumentSegments");
-
-            migrationBuilder.DropTable(
-                name: "ExtractExportTemplates");
-
-            migrationBuilder.DropTable(
                 name: "OpenIddictScopes");
 
             migrationBuilder.DropTable(
                 name: "OpenIddictTokens");
+
+            migrationBuilder.DropTable(
+                name: "VaultDocumentExtractedFields");
+
+            migrationBuilder.DropTable(
+                name: "VaultDocumentPipelineRuns");
+
+            migrationBuilder.DropTable(
+                name: "VaultDocumentSegments");
+
+            migrationBuilder.DropTable(
+                name: "VaultExportTemplates");
 
             migrationBuilder.DropTable(
                 name: "AbpEntityChanges");
@@ -1612,25 +1620,25 @@ namespace Dignite.Vault.Extract.Host.Migrations
                 name: "AbpUsers");
 
             migrationBuilder.DropTable(
-                name: "ExtractFieldDefinitions");
-
-            migrationBuilder.DropTable(
-                name: "ExtractDocuments");
-
-            migrationBuilder.DropTable(
                 name: "OpenIddictAuthorizations");
+
+            migrationBuilder.DropTable(
+                name: "VaultFieldDefinitions");
+
+            migrationBuilder.DropTable(
+                name: "VaultDocuments");
 
             migrationBuilder.DropTable(
                 name: "AbpAuditLogs");
 
             migrationBuilder.DropTable(
-                name: "ExtractCabinets");
-
-            migrationBuilder.DropTable(
-                name: "ExtractDocumentTypes");
-
-            migrationBuilder.DropTable(
                 name: "OpenIddictApplications");
+
+            migrationBuilder.DropTable(
+                name: "VaultCabinets");
+
+            migrationBuilder.DropTable(
+                name: "VaultDocumentTypes");
         }
     }
 }

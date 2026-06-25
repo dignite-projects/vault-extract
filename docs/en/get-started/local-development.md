@@ -76,10 +76,12 @@ An LLM provider is **required**. The host fails fast at startup if `Extract` is 
   "StringEncryption": {
     "DefaultPassPhrase": "any-random-string-here"
   },
-  "Extract": {
-    "Endpoint": "https://api.openai.com/v1",
-    "ApiKey": "sk-...",
-    "ChatModelId": "gpt-4o-mini"
+  "Vault": {
+    "Extract": {
+      "Endpoint": "https://api.openai.com/v1",
+      "ApiKey": "sk-...",
+      "ChatModelId": "gpt-4o-mini"
+    }
   }
 }
 ```

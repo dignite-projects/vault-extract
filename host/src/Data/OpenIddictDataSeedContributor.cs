@@ -36,17 +36,17 @@ public class OpenIddictDataSeedContributor : OpenIddictDataSeedContributorBase, 
 
     private async Task CreateScopesAsync()
     {
-        // The Extract API is a SINGLE OpenIddict resource named "Extract" — this is the token
+        // The Extract API is a SINGLE OpenIddict resource named "VaultExtract" — this is the token
         // audience for every client (Angular, Swagger, and MCP alike). MCP's RFC 8707 `resource`
         // parameter does NOT introduce a second audience: the resource gates are turned off in
         // ExtractHostModule (the parameter is accepted-but-ignored), so an MCP-issued token's aud
-        // stays "Extract", matching the validation layer's AddAudiences("Extract").
+        // stays "VaultExtract", matching the validation layer's AddAudiences("VaultExtract").
         var scopeDescriptor = new OpenIddictScopeDescriptor
         {
-            Name = "Extract",
+            Name = "VaultExtract",
             DisplayName = "Extract API"
         };
-        scopeDescriptor.Resources.Add("Extract");
+        scopeDescriptor.Resources.Add("VaultExtract");
 
         await CreateScopesAsync(scopeDescriptor);
     }
@@ -60,16 +60,16 @@ public class OpenIddictDataSeedContributor : OpenIddictDataSeedContributorBase, 
             OpenIddictConstants.Permissions.Scopes.Phone,
             OpenIddictConstants.Permissions.Scopes.Profile,
             OpenIddictConstants.Permissions.Scopes.Roles,
-            "Extract"
+            "VaultExtract"
         };
 
         var configurationSection = Configuration.GetSection("OpenIddict:Applications");
 
         // Angular Client
-        var consoleAndAngularClientId = configurationSection["Extract_App:ClientId"];
+        var consoleAndAngularClientId = configurationSection["VaultExtract_App:ClientId"];
         if (!consoleAndAngularClientId.IsNullOrWhiteSpace())
         {
-            var webClientRootUrl = configurationSection["Extract_App:RootUrl"]?.TrimEnd('/');
+            var webClientRootUrl = configurationSection["VaultExtract_App:RootUrl"]?.TrimEnd('/');
             await CreateOrUpdateApplicationAsync(
                 applicationType: OpenIddictConstants.ApplicationTypes.Web,
                 name: consoleAndAngularClientId,
@@ -93,10 +93,10 @@ public class OpenIddictDataSeedContributor : OpenIddictDataSeedContributorBase, 
         }
 
         // Swagger Client
-        var swaggerClientId = configurationSection["Extract_Swagger:ClientId"];
+        var swaggerClientId = configurationSection["VaultExtract_Swagger:ClientId"];
         if (!swaggerClientId.IsNullOrWhiteSpace())
         {
-            var swaggerRootUrl = configurationSection["Extract_Swagger:RootUrl"]?.TrimEnd('/');
+            var swaggerRootUrl = configurationSection["VaultExtract_Swagger:RootUrl"]?.TrimEnd('/');
 
             await CreateOrUpdateApplicationAsync(
                 applicationType: OpenIddictConstants.ApplicationTypes.Web,
@@ -129,14 +129,14 @@ public class OpenIddictDataSeedContributor : OpenIddictDataSeedContributorBase, 
         // then matches any ephemeral port http://127.0.0.1:<port>/oauth/callback (scheme/host/path/query/
         // fragment must still be byte-equal; only the port is relaxed, and only for loopback hosts). Native
         // desktop clients bind a random loopback port, so this single preset client covers them all.
-        // Web/default-type clients (Extract_App / Extract_Swagger above) do NOT get this relaxation.
+        // Web/default-type clients (VaultExtract_App / VaultExtract_Swagger above) do NOT get this relaxation.
         //
         // ConsentType is Explicit: this is a PUBLIC client whose client_id is published and non-secret, so
         // any application can present it. We require an interactive consent screen rather than silently
         // issuing tokens (OAuth 2.1 BCP for public clients). Data access stays gated fail-closed by the
         // logged-in user's Extract.Documents permission — the auth-code flow logs in a user, and the
         // client itself holds no data permission.
-        var mcpClientId = configurationSection["Extract_Mcp:ClientId"];
+        var mcpClientId = configurationSection["VaultExtract_Mcp:ClientId"];
         if (!mcpClientId.IsNullOrWhiteSpace())
         {
             // REDIRECT URIS are split by environment to keep the production surface minimal:
@@ -144,7 +144,7 @@ public class OpenIddictDataSeedContributor : OpenIddictDataSeedContributorBase, 
             //     the one redirect_uri a deployed host actually serves.
             //   • Dev-only loopback callbacks are NOT seeded (dead attack surface on a production client).
             //     Each developer lists them in appsettings.Development.json (gitignored) under
-            //     OpenIddict:Applications:Extract_Mcp:RedirectUris.
+            //     OpenIddict:Applications:VaultExtract_Mcp:RedirectUris.
             // That override REPLACES the default, and ASP.NET Core merges config arrays by index (not as a
             // union), so the dev list must be COMPLETE — every loopback below PLUS the claude.ai entry.
             // Researched dev set (verified against each client's source, #281; loopback ports are relaxed
@@ -156,7 +156,7 @@ public class OpenIddictDataSeedContributor : OpenIddictDataSeedContributorBase, 
             //   https://claude.ai/api/mcp/auth_callback → Claude.ai / Claude Desktop / mobile (fixed hosted callback)
             // Cursor (custom cursor:// scheme) still needs adding if used. See docs/en/egress/mcp-server.md.
             var mcpRedirectUris = configurationSection
-                .GetSection("Extract_Mcp:RedirectUris")
+                .GetSection("VaultExtract_Mcp:RedirectUris")
                 .Get<List<string>>();
 
             if (mcpRedirectUris == null || mcpRedirectUris.Count == 0)
@@ -179,7 +179,7 @@ public class OpenIddictDataSeedContributor : OpenIddictDataSeedContributorBase, 
                     OpenIddictConstants.GrantTypes.AuthorizationCode,
                     OpenIddictConstants.GrantTypes.RefreshToken
                 },
-                // Mirror the advertised resource metadata (scopes_supported: ["Extract"]) plus minimal
+                // Mirror the advertised resource metadata (scopes_supported: ["VaultExtract"]) plus minimal
                 // OIDC identity scopes for the interactive login. Address/Phone/Roles are intentionally
                 // omitted (least privilege + a clean Explicit-consent screen). openid is implicit in
                 // OpenIddict and needs no scope permission; offline_access is gated by the RefreshToken
@@ -188,7 +188,7 @@ public class OpenIddictDataSeedContributor : OpenIddictDataSeedContributorBase, 
                 {
                     OpenIddictConstants.Permissions.Scopes.Profile,
                     OpenIddictConstants.Permissions.Scopes.Email,
-                    "Extract"
+                    "VaultExtract"
                 },
                 redirectUris: mcpRedirectUris
             );

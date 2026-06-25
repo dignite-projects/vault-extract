@@ -13,7 +13,7 @@ export class DocumentPipelineRunService {
   getList = (documentId: string, config?: Partial<Rest.Config>) =>
     this.restService.request<any, DocumentPipelineRunDto[]>({
       method: 'GET',
-      url: '/api/extract/document-pipeline-runs',
+      url: '/api/vault-extract/document-pipeline-runs',
       params: { documentId },
     },
     { apiName: this.apiName,...config });

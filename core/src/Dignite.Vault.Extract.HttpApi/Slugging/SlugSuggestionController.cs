@@ -5,8 +5,8 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Dignite.Vault.Extract.HttpApi.Slugging;
 
-[Area("extract")]
-[Route("api/extract/slug-suggestion")]
+[Area("vault-extract")]
+[Route("api/vault-extract/slug-suggestion")]
 public class SlugSuggestionController : ExtractController, ISlugSuggestionAppService
 {
     private readonly ISlugSuggestionAppService _slugSuggestionAppService;

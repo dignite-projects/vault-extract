@@ -44,7 +44,7 @@ Place `openiddict.pfx` in the host working directory and configure:
 ```json
 "AuthServer": {
   "Authority": "https://your-host.example.com",
-  "SwaggerClientId": "Extract_Swagger",
+  "SwaggerClientId": "VaultExtract_Swagger",
   "CertificatePassPhrase": "<your-certificate-passphrase>"
 }
 ```
@@ -85,8 +85,8 @@ The keyed `IChatClient` registrations (title generator + structured, plus a visi
 
 The deployment Docker Compose layout in `host/etc/docker/docker-compose.yml` wires:
 
-- `extract-web` — Angular SPA
-- `extract-api` — ASP.NET Core API
+- `vault-extract-web` — Angular SPA
+- `vault-extract-api` — ASP.NET Core API
 - `db-migrator` — runs `dotnet run --migrate-database` once at startup
 - `sql-server` — SQL Server (Azure SQL Edge image for local-equivalent dev)
 

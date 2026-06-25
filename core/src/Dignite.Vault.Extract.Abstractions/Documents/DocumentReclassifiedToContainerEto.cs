@@ -21,7 +21,7 @@ namespace Dignite.Vault.Extract.Abstractions.Documents;
 /// <c>(DocumentId, EventType, EventTime)</c>.
 /// </para>
 /// </summary>
-[EventName("Extract.Document.ReclassifiedToContainer")]
+[EventName("VaultExtract.Document.ReclassifiedToContainer")]
 public class DocumentReclassifiedToContainerEto
 {
     public string Version { get; init; } = "1.0";

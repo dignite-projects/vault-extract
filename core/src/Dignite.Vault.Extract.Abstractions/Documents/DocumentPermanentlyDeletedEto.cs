@@ -14,7 +14,7 @@ namespace Dignite.Vault.Extract.Abstractions.Documents;
 /// marked <c>required</c>.
 /// </para>
 /// </summary>
-[EventName("Extract.Document.PermanentlyDeleted")]
+[EventName("VaultExtract.Document.PermanentlyDeleted")]
 public class DocumentPermanentlyDeletedEto
 {
     public string Version { get; init; } = "1.0";

@@ -36,7 +36,7 @@ namespace Dignite.Vault.Extract.Documents.Cabinets;
 /// exception itself is swallowed, leaving the document uncategorized.
 /// </para>
 /// </summary>
-[BackgroundJobName("Extract.DocumentCabinetSuggestion")]
+[BackgroundJobName("VaultExtract.DocumentCabinetSuggestion")]
 public class DocumentCabinetSuggestionBackgroundJob
     : AsyncBackgroundJob<DocumentCabinetSuggestionJobArgs>, ITransientDependency
 {

@@ -68,7 +68,7 @@ jobs:
         run: dotnet test host/test/Dignite.Vault.Extract.Host.Tests/Dignite.Vault.Extract.Host.Tests.csproj --no-build --configuration Release --verbosity normal
 
       - name: Build Docker image
-        run: docker build -f host/Dockerfile -t extract-api:${{ github.sha }} .
+        run: docker build -f host/Dockerfile -t vault-extract-api:${{ github.sha }} .
         if: github.event_name == 'push'
 
   build-angular:
@@ -111,6 +111,6 @@ jobs:
       # step above has already produced dist/host/browser; this step only packages and does not push.
       # Build context = angular/.
       - name: Build Angular Docker image
-        run: docker build -f apps/host/Dockerfile.local -t extract-web:${{ github.sha }} .
+        run: docker build -f apps/host/Dockerfile.local -t vault-extract-web:${{ github.sha }} .
         working-directory: angular
         if: github.event_name == 'push'

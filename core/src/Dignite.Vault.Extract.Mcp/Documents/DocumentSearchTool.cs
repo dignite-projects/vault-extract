@@ -27,15 +27,15 @@ namespace Dignite.Vault.Extract.Mcp.Documents;
 [McpServerToolType]
 public sealed class DocumentSearchTool
 {
-    [McpServerTool(Name = "search_extract_documents", Title = "Search Documents", ReadOnly = true)]
+    [McpServerTool(Name = "search_documents", Title = "Search Documents", ReadOnly = true)]
     [Description("Search Extract documents within a single document type by structured metadata "
         + "and/or one or more extracted-field filters (all combined with AND). Returns up to 50 rows "
         + "(id, uri, title, type, lifecycle, created-at, and the document's extracted field values); read a "
-        + "match's full Markdown via its extract://documents/{id} resource uri. Structured field/metadata "
+        + "match's full Markdown via its vault-extract://documents/{id} resource uri. Structured field/metadata "
         + "search only — no keyword/full-text or semantic/vector retrieval. documentTypeCode is required UNLESS "
         + "originDocumentId is given; if the user has not said which document type to search, ask them first. "
         + "To list the sub-documents of a container, pass that container's id as originDocumentId. Discover a "
-        + "type's filterable field names and data types via its extract://document-types/{code} resource.")]
+        + "type's filterable field names and data types via its vault-extract://document-types/{code} resource.")]
     public static async Task<IReadOnlyList<DocumentSearchResultItem>> SearchAsync(
         IDocumentAppService documentAppService,
         [Description("The document type code to search within (e.g. a classification result like "
@@ -81,7 +81,7 @@ public sealed class DocumentSearchTool
             throw new McpException(
                 "documentTypeCode is required unless originDocumentId is given: every type/field search anchors to a "
                 + "single document type. If the user has not said which type to search, ask them first; discover a "
-                + "type's filterable fields via its extract://document-types/{code} resource. To list a container's "
+                + "type's filterable fields via its vault-extract://document-types/{code} resource. To list a container's "
                 + "sub-documents, pass the container id as originDocumentId.");
         }
 

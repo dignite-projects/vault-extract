@@ -69,19 +69,19 @@ Single-document jobs run on the host's background-job manager. The default host 
 
 | Permission | Gates |
 |---|---|
-| `Extract.Documents.Reprocessing.FieldExtraction` | batch field re-extraction (preview + trigger) |
-| `Extract.Documents.Reprocessing.Reclassification` | batch reclassification (preview + trigger) |
-| `Extract.Documents.ConfirmClassification` | single-document *Re-extract fields* (operator-level, same as *Re-recognize*) |
+| `VaultExtract.Documents.Reprocessing.FieldExtraction` | batch field re-extraction (preview + trigger) |
+| `VaultExtract.Documents.Reprocessing.Reclassification` | batch reclassification (preview + trigger) |
+| `VaultExtract.Documents.ConfirmClassification` | single-document *Re-extract fields* (operator-level, same as *Re-recognize*) |
 
 ## REST endpoints
 
 | Method | Route | Purpose |
 |---|---|---|
-| `GET` | `/api/extract/document-reprocessing/field-extraction/preview?documentTypeId=` | affected count + the type's current field names |
-| `POST` | `/api/extract/document-reprocessing/field-extraction` | start batch field re-extraction |
-| `POST` | `/api/extract/document-reprocessing/reclassification/preview` | affected count for a scope |
-| `POST` | `/api/extract/document-reprocessing/reclassification` | start batch reclassification |
-| `POST` | `/api/extract/documents/{id}/reextract-fields` | single-document re-extract fields |
+| `GET` | `/api/vault-extract/document-reprocessing/field-extraction/preview?documentTypeId=` | affected count + the type's current field names |
+| `POST` | `/api/vault-extract/document-reprocessing/field-extraction` | start batch field re-extraction |
+| `POST` | `/api/vault-extract/document-reprocessing/reclassification/preview` | affected count for a scope |
+| `POST` | `/api/vault-extract/document-reprocessing/reclassification` | start batch reclassification |
+| `POST` | `/api/vault-extract/documents/{id}/reextract-fields` | single-document re-extract fields |
 
 Batch and progress are internal operational state — they are **not** part of the exit contract. Downstream consumers see the normal staged events (`DocumentClassifiedEto` / `FieldsExtractedEto`) republished as documents reprocess, absorbed idempotently by `(DocumentId, EventType, EventTime)` like any other.
 

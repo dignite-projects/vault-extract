@@ -8,8 +8,8 @@ Dignite Vault Extract exposes an **MCP (Model Context Protocol) server** as one 
 
 | MCP primitive | Dignite Vault Extract mapping |
 | --- | --- |
-| `resources/read` (template `extract://documents/{id}`) | A small system-metadata header (type, lifecycle, language, created-at) followed by the document's Markdown body wrapped in `<document>` tags. The wrapped body is external, untrusted content — the header tells clients to treat it as data, not instructions |
-| `tools/call` → `search_extract_documents` | Structured search **within a required `documentTypeCode`**: metadata (`lifecycleStatus`) + zero or more `ExtractedFields` field-value filters, all combined with **AND** (each is an equality, or a numeric/date `min`/`max` range). No keyword/full-text search. Returns up to 50 thin rows; each row carries the `extract://documents/{id}` uri to read the full document |
+| `resources/read` (template `vault-extract://documents/{id}`) | A small system-metadata header (type, lifecycle, language, created-at) followed by the document's Markdown body wrapped in `<document>` tags. The wrapped body is external, untrusted content — the header tells clients to treat it as data, not instructions |
+| `tools/call` → `search_documents` | Structured search **within a required `documentTypeCode`**: metadata (`lifecycleStatus`) + zero or more `ExtractedFields` field-value filters, all combined with **AND** (each is an equality, or a numeric/date `min`/`max` range). No keyword/full-text search. Returns up to 50 thin rows; each row carries the `vault-extract://documents/{id}` uri to read the full document |
 
 The server declares only the bare `resources` capability — **no `subscribe` / `listChanged`**. v1 is pull-only: clients read on demand. Push (resource subscriptions + `notifications/resources/updated` / `list_changed`) is a follow-up increment (see issue #197).
 
@@ -17,40 +17,40 @@ The transport is **Streamable HTTP** at `/mcp`. (The legacy SSE transport is not
 
 ## Authentication
 
-The `/mcp` endpoint reuses the host's existing **OpenIddict Bearer** auth — the same scheme as the REST API (audience `Dignite Vault Extract`). There is no separate API-key system in v1.
+The `/mcp` endpoint reuses the host's existing **OpenIddict Bearer** auth — the same scheme as the REST API (audience `VaultExtract`). There is no separate API-key system in v1.
 
-Every request to `/mcp` requires a valid Bearer token (`RequireAuthorization` on the endpoint). In addition, each tool/resource call performs an explicit server-side permission assertion: the caller must be granted **`Extract.Documents`** (`ExtractPermissions.Documents.Default`). A token without that permission gets an authorization error even though the endpoint accepted the connection (fail-closed, defense in depth).
+Every request to `/mcp` requires a valid Bearer token (`RequireAuthorization` on the endpoint). In addition, each tool/resource call performs an explicit server-side permission assertion: the caller must be granted **`VaultExtract.Documents`** (`ExtractPermissions.Documents.Default`). A token without that permission gets an authorization error even though the endpoint accepted the connection (fail-closed, defense in depth).
 
 There are two ways for a client to present that token. Both end at the same Bearer validation — they differ only in **how the client obtains the token**.
 
 ### 1. Manual token (static `Authorization` header)
 
-Obtain a token from the Dignite Vault Extract auth server (`AuthServer:Authority`) using your normal OAuth flow (e.g. client-credentials for a service client, or an interactive user token), then grant the client/user the `Extract.Documents` permission via the admin UI. Present it as a static `Authorization: Bearer <token>` header. This is what the `mcp-remote` bridge and a manually-configured MCP Inspector use (see the connection examples below). A request that already carries a valid token is validated directly and **never triggers the discovery flow** — these paths are unchanged.
+Obtain a token from the Dignite Vault Extract auth server (`AuthServer:Authority`) using your normal OAuth flow (e.g. client-credentials for a service client, or an interactive user token), then grant the client/user the `VaultExtract.Documents` permission via the admin UI. Present it as a static `Authorization: Bearer <token>` header. This is what the `mcp-remote` bridge and a manually-configured MCP Inspector use (see the connection examples below). A request that already carries a valid token is validated directly and **never triggers the discovery flow** — these paths are unchanged.
 
 ### 2. Automatic discovery (OAuth Protected Resource Metadata, RFC 9728)
 
 Spec-compliant MCP clients (Claude Desktop native Custom Connectors, claude.ai connectors, MCP Inspector's *Guided OAuth*, Cursor) can discover the authorization server and log in interactively, without a pre-provisioned token:
 
 1. The client connects to `/mcp` **without** a token → receives `401` with a `WWW-Authenticate: Bearer resource_metadata="https://<host>/.well-known/oauth-protected-resource/mcp"` pointer.
-2. It fetches that **Protected Resource Metadata** document, which advertises the Dignite Vault Extract auth server (`AuthServer:Authority`) under `authorization_servers`, plus `scopes_supported: ["Extract"]` and `bearer_methods_supported: ["header"]`.
+2. It fetches that **Protected Resource Metadata** document, which advertises the Dignite Vault Extract auth server (`AuthServer:Authority`) under `authorization_servers`, plus `scopes_supported: ["VaultExtract"]` and `bearer_methods_supported: ["header"]`.
 3. It fetches the auth server's `/.well-known/openid-configuration` to find the `authorize` / `token` endpoints.
 4. It runs Authorization Code + PKCE (a browser login/consent), obtains a token, and connects.
 
 The discovery metadata and the `WWW-Authenticate` pointer come from the `ModelContextProtocol.AspNetCore` MCP authentication scheme (`McpAuth`), wired in `ExtractHostModule.ConfigureMcpAuthentication`. In this host the `McpAuth` scheme does **not** validate tokens and is **not** part of the `/mcp` authorization policy — it only (a) self-serves `/.well-known/oauth-protected-resource` (its handler runs in the authentication middleware, so there is no separately-mapped controller), and (b) supplies the 401 challenge. Token validation, ABP dynamic claims, and tenant resolution stay on the endpoint's default policy and the existing OpenIddict chain — unchanged. The challenge is routed to `McpAuth` only for the `/mcp` endpoint, by a small `IAuthorizationMiddlewareResultHandler` (`McpDiscoveryAuthorizationResultHandler`) keyed off an endpoint marker; every other endpoint (admin UI, REST, Swagger) keeps the framework-default challenge, so the UI cookie login redirect is untouched. The discovery path is therefore purely additive and never alters the principal used for authorization — the manual-token paths above are byte-for-byte unchanged.
 
-> **Auth-server-side prerequisite — satisfied out of the box (#281).** Exposing the resource metadata is only the resource-server half of the handshake; completing step 4 also needs the OpenIddict authorization server to accept the client. Dignite Vault Extract seeds **one preset public + PKCE + native client** for exactly this — client_id **`Extract_Mcp`** — so Guided OAuth works without per-client registration. Dignite Vault Extract deliberately does **not** run Dynamic Client Registration (RFC 7591): it is self-hosted and faces a knowable set of clients, so an open registration endpoint would be pure attack surface. Instead you paste the preset client_id into each client's OAuth settings — every real target supports a manually specified client_id.
+> **Auth-server-side prerequisite — satisfied out of the box (#281).** Exposing the resource metadata is only the resource-server half of the handshake; completing step 4 also needs the OpenIddict authorization server to accept the client. Dignite Vault Extract seeds **one preset public + PKCE + native client** for exactly this — client_id **`VaultExtract_Mcp`** — so Guided OAuth works without per-client registration. Dignite Vault Extract deliberately does **not** run Dynamic Client Registration (RFC 7591): it is self-hosted and faces a knowable set of clients, so an open registration endpoint would be pure attack surface. Instead you paste the preset client_id into each client's OAuth settings — every real target supports a manually specified client_id.
 
 #### Configure the preset client
 
-Point your client at `https://<host>/mcp` with **no** token and supply the client_id `Extract_Mcp` (no client secret — it is a public PKCE client):
+Point your client at `https://<host>/mcp` with **no** token and supply the client_id `VaultExtract_Mcp` (no client secret — it is a public PKCE client):
 
-- **MCP Inspector** — in the OAuth / Authentication settings panel set **Client ID** to `Extract_Mcp`, then run *Guided OAuth*.
-- **Claude Desktop / claude.ai custom connector** — in the connector's *Advanced settings* set the **OAuth Client ID** to `Extract_Mcp` (this field exists precisely for servers that don't offer DCR).
-- **mcp-remote / Cursor** — set the configured OAuth client id to `Extract_Mcp`.
+- **MCP Inspector** — in the OAuth / Authentication settings panel set **Client ID** to `VaultExtract_Mcp`, then run *Guided OAuth*.
+- **Claude Desktop / claude.ai custom connector** — in the connector's *Advanced settings* set the **OAuth Client ID** to `VaultExtract_Mcp` (this field exists precisely for servers that don't offer DCR).
+- **mcp-remote / Cursor** — set the configured OAuth client id to `VaultExtract_Mcp`.
 
 The browser opens the Dignite Vault Extract login; you sign in, and — because this is a public client with a published client_id — you get an **explicit consent screen** (`ConsentType = Explicit`) before any token is issued. The client then connects automatically.
 
-> The preset client only carries the `Dignite Vault Extract` scope (plus minimal `profile` / `email` identity scopes). Actual data access is still gated by the **logged-in user's** `Extract.Documents` permission — grant it via the admin UI. The auth-code flow logs in a *user*; the client itself holds no data permission, so a user without `Extract.Documents` is denied fail-closed even after a successful login.
+> The preset client only carries the `Dignite Vault Extract` scope (plus minimal `profile` / `email` identity scopes). Actual data access is still gated by the **logged-in user's** `VaultExtract.Documents` permission — grant it via the admin UI. The auth-code flow logs in a *user*; the client itself holds no data permission, so a user without `VaultExtract.Documents` is denied fail-closed even after a successful login.
 
 #### Local TLS: trust the dev certificate (test only)
 
@@ -97,8 +97,8 @@ Native desktop clients bind a **random loopback port**, so the seeded client is 
 ```json
 "OpenIddict": {
   "Applications": {
-    "Extract_Mcp": {
-      "ClientId": "Extract_Mcp",
+    "VaultExtract_Mcp": {
+      "ClientId": "VaultExtract_Mcp",
       "RedirectUris": [
         "http://localhost/oauth/callback",
         "http://127.0.0.1/oauth/callback",
@@ -133,7 +133,7 @@ Claude Desktop talks to remote HTTP MCP servers through the `mcp-remote` stdio b
 }
 ```
 
-Restart Claude Desktop; the `search_extract_documents` tool and `extract://documents/{id}` resources become available.
+Restart Claude Desktop; the `search_documents` tool and `vault-extract://documents/{id}` resources become available.
 
 ## Connect Cursor
 
@@ -154,7 +154,7 @@ Cursor reads remote HTTP MCP servers directly. In `.cursor/mcp.json` (project) o
 
 Claude Code (CLI) reads remote HTTP MCP servers directly and uses Guided OAuth — an interactive browser login with automatic token refresh, so no manual bearer token. Against a host with a real CA-signed certificate only steps 3–4 are needed; steps 1–2 cover local testing against the dev certificate.
 
-1. **Register Claude Code's callback.** Its OAuth callback path is `http://localhost:<port>/callback`, which the seeded defaults don't include. Add `http://localhost/callback` to the `Extract_Mcp` redirect URIs (the **Registered callbacks** section above shows the override — the `Native` client type relaxes the port, so register it without one), then re-seed with `--migrate-database` and restart the host.
+1. **Register Claude Code's callback.** Its OAuth callback path is `http://localhost:<port>/callback`, which the seeded defaults don't include. Add `http://localhost/callback` to the `VaultExtract_Mcp` redirect URIs (the **Registered callbacks** section above shows the override — the `Native` client type relaxes the port, so register it without one), then re-seed with `--migrate-database` and restart the host.
 
 2. **Trust the dev certificate (local testing only).** Claude Code's bundled Node honours neither the system certificate store nor `NODE_EXTRA_CA_CERTS`, so the **Local TLS** note above (which targets system Node) does not apply here. Instead add an `env` block to `.claude/settings.local.json` — Claude Code injects it into every internal process, including the OAuth sub-process:
 
@@ -169,15 +169,15 @@ Claude Code (CLI) reads remote HTTP MCP servers directly and uses Guided OAuth �
 3. **Add the server** (the preset public PKCE client — no secret, no fixed callback port):
 
    ```powershell
-   claude mcp add --transport http extract https://localhost:44348/mcp --client-id Extract_Mcp
+   claude mcp add --transport http extract https://localhost:44348/mcp --client-id VaultExtract_Mcp
    ```
 
-4. **Log in.** Restart Claude Code, run `/mcp`, select **extract** → **Authenticate**, and sign in through the browser. Tokens are stored and refreshed automatically; the `search_extract_documents` tool and `extract://documents/{id}` resources become available.
+4. **Log in.** Restart Claude Code, run `/mcp`, select **extract** → **Authenticate**, and sign in through the browser. Tokens are stored and refreshed automatically; the `search_documents` tool and `vault-extract://documents/{id}` resources become available.
 
 ## Typical flow
 
-1. Client calls `search_extract_documents` with a required `documentTypeCode` (and optionally `lifecycleStatus`, plus zero or more `fieldFilters` — each names a field with a `Value` for equality or a `Min`/`Max` numeric/date range; multiple filters are AND-ed). If the user hasn't named a document type, the client asks first.
-2. The tool returns thin rows, each with a `extract://documents/{id}` uri.
+1. Client calls `search_documents` with a required `documentTypeCode` (and optionally `lifecycleStatus`, plus zero or more `fieldFilters` — each names a field with a `Value` for equality or a `Min`/`Max` numeric/date range; multiple filters are AND-ed). If the user hasn't named a document type, the client asks first.
+2. The tool returns thin rows, each with a `vault-extract://documents/{id}` uri.
 3. Client calls `resources/read` on a uri to pull that document's full Markdown.
 
 ## Notes & limits

@@ -16,7 +16,7 @@ namespace Dignite.Vault.Extract.Documents.DocumentTypes;
 /// </summary>
 public class DocumentTypeController_Tests : ExtractHttpApiTestBase
 {
-    private const string Url = "/api/extract/document-types";
+    private const string Url = "/api/vault-extract/document-types";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     [Fact]

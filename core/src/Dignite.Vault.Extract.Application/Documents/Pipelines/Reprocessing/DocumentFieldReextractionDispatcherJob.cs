@@ -29,7 +29,7 @@ namespace Dignite.Vault.Extract.Documents.Pipelines.Reprocessing;
 /// the worst case is extra cost, which is accepted.
 /// </para>
 /// </summary>
-[BackgroundJobName("Extract.DocumentFieldReextractionDispatcher")]
+[BackgroundJobName("VaultExtract.DocumentFieldReextractionDispatcher")]
 public class DocumentFieldReextractionDispatcherJob
     : AsyncBackgroundJob<DocumentFieldReextractionDispatcherArgs>, ITransientDependency
 {

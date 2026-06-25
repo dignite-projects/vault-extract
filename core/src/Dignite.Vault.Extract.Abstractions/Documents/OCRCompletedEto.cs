@@ -12,7 +12,7 @@ namespace Dignite.Vault.Extract.Abstractions.Documents;
 /// marked <c>required</c>.
 /// </para>
 /// </summary>
-[EventName("Extract.Document.OCRCompleted")]
+[EventName("VaultExtract.Document.OCRCompleted")]
 public class OCRCompletedEto
 {
     public string Version { get; init; } = "1.0";

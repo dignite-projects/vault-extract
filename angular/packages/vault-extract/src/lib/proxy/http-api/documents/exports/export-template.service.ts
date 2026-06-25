@@ -13,7 +13,7 @@ export class ExportTemplateService {
   create = (input: CreateExportTemplateDto, config?: Partial<Rest.Config>) =>
     this.restService.request<any, ExportTemplateDto>({
       method: 'POST',
-      url: '/api/extract/export-templates',
+      url: '/api/vault-extract/export-templates',
       body: input,
     },
     { apiName: this.apiName,...config });
@@ -22,7 +22,7 @@ export class ExportTemplateService {
   delete = (id: string, config?: Partial<Rest.Config>) =>
     this.restService.request<any, void>({
       method: 'DELETE',
-      url: `/api/extract/export-templates/${id}`,
+      url: `/api/vault-extract/export-templates/${id}`,
     },
     { apiName: this.apiName,...config });
   
@@ -31,7 +31,7 @@ export class ExportTemplateService {
     this.restService.request<any, Blob>({
       method: 'POST',
       responseType: 'blob',
-      url: '/api/extract/export-templates/export',
+      url: '/api/vault-extract/export-templates/export',
       body: input,
     },
     { apiName: this.apiName,...config });
@@ -40,7 +40,7 @@ export class ExportTemplateService {
   get = (id: string, config?: Partial<Rest.Config>) =>
     this.restService.request<any, ExportTemplateDto>({
       method: 'GET',
-      url: `/api/extract/export-templates/${id}`,
+      url: `/api/vault-extract/export-templates/${id}`,
     },
     { apiName: this.apiName,...config });
   
@@ -48,7 +48,7 @@ export class ExportTemplateService {
   getList = (config?: Partial<Rest.Config>) =>
     this.restService.request<any, ExportTemplateDto[]>({
       method: 'GET',
-      url: '/api/extract/export-templates',
+      url: '/api/vault-extract/export-templates',
     },
     { apiName: this.apiName,...config });
   
@@ -56,7 +56,7 @@ export class ExportTemplateService {
   update = (id: string, input: UpdateExportTemplateDto, config?: Partial<Rest.Config>) =>
     this.restService.request<any, ExportTemplateDto>({
       method: 'PUT',
-      url: `/api/extract/export-templates/${id}`,
+      url: `/api/vault-extract/export-templates/${id}`,
       body: input,
     },
     { apiName: this.apiName,...config });

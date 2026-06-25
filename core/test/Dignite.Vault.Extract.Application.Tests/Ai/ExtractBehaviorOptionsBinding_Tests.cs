@@ -10,7 +10,7 @@ using Xunit;
 namespace Dignite.Vault.Extract.Ai;
 
 /// <summary>
-/// Test module that stacks an in-memory <c>ExtractBehavior</c> configuration
+/// Test module that stacks an in-memory <c>Vault:ExtractBehavior</c> configuration
 /// section on top of whatever <see cref="ExtractApplicationTestModule"/> already
 /// provides. <see cref="ExtractApplicationModule.ConfigureServices"/> binds
 /// <see cref="ExtractBehaviorOptions"/> to that section, so this module is the
@@ -26,10 +26,10 @@ public class ExtractBehaviorOptionsBindingTestModule : AbpModule
             .AddConfiguration(existing)
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ExtractBehavior:DefaultLanguage"] = "en",
-                ["ExtractBehavior:MaxDocumentTypesInClassificationPrompt"] = "25",
-                ["ExtractBehavior:MaxTextLengthPerExtraction"] = "16000",
-                ["ExtractBehavior:MaxTitleGenerationMarkdownLength"] = "2048",
+                ["Vault:ExtractBehavior:DefaultLanguage"] = "en",
+                ["Vault:ExtractBehavior:MaxDocumentTypesInClassificationPrompt"] = "25",
+                ["Vault:ExtractBehavior:MaxTextLengthPerExtraction"] = "16000",
+                ["Vault:ExtractBehavior:MaxTitleGenerationMarkdownLength"] = "2048",
             })
             .Build();
 
@@ -38,7 +38,7 @@ public class ExtractBehaviorOptionsBindingTestModule : AbpModule
 }
 
 /// <summary>
-/// Acceptance test: configuration values placed under the <c>ExtractBehavior</c>
+/// Acceptance test: configuration values placed under the <c>Vault:ExtractBehavior</c>
 /// JSON section must reach <see cref="ExtractBehaviorOptions"/> consumers via
 /// <see cref="IOptions{T}"/>.
 /// </summary>

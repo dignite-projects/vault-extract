@@ -10,12 +10,12 @@ Write-Host "********* BUILDING Angular Application *********" -ForegroundColor G
 Set-Location $angularAppFolder
 npm install
 npm run build:prod
-docker build -f Dockerfile.local -t dignite/extract-web:$version .
+docker build -f Dockerfile.local -t dignite/vault-extract-web:$version .
 
 Write-Host "********* BUILDING Api.Host Application *********" -ForegroundColor Green
 Set-Location $appFolder
 dotnet publish -c Release
-docker build -f Dockerfile.local -t dignite/extract-api:$version .
+docker build -f Dockerfile.local -t dignite/vault-extract-api:$version .
 
 
 ### ALL COMPLETED

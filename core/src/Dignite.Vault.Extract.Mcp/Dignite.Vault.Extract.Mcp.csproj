@@ -6,7 +6,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <RootNamespace>Dignite.Vault.Extract</RootNamespace>
-    <Description>MCP server exit of Dignite Vault Extract: exposes documents as MCP resources (extract://documents/{id}) and provides search tools over keywords, metadata and extracted field values for Claude Desktop, Cursor and any MCP client. Endpoint mapping (MapMcp) stays in the host application.</Description>
+    <Description>MCP server exit of Dignite Vault Extract: exposes documents as MCP resources (vault-extract://documents/{id}) and provides search tools over keywords, metadata and extracted field values for Claude Desktop, Cursor and any MCP client. Endpoint mapping (MapMcp) stays in the host application.</Description>
   </PropertyGroup>
 
   <ItemGroup>

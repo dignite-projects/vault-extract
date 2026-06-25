@@ -6,8 +6,8 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Dignite.Vault.Extract.HttpApi.Documents.Cabinets;
 
-[Area("extract")]
-[Route("api/extract/cabinets")]
+[Area("vault-extract")]
+[Route("api/vault-extract/cabinets")]
 public class CabinetController : ExtractController, ICabinetAppService
 {
     private readonly ICabinetAppService _cabinetAppService;

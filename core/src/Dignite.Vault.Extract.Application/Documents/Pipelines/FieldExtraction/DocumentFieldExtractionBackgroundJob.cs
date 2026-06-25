@@ -28,7 +28,7 @@ namespace Dignite.Vault.Extract.Documents.Pipelines.FieldExtraction;
 /// then rethrows to trigger ABP background job retry.
 /// </para>
 /// </summary>
-[BackgroundJobName("Extract.DocumentFieldExtraction")]
+[BackgroundJobName("VaultExtract.DocumentFieldExtraction")]
 public class DocumentFieldExtractionBackgroundJob
     : DocumentPipelineBackgroundJobBase<DocumentFieldExtractionJobArgs>, ITransientDependency
 {

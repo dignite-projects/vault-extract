@@ -10,10 +10,10 @@ namespace Dignite.Vault.Extract.HttpApi.Documents.Pipelines;
 // IDocumentPipelineRunAppService, but this handwritten controller was missed then. host Auto API only
 // covers ExtractHostModule.Assembly (see ExtractHostModule.ConfigureAutoApiControllers), so
 // AppServices in the Application assembly are exposed only through explicit HttpApi controllers. Without
-// this forwarding layer, frontend calls to /api/extract/document-pipeline-runs hit a 404 with null
+// this forwarding layer, frontend calls to /api/vault-extract/document-pipeline-runs hit a 404 with null
 // body and break the document detail page forkJoin.
-[Area("extract")]
-[Route("api/extract/document-pipeline-runs")]
+[Area("vault-extract")]
+[Route("api/vault-extract/document-pipeline-runs")]
 public class DocumentPipelineRunController : ExtractController, IDocumentPipelineRunAppService
 {
     private readonly IDocumentPipelineRunAppService _documentPipelineRunAppService;
@@ -23,7 +23,7 @@ public class DocumentPipelineRunController : ExtractController, IDocumentPipelin
         _documentPipelineRunAppService = documentPipelineRunAppService;
     }
 
-    // GET /api/extract/document-pipeline-runs?documentId=...
+    // GET /api/vault-extract/document-pipeline-runs?documentId=...
     // A single Guid simple parameter on GET binds from query string by default, matching the frontend
     // proxy (params: { documentId }).
     [HttpGet]

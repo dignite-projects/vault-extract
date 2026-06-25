@@ -14,7 +14,7 @@ namespace Dignite.Vault.Extract.Mcp.Documents;
 
 /// <summary>
 /// Exposes Extract document types as MCP resources on the read path. The resource template
-/// <c>extract://document-types/{code}</c> returns that type's field schema: per-field name / dataType /
+/// <c>vault-extract://document-types/{code}</c> returns that type's field schema: per-field name / dataType /
 /// allowMultiple / displayName / required, plus the type displayName. This lets downstream AI
 /// discover which fields exist for a type and what data types they use, so it can populate the search
 /// tool's <c>fieldFilters</c> / <c>includeFields</c> with correct field names. "Which types exist" is
