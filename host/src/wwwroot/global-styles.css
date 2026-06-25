@@ -22,4 +22,6 @@
         background-position: center;
         background-repeat: no-repeat;
         background-size: contain;
+        width: 10em;
+        height: 10em;
     }
