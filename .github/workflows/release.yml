@@ -94,9 +94,6 @@ jobs:
       - name: Run OCR VisionLlm tests
         run: dotnet test core/test/Dignite.Vault.Extract.Ocr.VisionLlm.Tests/Dignite.Vault.Extract.Ocr.VisionLlm.Tests.csproj --no-build --configuration Release --verbosity normal
 
-      - name: Run host tests
-        run: dotnet test host/test/Dignite.Vault.Extract.Host.Tests/Dignite.Vault.Extract.Host.Tests.csproj --no-build --configuration Release --verbosity normal
-
       # Projects with IsPackable=false (host / test projects; test projects are implicitly false
       # via Microsoft.NET.Test.Sdk) are skipped automatically. Only NuGet packages under core/src
       # are produced.

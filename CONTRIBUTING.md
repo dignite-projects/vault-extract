@@ -40,9 +40,6 @@ dotnet test core/test/Dignite.Vault.Extract.Application.Tests
 dotnet test core/test/Dignite.Vault.Extract.EntityFrameworkCore.Tests
 dotnet test core/test/Dignite.Vault.Extract.Mcp.Tests
 dotnet test core/test/Dignite.Vault.Extract.Ocr.VisionLlm.Tests
-
-# Host
-dotnet test host/test/Dignite.Vault.Extract.Host.Tests
 ```
 
 ### Frontend (Vitest)

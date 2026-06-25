@@ -54,18 +54,14 @@ jobs:
         run: dotnet test core/test/Dignite.Vault.Extract.EntityFrameworkCore.Tests/Dignite.Vault.Extract.EntityFrameworkCore.Tests.csproj --no-build --configuration Release --verbosity normal
 
       # TestBase + NSubstitute mocks (no DB / no LLM); includes MCP inputSchema regression guards
-      # generated under the Autofac container.
+      # generated under the Autofac container, plus the #278 MCP-discovery authorization guard
+      # (a minimal ASP.NET TestServer; no ABP host / DB / OpenIddict).
       - name: Run MCP tests
         run: dotnet test core/test/Dignite.Vault.Extract.Mcp.Tests/Dignite.Vault.Extract.Mcp.Tests.csproj --no-build --configuration Release --verbosity normal
 
       # Pure unit tests: mocked IChatClient + IPdfRasterizer; no native PDFium or external LLM dependency.
       - name: Run OCR VisionLlm tests
         run: dotnet test core/test/Dignite.Vault.Extract.Ocr.VisionLlm.Tests/Dignite.Vault.Extract.Ocr.VisionLlm.Tests.csproj --no-build --configuration Release --verbosity normal
-
-      # Minimal ASP.NET TestServer mirroring the host MCP authorization wiring (#278 regression guard),
-      # without bringing in the ABP host / DB / OpenIddict.
-      - name: Run host tests
-        run: dotnet test host/test/Dignite.Vault.Extract.Host.Tests/Dignite.Vault.Extract.Host.Tests.csproj --no-build --configuration Release --verbosity normal
 
       - name: Build Docker image
         run: docker build -f host/Dockerfile -t vault-extract-api:${{ github.sha }} .
