@@ -2,12 +2,12 @@
 
 This page covers what a host operator needs to configure to run Extract: the relational database, the authentication signing certificate, the OCR sidecar, and the Docker layout. For per-feature configuration (OCR, AI provider) see the matching feature doc.
 
-> **Channel positioning**: Dignite Extract outputs Markdown + structured metadata to downstream consumers (RAG platforms, business systems, MCP clients). It does **not** ship a vector database, embedding pipeline, or chat platform — those belong on the downstream side. See `CLAUDE.md` → "OUT of scope".
+> **Channel positioning**: Dignite Vault Extract outputs Markdown + structured metadata to downstream consumers (RAG platforms, business systems, MCP clients). It does **not** ship a vector database, embedding pipeline, or chat platform — those belong on the downstream side. See `CLAUDE.md` → "OUT of scope".
 
 ## Topology
 
 ```text
-Dignite Extract Host (ASP.NET Core)
+Dignite Vault Extract Host (ASP.NET Core)
   ├─► SQL Server — relational application database (entities, audit, identity, OpenIddict, OutboxEvent)
   └─► OCR provider — Vision LLM (default, via IChatClient) / PaddleOCR sidecar / Azure Document Intelligence — text extraction
                                                                                                     
@@ -15,11 +15,11 @@ Dignite Extract Host (ASP.NET Core)
    REST API / MCP server / DistributedEventBus / Webhook (planned) — downstream consumers (RAG / business systems)
 ```
 
-All Dignite Extract state lives in the single SQL Server database. Markdown + event payloads flow out to downstream consumers; downstream consumers are responsible for their own storage (vector DB / business aggregates / search index).
+All Dignite Vault Extract state lives in the single SQL Server database. Markdown + event payloads flow out to downstream consumers; downstream consumers are responsible for their own storage (vector DB / business aggregates / search index).
 
 ## Connection strings
 
-Dignite Extract uses SQL Server as the only persistence backend.
+Dignite Vault Extract uses SQL Server as the only persistence backend.
 
 ```json
 "ConnectionStrings": {
@@ -31,7 +31,7 @@ Production deployments should source the password from the platform's secret sto
 
 ## Authentication and signing certificate
 
-Dignite Extract uses OpenIddict. Development mode auto-generates ephemeral certificates; production needs a real signing certificate.
+Dignite Vault Extract uses OpenIddict. Development mode auto-generates ephemeral certificates; production needs a real signing certificate.
 
 Generate one with:
 
@@ -67,13 +67,13 @@ ABP stores some configuration values (e.g. tenant connection strings) encrypted 
 
 ## OCR provider
 
-Dignite Extract ships three OCR options ([comparison](../text-extraction/text-extraction.md#ocr--choosing-a-provider)):
+Dignite Vault Extract ships three OCR options ([comparison](../text-extraction/text-extraction.md#ocr--choosing-a-provider)):
 
 - **Vision-LLM** (current default, #259) — `IChatClient`-based, no sidecar; reuses the host's keyed vision chat client. Strongest for phone photos / thermal receipts / image-only PDFs. See [ocr-vision-llm.md](../text-extraction/ocr-vision-llm.md).
 - **PaddleOCR** — local Docker sidecar, CPU, never leaves the network. See [ocr-paddleocr.md](../text-extraction/ocr-paddleocr.md).
 - **Azure Document Intelligence** — cloud option for production workloads that can leave the network. See [ocr-azure-document-intelligence.md](../text-extraction/ocr-azure-document-intelligence.md).
 
-Host module wires exactly one via `[DependsOn(...)]` + matching `<ProjectReference>` in `host/src/Dignite.Extract.Host.csproj` (switching to/from Vision-LLM also means adding/removing its keyed vision `IChatClient` registration in `ConfigureAI`).
+Host module wires exactly one via `[DependsOn(...)]` + matching `<ProjectReference>` in `host/src/Dignite.Vault.Extract.Host.csproj` (switching to/from Vision-LLM also means adding/removing its keyed vision `IChatClient` registration in `ConfigureAI`).
 
 ## AI provider
 
@@ -115,7 +115,7 @@ cd host/src
 dotnet run -- --migrate-database
 ```
 
-Or use ABP's `Dignite.Extract.DbMigrator` console runner if your deployment topology calls for a separate migration step (it also seeds initial admin / OpenIddict client data).
+Or use ABP's `Dignite.Vault.Extract.DbMigrator` console runner if your deployment topology calls for a separate migration step (it also seeds initial admin / OpenIddict client data).
 
 ## Verifying a release
 

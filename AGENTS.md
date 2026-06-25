@@ -1,4 +1,4 @@
-# Dignite Extract Agent Guide
+# Dignite Vault Extract Agent Guide
 
 The truth source for this project's positioning, architecture rules, OUT-of-scope list, Markdown-first contract, six-stage ETO event contract, security covenant, and decision principles is [CLAUDE.md](./CLAUDE.md). Read it first.
 

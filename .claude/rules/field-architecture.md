@@ -1,5 +1,5 @@
 ---
-description: "Dignite Extract field architecture details: system common field table, type-bound field (mechanism B) implementation, field-extension judgment, document-type classification execution"
+description: "Dignite Vault Extract field architecture details: system common field table, type-bound field (mechanism B) implementation, field-extension judgment, document-type classification execution"
 paths:
   - "**/Document.cs"
   - "**/Documents/**/*.cs"
@@ -7,13 +7,13 @@ paths:
   - "**/*DocumentType*.cs"
 ---
 
-# Field Architecture Details (Dignite Extract)
+# Field Architecture Details (Dignite Vault Extract)
 
 > Carried over from CLAUDE.md, auto-loaded when editing `Document` / field-definition / document-type code. CLAUDE.md keeps only the high-level split of the two field kinds, the essence of mechanism (B), the Document field-extension hard constraints, and the document-type two-independent-single-layer core constraints.
 
-## System common fields (auto-produced by the Dignite Extract pipeline, top-level typed columns)
+## System common fields (auto-produced by the Dignite Vault Extract pipeline, top-level typed columns)
 
-Produced automatically by the Dignite Extract pipeline + built-in LLM extraction, applicable to all documents, **requiring no schema configuration**. Stored as top-level typed columns on `Document` (strongly-typed LINQ + first-class indexes):
+Produced automatically by the Dignite Vault Extract pipeline + built-in LLM extraction, applicable to all documents, **requiring no schema configuration**. Stored as top-level typed columns on `Document` (strongly-typed LINQ + first-class indexes):
 
 | Field | Source | Notes |
 |------|------|------|
@@ -30,7 +30,7 @@ There is no standalone `PageCount` / `Summary` field — the former is a leaky a
 
 ## Document-type classification execution
 
-- On upload, Dignite Extract automatically runs the LLM classification prompt → categorizes within the layer the Document belongs to (exact match by `Document.TenantId`; the background path switches layer via `ICurrentTenant.Change` then goes through the generic `GetListAsync`)
+- On upload, Dignite Vault Extract automatically runs the LLM classification prompt → categorizes within the layer the Document belongs to (exact match by `Document.TenantId`; the background path switches layer via `ICurrentTenant.Change` then goes through the generic `GetListAsync`)
 - Low confidence or operator disagreement → the operator UI can correct manually
 - After correction, downstream pipelines are re-triggered (e.g. the corresponding type's field extraction)
 
@@ -50,7 +50,7 @@ Type-bound fields must be attached under some document type, split into two laye
 - **Same-name fields across layers are allowed** (Host's `"amount"` field and tenant A's `"amount"` field are two independent rows, applying to documents of their respective TenantId)
 - **Same TypeCode across layers is allowed** — a tenant may create a type with the same TypeCode as Host; the two are independent entities (distinguished by TenantId)
 
-**Essence of mechanism (B)**: Dignite Extract provides a generic "extract-by-schema" engine — Host or tenant configures the schema, and the engine extracts per the owning layer. Dignite Extract Core **presets no business field definition** (contract amount / invoice number / tax amount, etc. are not hardcoded).
+**Essence of mechanism (B)**: Dignite Vault Extract provides a generic "extract-by-schema" engine — Host or tenant configures the schema, and the engine extracts per the owning layer. Dignite Vault Extract Core **presets no business field definition** (contract amount / invoice number / tax amount, etc. are not hardcoded).
 
 **Implementation form (field architecture v2)**:
 

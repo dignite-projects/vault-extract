@@ -1,13 +1,13 @@
 blank_issues_enabled: false
 contact_links:
   - name: 💬 Questions & usage help
-    url: https://github.com/dignite-projects/dignite-extract/discussions/categories/q-a
+    url: https://github.com/dignite-projects/vault-extract/discussions/categories/q-a
     about: How-to / configuration / "is this in scope?" — ask in Discussions, not Issues.
   - name: 💡 Ideas & early proposals
-    url: https://github.com/dignite-projects/dignite-extract/discussions/categories/ideas
+    url: https://github.com/dignite-projects/vault-extract/discussions/categories/ideas
     about: Float an idea before it becomes a formal design-consensus issue.
   - name: 🔒 Report a security vulnerability
-    url: https://github.com/dignite-projects/dignite-extract/security/advisories/new
+    url: https://github.com/dignite-projects/vault-extract/security/advisories/new
     about: Do NOT open a public issue — use GitHub private vulnerability reporting (see SECURITY.md).
   - name: 📖 ABP Framework docs
     url: https://abp.io/docs/latest

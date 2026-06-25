@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="..\..\..\common.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Dignite.Vault.Extract</RootNamespace>
+    <Description>Entity Framework Core integration of Dignite Vault Extract: DbContext, entity mappings and repository implementations for the document channel.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Keep the core EF project free of vector database dependencies. Vectorization and
+         vector storage are downstream RAG concerns, out of scope for the Extract channel. -->
+    <PackageReference Include="Volo.Abp.EntityFrameworkCore" />
+    <ProjectReference Include="..\Dignite.Vault.Extract.Domain\Dignite.Vault.Extract.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

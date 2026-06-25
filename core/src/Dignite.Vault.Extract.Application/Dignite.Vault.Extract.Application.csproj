@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="..\..\..\common.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Dignite.Vault.Extract</RootNamespace>
+    <Description>Application layer of Dignite Vault Extract — the core of the document channel: document storage, text-extraction pipeline orchestration, LLM-based document classification, type-bound field extraction and outbound integration event publishing.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Dignite.Vault.Extract.Application.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.AI" />
+    <PackageReference Include="Microsoft.Agents.AI" />
+    <PackageReference Include="Markdig" />
+    <PackageReference Include="ClosedXML" />
+    <PackageReference Include="Volo.Abp.BackgroundJobs" />
+    <PackageReference Include="Volo.Abp.BlobStoring" />
+    <PackageReference Include="Volo.Abp.Auditing" />
+    <PackageReference Include="Volo.Abp.Ddd.Application" />
+    <PackageReference Include="Volo.Abp.Mapperly" />
+    <ProjectReference Include="..\Dignite.Vault.Extract.Abstractions\Dignite.Vault.Extract.Abstractions.csproj" />
+    <ProjectReference Include="..\Dignite.Vault.Extract.Application.Contracts\Dignite.Vault.Extract.Application.Contracts.csproj" />
+    <ProjectReference Include="..\Dignite.Vault.Extract.Domain\Dignite.Vault.Extract.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

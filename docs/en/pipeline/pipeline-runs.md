@@ -25,7 +25,7 @@ The payload is exposed to clients through **two** channels — both backed by th
 
 ### JSON Shape
 
-The payload is a JSON array. Each item follows the `PipelineRunCandidate` schema (defined in `Dignite.Extract.Documents` under Domain.Shared):
+The payload is a JSON array. Each item follows the `PipelineRunCandidate` schema (defined in `Dignite.Vault.Extract.Documents` under Domain.Shared):
 
 ```json
 [

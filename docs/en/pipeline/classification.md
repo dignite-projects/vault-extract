@@ -1,10 +1,10 @@
 # Document Classification
 
-When a document finishes [text extraction](../text-extraction/text-extraction.md), Dignite Extract classifies it against `DocumentType` rows that belong to the same layer as the document (Host documents → `TenantId IS NULL` rows; tenant documents → matching tenant rows). The Host deployer creates their types through the admin UI (`IDocumentTypeAppService`); tenants do the same for their own private types. Dignite Extract ships **no built-in types** and **does not register types in Module startup** — every type is owned by the deployer or tenant, never by Dignite Extract itself.
+When a document finishes [text extraction](../text-extraction/text-extraction.md), Dignite Vault Extract classifies it against `DocumentType` rows that belong to the same layer as the document (Host documents → `TenantId IS NULL` rows; tenant documents → matching tenant rows). The Host deployer creates their types through the admin UI (`IDocumentTypeAppService`); tenants do the same for their own private types. Dignite Vault Extract ships **no built-in types** and **does not register types in Module startup** — every type is owned by the deployer or tenant, never by Dignite Vault Extract itself.
 
 The resulting `DocumentTypeCode` is the routing signal that drives the next channel stages — Host field extraction (#168) for type-bound Host fields and tenant field extraction (#169) for tenant-defined fields — and is also broadcast via `DocumentClassifiedEto` over `DistributedEventBus` so downstream business consumers (in their own repositories) can subscribe and persist their own derived records.
 
-This page covers the classification pipeline as a *feature*: how it works, how to tune it, and what happens when the LLM is unhappy. For low-level orchestration code see `core/src/Dignite.Extract.Application/Documents/Pipelines/Classification/`.
+This page covers the classification pipeline as a *feature*: how it works, how to tune it, and what happens when the LLM is unhappy. For low-level orchestration code see `core/src/Dignite.Vault.Extract.Application/Documents/Pipelines/Classification/`.
 
 ## How it works
 
@@ -28,7 +28,7 @@ Two design properties matter:
 
 ## Registering document types
 
-Both Host deployers and tenants create their `DocumentType` rows through the admin UI (`IDocumentTypeAppService`), each in their own layer. There is **no Module-startup registration path** — Dignite Extract Core ships with no built-in types, and there's no inheritance: a Host type never auto-applies to tenant documents.
+Both Host deployers and tenants create their `DocumentType` rows through the admin UI (`IDocumentTypeAppService`), each in their own layer. There is **no Module-startup registration path** — Dignite Vault Extract Core ships with no built-in types, and there's no inheritance: a Host type never auto-applies to tenant documents.
 
 | Field | Used by |
 |---|---|

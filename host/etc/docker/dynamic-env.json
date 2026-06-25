@@ -2,7 +2,7 @@
   "production": true,
   "application": {
     "baseUrl":"http://localhost:4200",
-    "name": "Dignite Extract",
+    "name": "Dignite Vault Extract",
     "logoUrl": ""
   },
   "oAuthConfig": {
@@ -15,7 +15,7 @@
   "apis": {
     "default": {
       "url": "https://localhost:44348",
-      "rootNamespace": "Dignite.Extract"
+      "rootNamespace": "Dignite.Vault.Extract"
     }
   }
 }

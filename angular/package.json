@@ -1,5 +1,5 @@
 {
-  "name": "dignite-extract-workspace",
+  "name": "vault-extract-workspace",
   "version": "0.2.0",
   "private": true,
   "workspaces": [
@@ -9,12 +9,12 @@
   "scripts": {
     "start": "nx serve host",
     "build": "nx run-many -t build",
-    "build:extract": "nx build extract",
+    "build:vault-extract": "nx build vault-extract",
     "build:host": "nx build host",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "nx run-many -t lint",
-    "generate-proxy": "nx g @abp/nx.generators:generate-proxy --module=extract --apiName=Default --source=host --target=extract --url=https://localhost:44348 --serviceType=application --no-interactive",
+    "generate-proxy": "nx g @abp/nx.generators:generate-proxy --module=extract --apiName=Default --source=host --target=vault-extract --url=https://localhost:44348 --serviceType=application --no-interactive",
     "affected:build": "nx affected -t build",
     "affected:test": "vitest run"
   },

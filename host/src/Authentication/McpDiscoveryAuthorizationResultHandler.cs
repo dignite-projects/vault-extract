@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.AspNetCore.Http;
 using ModelContextProtocol.AspNetCore.Authentication;
 
-namespace Dignite.Extract.Host.Authentication;
+namespace Dignite.Vault.Extract.Host.Authentication;
 
 /// <summary>
 /// #278: only for endpoints marked with <see cref="McpDiscoveryChallengeMarker"/> (/mcp), route

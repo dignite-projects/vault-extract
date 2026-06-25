@@ -1,0 +1,46 @@
+﻿﻿﻿﻿﻿﻿{
+  "packages":[
+    {
+      "appRoutingModuleConfiguration":{
+        "imports":[
+          {
+            "names":[
+              "EXTRACT_ROUTES"
+            ],
+            "namespace": "@dignite/vault-extract"
+          } 
+        ],
+        "routes":[
+          "{ path: 'extract', children: EXTRACT_ROUTES, canActivate: [authGuard] }"
+        ]
+      },
+      "appModuleConfiguration":{
+        "imports":[
+          {
+            "names":[
+              "provideExtract"
+            ],
+            "namespace": "@dignite/vault-extract/config"
+          }
+        ],
+        "providerNames":[
+          "provideExtract()"
+        ]
+      },
+      "tsJsonPathRecordConfigurations":[
+        {
+          "name": "@dignite/vault-extract",
+          "paths": [
+            "angular/packages/vault-extract/src/public-api.ts"
+          ]
+        },
+        {
+          "name": "@dignite/vault-extract/config",
+          "paths": [
+            "angular/packages/vault-extract/config/src/public-api.ts"
+          ]
+        }
+      ]
+    }
+  ]
+}

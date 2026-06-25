@@ -408,7 +408,7 @@ FodyWeavers.xsd
 # ABP Studio
 **/.abpstudio/
 
-# Dignite Extract-specific
+# Dignite Vault Extract-specific
 # (log directories are already covered by [Ll]og/ / [Ll]ogs/ rules above)
 *.db
 *.db-shm
@@ -453,7 +453,7 @@ core/test/**/Benchmarks/package.json
 core/test/**/Benchmarks/package-lock.json
 
 # Benchmark dataset (desensitized real data - not committed)
-core/test/Dignite.Extract.Application.Tests/Benchmarks/rag-gold-dataset.json
+core/test/Dignite.Vault.Extract.Application.Tests/Benchmarks/rag-gold-dataset.json
 # Angular NX monorepo Node.js files are tracked
 !angular/package.json
 !angular/package-lock.json

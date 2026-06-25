@@ -1,0 +1,58 @@
+{
+  "folders": {
+    "items": {
+      "src": {},
+      "test": {}
+    }
+  },
+  "packages": {
+    "Dignite.Vault.Extract.Domain": {
+      "path": "src/Dignite.Vault.Extract.Domain/Dignite.Vault.Extract.Domain.abppkg",
+      "folder": "src"
+    },
+    "Dignite.Vault.Extract.Application.Contracts": {
+      "path": "src/Dignite.Vault.Extract.Application.Contracts/Dignite.Vault.Extract.Application.Contracts.abppkg",
+      "folder": "src"
+    },
+    "Dignite.Vault.Extract.Application": {
+      "path": "src/Dignite.Vault.Extract.Application/Dignite.Vault.Extract.Application.abppkg",
+      "folder": "src"
+    },
+    "Dignite.Vault.Extract.EntityFrameworkCore": {
+      "path": "src/Dignite.Vault.Extract.EntityFrameworkCore/Dignite.Vault.Extract.EntityFrameworkCore.abppkg",
+      "folder": "src"
+    },
+    "Dignite.Vault.Extract.HttpApi": {
+      "path": "src/Dignite.Vault.Extract.HttpApi/Dignite.Vault.Extract.HttpApi.abppkg",
+      "folder": "src"
+    },
+    "Dignite.Vault.Extract.HttpApi.Client": {
+      "path": "src/Dignite.Vault.Extract.HttpApi.Client/Dignite.Vault.Extract.HttpApi.Client.abppkg",
+      "folder": "src"
+    },
+    "Dignite.Vault.Extract.TestBase": {
+      "path": "test/Dignite.Vault.Extract.TestBase/Dignite.Vault.Extract.TestBase.abppkg",
+      "folder": "test"
+    },
+    "Dignite.Vault.Extract.EntityFrameworkCore.Tests": {
+      "path": "test/Dignite.Vault.Extract.EntityFrameworkCore.Tests/Dignite.Vault.Extract.EntityFrameworkCore.Tests.abppkg",
+      "folder": "test"
+    },
+    "Dignite.Vault.Extract.Domain.Tests": {
+      "path": "test/Dignite.Vault.Extract.Domain.Tests/Dignite.Vault.Extract.Domain.Tests.abppkg",
+      "folder": "test"
+    },
+    "Dignite.Vault.Extract.Application.Tests": {
+      "path": "test/Dignite.Vault.Extract.Application.Tests/Dignite.Vault.Extract.Application.Tests.abppkg",
+      "folder": "test"
+    },
+    "Dignite.Vault.Extract.Domain.Shared": {
+      "path": "src/Dignite.Vault.Extract.Domain.Shared/Dignite.Vault.Extract.Domain.Shared.abppkg",
+      "folder": "src"
+    },
+    "Dignite.Vault.Extract.Installer": {
+       "path": "src/Dignite.Vault.Extract.Installer/Dignite.Vault.Extract.Installer.abppkg",
+       "folder": "src"
+    }
+  }
+}

@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Volo.Abp.DependencyInjection;
 
-namespace Dignite.Extract.Host.Data;
+namespace Dignite.Vault.Extract.Host.Data;
 
 public class ExtractHostDbSchemaMigrator : ITransientDependency
 {

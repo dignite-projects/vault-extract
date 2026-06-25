@@ -1,6 +1,6 @@
 using Volo.Abp.Threading;
 
-namespace Dignite.Extract.Host.Data;
+namespace Dignite.Vault.Extract.Host.Data;
 
 public static class ExtractHostEfCoreEntityExtensionMappings
 {

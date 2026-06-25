@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="..\..\..\common.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Dignite.Vault.Extract.Ocr.AzureDocumentIntelligence</RootNamespace>
+    <Description>Azure Document Intelligence OCR provider for Dignite Vault Extract: uses the prebuilt-layout model for high-accuracy, cloud-based conversion of scanned documents to structured Markdown.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Azure.AI.DocumentIntelligence" />
+    <PackageReference Include="Volo.Abp.Core" />
+    <ProjectReference Include="..\Dignite.Vault.Extract.Ocr\Dignite.Vault.Extract.Ocr.csproj" />
+  </ItemGroup>
+
+</Project>

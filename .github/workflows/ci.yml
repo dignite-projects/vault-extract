@@ -32,40 +32,40 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Restore core
-        run: dotnet restore Dignite.Extract.slnx
+        run: dotnet restore Dignite.Vault.Extract.slnx
 
       - name: Build core
-        run: dotnet build Dignite.Extract.slnx --no-restore --configuration Release
+        run: dotnet build Dignite.Vault.Extract.slnx --no-restore --configuration Release
 
       - name: Restore host
-        run: dotnet restore host/src/Dignite.Extract.Host.csproj
+        run: dotnet restore host/src/Dignite.Vault.Extract.Host.csproj
 
       - name: Build host
-        run: dotnet build host/src/Dignite.Extract.Host.csproj --no-restore --configuration Release
+        run: dotnet build host/src/Dignite.Vault.Extract.Host.csproj --no-restore --configuration Release
 
       - name: Run domain tests
-        run: dotnet test core/test/Dignite.Extract.Domain.Tests/Dignite.Extract.Domain.Tests.csproj --no-build --configuration Release --verbosity normal
+        run: dotnet test core/test/Dignite.Vault.Extract.Domain.Tests/Dignite.Vault.Extract.Domain.Tests.csproj --no-build --configuration Release --verbosity normal
 
       - name: Run application tests
-        run: dotnet test core/test/Dignite.Extract.Application.Tests/Dignite.Extract.Application.Tests.csproj --no-build --configuration Release --verbosity normal
+        run: dotnet test core/test/Dignite.Vault.Extract.Application.Tests/Dignite.Vault.Extract.Application.Tests.csproj --no-build --configuration Release --verbosity normal
 
       # SQLite in-memory (ExtractEntityFrameworkCoreTestModule); no external database dependency.
       - name: Run EF Core tests
-        run: dotnet test core/test/Dignite.Extract.EntityFrameworkCore.Tests/Dignite.Extract.EntityFrameworkCore.Tests.csproj --no-build --configuration Release --verbosity normal
+        run: dotnet test core/test/Dignite.Vault.Extract.EntityFrameworkCore.Tests/Dignite.Vault.Extract.EntityFrameworkCore.Tests.csproj --no-build --configuration Release --verbosity normal
 
       # TestBase + NSubstitute mocks (no DB / no LLM); includes MCP inputSchema regression guards
       # generated under the Autofac container.
       - name: Run MCP tests
-        run: dotnet test core/test/Dignite.Extract.Mcp.Tests/Dignite.Extract.Mcp.Tests.csproj --no-build --configuration Release --verbosity normal
+        run: dotnet test core/test/Dignite.Vault.Extract.Mcp.Tests/Dignite.Vault.Extract.Mcp.Tests.csproj --no-build --configuration Release --verbosity normal
 
       # Pure unit tests: mocked IChatClient + IPdfRasterizer; no native PDFium or external LLM dependency.
       - name: Run OCR VisionLlm tests
-        run: dotnet test core/test/Dignite.Extract.Ocr.VisionLlm.Tests/Dignite.Extract.Ocr.VisionLlm.Tests.csproj --no-build --configuration Release --verbosity normal
+        run: dotnet test core/test/Dignite.Vault.Extract.Ocr.VisionLlm.Tests/Dignite.Vault.Extract.Ocr.VisionLlm.Tests.csproj --no-build --configuration Release --verbosity normal
 
       # Minimal ASP.NET TestServer mirroring the host MCP authorization wiring (#278 regression guard),
       # without bringing in the ABP host / DB / OpenIddict.
       - name: Run host tests
-        run: dotnet test host/test/Dignite.Extract.Host.Tests/Dignite.Extract.Host.Tests.csproj --no-build --configuration Release --verbosity normal
+        run: dotnet test host/test/Dignite.Vault.Extract.Host.Tests/Dignite.Vault.Extract.Host.Tests.csproj --no-build --configuration Release --verbosity normal
 
       - name: Build Docker image
         run: docker build -f host/Dockerfile -t extract-api:${{ github.sha }} .
@@ -90,7 +90,7 @@ jobs:
         working-directory: angular
 
       - name: Build extract library
-        run: npx nx build extract --configuration production
+        run: npx nx build vault-extract --configuration production
         working-directory: angular
 
       - name: Build host application

@@ -1,7 +1,7 @@
 using Riok.Mapperly.Abstractions;
 using Volo.Abp.Mapperly;
 
-namespace Dignite.Extract.Host.ObjectMapping;
+namespace Dignite.Vault.Extract.Host.ObjectMapping;
 
 /*
  * You can add your own mappings here.

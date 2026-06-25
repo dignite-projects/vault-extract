@@ -45,14 +45,14 @@ Any field name or property meaning that only applies to a specific business scen
 - Reimbursement / finance: `ReimbursementCategory`, `Reimbursable`, `CostCenter`, `Project`
 - License / HR: `HolderName`, `IDNumber`, `IssuingAuthority`, `LicenseNumber`, `ValidFrom`, `ValidUntil`
 - Any field containing industry-specific terms such as `PolicyNumber`, `PatientId`, or `ClaimAmount`
-- Vectorization-related fields such as `HasEmbedding`, `EmbeddingStatus`, or similar. Vectorization belongs to downstream RAG systems and is outside the Dignite Extract channel layer, so these fields are not allowed on `Document`.
+- Vectorization-related fields such as `HasEmbedding`, `EmbeddingStatus`, or similar. Vectorization belongs to downstream RAG systems and is outside the Dignite Vault Extract channel layer, so these fields are not allowed on `Document`.
 
 ## Trigger Scenarios
 
 Run this check when any of the following is true:
 
-1. The user edited `core/src/Dignite.Extract.Domain/Documents/Document.cs`.
-2. The user added a property to `core/src/Dignite.Extract.Application.Contracts/Documents/DocumentDto.cs`. The DTO is the external projection of `Document`, so polluting the DTO is equivalent to polluting the aggregate.
+1. The user edited `core/src/Dignite.Vault.Extract.Domain/Documents/Document.cs`.
+2. The user added a property to `core/src/Dignite.Vault.Extract.Application.Contracts/Documents/DocumentDto.cs`. The DTO is the external projection of `Document`, so polluting the DTO is equivalent to polluting the aggregate.
 3. The user says they want to "add field X to Document".
 4. A new EF Core migration touches the `ExtractDocuments` table.
 5. The user runs `/abp-document-boundary-check`.
@@ -63,9 +63,9 @@ Run this check when any of the following is true:
 
    Use Grep or rg to search property declarations in:
 
-   - `core/src/Dignite.Extract.Domain/Documents/Document.cs`
-   - `core/src/Dignite.Extract.Application.Contracts/Documents/DocumentDto.cs`
-   - `core/src/Dignite.Extract.EntityFrameworkCore/EntityFrameworkCore/ExtractDbContextModelCreatingExtensions.cs` (the `builder.Entity<Document>` block)
+   - `core/src/Dignite.Vault.Extract.Domain/Documents/Document.cs`
+   - `core/src/Dignite.Vault.Extract.Application.Contracts/Documents/DocumentDto.cs`
+   - `core/src/Dignite.Vault.Extract.EntityFrameworkCore/EntityFrameworkCore/ExtractDbContextModelCreatingExtensions.cs` (the `builder.Entity<Document>` block)
 
 2. **Classify ownership for each field**
 
@@ -81,7 +81,7 @@ Run this check when any of the following is true:
 
    - The violating field name.
    - The business domain it belongs to, such as contracts, invoices, reimbursements, licenses, or HR. The downstream business consumer should implement it in its own repository and aggregate.
-   - This exact conclusion in substance: "This field belongs to a downstream business aggregate root. The downstream consumer should subscribe to `DocumentClassifiedEto` / `DocumentReadyEto` and persist it in its own aggregate root. The Dignite Extract `Document` aggregate is pure infrastructure and must not be polluted."
+   - This exact conclusion in substance: "This field belongs to a downstream business aggregate root. The downstream consumer should subscribe to `DocumentClassifiedEto` / `DocumentReadyEto` and persist it in its own aggregate root. The Dignite Vault Extract `Document` aggregate is pure infrastructure and must not be polluted."
    - A reference to the relevant `CLAUDE.md` section for user review.
 
 4. **If no violation is found, give a short confirmation**

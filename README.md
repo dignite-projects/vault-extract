@@ -1,6 +1,6 @@
-# Dignite Extract
+# Dignite Vault Extract
 
-> **Dignite Extract = any content requiring IDP (Intelligent Document Processing) — scans / photos / PDF images / Office files / digital-born documents → trustworthy structured data.**
+> **Dignite Vault Extract = any content requiring IDP (Intelligent Document Processing) — scans / photos / PDF images / Office files / digital-born documents → trustworthy structured data.**
 > A **channel layer**, not an end-product. It doesn't consume, doesn't own, doesn't dive into business — it hands Markdown + structured metadata to downstream RAG platforms, business systems, and AI clients via REST / EventBus / MCP server / Webhook (planned).
 
 For the full positioning, architecture rules, OUT-of-scope list, Markdown-first contract, multi-stage ETO event contract, and security covenant, see [CLAUDE.md](./CLAUDE.md). It is the truth source — this README only stages the operational entry points.
@@ -10,7 +10,7 @@ For the full positioning, architecture rules, OUT-of-scope list, Markdown-first 
 ```
 content requiring IDP: scans / photos / PDF images / Office files / digital-born documents
     ↓
-[Dignite Extract channel]: OCR + Markdown + system metadata + type-bound field extraction
+[Dignite Vault Extract channel]: OCR + Markdown + system metadata + type-bound field extraction
     ↓ (REST / EventBus / MCP server / Webhook — planned)
     ├─→ downstream RAG platform
     ├─→ business systems (finance / CLM / HR / ERP)
@@ -117,11 +117,11 @@ SPA: `http://localhost:4200`. Default seeded credentials: `admin` / `1q2w3E*`.
 
 ## Choosing an OCR provider
 
-Dignite Extract ships three OCR providers; the host enables exactly one (`[DependsOn(...)]` in `host/src/ExtractHostModule.cs` + the matching `ProjectReference` in `host/src/Dignite.Extract.Host.csproj`):
+Dignite Vault Extract ships three OCR providers; the host enables exactly one (`[DependsOn(...)]` in `host/src/ExtractHostModule.cs` + the matching `ProjectReference` in `host/src/Dignite.Vault.Extract.Host.csproj`):
 
 * **Vision LLM** — the host's current default (#259). Sends images / rasterized PDF pages to a vision-capable `IChatClient` model; the strongest option for phone photos, thermal receipts, and image-only PDFs. No sidecar — only a vision model id. See [docs/en/text-extraction/ocr-vision-llm.md](./docs/en/text-extraction/ocr-vision-llm.md).
 * **PaddleOCR** — local Docker sidecar (PP-StructureV3, CPU); data never leaves the network. See [docs/en/text-extraction/ocr-paddleocr.md](./docs/en/text-extraction/ocr-paddleocr.md).
-* **Azure Document Intelligence** — cloud option (`prebuilt-layout`, high accuracy) when data is allowed to leave the network. See [docs/en/text-extraction/ocr-azure-document-intelligence.md](./docs/en/text-extraction/ocr-azure-document-intelligence.md). **Not yet validated against a live Azure resource — community testing welcome ([#327](https://github.com/dignite-projects/dignite-extract/issues/327)).**
+* **Azure Document Intelligence** — cloud option (`prebuilt-layout`, high accuracy) when data is allowed to leave the network. See [docs/en/text-extraction/ocr-azure-document-intelligence.md](./docs/en/text-extraction/ocr-azure-document-intelligence.md). **Not yet validated against a live Azure resource — community testing welcome ([#327](https://github.com/dignite-projects/vault-extract/issues/327)).**
 
 Full selection guidance, configuration, and resource footprint: see [docs/en/text-extraction/text-extraction.md](./docs/en/text-extraction/text-extraction.md).
 
@@ -173,4 +173,4 @@ External references:
 
 ## License
 
-Dignite Extract is licensed under the [Apache License 2.0](./LICENSE).
+Dignite Vault Extract is licensed under the [Apache License 2.0](./LICENSE).

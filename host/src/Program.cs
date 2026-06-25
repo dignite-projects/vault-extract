@@ -1,10 +1,10 @@
 using System;
-using Dignite.Extract.Host.Data;
+using Dignite.Vault.Extract.Host.Data;
 using Serilog;
 using Serilog.Events;
 using Volo.Abp.Data;
 
-namespace Dignite.Extract.Host;
+namespace Dignite.Vault.Extract.Host;
 
 public class Program
 {
@@ -55,7 +55,7 @@ public class Program
                 return 0;
             }
 
-            Log.Information("Starting Dignite.Extract.Host.");
+            Log.Information("Starting Dignite.Vault.Extract.Host.");
             await app.RunAsync();
             return 0;
         }
@@ -66,7 +66,7 @@ public class Program
                 throw;
             }
 
-            Log.Fatal(ex, "Dignite.Extract.Host terminated unexpectedly!");
+            Log.Fatal(ex, "Dignite.Vault.Extract.Host terminated unexpectedly!");
             return 1;
         }
         finally

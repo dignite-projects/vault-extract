@@ -1,9 +1,9 @@
 using Microsoft.Extensions.Localization;
-using Dignite.Extract.Host.Localization;
+using Dignite.Vault.Extract.Host.Localization;
 using Volo.Abp.DependencyInjection;
 using Volo.Abp.Ui.Branding;
 
-namespace Dignite.Extract.Host;
+namespace Dignite.Vault.Extract.Host;
 
 [Dependency(ReplaceServices = true)]
 public class ExtractHostBrandingProvider : DefaultBrandingProvider

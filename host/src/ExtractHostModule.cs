@@ -1,16 +1,16 @@
-using Dignite.Extract.Ai;
-using Dignite.Extract.Documents;
-using Dignite.Extract.EntityFrameworkCore;
-using Dignite.Extract.Host.Authentication;
-using Dignite.Extract.Host.Data;
-using Dignite.Extract.Host.HealthChecks;
-using Dignite.Extract.Host.Localization;
-using Dignite.Extract.Localization;
-using Dignite.Extract.Ocr.VisionLlm;
-using Dignite.Extract.Parse;
-using Dignite.Extract.Parse.ElBrunoMarkItDown;
-using Dignite.Extract.Parse.OpenXml;
-using Dignite.Extract.Parse.Pdf;
+using Dignite.Vault.Extract.Ai;
+using Dignite.Vault.Extract.Documents;
+using Dignite.Vault.Extract.EntityFrameworkCore;
+using Dignite.Vault.Extract.Host.Authentication;
+using Dignite.Vault.Extract.Host.Data;
+using Dignite.Vault.Extract.Host.HealthChecks;
+using Dignite.Vault.Extract.Host.Localization;
+using Dignite.Vault.Extract.Localization;
+using Dignite.Vault.Extract.Ocr.VisionLlm;
+using Dignite.Vault.Extract.Parse;
+using Dignite.Vault.Extract.Parse.ElBrunoMarkItDown;
+using Dignite.Vault.Extract.Parse.OpenXml;
+using Dignite.Vault.Extract.Parse.Pdf;
 using Microsoft.Extensions.AI;
 using Microsoft.EntityFrameworkCore;
 using OpenAI;
@@ -77,7 +77,7 @@ using Volo.Abp.Timing;
 using Volo.Abp.UI.Navigation.Urls;
 using Volo.Abp.VirtualFileSystem;
 
-namespace Dignite.Extract.Host;
+namespace Dignite.Vault.Extract.Host;
 
 [DependsOn(
     // ABP Framework packages
@@ -655,7 +655,7 @@ public class ExtractHostModule : AbpModule
         var otel = context.Services.AddOpenTelemetry();
 
         otel.ConfigureResource(resource => resource
-            .AddService(serviceName: "Dignite.Extract", serviceVersion: serviceVersion));
+            .AddService(serviceName: "Dignite.Vault.Extract", serviceVersion: serviceVersion));
 
         otel.WithTracing(tracing =>
         {
@@ -664,7 +664,7 @@ public class ExtractHostModule : AbpModule
                 .AddSource("Microsoft.Agents.AI")
                 .AddSource("Experimental.Microsoft.Extensions.AI")
                 .AddSource("Microsoft.Extensions.AI")
-                .AddSource("Dignite.Extract.*")
+                .AddSource("Dignite.Vault.Extract.*")
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation();
 
@@ -682,7 +682,7 @@ public class ExtractHostModule : AbpModule
         otel.WithMetrics(metrics =>
         {
             metrics
-                .AddMeter("Dignite.Extract.*")
+                .AddMeter("Dignite.Vault.Extract.*")
                 .AddMeter("Experimental.Microsoft.Agents.AI")
                 .AddMeter("Microsoft.Agents.AI")
                 .AddMeter("Experimental.Microsoft.Extensions.AI")

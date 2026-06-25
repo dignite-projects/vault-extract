@@ -1,8 +1,8 @@
-# Dignite Extract Documentation
+# Dignite Vault Extract Documentation
 
-> **Dignite Extract** is the **channel layer** that turns any content requiring IDP (Intelligent Document Processing) — scans, photos, PDF images, Office files, and other document content — into trustworthy structured data, and exposes it to downstream consumers (RAG platforms, business systems, AI clients) over REST / EventBus / MCP.
+> **Dignite Vault Extract** is the **channel layer** that turns any content requiring IDP (Intelligent Document Processing) — scans, photos, PDF images, Office files, and other document content — into trustworthy structured data, and exposes it to downstream consumers (RAG platforms, business systems, AI clients) over REST / EventBus / MCP.
 
-These docs are operator- and deployer-facing. They are grouped to follow the channel's data flow — **get started → text extraction → pipeline → egress** — plus **configuration** and **deployment / operations**. Design decisions live in [GitHub Issues](https://github.com/dignite-projects/dignite-extract/issues), not here.
+These docs are operator- and deployer-facing. They are grouped to follow the channel's data flow — **get started → text extraction → pipeline → egress** — plus **configuration** and **deployment / operations**. Design decisions live in [GitHub Issues](https://github.com/dignite-projects/vault-extract/issues), not here.
 
 ## Get started
 

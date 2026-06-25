@@ -1,6 +1,6 @@
-# Dignite Extract
+# Dignite Vault Extract
 
-> **Positioning (one sentence)**: Dignite Extract = the **channel layer** that turns any content requiring IDP (Intelligent Document Processing) — scans, photos, PDF images, Office files, and other document content — into trustworthy structured data.
+> **Positioning (one sentence)**: Dignite Vault Extract = the **channel layer** that turns any content requiring IDP (Intelligent Document Processing) — scans, photos, PDF images, Office files, and other document content — into trustworthy structured data.
 > **It does not consume, own, or reach into business logic** — it exposes outputs to downstream consumers: RAG platforms, business systems, AI clients, etc.
 
 An ABP framework project. Most rules under `.claude/rules/` carry a `paths:` glob and are **auto-loaded when you edit matching code** (those without `paths:` are always loaded). This file keeps only the guardrails and navigation you must know *before* touching any code; detailed mechanics are injected on demand via `paths`.
@@ -10,7 +10,7 @@ An ABP framework project. Most rules under `.claude/rules/` carry a `paths:` glo
 ```
 Content requiring IDP: scans / photos / PDF images / Office files / digital-born documents
     ↓
-[Dignite Extract channel]: OCR + Markdown + common metadata + optional custom field extraction
+[Dignite Vault Extract channel]: OCR + Markdown + common metadata + optional custom field extraction
     ↓ (REST / EventBus / MCP server / Webhook — planned)
     ├─→ Downstream RAG platform (RAG Q&A)
     ├─→ Finance / CLM / HR / ERP and other business systems
@@ -20,7 +20,7 @@ Content requiring IDP: scans / photos / PDF images / Office files / digital-born
 
 ## Project layout
 
-- **core/** - Dignite Extract channel implementation (ABP application stack)
+- **core/** - Dignite Vault Extract channel implementation (ABP application stack)
 - **host/** - Host application: configures OCR / Markdown / LLM providers; the only place middleware may be configured
 - **angular/** - Angular SPA (operator UI)
 - **docs/** - Operations / configuration / API documentation; design decisions live in GitHub Issues, not under docs/
@@ -29,9 +29,9 @@ Business modules (contract / invoice / HR management, etc.) are **not** in this 
 
 ## Architecture (two layers + Host)
 
-Dignite Extract is a **two-layer architecture** (the business layer is out of scope):
+Dignite Vault Extract is a **two-layer architecture** (the business layer is out of scope):
 
-- **Layer 1 — Core (`core/`)**: all channel capabilities. `Abstractions` (the bottom of the dependency topology — extension contracts: multi-stage ETOs + `ITextExtractor` / `TextExtractionContext` / `TextExtractionResult`, depending on no other Dignite Extract project) + the standard ABP module stack (`Domain.Shared` / `Domain` / `Application` / `EntityFrameworkCore` / `HttpApi` / `Mcp`) + the pluggable text-extraction stack (`Parse` orchestrator + `Ocr` contract + multiple providers). **All channel core capabilities live in the Application layer**; REST (`HttpApi`) and MCP (`Mcp`) are parallel egress adapters — protocol/transport concerns do not leak into Application.
+- **Layer 1 — Core (`core/`)**: all channel capabilities. `Abstractions` (the bottom of the dependency topology — extension contracts: multi-stage ETOs + `ITextExtractor` / `TextExtractionContext` / `TextExtractionResult`, depending on no other Dignite Vault Extract project) + the standard ABP module stack (`Domain.Shared` / `Domain` / `Application` / `EntityFrameworkCore` / `HttpApi` / `Mcp`) + the pluggable text-extraction stack (`Parse` orchestrator + `Ocr` contract + multiple providers). **All channel core capabilities live in the Application layer**; REST (`HttpApi`) and MCP (`Mcp`) are parallel egress adapters — protocol/transport concerns do not leak into Application.
 - **Layer 2 — Downstream consumers (out of scope, not in this repo)**: business modules (contract / invoice / HR management, etc.) live in their own repos and consume via the egress contracts; `Document` is the truth source and business records are its derived projections.
 - **Layer 3 — Host (`host/`)**: a container only — declares dependencies via `[DependsOn]`, configures providers in `ConfigureServices` + registers three keyed `IChatClient`s (`TitleGenerator` / `Structured` / `Vision`, for title generation / structured-output paths / VisionLlm OCR respectively; **does not register `IEmbeddingGenerator`** — the channel layer does no vectorization), **configures middleware only here** (`OnApplicationInitialization`), and implements no business logic.
 
@@ -41,7 +41,7 @@ Dignite Extract is a **two-layer architecture** (the business layer is out of sc
 
 - **One-way dependency**: `Abstractions` sits at the bottom, referenced by all upper layers
 - **Orchestration in Application**: BackgroundJob / Workflow / PipelineRun lifecycle / Document read-write all live in `Application`
-- **Business modules are out of Dignite Extract**: downstream consumes decoupled via EventBus / MCP / REST; **no** new business-module dependency may be added inside Core
+- **Business modules are out of Dignite Vault Extract**: downstream consumes decoupled via EventBus / MCP / REST; **no** new business-module dependency may be added inside Core
 
 > Core project topology, OCR / Markdown provider implementations, and switching discipline: see `.claude/rules/text-extraction.md` (auto-loaded when editing text-extraction / OCR code).
 
@@ -62,7 +62,7 @@ Dignite Extract is a **two-layer architecture** (the business layer is out of sc
 
 Fields are organized into two kinds: **system common fields** (auto-produced by the pipeline, top-level typed columns on `Document`, type-independent: `Title` / `Markdown` / `DocumentTypeId` / review fields / `LifecycleStatus` / `Language`) + **type-bound fields** (mechanism B: extracted by schema, attached under some type, split into Host fields / tenant fields across two layers).
 
-**Essence of mechanism (B)**: Dignite Extract provides a generic "extract-by-schema" engine; Host / tenant configure the schema, and Dignite Extract Core **presets no business field definitions** (contract amount / invoice number / tax amount, etc. are not hardcoded). Two independent single layers — `Document.TenantId` decides which layer's field definitions this document runs against; **never mix across layers**.
+**Essence of mechanism (B)**: Dignite Vault Extract provides a generic "extract-by-schema" engine; Host / tenant configure the schema, and Dignite Vault Extract Core **presets no business field definitions** (contract amount / invoice number / tax amount, etc. are not hardcoded). Two independent single layers — `Document.TenantId` decides which layer's field definitions this document runs against; **never mix across layers**.
 
 **Document field-extension hard constraints** (must hold before changing `Document.cs` / egress DTOs / `TextExtractionResult`):
 
@@ -117,4 +117,4 @@ Apply to built-in LLM classification, unified field extraction (mechanism B), ti
 1. Development in core strictly follows the rules under `.claude/rules/` (most auto-load by `paths:`; when modifying ABP BackgroundJob / JobArgs you must read `.claude/rules/background-jobs.md`)
 2. Do not configure middleware in core ABP modules — only in the host
 3. **Decide whether an Issue is needed before changing**: changes touching channel boundaries (OCR pipeline / egress contracts / field architecture / document-type system / Markdown-first / security conventions), module boundaries, or Slice tasks — **stop first and tell the user to open a GitHub Issue before proceeding**; pure implementation-detail fixes (bug fixes, wording corrections) are recorded directly in the commit message
-4. **Downstream-consumer questions**: business modules (contract / invoice management, etc.) are out of Dignite Extract scope. For discussions involving downstream-consumer implementation, explicitly state it is out-of-scope; Dignite Extract only guarantees stable egress contracts
+4. **Downstream-consumer questions**: business modules (contract / invoice management, etc.) are out of Dignite Vault Extract scope. For discussions involving downstream-consumer implementation, explicitly state it is out-of-scope; Dignite Vault Extract only guarantees stable egress contracts

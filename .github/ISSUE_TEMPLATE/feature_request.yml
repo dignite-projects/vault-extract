@@ -1,11 +1,11 @@
 name: Feature request / proposal
-description: Propose a change or new capability for Dignite Extract.
+description: Propose a change or new capability for Dignite Vault Extract.
 labels: ["enhancement"]
 body:
   - type: markdown
     attributes:
       value: |
-        Dignite Extract is a **channel layer** with a deliberately narrow scope.
+        Dignite Vault Extract is a **channel layer** with a deliberately narrow scope.
         Before proposing, please skim CLAUDE.md — especially the **OUT of scope** list
         (vectorization / retrieval / chat / RAG, business-field schemas, business modules,
         end-user LLM configuration). Those belong in downstream consumers, not this repo.

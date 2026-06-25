@@ -39,7 +39,7 @@ Verifies the default OCR provider after a sidecar upgrade, model swap, or fresh-
 
 ### Provider switch-back
 
-- [ ] Switch back to Azure DI by uncommenting `ExtractAzureDocumentIntelligenceModule` in `ExtractHostModule` + matching `ProjectReference` in `host/src/Dignite.Extract.Host.csproj` + restoring the `AzureDocumentIntelligence` config block → cloud OCR path still passes acceptance
+- [ ] Switch back to Azure DI by uncommenting `ExtractAzureDocumentIntelligenceModule` in `ExtractHostModule` + matching `ProjectReference` in `host/src/Dignite.Vault.Extract.Host.csproj` + restoring the `AzureDocumentIntelligence` config block → cloud OCR path still passes acceptance
 
 ---
 
@@ -51,7 +51,7 @@ CLAUDE.md's "Document type system (two independent single layers)" section enfor
 
 ### Fresh deployment bring-up (new environment, empty DB)
 
-- [ ] After first `dotnet run --project host/src/Dignite.Extract.Host.DbMigrator` (or `dotnet ef database update`), `ExtractDocumentTypes` is **empty** — no automatic seed
+- [ ] After first `dotnet run --project host/src/Dignite.Vault.Extract.Host.DbMigrator` (or `dotnet ef database update`), `ExtractDocumentTypes` is **empty** — no automatic seed
 - [ ] Attempting to upload a document before any `DocumentType` exists in the current scope (`CurrentTenant.Id`) throws `BusinessException(Extract:NoDocumentTypesConfigured)`; document is **not** persisted to the DB nor written to blob storage
 - [ ] Host admin (`CurrentTenant.Id IS NULL`) signs in → `IDocumentTypeAppService.CreateAsync` creates a row with `TenantId = NULL`; subsequent host-scope upload succeeds and classification candidate set is non-empty
 - [ ] Tenant admin signs in (different tenant) → `GetVisibleAsync` returns **only that tenant's rows**, not the host rows; tenant must create its own type(s) before tenants can upload

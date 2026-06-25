@@ -1,0 +1,43 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "vault-extract",
+  "projectType": "library",
+  "sourceRoot": "packages/vault-extract/src",
+  "prefix": "lib",
+  "tags": ["scope:lib", "type:feature-shell"],
+  "targets": {
+    "build": {
+      "executor": "@angular/build:ng-packagr",
+      "outputs": ["{workspaceRoot}/dist/vault-extract"],
+      "options": {
+        "project": "packages/vault-extract/ng-package.json"
+      },
+      "configurations": {
+        "production": {
+          "tsConfig": "packages/vault-extract/tsconfig.lib.prod.json"
+        },
+        "development": {
+          "tsConfig": "packages/vault-extract/tsconfig.lib.json"
+        }
+      },
+      "defaultConfiguration": "production"
+    },
+    "test": {
+      "executor": "@angular/build:unit-test",
+      "options": {
+        "tsConfig": "packages/vault-extract/tsconfig.spec.json",
+        "buildTarget": "vault-extract:build",
+        "runner": "vitest"
+      }
+    },
+    "lint": {
+      "executor": "@angular-eslint/builder:lint",
+      "options": {
+        "lintFilePatterns": [
+          "packages/vault-extract/**/*.ts",
+          "packages/vault-extract/**/*.html"
+        ]
+      }
+    }
+  }
+}

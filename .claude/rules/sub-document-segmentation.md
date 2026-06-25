@@ -1,5 +1,5 @@
 ---
-description: "Dignite Extract sub-document segmentation subsystem: the two-representation model (DocumentSegment ledger + derived Document), the two-Kind red line, the field lifecycle contract, and the cross-entity invariant (decision record: #390)"
+description: "Dignite Vault Extract sub-document segmentation subsystem: the two-representation model (DocumentSegment ledger + derived Document), the two-Kind red line, the field lifecycle contract, and the cross-entity invariant (decision record: #390)"
 paths:
   - "**/Segmentation/**/*.cs"
   - "**/DerivedDocumentSpawner.cs"

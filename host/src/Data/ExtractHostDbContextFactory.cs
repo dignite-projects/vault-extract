@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 
-namespace Dignite.Extract.Host.Data;
+namespace Dignite.Vault.Extract.Host.Data;
 
 public class ExtractHostDbContextFactory : IDesignTimeDbContextFactory<ExtractHostDbContext>
 {

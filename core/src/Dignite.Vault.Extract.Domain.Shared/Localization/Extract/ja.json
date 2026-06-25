@@ -1,0 +1,10 @@
+{
+  "culture": "ja",
+  "texts": {
+    "Permission:Extract": "Dignite Vault Extract",
+    "Permission:Documents": "ドキュメント",
+    "Permission:Documents.Upload": "ドキュメントのアップロード",
+    "Permission:Documents.Delete": "ドキュメントの削除",
+    "Permission:Documents.Export": "ドキュメントのエクスポート"
+  }
+}

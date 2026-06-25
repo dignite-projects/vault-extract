@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="..\..\..\common.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Dignite.Vault.Extract</RootNamespace>
+    <Description>Application contracts of Dignite Vault Extract: application service interfaces, DTOs and permission definitions shared by the REST, MCP and client-proxy exits.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Volo.Abp.Ddd.Application.Contracts" />
+    <PackageReference Include="Volo.Abp.Authorization" />
+    <PackageReference Include="Volo.Abp.Features" />
+    <ProjectReference Include="..\Dignite.Vault.Extract.Abstractions\Dignite.Vault.Extract.Abstractions.csproj" />
+    <ProjectReference Include="..\Dignite.Vault.Extract.Domain.Shared\Dignite.Vault.Extract.Domain.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

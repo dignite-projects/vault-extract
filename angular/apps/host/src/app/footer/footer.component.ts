@@ -6,7 +6,7 @@ import { Component } from '@angular/core';
     <div class="lpx-footbar-container end-0">
       <div class="lpx-footbar">
         <div class="lpx-footbar-copyright">
-          <span>© {{ currentYear }} Dignite Extract</span>
+          <span>© {{ currentYear }} Dignite Vault Extract</span>
         </div>
         <div class="lpx-footbar-solo-links">
           <a href="https://dignite.com/extract" target="_blank" rel="noopener">About</a>

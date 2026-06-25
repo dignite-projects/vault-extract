@@ -16,7 +16,7 @@
         "OpenTelemetry__Enabled": "true"
       }
     },
-    "Dignite.Extract.Host": {
+    "Dignite.Vault.Extract.Host": {
       "commandName": "Project",
       "launchBrowser": true,
       "applicationUrl": "https://localhost:44348",

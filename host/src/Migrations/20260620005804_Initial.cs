@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace Dignite.Extract.Host.Migrations
+namespace Dignite.Vault.Extract.Host.Migrations
 {
     /// <inheritdoc />
     public partial class Initial : Migration

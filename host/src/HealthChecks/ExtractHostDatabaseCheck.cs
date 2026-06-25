@@ -5,7 +5,7 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Volo.Abp.DependencyInjection;
 using Volo.Abp.Identity;
 
-namespace Dignite.Extract.Host.HealthChecks;
+namespace Dignite.Vault.Extract.Host.HealthChecks;
 
 public class ExtractHostDatabaseCheck : IHealthCheck, ITransientDependency
 {

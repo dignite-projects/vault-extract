@@ -37,7 +37,7 @@ Do not run `abp generate-proxy -t ng` directly here; it expects a plain Angular 
 The npm script wraps ABP's official nx generator `nx g @abp/nx.generators:generate-proxy`
 (`@abp/nx.generators` is ABP's nx-specific wrapper; it internally calls the
 `@abp/ng.schematics:proxy-add` schematic) and generates typed service classes under
-`packages/extract/src/lib/proxy/`. The host API must be running at `https://localhost:44348`.
+`packages/vault-extract/src/lib/proxy/`. The host API must be running at `https://localhost:44348`.
 
 The `proxy/` folder is fully owned by the generator and is overwritten on every run —
 never edit it by hand. Hand-written, regeneration-safe code lives OUTSIDE `proxy/`:

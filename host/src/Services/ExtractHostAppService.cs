@@ -1,7 +1,7 @@
 using Volo.Abp.Application.Services;
-using Dignite.Extract.Host.Localization;
+using Dignite.Vault.Extract.Host.Localization;
 
-namespace Dignite.Extract.Host.Services;
+namespace Dignite.Vault.Extract.Host.Services;
 
 /* Inherit your application services from this class. */
 public abstract class ExtractHostAppService : ApplicationService

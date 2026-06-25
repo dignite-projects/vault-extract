@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="..\..\..\common.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Dignite.Vault.Extract</RootNamespace>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <Description>Domain layer of Dignite Vault Extract: the Document aggregate root (Markdown-first text payload), document types, field definitions, cabinets, export templates, pipeline run entities and repository interfaces.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Volo.Abp.BlobStoring" />
+    <PackageReference Include="Volo.Abp.Ddd.Domain" />
+    <ProjectReference Include="..\Dignite.Vault.Extract.Abstractions\Dignite.Vault.Extract.Abstractions.csproj" />
+    <ProjectReference Include="..\Dignite.Vault.Extract.Domain.Shared\Dignite.Vault.Extract.Domain.Shared.csproj" />
+    <!-- EFCore.Tests must construct DocumentPipelineRun directly through its internal constructor to verify repository visibility semantics for unflushed runs (#216 follow-up #1). -->
+    <InternalsVisibleTo Include="Dignite.Vault.Extract.EntityFrameworkCore.Tests" />
+  </ItemGroup>
+
+</Project>

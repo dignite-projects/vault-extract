@@ -1,7 +1,7 @@
 using HealthChecks.UI.Client;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 
-namespace Dignite.Extract.Host.HealthChecks;
+namespace Dignite.Vault.Extract.Host.HealthChecks;
 
 public static class HealthChecksBuilderExtensions
 {

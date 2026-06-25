@@ -1,4 +1,4 @@
-using Dignite.Extract.EntityFrameworkCore;
+using Dignite.Vault.Extract.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Volo.Abp.EntityFrameworkCore;
 using Volo.Abp.EntityFrameworkCore.Modeling;
@@ -11,7 +11,7 @@ using Volo.Abp.OpenIddict.EntityFrameworkCore;
 using Volo.Abp.PermissionManagement.EntityFrameworkCore;
 using Volo.Abp.SettingManagement.EntityFrameworkCore;
 
-namespace Dignite.Extract.Host.Data;
+namespace Dignite.Vault.Extract.Host.Data;
 
 public class ExtractHostDbContext
     : AbpDbContext<ExtractHostDbContext>, IHasEventInbox, IHasEventOutbox

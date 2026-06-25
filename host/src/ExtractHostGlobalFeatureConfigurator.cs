@@ -1,7 +1,7 @@
 using Volo.Abp.GlobalFeatures;
 using Volo.Abp.Threading;
 
-namespace Dignite.Extract.Host;
+namespace Dignite.Vault.Extract.Host;
 
 public static class ExtractHostGlobalFeatureConfigurator
 {

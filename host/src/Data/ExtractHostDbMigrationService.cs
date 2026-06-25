@@ -6,7 +6,7 @@ using Volo.Abp.DependencyInjection;
 using Volo.Abp.Identity;
 using Volo.Abp.MultiTenancy;
 
-namespace Dignite.Extract.Host.Data;
+namespace Dignite.Vault.Extract.Host.Data;
 
 public class ExtractHostDbMigrationService : ITransientDependency
 {

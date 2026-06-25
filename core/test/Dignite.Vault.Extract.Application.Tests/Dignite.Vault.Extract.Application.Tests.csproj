@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="..\..\..\common.test.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Dignite.Vault.Extract</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Dignite.Vault.Extract.Application\Dignite.Vault.Extract.Application.csproj" />
+    <ProjectReference Include="..\..\src\Dignite.Vault.Extract.EntityFrameworkCore\Dignite.Vault.Extract.EntityFrameworkCore.csproj" />
+<ProjectReference Include="..\..\src\Dignite.Vault.Extract.Parse\Dignite.Vault.Extract.Parse.csproj" />
+    <ProjectReference Include="..\..\src\Dignite.Vault.Extract.Parse.ElBrunoMarkItDown\Dignite.Vault.Extract.Parse.ElBrunoMarkItDown.csproj" />
+    <ProjectReference Include="..\Dignite.Vault.Extract.Domain.Tests\Dignite.Vault.Extract.Domain.Tests.csproj" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Volo.Abp.EntityFrameworkCore.Sqlite" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="TestResults\" />
+  </ItemGroup>
+
+</Project>

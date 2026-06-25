@@ -4,7 +4,7 @@ When you change a **classification prompt** (a `DocumentType`'s `Description`, `
 
 The forward pipeline is `upload → text-extraction → classification → field-extraction → Ready`. Reprocessing re-runs from the **classification** or **field-extraction** stage — never text extraction (re-OCR of existing documents is out of scope, see below).
 
-**Judgment stays with the operator.** Config changes do **not** cascade automatically — Dignite Extract never guesses whether you meant a change to apply to existing documents. You trigger reprocessing explicitly, choose its scope, and accept its cost. This page covers the feature; for orchestration code see `core/src/Dignite.Extract.Application/Documents/Pipelines/Reprocessing/` and `.../FieldExtraction/`.
+**Judgment stays with the operator.** Config changes do **not** cascade automatically — Dignite Vault Extract never guesses whether you meant a change to apply to existing documents. You trigger reprocessing explicitly, choose its scope, and accept its cost. This page covers the feature; for orchestration code see `core/src/Dignite.Vault.Extract.Application/Documents/Pipelines/Reprocessing/` and `.../FieldExtraction/`.
 
 ## Three entry points
 
@@ -49,7 +49,7 @@ A manually confirmed type (`ReviewDisposition = Confirmed`) is a higher-priority
 
 On the document detail page, next to **Re-recognize**, a lighter **Re-extract fields** button re-runs only field extraction for that one document on its existing classification — no reclassification, no OCR. Use it when you tweaked a field definition and want to refresh one document without touching its type.
 
-It differs from **Re-recognize** (`RerecognizeAsync`, [#263](https://github.com/dignite-projects/dignite-extract/issues/263)), which re-runs *classification* and cascades — a destructive operation. Re-extract fields is the safe leaf version. It is rejected if the document is in the recycle bin, not yet classified, has no Markdown, or already has a field-extraction run in progress.
+It differs from **Re-recognize** (`RerecognizeAsync`, [#263](https://github.com/dignite-projects/vault-extract/issues/263)), which re-runs *classification* and cascades — a destructive operation. Re-extract fields is the safe leaf version. It is rejected if the document is in the recycle bin, not yet classified, has no Markdown, or already has a field-extraction run in progress.
 
 ## How batches run (mechanism)
 

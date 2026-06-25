@@ -83,7 +83,7 @@
         <!-- Aligned with the OTel 1.15.x family that Microsoft.Agents.AI 1.4+ depends on
              (see the plan doc section "MAF version upgrade 1.2 -> 1.5"). The host wires up the export
              pipeline so MAF's built-in CompactionTelemetry, Microsoft.Extensions.AI's
-             gen_ai.* spans, and project-owned Dignite.Extract.* Meters reach OTLP. -->
+             gen_ai.* spans, and project-owned Dignite.Vault.Extract.* Meters reach OTLP. -->
         <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.15.0" />
         <PackageVersion Include="OpenTelemetry.Exporter.Console" Version="1.15.0" />
         <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.15.0" />

@@ -8,7 +8,7 @@ import type { CurrentTenantDto, CurrentUserDto } from '@abp/ng.core';
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { EXTRACT_PERMISSIONS } from '@dignite/extract';
+import { EXTRACT_PERMISSIONS } from '@dignite/vault-extract';
 
 interface HomeEntryPoint {
   title: string;
@@ -33,7 +33,7 @@ export class HomeComponent {
 
   private readonly entryPoints: HomeEntryPoint[] = [
     {
-      title: 'Dignite Extract',
+      title: 'Dignite Vault Extract',
       description: 'Open the module for document intake, review, schema management, and exports.',
       route: '/documents',
       iconClass: 'fas fa-file-lines',

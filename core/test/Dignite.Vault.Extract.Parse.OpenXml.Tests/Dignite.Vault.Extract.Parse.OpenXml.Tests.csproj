@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="..\..\..\common.test.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Dignite.Vault.Extract.Parse.OpenXml</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Pure unit tests: NSubstitute the IOcrProvider, build PPTX fixtures in-code with the OpenXML SDK
+         (no on-disk assets), and generate embedded PNGs with a tiny pure-managed encoder (no SkiaSharp /
+         native dependency). No ABP TestBase, no DB. -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="NSubstitute" />
+    <PackageReference Include="Shouldly" />
+    <!-- OpenXML SDK directly, for building PPTX fixtures (also flows transitively via the src project). -->
+    <PackageReference Include="DocumentFormat.OpenXml" />
+    <!-- For ExposedServiceExplorer in the DI-registration regression test. -->
+    <PackageReference Include="Volo.Abp.Core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Dignite.Vault.Extract.Parse.OpenXml\Dignite.Vault.Extract.Parse.OpenXml.csproj" />
+  </ItemGroup>
+
+</Project>

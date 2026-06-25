@@ -3,13 +3,13 @@
 #
 # Routing by channel, derived from the SemVer pre-release suffix in <Version>:
 #   - Pre-release (e.g. 0.2.0-preview.3) -> NuGet packages pushed to GitHub Packages only.
-#   - Stable      (e.g. 0.2.0)           -> NuGet to NuGet.org, npm (@dignite/extract) to npmjs.
+#   - Stable      (e.g. 0.2.0)           -> NuGet to NuGet.org, npm (@dignite/vault-extract) to npmjs.
 #
 # Triggers: push a v* tag (e.g. v0.2.0 or v0.2.0-preview.3) or use workflow_dispatch. For churny
 # pre-release builds prefer workflow_dispatch: no tag, no draft Release, no lockstep check - just
 # bump <Version> in common.props, run, and the packages land in GitHub Packages.
 #
-# The npm version in angular/packages/extract/package.json must stay in lockstep with common.props
+# The npm version in angular/packages/vault-extract/package.json must stay in lockstep with common.props
 # <Version> (enforced by the guard step on tag pushes).
 
 name: Release
@@ -44,9 +44,9 @@ jobs:
             echo "::error::Tag $TAG does not match <Version>$VERSION</Version> in common.props."
             exit 1
           fi
-          NPM_VERSION=$(node -p "require('./angular/packages/extract/package.json').version")
+          NPM_VERSION=$(node -p "require('./angular/packages/vault-extract/package.json').version")
           if [ "$NPM_VERSION" != "$VERSION" ]; then
-            echo "::error::npm version $NPM_VERSION (angular/packages/extract/package.json) is not in lockstep with common.props $VERSION."
+            echo "::error::npm version $NPM_VERSION (angular/packages/vault-extract/package.json) is not in lockstep with common.props $VERSION."
             exit 1
           fi
 
@@ -72,36 +72,36 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Restore
-        run: dotnet restore Dignite.Extract.slnx
+        run: dotnet restore Dignite.Vault.Extract.slnx
 
       - name: Build
-        run: dotnet build Dignite.Extract.slnx --no-restore --configuration Release
+        run: dotnet build Dignite.Vault.Extract.slnx --no-restore --configuration Release
 
       # Same backend test set as ci.yml; all are dependency-light
       # (SQLite in-memory / mocks / minimal TestServer).
       - name: Run domain tests
-        run: dotnet test core/test/Dignite.Extract.Domain.Tests/Dignite.Extract.Domain.Tests.csproj --no-build --configuration Release --verbosity normal
+        run: dotnet test core/test/Dignite.Vault.Extract.Domain.Tests/Dignite.Vault.Extract.Domain.Tests.csproj --no-build --configuration Release --verbosity normal
 
       - name: Run application tests
-        run: dotnet test core/test/Dignite.Extract.Application.Tests/Dignite.Extract.Application.Tests.csproj --no-build --configuration Release --verbosity normal
+        run: dotnet test core/test/Dignite.Vault.Extract.Application.Tests/Dignite.Vault.Extract.Application.Tests.csproj --no-build --configuration Release --verbosity normal
 
       - name: Run EF Core tests
-        run: dotnet test core/test/Dignite.Extract.EntityFrameworkCore.Tests/Dignite.Extract.EntityFrameworkCore.Tests.csproj --no-build --configuration Release --verbosity normal
+        run: dotnet test core/test/Dignite.Vault.Extract.EntityFrameworkCore.Tests/Dignite.Vault.Extract.EntityFrameworkCore.Tests.csproj --no-build --configuration Release --verbosity normal
 
       - name: Run MCP tests
-        run: dotnet test core/test/Dignite.Extract.Mcp.Tests/Dignite.Extract.Mcp.Tests.csproj --no-build --configuration Release --verbosity normal
+        run: dotnet test core/test/Dignite.Vault.Extract.Mcp.Tests/Dignite.Vault.Extract.Mcp.Tests.csproj --no-build --configuration Release --verbosity normal
 
       - name: Run OCR VisionLlm tests
-        run: dotnet test core/test/Dignite.Extract.Ocr.VisionLlm.Tests/Dignite.Extract.Ocr.VisionLlm.Tests.csproj --no-build --configuration Release --verbosity normal
+        run: dotnet test core/test/Dignite.Vault.Extract.Ocr.VisionLlm.Tests/Dignite.Vault.Extract.Ocr.VisionLlm.Tests.csproj --no-build --configuration Release --verbosity normal
 
       - name: Run host tests
-        run: dotnet test host/test/Dignite.Extract.Host.Tests/Dignite.Extract.Host.Tests.csproj --no-build --configuration Release --verbosity normal
+        run: dotnet test host/test/Dignite.Vault.Extract.Host.Tests/Dignite.Vault.Extract.Host.Tests.csproj --no-build --configuration Release --verbosity normal
 
       # Projects with IsPackable=false (host / test projects; test projects are implicitly false
       # via Microsoft.NET.Test.Sdk) are skipped automatically. Only NuGet packages under core/src
       # are produced.
       - name: Pack
-        run: dotnet pack Dignite.Extract.slnx --no-build --configuration Release -o ./artifacts
+        run: dotnet pack Dignite.Vault.Extract.slnx --no-build --configuration Release -o ./artifacts
 
       - name: Upload NuGet packages
         uses: actions/upload-artifact@v4
@@ -112,7 +112,7 @@ jobs:
 
       # Pre-release builds go to GitHub Packages only (private to the org, authenticated with the
       # workflow's built-in GITHUB_TOKEN). The package's <RepositoryUrl> in common.props links it
-      # to dignite-projects/dignite-extract, which GitHub Packages requires for the push.
+      # to dignite-projects/vault-extract, which GitHub Packages requires for the push.
       - name: Push to GitHub Packages (pre-release)
         if: steps.channel.outputs.channel == 'preview'
         run: |
@@ -148,7 +148,7 @@ jobs:
         working-directory: angular
 
       - name: Build npm package
-        run: npx nx build extract --configuration production
+        run: npx nx build vault-extract --configuration production
         working-directory: angular
 
       # npm publishes to npmjs only on stable builds. Pre-release UI builds are still compiled
@@ -164,7 +164,7 @@ jobs:
             echo "::notice::NPM_TOKEN secret is not configured; skipping npm publish."
             exit 0
           fi
-          npm publish ./dist/extract --access public
+          npm publish ./dist/vault-extract --access public
         working-directory: angular
 
       # Extract this version's section from CHANGELOG.md as the draft release body. The heading

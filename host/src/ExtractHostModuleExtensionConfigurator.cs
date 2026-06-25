@@ -3,7 +3,7 @@ using Volo.Abp.Identity;
 using Volo.Abp.ObjectExtending;
 using Volo.Abp.Threading;
 
-namespace Dignite.Extract.Host;
+namespace Dignite.Vault.Extract.Host;
 
 public static class ExtractHostModuleExtensionConfigurator
 {

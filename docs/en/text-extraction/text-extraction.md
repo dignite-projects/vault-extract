@@ -1,12 +1,12 @@
 # Text Extraction
 
-Every document uploaded to Dignite Extract passes through a text-extraction stage that converts the raw bytes into **Markdown**. The Markdown then drives the channel's internal pipeline — classification, Host field extraction, tenant field extraction (mechanism B), and title generation — and is the only text payload Dignite Extract exposes to downstream consumers (RAG platforms, business systems, MCP clients) via REST / EventBus / MCP.
+Every document uploaded to Dignite Vault Extract passes through a text-extraction stage that converts the raw bytes into **Markdown**. The Markdown then drives the channel's internal pipeline — classification, Host field extraction, tenant field extraction (mechanism B), and title generation — and is the only text payload Dignite Vault Extract exposes to downstream consumers (RAG platforms, business systems, MCP clients) via REST / EventBus / MCP.
 
 ## Markdown-first contract
 
-Dignite Extract is an AI-native platform. Markdown is the **single text payload** of the pipeline. But what Markdown contributes depends on whether the source document has structure — be honest about both cases:
+Dignite Vault Extract is an AI-native platform. Markdown is the **single text payload** of the pipeline. But what Markdown contributes depends on whether the source document has structure — be honest about both cases:
 
-**With structure — real signal.** For contracts, reports, CSV, DOCX with headings, layout-aware OCR output (PP-StructureV3, Azure DI `prebuilt-layout`): headings, tables and lists are not formatting decoration — they are semantic signals that downstream RAG chunkers (header-path injection) and Dignite Extract's own LLM prompts (system prompt: "input is Markdown") rely on. Use them in full.
+**With structure — real signal.** For contracts, reports, CSV, DOCX with headings, layout-aware OCR output (PP-StructureV3, Azure DI `prebuilt-layout`): headings, tables and lists are not formatting decoration — they are semantic signals that downstream RAG chunkers (header-path injection) and Dignite Vault Extract's own LLM prompts (system prompt: "input is Markdown") rely on. Use them in full.
 
 **Without structure — container, not signal.** For OCR loose paragraphs, plain `.txt`, PP-OCRv4 line dumps, single-line notes: the Markdown wrapper is a **container name**, not a signal upgrade — `string.Join("\n\n", paragraphs)` and the plain text it wraps are byte-for-byte indistinguishable. We still route this through the Markdown contract so internal pipelines (classification / Host & tenant field extraction / title generation) and downstream consumers (RAG / business systems) stay on one shape. The wrapper buys uniformity, not LLM comprehension.
 
@@ -14,11 +14,11 @@ Contract obligations regardless of structure:
 
 - Every text-extraction provider — built-in or third-party — **must** populate `TextExtractionResult.Markdown`. Plain-text fallbacks are a design violation.
 - Even when the source has no structure, the provider must still emit flat Markdown paragraphs rather than expose a parallel raw-text channel — wrapping happens **inside the provider**, never bubbled up to the orchestrator.
-- `Document.Markdown` is the **only** text field on the `Document` aggregate. Consumers that need plain text strip on demand via `Dignite.Extract.Documents.MarkdownStripper.Strip(...)`; nothing is persisted in stripped form.
+- `Document.Markdown` is the **only** text field on the `Document` aggregate. Consumers that need plain text strip on demand via `Dignite.Vault.Extract.Documents.MarkdownStripper.Strip(...)`; nothing is persisted in stripped form.
 
 **Markdown-first is an engineering default, not a creed.** Out-of-band signals (coordinates, confidence, page metadata, form key-value structure, stamp positions) are **orthogonal** to Markdown. When future needs arise — citation highlighting on the source PDF, stamp localization, form key-value extraction, page-aware QA — they belong as **named, optional, strongly-typed** fields on `TextExtractionResult` (e.g. `IReadOnlyList<PageBlock>? PageBlocks`) or as a separate extractor interface orthogonal to `ITextExtractor`. **Forbidden**: stuffing such signals back into the Markdown string, or adding a `Dictionary<string, object>` extension slot. Each new out-of-band signal needs its own Issue — it's an architecture decision, not a quiet field addition.
 
-Source contract: [`ITextExtractor`](../core/src/Dignite.Extract.Abstractions/Parse/ITextExtractor.cs), [`IMarkdownTextProvider`](../core/src/Dignite.Extract.Parse/IMarkdownTextProvider.cs).
+Source contract: [`ITextExtractor`](../core/src/Dignite.Vault.Extract.Abstractions/Parse/ITextExtractor.cs), [`IMarkdownTextProvider`](../core/src/Dignite.Vault.Extract.Parse/IMarkdownTextProvider.cs).
 
 ## Two extraction paths
 
@@ -46,9 +46,9 @@ The image/scan path is dispatched by file kind. The digital path is dispatched *
 
 | Provider | Owns | Notes |
 |---|---|---|
-| **PdfExtractor** (`Dignite.Extract.Parse.Pdf`, PdfPig) | `.pdf` | Extracts the digital text layer **and** embedded raster images. Each image is transcribed through the host-selected `IOcrProvider` and inlined into the Markdown at its reading position (#301), so embedded figures are no longer silently dropped. Vector-only graphics are an accepted blind spot (`GetImages()` does not see them). |
-| **OpenXmlExtractor** (`Dignite.Extract.Parse.OpenXml`, OpenXML SDK) | `.pptx`, `.docx` | Owns the whole PowerPoint / Word pass: rebuilds structure (PPTX slide text + speaker notes, #307; DOCX headings / tables / lists / inline formatting / hyperlinks / text boxes, #308) **and** transcribes embedded raster images through the host-selected `IOcrProvider`, renders `ChartPart` backing data as Markdown tables, inlining everything at reading position. EMF/WMF vector images are an accepted blind spot. |
-| **ElBruno MarkItDown** (`Dignite.Extract.Parse.ElBrunoMarkItDown`) | catch-all (HTML / TXT / CSV / RTF / EPUB; also `.docx` when the OpenXml module is absent, and `.pdf` when the Pdf module is absent) | Default fallback; enabled by the host module, no configuration. |
+| **PdfExtractor** (`Dignite.Vault.Extract.Parse.Pdf`, PdfPig) | `.pdf` | Extracts the digital text layer **and** embedded raster images. Each image is transcribed through the host-selected `IOcrProvider` and inlined into the Markdown at its reading position (#301), so embedded figures are no longer silently dropped. Vector-only graphics are an accepted blind spot (`GetImages()` does not see them). |
+| **OpenXmlExtractor** (`Dignite.Vault.Extract.Parse.OpenXml`, OpenXML SDK) | `.pptx`, `.docx` | Owns the whole PowerPoint / Word pass: rebuilds structure (PPTX slide text + speaker notes, #307; DOCX headings / tables / lists / inline formatting / hyperlinks / text boxes, #308) **and** transcribes embedded raster images through the host-selected `IOcrProvider`, renders `ChartPart` backing data as Markdown tables, inlining everything at reading position. EMF/WMF vector images are an accepted blind spot. |
+| **ElBruno MarkItDown** (`Dignite.Vault.Extract.Parse.ElBrunoMarkItDown`) | catch-all (HTML / TXT / CSV / RTF / EPUB; also `.docx` when the OpenXml module is absent, and `.pdf` when the Pdf module is absent) | Default fallback; enabled by the host module, no configuration. |
 
 **Embedded images in digital PDFs (#301).** PdfExtractor reuses the host-selected `IOcrProvider` for figure transcription — no separate vision client is wired at the Markdown-provider layer, and the semantics are transcription only (no chart/describe modes). Image-heavy PDFs are bounded by `PdfExtractorOptions` (`MaxImagesPerPdf`, `MinImagePixels` — tiny decorative images are skipped). When images are dropped (cap reached / undecodable codec such as JBIG2/JPX) or a figure's OCR is truncated, the result is marked incomplete via the #268 completeness signal.
 
@@ -60,7 +60,7 @@ The image/scan path is dispatched by file kind. The digital path is dispatched *
 
 ## OCR — choosing a provider
 
-Dignite Extract ships three OCR providers. Pick **one** in `host/src/ExtractHostModule.cs` based on the deployment scenario — `IOcrProvider` has a single registration, so the providers are mutually exclusive.
+Dignite Vault Extract ships three OCR providers. Pick **one** in `host/src/ExtractHostModule.cs` based on the deployment scenario — `IOcrProvider` has a single registration, so the providers are mutually exclusive.
 
 | | [PaddleOCR](ocr-paddleocr.md) (default) | [Azure Document Intelligence](ocr-azure-document-intelligence.md) | [Vision-LLM](ocr-vision-llm.md) |
 |---|---|---|---|
@@ -79,8 +79,8 @@ Each provider's setup lives on its own page: **[PaddleOCR](ocr-paddleocr.md)** �
 
 These apply regardless of which provider is wired:
 
-- Dignite Extract does not auto-switch OCR profiles per document. The OCR provider runs once with the host-configured model; there is no second OCR pass with a guessed specialized mode, and OCR average confidence is no longer a quality gate (#196).
-- OCR completion always advances the document to classification. OCR average confidence was removed (#196) — it did not reliably predict real quality (skewed pages, blurry scans, layout issues are not reflected in average scores). A document reaches the review queue only via low classification confidence / no matching type, where the operator reclassifies, rejects (Dignite Extract keeps the original file, Markdown, and rejection reason for audit, then marks the document failed — no "rerun OCR" or source-replacement path), or re-uploads a better source.
+- Dignite Vault Extract does not auto-switch OCR profiles per document. The OCR provider runs once with the host-configured model; there is no second OCR pass with a guessed specialized mode, and OCR average confidence is no longer a quality gate (#196).
+- OCR completion always advances the document to classification. OCR average confidence was removed (#196) — it did not reliably predict real quality (skewed pages, blurry scans, layout issues are not reflected in average scores). A document reaches the review queue only via low classification confidence / no matching type, where the operator reclassifies, rejects (Dignite Vault Extract keeps the original file, Markdown, and rejection reason for audit, then marks the document failed — no "rerun OCR" or source-replacement path), or re-uploads a better source.
 - Review state is two orthogonal axes (#284), not a durable audit ledger: a **disposition** axis `ReviewDisposition` (`NotReviewed` / `Confirmed` / `Rejected` — operator action only) and a **reason** axis `ReviewReasons` (`[Flags]`: `UnresolvedClassification` blocks Ready, `MissingRequiredFields` is non-blocking). "Needs operator attention" derives as `ReviewReasons != None && ReviewDisposition != Rejected`. Automatic re-classification may reset these; pipeline history remains available if a dedicated audit/event model is later needed.
 - **Extraction completeness (#268).** A provider may report that it captured only part of a document (e.g. a vision-LLM output truncated at the token cap, or a dropped PDF page). This is carried on `TextExtractionResult.IsComplete` / `IncompleteReason`, archived into `Document.ExtractionMetadata`, and surfaced to downstream consumers on the REST `DocumentDto` as `ExtractionIsComplete` + `ExtractionIncompleteReason`. It is a **quality signal** (distinct from internal extraction provenance, which is not exposed); the channel does not gate Ready on it — consumers decide whether to accept, downgrade, or route to review. Providers that don't report it default to complete.
 
@@ -88,11 +88,11 @@ These apply regardless of which provider is wired:
 
 Implement `IOcrProvider` (for image/scan input) or `IMarkdownTextProvider` (for files with a digital text layer). Both contracts are documented in their source files; both demand Markdown output. A Markdown provider also declares which extensions it owns via `CanHandle(extension)` + `Priority` (use a non-negative priority for a specialized provider; the catch-all fallback sits at `MarkdownProviderPriorities.Fallback`).
 
-The provider lives in its own module project (`Dignite.Extract.Ocr.<Vendor>` or `Dignite.Extract.Parse.<Vendor>`) and is enabled by the host through `[DependsOn(...)]`. Markdown providers coexist (dispatched per file by extension), so adding one does not displace the others.
+The provider lives in its own module project (`Dignite.Vault.Extract.Ocr.<Vendor>` or `Dignite.Vault.Extract.Parse.<Vendor>`) and is enabled by the host through `[DependsOn(...)]`. Markdown providers coexist (dispatched per file by extension), so adding one does not displace the others.
 
-**Markdown-first responsibility is on the provider, not the orchestrator.** The `OcrResult` and `TextExtractionResult` types expose only a `Markdown` field — there is no parallel `RawText` channel. If the underlying OCR engine returns plain text only (e.g. PaddleOCR PP-OCRv4), the provider itself must wrap paragraphs into flat Markdown (typically `string.Join("\n\n", paragraphs)`). Returning empty Markdown when the engine produced text is a contract violation. Custom OCR providers should expose their model choice through provider/host configuration, not through Dignite Extract core profile codes.
+**Markdown-first responsibility is on the provider, not the orchestrator.** The `OcrResult` and `TextExtractionResult` types expose only a `Markdown` field — there is no parallel `RawText` channel. If the underlying OCR engine returns plain text only (e.g. PaddleOCR PP-OCRv4), the provider itself must wrap paragraphs into flat Markdown (typically `string.Join("\n\n", paragraphs)`). Returning empty Markdown when the engine produced text is a contract violation. Custom OCR providers should expose their model choice through provider/host configuration, not through Dignite Vault Extract core profile codes.
 
-Custom OCR provider projects only need to reference `Dignite.Extract.Ocr` — they do not need (and should not pull in) `Dignite.Extract.Parse` or `Dignite.Extract.Abstractions`.
+Custom OCR provider projects only need to reference `Dignite.Vault.Extract.Ocr` — they do not need (and should not pull in) `Dignite.Vault.Extract.Parse` or `Dignite.Vault.Extract.Abstractions`.
 
 ## See also
 

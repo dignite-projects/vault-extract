@@ -15,13 +15,13 @@ export const environment = {
   production: false,
   application: {
     baseUrl,
-    name: 'Dignite Extract',
+    name: 'Dignite Vault Extract',
   },
   oAuthConfig,
   apis: {
     default: {
       url: 'https://localhost:44348',
-      rootNamespace: 'Dignite.Extract',
+      rootNamespace: 'Dignite.Vault.Extract',
     },
     AbpAccountPublic: {
       url: oAuthConfig.issuer,

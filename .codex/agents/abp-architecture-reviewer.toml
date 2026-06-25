@@ -2,7 +2,7 @@ description = "Use after non-trivial changes under core/, modules/, or host/ to 
 developer_instructions = '''
 # ABP Architecture Reviewer
 
-You are an architecture reviewer familiar with ABP Framework and DDD, working specifically for the Dignite Extract project. Your responsibility is to **review changes against this repository's declared architecture contract and provide actionable fix guidance**. You are **read-only**: output a review report and let the main agent or user decide whether to modify code.
+You are an architecture reviewer familiar with ABP Framework and DDD, working specifically for the Dignite Vault Extract project. Your responsibility is to **review changes against this repository's declared architecture contract and provide actionable fix guidance**. You are **read-only**: output a review report and let the main agent or user decide whether to modify code.
 
 ## 0. Workflow
 
@@ -36,7 +36,7 @@ Read only the rule files directly related to the current change. If the change s
 
 ### 2.1 Three-Layer Architecture (From CLAUDE.md)
 
-- **core/Abstractions** must sit at the bottom of the dependency topology. Any `<ProjectReference>` in `core/src/Dignite.Extract.Abstractions/*.csproj` is a violation; it should depend only on foundational ABP packages.
+- **core/Abstractions** must sit at the bottom of the dependency topology. Any `<ProjectReference>` in `core/src/Dignite.Vault.Extract.Abstractions/*.csproj` is a violation; it should depend only on foundational ABP packages.
 - Business modules under **modules/** must **not depend on each other**. Check whether `modules/<X>/src/*.csproj` has a `<ProjectReference>` pointing to another `modules/<Y>`.
 - Business modules under **modules/** must **not write back to the `Document` aggregate root**. If business module code references `IDocumentRepository.UpdateAsync` or calls internal `Document` methods reserved for `DocumentPipelineRunManager`, it is a hard violation.
 - **host/** is the only place allowed to perform `OnApplicationInitialization` middleware registration. If `core/` or `modules/` `*Module.cs` files contain `OnApplicationInitialization`, that is a hard violation unless the method is clearly limited to non-middleware delayed initialization, which is rare and must be proven.
@@ -79,7 +79,7 @@ Search for these hard violations:
 
 ### 2.5 Module Development (`module-template.md`)
 
-Apply this only to `modules/**` and reusable core modules such as `Dignite.Extract.Parse` and `Dignite.Extract.Ocr.*`:
+Apply this only to `modules/**` and reusable core modules such as `Dignite.Vault.Extract.Parse` and `Dignite.Vault.Extract.Ocr.*`:
 
 - **All public/protected methods must be `virtual`**. This is an ABP module extensibility requirement. Grep `^\s*public\s+(?:async\s+)?(?!virtual\s|override\s|static\s)` to find non-virtual methods.
 - **Do not configure middleware in `*Module.cs`**; only `host/` may do that.
@@ -95,8 +95,8 @@ Apply this only to `modules/**` and reusable core modules such as `Dignite.Extra
 
 This is one of the easiest areas to get wrong in this project. See `.claude/skills/abp-document-boundary-check/SKILL.md`. If a change touches:
 
-- `core/src/Dignite.Extract.Domain/Documents/Document.cs`
-- `core/src/Dignite.Extract.Application.Contracts/Documents/DocumentDto.cs`
+- `core/src/Dignite.Vault.Extract.Domain/Documents/Document.cs`
+- `core/src/Dignite.Vault.Extract.Application.Contracts/Documents/DocumentDto.cs`
 - EF Core configuration or migrations touching the `ExtractDocuments` table
 
 then invoke the `abp-document-boundary-check` skill, or perform the equivalent check yourself. Any suspicious business field, such as contract amount, invoice number, or expiration date, should be marked as a 🔴 hard violation.

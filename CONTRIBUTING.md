@@ -1,15 +1,15 @@
-# Contributing to Dignite Extract
+# Contributing to Dignite Vault Extract
 
 Thank you for considering a contribution. This page covers the practical workflow; the architectural contract lives in [CLAUDE.md](./CLAUDE.md) and is the truth source for what belongs in this repository (and what is explicitly out of scope).
 
 ## Questions, ideas, and bugs
 
-Not every contribution starts with code. Pick the right channel so the issue tracker stays scoped to actionable work — this mirrors the [issue chooser](https://github.com/dignite-projects/dignite-extract/issues/new/choose) and the [Discussions welcome post](https://github.com/dignite-projects/dignite-extract/discussions/417):
+Not every contribution starts with code. Pick the right channel so the issue tracker stays scoped to actionable work — this mirrors the [issue chooser](https://github.com/dignite-projects/vault-extract/issues/new/choose) and the [Discussions welcome post](https://github.com/dignite-projects/vault-extract/discussions/417):
 
-- **Usage / configuration / "is this in scope?" questions** → [Discussions → Q&A](https://github.com/dignite-projects/dignite-extract/discussions/categories/q-a), **not** an Issue.
-- **Early ideas, before a formal proposal** → [Discussions → Ideas](https://github.com/dignite-projects/dignite-extract/discussions/categories/ideas). Boundary-touching ideas should be floated here first, then promoted to an Issue once there is direction (see [Issue-first principle](#issue-first-principle)).
-- **Reproducible bugs / concrete change proposals** → [open an Issue](https://github.com/dignite-projects/dignite-extract/issues/new/choose) using a template.
-- **Security vulnerabilities** → never a public issue; use [private vulnerability reporting](https://github.com/dignite-projects/dignite-extract/security/advisories/new) (see [SECURITY.md](./SECURITY.md)).
+- **Usage / configuration / "is this in scope?" questions** → [Discussions → Q&A](https://github.com/dignite-projects/vault-extract/discussions/categories/q-a), **not** an Issue.
+- **Early ideas, before a formal proposal** → [Discussions → Ideas](https://github.com/dignite-projects/vault-extract/discussions/categories/ideas). Boundary-touching ideas should be floated here first, then promoted to an Issue once there is direction (see [Issue-first principle](#issue-first-principle)).
+- **Reproducible bugs / concrete change proposals** → [open an Issue](https://github.com/dignite-projects/vault-extract/issues/new/choose) using a template.
+- **Security vulnerabilities** → never a public issue; use [private vulnerability reporting](https://github.com/dignite-projects/vault-extract/security/advisories/new) (see [SECURITY.md](./SECURITY.md)).
 
 ## Development environment
 
@@ -28,21 +28,21 @@ git config core.hooksPath .githooks
 All backend test projects are part of the root solution:
 
 ```bash
-dotnet test Dignite.Extract.slnx
+dotnet test Dignite.Vault.Extract.slnx
 ```
 
 Or run individual projects:
 
 ```bash
 # Core
-dotnet test core/test/Dignite.Extract.Domain.Tests
-dotnet test core/test/Dignite.Extract.Application.Tests
-dotnet test core/test/Dignite.Extract.EntityFrameworkCore.Tests
-dotnet test core/test/Dignite.Extract.Mcp.Tests
-dotnet test core/test/Dignite.Extract.Ocr.VisionLlm.Tests
+dotnet test core/test/Dignite.Vault.Extract.Domain.Tests
+dotnet test core/test/Dignite.Vault.Extract.Application.Tests
+dotnet test core/test/Dignite.Vault.Extract.EntityFrameworkCore.Tests
+dotnet test core/test/Dignite.Vault.Extract.Mcp.Tests
+dotnet test core/test/Dignite.Vault.Extract.Ocr.VisionLlm.Tests
 
 # Host
-dotnet test host/test/Dignite.Extract.Host.Tests
+dotnet test host/test/Dignite.Vault.Extract.Host.Tests
 ```
 
 ### Frontend (Vitest)
@@ -124,11 +124,11 @@ The project follows three-part [Semantic Versioning](https://semver.org/) (`MAJO
 | `<Version>` in [`common.props`](./common.props) | 3-segment SemVer | The NuGet package version and the value a `v*` tag must match. **This is the release version.** |
 | `<AssemblyVersion>` | 4-segment | Keep coarse and stable (e.g. `0.1.0.0`); do not move it for every `MINOR`/`PATCH`, to avoid assembly-binding churn. The 4-segment `1.0.0.0` form belongs here — never as a package version or tag. |
 | `<FileVersion>` | 4-segment | Diagnostic only; CI may stamp it from a build number or commit count. |
-| `version` in [`angular/packages/extract/package.json`](./angular/packages/extract/package.json) | 3-segment SemVer | The npm package version. **Keep it in lockstep with `<Version>`** as a single product version, until the backend and frontend release cadences genuinely diverge. |
+| `version` in [`angular/packages/vault-extract/package.json`](./angular/packages/vault-extract/package.json) | 3-segment SemVer | The npm package version. **Keep it in lockstep with `<Version>`** as a single product version, until the backend and frontend release cadences genuinely diverge. |
 
 ### Cutting a release
 
 1. Move the CHANGELOG `[Unreleased]` section to `## [x.y.z] - YYYY-MM-DD`.
 2. Confirm `<Version>` in `common.props` and the npm `version` match the intended release (tags do not drive the version — the release workflow reads it from `common.props`).
 3. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`. The release workflow (`.github/workflows/release.yml`) triggers on `v*` tags; `workflow_dispatch` only builds artifacts and does not create a GitHub Release.
-4. The npm package (`@dignite/extract`) is **published manually** for now — see the header comment in `release.yml`.
+4. The npm package (`@dignite/vault-extract`) is **published manually** for now — see the header comment in `release.yml`.

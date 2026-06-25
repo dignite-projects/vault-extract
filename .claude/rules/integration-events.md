@@ -1,12 +1,12 @@
 ---
-description: "Dignite Extract egress event contracts: multi-stage event table, lifecycle events, Ready gate, at-least-once + EventTime idempotency delivery semantics"
+description: "Dignite Vault Extract egress event contracts: multi-stage event table, lifecycle events, Ready gate, at-least-once + EventTime idempotency delivery semantics"
 paths:
   - "**/*Eto.cs"
   - "**/*EventHandler*.cs"
   - "**/*IntegrationEvent*.cs"
 ---
 
-# Egress Event Contract Details (Dignite Extract)
+# Egress Event Contract Details (Dignite Vault Extract)
 
 > Carried over from CLAUDE.md, auto-loaded when editing integration-event ETOs / EventHandlers. CLAUDE.md keeps only the egress list, the event-name sequence, the Ready-gate core paragraph, and the one-line delivery semantics.
 
@@ -41,9 +41,9 @@ paths:
 
 ## Delivery semantics: at-least-once + monotonic-timestamp idempotency
 
-- **Reliability commitment**: Dignite Extract delivers events via **ABP's built-in transactional outbox** — the business change and the event enqueue are atomically persisted within the same UoW (written to `AbpEventOutbox`), and a background worker scans the table to actually publish. **Events are never lost** (at-least-once)
-- **Dedup / replacement is the downstream consumer's responsibility**: the channel layer maintains **no** event state table, does **no** "in-flight replacement", and does **not** wait for a downstream ack. Dignite Extract doing idempotency on the downstream's behalf would break the downstream's audit chain + add channel complexity, violating the channel philosophy
-- **Downstream consumer idempotency rule**: every ETO carries `EventTime: DateTime` (filled with `Clock.Now` at Dignite Extract publish time). The downstream consumer does idempotency by `(DocumentId, EventType, EventTime)`:
+- **Reliability commitment**: Dignite Vault Extract delivers events via **ABP's built-in transactional outbox** — the business change and the event enqueue are atomically persisted within the same UoW (written to `AbpEventOutbox`), and a background worker scans the table to actually publish. **Events are never lost** (at-least-once)
+- **Dedup / replacement is the downstream consumer's responsibility**: the channel layer maintains **no** event state table, does **no** "in-flight replacement", and does **not** wait for a downstream ack. Dignite Vault Extract doing idempotency on the downstream's behalf would break the downstream's audit chain + add channel complexity, violating the channel philosophy
+- **Downstream consumer idempotency rule**: every ETO carries `EventTime: DateTime` (filled with `Clock.Now` at Dignite Vault Extract publish time). The downstream consumer does idempotency by `(DocumentId, EventType, EventTime)`:
   - already-processed `EventTime <= incoming.EventTime` → discard incoming (at-least-once redelivery)
   - already-processed `EventTime > incoming.EventTime` → discard incoming (a stale event arriving out of order)
   - otherwise apply incoming → persist `EventTime` as the high-water mark for that key

@@ -1,6 +1,6 @@
 # AI Provider
 
-Dignite Extract delegates all chat-completion calls to `Microsoft.Extensions.AI`. AI configuration is split into two disjoint sections:
+Dignite Vault Extract delegates all chat-completion calls to `Microsoft.Extensions.AI`. AI configuration is split into two disjoint sections:
 
 | Section | Owns | Consumed by |
 | --- | --- | --- |
@@ -9,7 +9,7 @@ Dignite Extract delegates all chat-completion calls to `Microsoft.Extensions.AI`
 
 The split keeps credentials (`ApiKey`) out of any `IOptions<>` flowing into business code and lets operators tune behavior independently of provider switches. Every downstream feature — [classification](../pipeline/classification.md), Host field extraction, tenant field extraction (mechanism B), document title generation — shares the same provider registration regardless of behavior tuning.
 
-> **Dignite Extract is a channel layer.** It does not host chat / RAG / agentic tool-calling paths (those were removed in #166 — see CLAUDE.md "OUT of scope"). The LLM call sites in this repo are backend pipeline workflows plus the admin-facing slug suggestion helper. Downstream RAG / Chat consumers register their own `IChatClient` against their own provider on their side.
+> **Dignite Vault Extract is a channel layer.** It does not host chat / RAG / agentic tool-calling paths (those were removed in #166 — see CLAUDE.md "OUT of scope"). The LLM call sites in this repo are backend pipeline workflows plus the admin-facing slug suggestion helper. Downstream RAG / Chat consumers register their own `IChatClient` against their own provider on their side.
 
 ## Required before first run
 
@@ -37,13 +37,13 @@ Supply credentials in `host/src/appsettings.Development.json` (git-ignored), [us
 
 ## Picking a chat model
 
-The only capability Dignite Extract's backend LLM calls need is **structured JSON output**:
+The only capability Dignite Vault Extract's backend LLM calls need is **structured JSON output**:
 
 | Capability | Where it's used | Failure mode if weak |
 |---|---|---|
 | Structured JSON output (`response_format: json_schema`) | `DocumentClassificationWorkflow` (via MAF `RunAsync<T>` + schema-bound `T`), `FieldExtractionWorkflow` (via `ChatResponseFormat.ForJsonSchema` + per-field prompt, covering both Host fields and tenant fields under mechanism B), `SlugSuggestionAppService` (schema-bound `{ slug }`) | Returns malformed JSON or violates schema → classification falls back to `(unclassified)`, fields write as `null`, slug suggestion returns empty and the UI falls back |
 
-That's it. Function calling, tool-call willingness, large-context RAG, multi-turn coherence — none of those matter here because Dignite Extract has no Chat / RAG path. Even small open-source models (Qwen3-8B class) usually comply when the prompt explicitly demands a JSON object.
+That's it. Function calling, tool-call willingness, large-context RAG, multi-turn coherence — none of those matter here because Dignite Vault Extract has no Chat / RAG path. Even small open-source models (Qwen3-8B class) usually comply when the prompt explicitly demands a JSON object.
 
 ### Practical guidance
 
@@ -58,16 +58,16 @@ For **production**, prefer a model that's strict about schema compliance. Models
 
 ## Keyed clients
 
-`ExtractHostModule.ConfigureAI` registers exactly two keyed `IChatClient` instances. **There is no default (non-keyed) `IChatClient` registration** — Dignite Extract has no main "chat" path, so every consumer pulls the keyed client appropriate to its workload:
+`ExtractHostModule.ConfigureAI` registers exactly two keyed `IChatClient` instances. **There is no default (non-keyed) `IChatClient` registration** — Dignite Vault Extract has no main "chat" path, so every consumer pulls the keyed client appropriate to its workload:
 
 | DI key | Consumed by | Why this exists separately |
 |---|---|---|
 | `ExtractConsts.TitleGeneratorChatClientKey` | `DocumentParseBackgroundJob.TryGenerateTitleAsync` (auto-generates a short document title from extracted Markdown) | Single-shot text completion, no schema. Different model id lets hosts run a cheaper / faster model here without affecting classification / extraction quality |
 | `ExtractConsts.StructuredChatClientKey` | `DocumentClassificationWorkflow`, `FieldExtractionWorkflow` (unified Host + tenant field entry under mechanism B, called by `FieldExtractionEventHandler`), `SlugSuggestionAppService` | All schema-bound `RunAsync<T>` / `ChatResponseFormat.ForJsonSchema` calls share this client. Splitting structured from title lets production teams tune quality vs cost per workload |
 
-Both clients are registered with `UseOpenTelemetry()` + `UseLogging()`. Neither has `UseFunctionInvocation` (no tool calling anywhere in Dignite Extract) or `UseDistributedCache` (every prompt is document-content-derived and therefore unique per call — cache lookups would always miss).
+Both clients are registered with `UseOpenTelemetry()` + `UseLogging()`. Neither has `UseFunctionInvocation` (no tool calling anywhere in Dignite Vault Extract) or `UseDistributedCache` (every prompt is document-content-derived and therefore unique per call — cache lookups would always miss).
 
-> **Optional third client — vision OCR.** Enabling the [vision-LLM OCR provider](../text-extraction/ocr-vision-llm.md) (#259) adds a third keyed client for a multimodal (vision) model. Its key (`VisionLlmOcrConsts.VisionChatClientKey`) lives in the `Dignite.Extract.Ocr.VisionLlm` project, **not** `ExtractConsts` — an OCR provider sits below the Application layer and must not depend on it. Register it in your `ConfigureAI` override only when you enable that provider; the vision model id **cannot** fall back to `ChatModelId` (the main chat model may not be vision-capable), so it requires its own `Extract:VisionOcrModelId`.
+> **Optional third client — vision OCR.** Enabling the [vision-LLM OCR provider](../text-extraction/ocr-vision-llm.md) (#259) adds a third keyed client for a multimodal (vision) model. Its key (`VisionLlmOcrConsts.VisionChatClientKey`) lives in the `Dignite.Vault.Extract.Ocr.VisionLlm` project, **not** `ExtractConsts` — an OCR provider sits below the Application layer and must not depend on it. Register it in your `ConfigureAI` override only when you enable that provider; the vision model id **cannot** fall back to `ChatModelId` (the main chat model may not be vision-capable), so it requires its own `Extract:VisionOcrModelId`.
 
 > **Provider-switch gotcha**: When switching `Endpoint` to a non-OpenAI provider (SiliconFlow, Ollama via `/v1` shim, OpenRouter, etc.), override **all three** model id keys together in your environment-specific config — `ChatModelId` alone is not enough if the provider doesn't recognize the default `gpt-4o-mini` placeholder that may be inherited from base `appsettings.json`. The simplest fix: copy all three overrides into your `appsettings.Development.json` / `appsettings.Production.json` / env vars whenever you change `Endpoint`.
 
@@ -104,7 +104,7 @@ The `Extract` section becomes irrelevant in that case — drop it from `appsetti
 | `.UseOpenTelemetry()` on both keyed clients | `gen_ai.*` semantic-convention spans + token counters depend on this decorator. Without it the OTel pipeline still emits MAF spans (from `Microsoft.Agents.AI`) but no per-LLM-call duration / token metrics |
 | `.UseLogging()` on both keyed clients (recommended) | Per-call request / response logging at `Debug` is useful for diagnosing prompt issues. Drop only if your logs are token-budget constrained |
 
-Things that are **NOT** required: `UseFunctionInvocation` (Dignite Extract calls no tools), `UseDistributedCache` (every prompt is unique per call), `IEmbeddingGenerator` registration (no embedding pipeline in Dignite Extract Core — vectorization is downstream RAG's responsibility).
+Things that are **NOT** required: `UseFunctionInvocation` (Dignite Vault Extract calls no tools), `UseDistributedCache` (every prompt is unique per call), `IEmbeddingGenerator` registration (no embedding pipeline in Dignite Vault Extract Core — vectorization is downstream RAG's responsibility).
 
 ### Sketch: Azure OpenAI with Microsoft Entra ID (no API key)
 
@@ -164,7 +164,7 @@ For the full set of `IChatClient`-compatible providers (Anthropic, Microsoft Fou
 
 ## Cross-cutting LLM behavior (`ExtractBehavior`)
 
-These knobs describe *how Dignite Extract calls the model* (language hint, text truncation). They are bound to `ExtractBehaviorOptions` and reach every pipeline through `IOptions<>`.
+These knobs describe *how Dignite Vault Extract calls the model* (language hint, text truncation). They are bound to `ExtractBehaviorOptions` and reach every pipeline through `IOptions<>`.
 
 ```json
 "ExtractBehavior": {
@@ -175,7 +175,7 @@ These knobs describe *how Dignite Extract calls the model* (language hint, text 
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `DefaultLanguage` | `"ja"` | Language hint appended to every system prompt. Match this to your primary user base — Dignite Extract prompts are written language-agnostic and switch via this hint |
+| `DefaultLanguage` | `"ja"` | Language hint appended to every system prompt. Match this to your primary user base — Dignite Vault Extract prompts are written language-agnostic and switch via this hint |
 | `MaxTextLengthPerExtraction` | `8000` | Per-call character cap on Markdown fed to **classification** and **cabinet suggestion** (both only need the document's opening for a verdict). **Field extraction is not capped** — it sends the full Markdown, since a type-bound field can appear anywhere in the document and tail truncation would silently drop it. CJK-safe (one character ≈ one CJK glyph). Raise for long contracts / policies if your model's context window allows |
 
 Per-pipeline tuning lives in `ExtractBehavior` — see [classification.md](../pipeline/classification.md) for the keys the classification workflow reads.
@@ -191,13 +191,13 @@ context.Services.AddOpenTelemetry()
         .AddSource("Microsoft.Extensions.AI")
         .AddSource("Experimental.Microsoft.Agents.AI")
         .AddSource("Microsoft.Agents.AI")
-        .AddSource("Dignite.Extract.*"))            // reserved for project-specific spans
+        .AddSource("Dignite.Vault.Extract.*"))            // reserved for project-specific spans
     .WithMetrics(b => b
         .AddMeter("Experimental.Microsoft.Extensions.AI")
         .AddMeter("Microsoft.Extensions.AI")
         .AddMeter("Experimental.Microsoft.Agents.AI")
         .AddMeter("Microsoft.Agents.AI")
-        .AddMeter("Dignite.Extract.*"));            // reserved for project-specific meters
+        .AddMeter("Dignite.Vault.Extract.*"));            // reserved for project-specific meters
 ```
 
 This matches what `ExtractHostModule.ConfigureOpenTelemetry` already adds when `OpenTelemetry:Enabled = true` in your host's `appsettings.json`.
@@ -206,6 +206,6 @@ This matches what `ExtractHostModule.ConfigureOpenTelemetry` already adds when `
 | --- | --- | --- |
 | `Experimental.Microsoft.Extensions.AI` (Activity + Meter) | `OpenTelemetryChatClient` (the `UseOpenTelemetry` decorator on each keyed client) | OTel GenAI semantic conventions: `chat {model}` / `execute_tool {name}` spans, `gen_ai.client.operation.duration` (s), `gen_ai.client.token.usage` |
 | `Experimental.Microsoft.Agents.AI` (Activity + Meter) | MAF agent runtime (`ChatClientAgent.RunAsync<T>` etc.) | Agent-level spans wrapping each `RunAsync` call — useful for tying classification workflow steps together |
-| `Dignite.Extract.*` (reserved) | None in Dignite Extract Core today | Reserved wildcard for downstream consumers' module-specific telemetry (e.g. a `Dignite.Extract.Contracts` meter emitted by a downstream Contracts consumer in its own repo) |
+| `Dignite.Vault.Extract.*` (reserved) | None in Dignite Vault Extract Core today | Reserved wildcard for downstream consumers' module-specific telemetry (e.g. a `Dignite.Vault.Extract.Contracts` meter emitted by a downstream Contracts consumer in its own repo) |
 
-Dignite Extract Core currently emits **no project-specific telemetry meters of its own**. The `Dignite.Extract.*` wildcard exists for future use and for downstream consumer modules to plug in their extraction telemetry without each one needing a host-side config change.
+Dignite Vault Extract Core currently emits **no project-specific telemetry meters of its own**. The `Dignite.Vault.Extract.*` wildcard exists for future use and for downstream consumer modules to plug in their extraction telemetry without each one needing a host-side config change.

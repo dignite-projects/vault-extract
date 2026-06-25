@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if [[ \"$CLAUDE_FILE_PATHS\" == *.cs ]]; then dotnet format core/Dignite.Extract.slnx --include \"$CLAUDE_FILE_PATHS\" --no-restore --verbosity quiet 2>/dev/null || true; fi"
+            "command": "if [[ \"$CLAUDE_FILE_PATHS\" == *.cs ]]; then dotnet format core/Dignite.Vault.Extract.slnx --include \"$CLAUDE_FILE_PATHS\" --no-restore --verbosity quiet 2>/dev/null || true; fi"
           }
         ]
       }

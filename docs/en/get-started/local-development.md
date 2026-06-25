@@ -1,8 +1,8 @@
 # Local Development Setup
 
-This guide covers everything needed to run Dignite Extract on a local machine.
+This guide covers everything needed to run Dignite Vault Extract on a local machine.
 
-> **Channel positioning**: Dignite Extract is a paper → digitized-data channel. It persists into **SQL Server**; downstream RAG / vector-store / chat features live in the consumer's own deployment, not here. See `CLAUDE.md` → "OUT of scope".
+> **Channel positioning**: Dignite Vault Extract is a paper → digitized-data channel. It persists into **SQL Server**; downstream RAG / vector-store / chat features live in the consumer's own deployment, not here. See `CLAUDE.md` → "OUT of scope".
 
 ## Prerequisites
 
@@ -142,7 +142,7 @@ cd angular
 npm run generate-proxy
 ```
 
-This uses `@abp/nx.generators` (a local Nx generator — no global `nx` or `ng` install needed) to read the Swagger spec from `https://localhost:44348` and regenerate the proxy files under `angular/packages/extract/src/lib/proxy/`.
+This uses `@abp/nx.generators` (a local Nx generator — no global `nx` or `ng` install needed) to read the Swagger spec from `https://localhost:44348` and regenerate the proxy files under `angular/packages/vault-extract/src/lib/proxy/`.
 
 > Do **not** use `abp generate-proxy -t ng` (requires `angular.json`, which Nx projects don't have) or bare `nx g` / `ng g` (require global installs). `npm run generate-proxy` is the only correct entry point.
 
@@ -152,7 +152,7 @@ Commit the regenerated proxy files together with the API change.
 
 ## Full startup checklist
 
-1. SQL Server is running and the target database (e.g. `Dignite Extract-Dev`) is reachable
+1. SQL Server is running and the target database (e.g. `Dignite Vault Extract-Dev`) is reachable
 2. `docker compose up -d paddleocr` completed successfully in `host/` (only required if you upload scanned documents)
 3. `host/src/appsettings.Development.json` exists with a valid connection string, passphrase, and `Extract` provider config (the host won't start without it — see [Backend configuration](#backend-configuration))
 4. `dotnet run` started without errors in `host/src`
@@ -176,7 +176,7 @@ ss -tlnp | grep -E '8866|18888|4317'
 
 ### Database migration errors
 
-Migrations require the SQL Server account to have `CREATE TABLE` / `CREATE INDEX` privileges on the target database. For LocalDB the default user typically has full rights; for a shared SQL Server instance grant the application user `db_owner` on the Dignite Extract database.
+Migrations require the SQL Server account to have `CREATE TABLE` / `CREATE INDEX` privileges on the target database. For LocalDB the default user typically has full rights; for a shared SQL Server instance grant the application user `db_owner` on the Dignite Vault Extract database.
 
 ### PaddleOCR slow on first request
 

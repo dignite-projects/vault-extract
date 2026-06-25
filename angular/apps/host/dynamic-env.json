@@ -2,7 +2,7 @@
   "production": true,
   "application": {
     "baseUrl":"https://extract-web",
-    "name": "Dignite Extract",
+    "name": "Dignite Vault Extract",
     "logoUrl": ""
   },
   "oAuthConfig": {
@@ -15,7 +15,7 @@
   "apis": {
     "default": {
       "url": "https://extract-api",
-      "rootNamespace": "Dignite.Extract"
+      "rootNamespace": "Dignite.Vault.Extract"
     }
   }
 }

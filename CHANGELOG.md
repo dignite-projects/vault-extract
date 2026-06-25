@@ -15,9 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Figure sub-document routing** (#306) — embedded raster figures extracted from digital PDFs (#301, see below) that are themselves documents are now routed as derived `Document` instances rather than staying only as inline transcription. A `DocumentFigure` ledger persists each figure as a Pending or Spawned candidate (idempotent, unique `(SourceDocumentId, FigureKey)`), and `DocumentFigureRoutingJob` classifies each candidate against the source document's tenant type layer; figures that clear the matched type's `ConfidenceThreshold` are spawned as derived Documents with the figure crop copied to an independent blob. Figures that are not documents stay inline in the source Markdown unchanged. `OCRCompletedEto` now carries `FigureOcrCount` (the number of dispatched embedded-image OCR calls, including ones that threw) so downstream consumers can track extraction completeness at the event level.
 
-- **`Dignite.Extract.Parse.Pdf` module** (#301) — digital PDFs (text layer + embedded bitmaps) no longer silently drop their images. The new `PdfExtractor` (PdfPig) extracts the digital text layer and transcribes each embedded raster image via the host-selected `IOcrProvider`, inlining the transcription into the Markdown at its reading position. `IMarkdownTextProvider` gains `CanHandle(ext)` + `Priority` so multiple providers for the same extension can coexist without ambiguity.
+- **`Dignite.Vault.Extract.Parse.Pdf` module** (#301) — digital PDFs (text layer + embedded bitmaps) no longer silently drop their images. The new `PdfExtractor` (PdfPig) extracts the digital text layer and transcribes each embedded raster image via the host-selected `IOcrProvider`, inlining the transcription into the Markdown at its reading position. `IMarkdownTextProvider` gains `CanHandle(ext)` + `Priority` so multiple providers for the same extension can coexist without ambiguity.
 
-- **`Dignite.Extract.Parse.OpenXml` module** (#307, #308) — stops silently dropping rich content from Office files:
+- **`Dignite.Vault.Extract.Parse.OpenXml` module** (#307, #308) — stops silently dropping rich content from Office files:
   - **PPTX**: `PptxExtractor` produces slide text (titles as headings), embedded raster images (transcribed via `IOcrProvider`), chart backing data reconstructed as Markdown tables, native `<a:tbl>` tables, and optionally speaker notes — all inlined in slide/shape reading order. Charts with a divergent category axis are dropped and trip the `#268` completeness signal rather than rendering misaligned data.
   - **DOCX**: `DocxExtractor` replaces the MarkItDown path for `.docx` and adds full OpenXML structural rebuild: headings, lists, tables, and embedded raster images (transcribed via `IOcrProvider`) are all faithfully represented in the Markdown output.
 
@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Package rename: `Dignite.DocumentAI` → `Dignite.Extract`** (#370, **breaking**) — all NuGet package IDs, namespaces, `[RemoteServiceName]`, `ConnectionStringName`, Angular package names (`@dignite/document-ai` → `@dignite/extract`), permission group constants, OpenIddict audience/scope, and DB table prefix (`DocAI` → `Extract`) have been renamed in a clean cutover with no compatibility shims. Consumers must update their `PackageReference` entries, `using` directives, Angular imports, and any hardcoded table or permission string references. The `TextExtraction` sub-namespace in the parse-stack projects was simultaneously renamed to `Parse` (`Dignite.Extract.Parse.*`).
+- **Package rename: `Dignite.DocumentAI` → `Dignite.Vault.Extract`** (#370, **breaking**) — all NuGet package IDs, namespaces, `[RemoteServiceName]`, `ConnectionStringName`, Angular package names (`@dignite/document-ai` → `@dignite/vault-extract`), permission group constants, OpenIddict audience/scope, and DB table prefix (`DocAI` → `Extract`) have been renamed in a clean cutover with no compatibility shims. Consumers must update their `PackageReference` entries, `using` directives, Angular imports, and any hardcoded table or permission string references. The `TextExtraction` sub-namespace in the parse-stack projects was simultaneously renamed to `Parse` (`Dignite.Vault.Extract.Parse.*`).
 
 - **Cross-database portability for layer-scoped uniqueness** (#304) — replaced the four soft-delete-filtered unique indexes on `DocumentTypes` (`TenantId, TypeCode`), `FieldDefinitions` (`TenantId, DocumentTypeId, Name`), `ExportTemplates` (`TenantId, Name`), and `Cabinets` (`TenantId, Name`) with application-layer uniqueness enforcement in dedicated domain services (`DocumentTypeManager` / `FieldDefinitionManager` / `ExportTemplateManager` / `CabinetManager`). The schema now emits no provider-specific index DDL (no `HasFilter("IsDeleted = 0")` literal, no reliance on SQL Server's "unique index treats NULLs as equal" semantics) and applies cleanly on SQL Server and PostgreSQL — removing the v0.1.0 SQL-Server-only baseline caveat. Layer-scoped uniqueness (same key allowed across the Host / tenant layers, rejected within a layer), the soft-delete-aware `delete → recreate → restore` semantics, and the egress `(TenantId, DocumentTypeCode)` contract are all unchanged; the only behavioral change is an accepted TOCTOU race window on these low-frequency, admin-managed configuration entities.
 
@@ -53,7 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] - 2026-06-13
 
-First public release of Dignite Extract — a **channel layer** that turns physical paper / scans / photos / PDF images / Office files into trustworthy digitized data (Markdown + structured metadata) for downstream RAG platforms, business systems, and AI clients. See [CLAUDE.md](./CLAUDE.md) for the full positioning and architecture contract.
+First public release of Dignite Vault Extract — a **channel layer** that turns physical paper / scans / photos / PDF images / Office files into trustworthy digitized data (Markdown + structured metadata) for downstream RAG platforms, business systems, and AI clients. See [CLAUDE.md](./CLAUDE.md) for the full positioning and architecture contract.
 
 ### Added
 
@@ -82,6 +82,6 @@ First public release of Dignite Extract — a **channel layer** that turns physi
 - **Webhook exit is not yet implemented** — the exit contract names four exits (REST / MCP server / EventBus / Webhook); this release ships the first three.
 - **MCP server is pull-only** — no resource subscriptions or lifecycle notifications yet (follow-up increment, #197).
 
-[Unreleased]: https://github.com/dignite-projects/dignite-extract/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/dignite-projects/dignite-extract/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/dignite-projects/dignite-extract/releases/tag/v0.1.0
+[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/dignite-projects/vault-extract/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/dignite-projects/vault-extract/releases/tag/v0.1.0

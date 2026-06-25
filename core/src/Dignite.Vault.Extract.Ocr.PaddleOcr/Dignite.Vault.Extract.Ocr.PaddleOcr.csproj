@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="..\..\..\common.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Dignite.Vault.Extract.Ocr.PaddleOcr</RootNamespace>
+    <Description>PaddleOCR provider for Dignite Vault Extract: calls a local PP-StructureV3 sidecar service over HTTP to convert scanned documents and images to Markdown. Runs on CPU, no cloud dependency.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Volo.Abp.Core" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Dignite.Vault.Extract.Ocr\Dignite.Vault.Extract.Ocr.csproj" />
+  </ItemGroup>
+
+</Project>

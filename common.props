@@ -1,7 +1,7 @@
 <Project>
     <PropertyGroup>
         <LangVersion>latest</LangVersion>
-        <Version>0.2.0-preview.1</Version>
+        <Version>0.2.0-preview.2</Version>
         <!-- Pinned explicitly: without this the SDK derives AssemblyVersion from <Version>,
              moving it on every MINOR/PATCH — see CONTRIBUTING.md "Where the version lives". -->
         <AssemblyVersion>0.1.0.0</AssemblyVersion>
@@ -19,11 +19,11 @@
     <PropertyGroup Label="NuGet package metadata">
         <Authors>Dignite</Authors>
         <Company>Dignite</Company>
-        <Product>Dignite Extract</Product>
+        <Product>Dignite Vault Extract</Product>
         <Copyright>© Dignite</Copyright>
         <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
-        <PackageProjectUrl>https://github.com/dignite-projects/dignite-extract</PackageProjectUrl>
-        <RepositoryUrl>https://github.com/dignite-projects/dignite-extract</RepositoryUrl>
+        <PackageProjectUrl>https://github.com/dignite-projects/vault-extract</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/dignite-projects/vault-extract</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PackageTags>abp;extract;document-processing;ocr;markdown;mcp</PackageTags>
         <PackageReadmeFile>README.md</PackageReadmeFile>

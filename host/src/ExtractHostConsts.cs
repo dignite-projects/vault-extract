@@ -1,6 +1,6 @@
 using Volo.Abp.Identity;
 
-namespace Dignite.Extract.Host;
+namespace Dignite.Vault.Extract.Host;
 
 public static class ExtractHostConsts
 {

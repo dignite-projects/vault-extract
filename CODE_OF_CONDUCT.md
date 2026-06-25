@@ -3,7 +3,7 @@
 ## Our pledge
 
 We as members, contributors, and maintainers pledge to make participation in the
-Dignite Extract project a harassment-free experience for everyone, regardless
+Dignite Vault Extract project a harassment-free experience for everyone, regardless
 of age, body size, visible or invisible disability, ethnicity, sex characteristics,
 gender identity and expression, level of experience, education, socio-economic
 status, nationality, personal appearance, race, religion, or sexual identity and
@@ -30,7 +30,7 @@ representing the project in public spaces.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the maintainers through
-[GitHub's private vulnerability / advisory reporting](https://github.com/dignite-projects/dignite-extract/security/advisories/new)
+[GitHub's private vulnerability / advisory reporting](https://github.com/dignite-projects/vault-extract/security/advisories/new)
 or by opening a confidential channel with a maintainer. All complaints will be
 reviewed and investigated promptly and fairly. Maintainers are obligated to
 respect the privacy and security of the reporter of any incident.

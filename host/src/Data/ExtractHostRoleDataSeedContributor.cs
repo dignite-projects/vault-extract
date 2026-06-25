@@ -1,11 +1,11 @@
 using System.Threading.Tasks;
-using Dignite.Extract.Permissions;
+using Dignite.Vault.Extract.Permissions;
 using Volo.Abp.Data;
 using Volo.Abp.DependencyInjection;
 using Volo.Abp.Identity;
 using Volo.Abp.PermissionManagement;
 
-namespace Dignite.Extract.Host.Data;
+namespace Dignite.Vault.Extract.Host.Data;
 
 public class ExtractHostRoleDataSeedContributor : IDataSeedContributor, ITransientDependency
 {
