@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-preview.4] - 2026-06-26
+
+### Changed
+
+- **Unified the C# type and module name prefix from `Extract` to `VaultExtract`**, matching the `Dignite.Vault.Extract` namespace and ABP's own convention (`Volo.Abp.Identity` → `AbpIdentity*Module`) — `VaultExtractDomainModule`, `VaultExtractApplicationModule`, `VaultExtractDbContext` / `IVaultExtractDbContext`, `VaultExtractErrorCodes`, `VaultExtractPermissions`, and the `ConfigureVaultExtract` / `AddVaultExtractMcpDiscovery` / `UseVaultExtractMcpApiKey` extension methods, among others. **Breaking for consumers that reference the module or type names directly** — update `[DependsOn(typeof(ExtractXxxModule))]`, `IExtractDbContext`, and any base-class references to the `VaultExtract*` names. Namespaces, the `Extract` extraction *verb* (`ExtractedField` / `ITextExtractor` / `FieldExtraction*`), and every serialized contract (error codes `Extract:*`, DB table prefix, config sections, blob container, localization resources) are unchanged (#438).
+- The release workflow now emits the npm UI tarball alongside the NuGet packages in a single run, so each release produces both backend and frontend artifacts.
+
 ## [0.2.0-preview.3] - 2026-06-26
 
 ### Added
