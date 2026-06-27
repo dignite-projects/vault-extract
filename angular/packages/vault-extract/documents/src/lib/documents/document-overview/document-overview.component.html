@@ -1,18 +1,8 @@
 <div class="document-overview container-fluid py-4">
   <div class="document-overview-shell">
-    <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4">
-      <div>
-        <div class="text-uppercase text-muted small fw-semibold mb-2">
-          {{ '::Menu:Documents' | abpLocalization }}
-        </div>
-        <h1 class="h3 mb-2">Dignite Vault Extract</h1>
-        <p class="text-muted mb-0">{{ '::Document:Home:Subtitle' | abpLocalization }}</p>
-      </div>
-
-      <a class="btn btn-outline-secondary" routerLink="/documents/list">
-        <i class="fas fa-list me-1"></i>
-        {{ '::Menu:DocumentList' | abpLocalization }}
-      </a>
+    <div class="mb-4">
+      <h1 class="h3 mb-2">{{ '::Menu:Documents' | abpLocalization }}</h1>
+      <p class="text-muted mb-0">{{ '::Document:Home:Subtitle' | abpLocalization }}</p>
     </div>
 
     <!-- Overview statistics (#333): loading / error / empty / data states. -->
