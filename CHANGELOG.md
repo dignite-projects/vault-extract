@@ -67,6 +67,4 @@ Preview of the 0.2.0 line. This release rebrands the project to **Dignite Vault 
 - Legacy Angular document-upload route.
 - Dead fields from the segmentation subsystem (#390).
 
-[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.2.0-preview.3...HEAD
-[0.2.0-preview.3]: https://github.com/dignite-projects/vault-extract/compare/v0.2.0-preview.2...v0.2.0-preview.3
-[0.2.0-preview.2]: https://github.com/dignite-projects/vault-extract/compare/v0.1.0...v0.2.0-preview.2
+[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.1.0...HEAD
