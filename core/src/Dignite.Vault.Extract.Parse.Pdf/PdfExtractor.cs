@@ -43,18 +43,15 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
 
     private readonly IOcrProvider _ocrProvider;
     private readonly PdfExtractorOptions _options;
-    private readonly VaultExtractOcrOptions _ocrOptions;
 
     public ILogger<PdfExtractor> Logger { get; set; } = NullLogger<PdfExtractor>.Instance;
 
     public PdfExtractor(
         IOcrProvider ocrProvider,
-        IOptions<PdfExtractorOptions> options,
-        IOptions<VaultExtractOcrOptions> ocrOptions)
+        IOptions<PdfExtractorOptions> options)
     {
         _ocrProvider = ocrProvider;
         _options = options.Value;
-        _ocrOptions = ocrOptions.Value;
     }
 
     /// <inheritdoc/>
@@ -478,12 +475,13 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
         => !string.IsNullOrEmpty(text) && text.Any(char.IsLetterOrDigit);
 
     /// <summary>
-    /// Resolves the OCR language hints for embedded-image transcription, mirroring
-    /// <c>DefaultTextExtractor</c>: the per-document hints when present, otherwise the host's configured
-    /// defaults — so the figure path and the whole-page OCR path apply the same defaulting.
+    /// Resolves the OCR language hints for embedded-image transcription: the per-document hints from the
+    /// context, or empty. There is no central host default (#441 removed it); a provider that needs a
+    /// language default reads its own config (e.g. PaddleOcr:Languages). Kept <c>protected virtual</c> so a
+    /// consumer can override to supply hints (e.g. from per-tenant config).
     /// </summary>
     protected virtual IList<string> ResolveLanguageHints(TextExtractionContext context)
-        => context.LanguageHints?.Count > 0 ? context.LanguageHints : _ocrOptions.DefaultLanguageHints;
+        => context.LanguageHints ?? new List<string>();
 
     /// <summary>
     /// Builds the #268 incompleteness reason from the loss counters, or returns <c>null</c> when nothing

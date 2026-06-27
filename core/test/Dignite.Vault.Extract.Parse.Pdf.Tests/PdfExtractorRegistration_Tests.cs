@@ -38,8 +38,7 @@ public class PdfExtractorRegistration_Tests
     {
         var extractor = new PdfExtractor(
             Substitute.For<IOcrProvider>(),
-            Options.Create(new PdfExtractorOptions()),
-            Options.Create(new VaultExtractOcrOptions()));
+            Options.Create(new PdfExtractorOptions()));
 
         extractor.CanHandle(".pdf").ShouldBeTrue();
         extractor.CanHandle(".PDF").ShouldBeTrue();

@@ -161,17 +161,19 @@ public class DefaultTextExtractorDispatch_Tests
     }
 
     [Fact]
-    public async Task Should_Fall_Back_To_Default_Language_Hints_When_Context_Has_None()
+    public async Task Should_Pass_Empty_Language_Hints_When_Context_Has_None()
     {
+        // #441: the central host default (VaultExtractOcrOptions) was removed. With no per-document hints
+        // the extractor passes empty hints; a provider that needs a default reads its own config
+        // (e.g. PaddleOcr:Languages), as proven by PaddleOcrProvider_Tests.
         var ocr = TestDoubles.OcrReturning();
-        var options = new VaultExtractOcrOptions { DefaultLanguageHints = new List<string> { "it", "es" } };
-        var sut = TestDoubles.Extractor(ocr, new[] { TestDoubles.MarkdownProvider(0, ".x") }, options);
+        var sut = TestDoubles.Extractor(ocr, new[] { TestDoubles.MarkdownProvider(0, ".x") });
 
         await sut.ExtractAsync(TestDoubles.Bytes(0xFF, 0xD8), Context(".jpg", "image/jpeg"));
 
         await ocr.Received(1).RecognizeAsync(
             Arg.Any<Stream>(),
-            Arg.Is<OcrOptions>(o => o.LanguageHints.SequenceEqual(new[] { "it", "es" })),
+            Arg.Is<OcrOptions>(o => o.LanguageHints.Count == 0),
             Arg.Any<CancellationToken>());
     }
 

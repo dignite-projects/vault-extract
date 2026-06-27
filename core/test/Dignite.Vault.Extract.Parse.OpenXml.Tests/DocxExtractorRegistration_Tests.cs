@@ -36,8 +36,7 @@ public class DocxExtractorRegistration_Tests
     {
         var extractor = new DocxExtractor(
             Substitute.For<IOcrProvider>(),
-            Options.Create(new OpenXmlExtractorOptions()),
-            Options.Create(new VaultExtractOcrOptions { DefaultLanguageHints = new List<string>() }));
+            Options.Create(new OpenXmlExtractorOptions()));
 
         extractor.CanHandle(".docx").ShouldBeTrue();
         extractor.CanHandle(".DOCX").ShouldBeTrue();

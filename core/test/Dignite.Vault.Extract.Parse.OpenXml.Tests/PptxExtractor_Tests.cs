@@ -21,8 +21,7 @@ public class PptxExtractor_Tests
         int minImagePixels = 0,
         int maxImages = 50,
         bool includeNotes = true,
-        long maxImageBytes = 16L * 1024 * 1024,
-        VaultExtractOcrOptions? ocrOptions = null)
+        long maxImageBytes = 16L * 1024 * 1024)
         => new(
             _ocr,
             Options.Create(new OpenXmlExtractorOptions
@@ -31,9 +30,7 @@ public class PptxExtractor_Tests
                 MaxImagesPerFile = maxImages,
                 MaxImageBytesPerImage = maxImageBytes,
                 IncludeSpeakerNotes = includeNotes
-            }),
-            // Default to empty hints so unrelated tests don't get defaults injected unexpectedly.
-            Options.Create(ocrOptions ?? new VaultExtractOcrOptions { DefaultLanguageHints = new List<string>() }));
+            }));
 
     private static TextExtractionContext PptxContext()
         => new() { ContentType = "application/vnd.openxmlformats-officedocument.presentationml.presentation", FileExtension = ".pptx" };
@@ -571,8 +568,7 @@ public class PptxExtractor_Tests
         // egress); a host has to opt in. Construct with default options to assert the shipped default.
         var extractor = new PptxExtractor(
             _ocr,
-            Options.Create(new OpenXmlExtractorOptions()),
-            Options.Create(new VaultExtractOcrOptions { DefaultLanguageHints = new List<string>() }));
+            Options.Create(new OpenXmlExtractorOptions()));
 
         var pptx = PptxFixtures.Build(new PptxFixtures.SlideSpec()
             .Text("Visible content")
@@ -691,7 +687,7 @@ public class PptxExtractor_Tests
     }
 
     [Fact]
-    public async Task Applies_default_language_hints_when_the_context_has_none()
+    public async Task Passes_empty_language_hints_to_figure_ocr_when_the_context_has_none()
     {
         StubOcr("FIGURE");
 
@@ -699,12 +695,14 @@ public class PptxExtractor_Tests
             .Text("Body text")
             .Image(Png(alt: null, x: 100, y: 1_000_000)));
 
-        var extractor = CreateExtractor(ocrOptions: new VaultExtractOcrOptions());
+        // #441: no central host default. With no per-document hints, the figure path passes empty hints;
+        // a provider that needs a default reads its own config (e.g. PaddleOcr:Languages).
+        var extractor = CreateExtractor();
         await extractor.ExtractAsync(new MemoryStream(pptx), PptxContext());
 
         await _ocr.Received(1).RecognizeAsync(
             Arg.Any<Stream>(),
-            Arg.Is<OcrOptions>(o => o.LanguageHints.Contains("ja") && o.LanguageHints.Contains("en")),
+            Arg.Is<OcrOptions>(o => o.LanguageHints.Count == 0),
             Arg.Any<CancellationToken>());
     }
 }

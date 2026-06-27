@@ -36,8 +36,7 @@ public class PptxExtractorRegistration_Tests
     {
         var extractor = new PptxExtractor(
             Substitute.For<IOcrProvider>(),
-            Options.Create(new OpenXmlExtractorOptions()),
-            Options.Create(new VaultExtractOcrOptions { DefaultLanguageHints = new List<string>() }));
+            Options.Create(new OpenXmlExtractorOptions()));
 
         extractor.CanHandle(".pptx").ShouldBeTrue();
         extractor.CanHandle(".PPTX").ShouldBeTrue();

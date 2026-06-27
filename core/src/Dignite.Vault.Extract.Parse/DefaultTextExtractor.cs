@@ -8,7 +8,6 @@ using Dignite.Vault.Extract.Abstractions.Parse;
 using Dignite.Vault.Extract.Ocr;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 using Volo.Abp.DependencyInjection;
 
 namespace Dignite.Vault.Extract.Parse;
@@ -17,18 +16,15 @@ public class DefaultTextExtractor : ITextExtractor, ITransientDependency
 {
     private readonly IOcrProvider _ocrProvider;
     private readonly IReadOnlyList<IMarkdownTextProvider> _markdownProviders;
-    private readonly VaultExtractOcrOptions _ocrOptions;
 
     public ILogger<DefaultTextExtractor> Logger { get; set; } = NullLogger<DefaultTextExtractor>.Instance;
 
     public DefaultTextExtractor(
         IOcrProvider ocrProvider,
-        IEnumerable<IMarkdownTextProvider> markdownProviders,
-        IOptions<VaultExtractOcrOptions> ocrOptions)
+        IEnumerable<IMarkdownTextProvider> markdownProviders)
     {
         _ocrProvider = ocrProvider;
         _markdownProviders = markdownProviders.ToList();
-        _ocrOptions = ocrOptions.Value;
     }
 
     public virtual async Task<TextExtractionResult> ExtractAsync(
@@ -135,15 +131,13 @@ public class DefaultTextExtractor : ITextExtractor, ITransientDependency
 
         try
         {
-            var languageHints = ctx.LanguageHints?.Count > 0
-                ? ctx.LanguageHints
-                : (IList<string>)_ocrOptions.DefaultLanguageHints;
-
             seekable.Position = 0;
             var result = await _ocrProvider.RecognizeAsync(seekable, new OcrOptions
             {
                 ContentType = ctx.ContentType ?? string.Empty,
-                LanguageHints = languageHints
+                // Per-document hints only (empty by default). The central host default was removed (#441);
+                // a provider that needs a language default reads its own config (e.g. PaddleOcr:Languages).
+                LanguageHints = ctx.LanguageHints ?? new List<string>()
             }, cancellationToken);
 
             Logger.LogDebug("OCR completed using {Provider}.", result.ProviderName ?? _ocrProvider.GetType().Name);

@@ -121,8 +121,9 @@ public class DocumentParseBackgroundJob
                 var ctx = new TextExtractionContext
                 {
                     ContentType = workItem.ContentType!,
-                    FileExtension = Path.GetExtension(workItem.OriginalFileName ?? string.Empty),
-                    LanguageHints = { "ja", "en" }
+                    FileExtension = Path.GetExtension(workItem.OriginalFileName ?? string.Empty)
+                    // No language hints set: OCR language is provider-specific (#441). VisionLlm / Azure DI
+                    // auto-detect; PaddleOcr falls back to its own PaddleOcr:Languages config.
                 };
 
                 result = await _textExtractor.ExtractAsync(blobStream, ctx, _cancellationTokenProvider.Token);

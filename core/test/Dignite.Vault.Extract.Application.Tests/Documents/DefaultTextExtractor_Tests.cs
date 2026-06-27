@@ -49,8 +49,8 @@ public class DefaultTextExtractor_Tests : AbpIntegratedTest<DefaultTextExtractor
             Arg.Any<Stream>(),
             Arg.Is<OcrOptions>(o =>
                 o.ContentType == "image/jpeg" &&
-                o.LanguageHints.Contains("ja") &&
-                o.LanguageHints.Contains("en")),
+                // #441: no central host default; with no per-document hints the extractor passes empty hints.
+                o.LanguageHints.Count == 0),
             Arg.Any<CancellationToken>());
     }
 

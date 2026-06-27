@@ -20,8 +20,7 @@ public class DocxExtractor_Tests
     private DocxExtractor CreateExtractor(
         int minImagePixels = 0,
         int maxImages = 50,
-        long maxImageBytes = 16L * 1024 * 1024,
-        VaultExtractOcrOptions? ocrOptions = null)
+        long maxImageBytes = 16L * 1024 * 1024)
         => new(
             _ocr,
             Options.Create(new OpenXmlExtractorOptions
@@ -29,9 +28,7 @@ public class DocxExtractor_Tests
                 MinImagePixels = minImagePixels,
                 MaxImagesPerFile = maxImages,
                 MaxImageBytesPerImage = maxImageBytes
-            }),
-            // Default to empty hints so unrelated tests don't get defaults injected unexpectedly.
-            Options.Create(ocrOptions ?? new VaultExtractOcrOptions { DefaultLanguageHints = new List<string>() }));
+            }));
 
     private static TextExtractionContext DocxContext()
         => new() { ContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document", FileExtension = ".docx" };
@@ -417,7 +414,7 @@ public class DocxExtractor_Tests
     }
 
     [Fact]
-    public async Task Applies_default_language_hints_when_the_context_has_none()
+    public async Task Passes_empty_language_hints_to_figure_ocr_when_the_context_has_none()
     {
         StubOcr("FIGURE");
 
@@ -425,12 +422,14 @@ public class DocxExtractor_Tests
             .Paragraph("Body text")
             .Image(Png(alt: null)));
 
-        var extractor = CreateExtractor(ocrOptions: new VaultExtractOcrOptions());
+        // #441: no central host default. With no per-document hints, the figure path passes empty hints;
+        // a provider that needs a default reads its own config (e.g. PaddleOcr:Languages).
+        var extractor = CreateExtractor();
         await extractor.ExtractAsync(new MemoryStream(docx), DocxContext());
 
         await _ocr.Received(1).RecognizeAsync(
             Arg.Any<Stream>(),
-            Arg.Is<OcrOptions>(o => o.LanguageHints.Contains("ja") && o.LanguageHints.Contains("en")),
+            Arg.Is<OcrOptions>(o => o.LanguageHints.Count == 0),
             Arg.Any<CancellationToken>());
     }
 

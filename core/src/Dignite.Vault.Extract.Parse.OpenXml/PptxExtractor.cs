@@ -63,18 +63,15 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
 
     private readonly IOcrProvider _ocrProvider;
     private readonly OpenXmlExtractorOptions _options;
-    private readonly VaultExtractOcrOptions _ocrOptions;
 
     public ILogger<PptxExtractor> Logger { get; set; } = NullLogger<PptxExtractor>.Instance;
 
     public PptxExtractor(
         IOcrProvider ocrProvider,
-        IOptions<OpenXmlExtractorOptions> options,
-        IOptions<VaultExtractOcrOptions> ocrOptions)
+        IOptions<OpenXmlExtractorOptions> options)
     {
         _ocrProvider = ocrProvider;
         _options = options.Value;
-        _ocrOptions = ocrOptions.Value;
     }
 
     /// <inheritdoc/>
@@ -246,34 +243,34 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
             switch (child)
             {
                 case P.GroupShape group:
-                {
-                    var (gy, gx) = inGroup ? (groupY, groupX) : OffsetOf(group);
-                    await WalkShapesAsync(group, slidePart, inGroup: true, gy, gx, blocks, state, cancellationToken);
-                    break;
-                }
+                    {
+                        var (gy, gx) = inGroup ? (groupY, groupX) : OffsetOf(group);
+                        await WalkShapesAsync(group, slidePart, inGroup: true, gy, gx, blocks, state, cancellationToken);
+                        break;
+                    }
 
                 case P.Picture picture:
-                {
-                    var (y, x) = PositionFor(picture, inGroup, groupY, groupX);
-                    await HandlePictureAsync(picture, slidePart, y, x, blocks, state, cancellationToken);
-                    break;
-                }
+                    {
+                        var (y, x) = PositionFor(picture, inGroup, groupY, groupX);
+                        await HandlePictureAsync(picture, slidePart, y, x, blocks, state, cancellationToken);
+                        break;
+                    }
 
                 case P.GraphicFrame graphicFrame:
-                {
-                    var (y, x) = PositionFor(graphicFrame, inGroup, groupY, groupX);
-                    HandleGraphicFrame(graphicFrame, slidePart, y, x, blocks, state);
-                    break;
-                }
+                    {
+                        var (y, x) = PositionFor(graphicFrame, inGroup, groupY, groupX);
+                        HandleGraphicFrame(graphicFrame, slidePart, y, x, blocks, state);
+                        break;
+                    }
 
                 case P.Shape shape:
-                {
-                    var (y, x) = PositionFor(shape, inGroup, groupY, groupX);
-                    HandleTextShape(shape, y, x, blocks, state);
-                    break;
-                }
+                    {
+                        var (y, x) = PositionFor(shape, inGroup, groupY, groupX);
+                        HandleTextShape(shape, y, x, blocks, state);
+                        break;
+                    }
 
-                // ConnectionShape / non-visual property elements / unknown: nothing to extract.
+                    // ConnectionShape / non-visual property elements / unknown: nothing to extract.
             }
         }
     }
@@ -621,12 +618,13 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
     }
 
     /// <summary>
-    /// Resolves the OCR language hints for embedded-image transcription, mirroring
-    /// <c>DefaultTextExtractor</c>: the per-document hints when present, otherwise the host's configured
-    /// defaults — so the figure path and the whole-page OCR path apply the same defaulting.
+    /// Resolves the OCR language hints for embedded-image transcription: the per-document hints from the
+    /// context, or empty. There is no central host default (#441 removed it); a provider that needs a
+    /// language default reads its own config (e.g. PaddleOcr:Languages). Kept <c>protected virtual</c> so a
+    /// consumer can override to supply hints (e.g. from per-tenant config).
     /// </summary>
     protected virtual IList<string> ResolveLanguageHints(TextExtractionContext context)
-        => context.LanguageHints?.Count > 0 ? context.LanguageHints : _ocrOptions.DefaultLanguageHints;
+        => context.LanguageHints ?? new List<string>();
 
     /// <summary>
     /// Builds the #268 incompleteness reason from the loss counters, or returns <c>null</c> when nothing

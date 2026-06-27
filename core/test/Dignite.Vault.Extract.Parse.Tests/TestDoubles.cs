@@ -49,9 +49,8 @@ internal static class TestDoubles
 
     public static DefaultTextExtractor Extractor(
         IOcrProvider ocr,
-        IEnumerable<IMarkdownTextProvider> markdownProviders,
-        VaultExtractOcrOptions? ocrOptions = null)
-        => new(ocr, markdownProviders, Options.Create(ocrOptions ?? new VaultExtractOcrOptions()));
+        IEnumerable<IMarkdownTextProvider> markdownProviders)
+        => new(ocr, markdownProviders);
 
     public static MemoryStream Bytes(params byte[] content) => new(content);
 }

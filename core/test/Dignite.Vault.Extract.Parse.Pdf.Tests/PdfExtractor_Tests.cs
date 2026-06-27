@@ -21,8 +21,7 @@ public class PdfExtractor_Tests
     private PdfExtractor CreateExtractor(
         int minImagePixels = 0,
         int maxImagesPerPdf = 50,
-        bool skipFullPageScanBackground = true,
-        VaultExtractOcrOptions? ocrOptions = null)
+        bool skipFullPageScanBackground = true)
         => new(
             _ocr,
             Options.Create(new PdfExtractorOptions
@@ -32,9 +31,7 @@ public class PdfExtractor_Tests
                 // Defaults to true in production; kept explicit here so each test states the behavior it
                 // exercises. The remaining FullPageScan* thresholds use their production defaults.
                 SkipFullPageScanBackground = skipFullPageScanBackground
-            }),
-            // Default to empty hints so unrelated tests don't get defaults injected unexpectedly.
-            Options.Create(ocrOptions ?? new VaultExtractOcrOptions { DefaultLanguageHints = new List<string>() }));
+            }));
 
     // A full-page raster inset 10pt inside the fixture page — clears the coverage bar on both axes
     // (~0.97). Derived from PdfFixtures' page size so a fixture page-size change can't silently flip the
@@ -286,7 +283,7 @@ public class PdfExtractor_Tests
     }
 
     [Fact]
-    public async Task Applies_default_language_hints_when_the_context_has_none()
+    public async Task Passes_empty_language_hints_to_figure_ocr_when_the_context_has_none()
     {
         StubOcr("FIGURE");
 
@@ -295,13 +292,14 @@ public class PdfExtractor_Tests
             texts: new[] { ("Body text", 700.0) },
             images: new[] { (png, new PdfRectangle(50, 400, 200, 550)) });
 
-        // Context carries no hints; the host default {ja,en} must be applied (same as the whole-page path).
-        var extractor = CreateExtractor(ocrOptions: new VaultExtractOcrOptions());
+        // #441: no central host default. With no per-document hints, the figure path passes empty hints;
+        // a provider that needs a default reads its own config (e.g. PaddleOcr:Languages).
+        var extractor = CreateExtractor();
         await extractor.ExtractAsync(new MemoryStream(pdf), PdfContext());
 
         await _ocr.Received(1).RecognizeAsync(
             Arg.Any<Stream>(),
-            Arg.Is<OcrOptions>(o => o.LanguageHints.Contains("ja") && o.LanguageHints.Contains("en")),
+            Arg.Is<OcrOptions>(o => o.LanguageHints.Count == 0),
             Arg.Any<CancellationToken>());
     }
 
