@@ -1,6 +1,6 @@
 {
   "name": "@dignite/vault-extract",
-  "version": "0.2.0-preview.5",
+  "version": "0.2.0-preview.6",
   "description": "Angular UI library for Dignite Vault Extract — the IDP channel layer that converts documents into Markdown, metadata, and structured fields.",
   "author": "Dignite",
   "license": "Apache-2.0",
