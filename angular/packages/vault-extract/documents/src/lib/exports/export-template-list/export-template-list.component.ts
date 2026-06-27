@@ -149,7 +149,7 @@ export class ExportTemplateListComponent implements OnInit {
         columnWidth: 150,
         valueResolver: data => {
           const localization = data.getInjected(LocalizationService);
-          return of(`<span class="badge bg-secondary">${escapeHtmlChars(localization.instant(this.formatLabel(data.record.format)))}</span>`);
+          return of(`<span class="badge bg-secondary">${escapeHtmlChars(localization.instant('::ExportFormat:' + this.formatLabel(data.record.format)))}</span>`);
         },
       }),
       EntityProp.create<ExportTemplateDto>({

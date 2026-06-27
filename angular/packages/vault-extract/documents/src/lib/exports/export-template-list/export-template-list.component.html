@@ -177,7 +177,7 @@
                 <label class="form-label">{{ '::ExportTemplate:Format' | abpLocalization }}</label>
                 <select class="form-select" formControlName="format">
                   @for (opt of formatOptions; track opt.value) {
-                    <option [ngValue]="opt.value">{{ opt.key | abpLocalization }}</option>
+                    <option [ngValue]="opt.value">{{ '::ExportFormat:' + opt.key | abpLocalization }}</option>
                   }
                 </select>
               </div>

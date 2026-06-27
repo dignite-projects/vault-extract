@@ -209,7 +209,7 @@
                 <label class="form-label">{{ '::FieldDefinition:DataType' | abpLocalization }}</label>
                 <select class="form-select" formControlName="dataType">
                   @for (opt of dataTypeOptions; track opt.value) {
-                    <option [ngValue]="opt.value">{{ opt.key | abpLocalization }}</option>
+                    <option [ngValue]="opt.value">{{ '::FieldDataType:' + opt.key | abpLocalization }}</option>
                   }
                 </select>
               </div>

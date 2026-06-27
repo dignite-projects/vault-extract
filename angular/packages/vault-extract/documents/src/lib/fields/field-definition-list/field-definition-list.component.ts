@@ -196,7 +196,7 @@ export class FieldDefinitionListComponent implements OnInit {
           const localization = data.getInjected(LocalizationService);
           const label = fieldDataTypeOptions.find(o => o.value === data.record.dataType)?.key ?? String(data.record.dataType);
           const suffix = data.record.allowMultiple ? '[]' : '';
-          return of(`<span class="badge bg-light text-dark border">${escapeHtmlChars(localization.instant(label))}${suffix}</span>`);
+          return of(`<span class="badge bg-light text-dark border">${escapeHtmlChars(localization.instant('::FieldDataType:' + label))}${suffix}</span>`);
         },
       }),
       EntityProp.create<FieldDefinitionDto>({
@@ -573,9 +573,5 @@ export class FieldDefinitionListComponent implements OnInit {
           this.load();
         },
       });
-  }
-
-  dataTypeLabel(dataType: FieldDataType | undefined): string {
-    return this.dataTypeOptions.find(o => o.value === dataType)?.key ?? String(dataType);
   }
 }
