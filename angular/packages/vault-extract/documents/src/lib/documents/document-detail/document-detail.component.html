@@ -436,7 +436,15 @@
                         <dt class="col-sm-5 text-muted text-truncate" [title]="entry.key">
                           {{ entry.label }}
                         </dt>
-                        <dd class="col-sm-7 mb-2" [title]="entry.value">{{ entry.value }}</dd>
+                        <dd class="col-sm-7 mb-2">
+                          @if (entry.isMarkdown) {
+                            <!-- #418: LongText values render as Markdown, sanitized on bind by Angular's
+                                 DomSanitizer — the same pipeline as the left-column preview. -->
+                            <div class="markdown-body" [innerHTML]="entry.renderedHtml"></div>
+                          } @else {
+                            <span [title]="entry.value">{{ entry.value }}</span>
+                          }
+                        </dd>
                       }
                     </dl>
                   } @else {

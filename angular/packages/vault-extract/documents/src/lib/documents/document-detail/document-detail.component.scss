@@ -94,6 +94,12 @@
     color: var(--bs-primary, #0d6efd);
   }
 
+  // #418: reused for LongText extracted-field values in a compact <dd>. Drop the leading/trailing block
+  // margins so a value that starts with a heading or ends with a paragraph does not add stray gaps.
+  & > :first-child {
+    margin-top: 0;
+  }
+
   & > :last-child {
     margin-bottom: 0;
   }

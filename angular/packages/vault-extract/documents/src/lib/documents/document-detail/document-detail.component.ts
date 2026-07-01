@@ -319,10 +319,16 @@ export class DocumentDetailComponent implements OnInit {
   // Angular's built-in DomSanitizer sanitizes it automatically by stripping <script>, on*, and
   // javascript:. Never bypassSecurityTrustHtml: Markdown is attacker-influenced content because VLM OCR
   // can be prompt-injected by text inside an image, so the sanitizer must stay on end to end.
-  renderedMarkdown = computed<string>(() => {
-    const md = this.markdownSource();
+  renderedMarkdown = computed<string>(() => this.renderMarkdown(this.markdownSource()));
+
+  // #418: shared Markdown -> HTML step, used by both the left-column preview and the LongText
+  // extracted-field values. Same GFM options and the same sanitize-on-bind contract: every caller MUST
+  // bind the result via [innerHTML] so Angular's DomSanitizer runs. Never bypassSecurityTrustHtml — a
+  // LongText field value is attacker-influenced too (LLM extraction / VLM OCR can be prompt-injected), so
+  // the sanitizer has to stay on end to end.
+  private renderMarkdown(md: string): string {
     return md ? (marked.parse(md, { gfm: true, async: false }) as string) : '';
-  });
+  }
 
   // Owning cabinet name for the document, cabinetId to name. Returns null when unclassified or
   // unresolved because of missing permission or deleted cabinet.
@@ -346,7 +352,7 @@ export class DocumentDetailComponent implements OnInit {
   // deleted field definitions, preserving data for downstream consumers (#206/#207). The operator UI no
   // longer shows them, matching the list's dynamic columns which also use only active definitions. Labels
   // use displayName and sorting uses displayOrder.
-  extractedFieldEntries = computed<{ key: string; label: string; value: string }[]>(() => {
+  extractedFieldEntries = computed<{ key: string; label: string; value: string; isMarkdown: boolean; renderedHtml: string }[]>(() => {
     const fields = this.document()?.extractedFields;
     if (!fields) return [];
     const defByName = new Map(this.fieldDefinitions().map(d => [d.name ?? '', d]));
@@ -355,11 +361,27 @@ export class DocumentDetailComponent implements OnInit {
       .sort((a, b) =>
         (defByName.get(a)!.displayOrder ?? 0) - (defByName.get(b)!.displayOrder ?? 0) ||
         a.localeCompare(b))
-      .map(key => ({
-        key,
-        label: defByName.get(key)!.displayName || key,
-        value: this.formatFieldValue(fields[key]),
-      }));
+      .map(key => {
+        const def = defByName.get(key)!;
+        const raw = fields[key];
+        const value = this.formatFieldValue(raw);
+        // #418: a LongText value is rendered as Markdown here in the detail view (never in the compact
+        // list, so multi-paragraph content cannot blow apart table rows). LongText is an explicit
+        // config-time choice on FieldDefinition.DataType — a declared type, not a runtime guess. Only
+        // render when there is real string content; a null / empty value (formatted as "—") stays plain
+        // text. renderedHtml keeps the sanitize-on-bind contract via renderMarkdown + [innerHTML].
+        const isMarkdown =
+          def.dataType === FieldDataType.LongText &&
+          typeof raw === 'string' &&
+          raw.trim().length > 0;
+        return {
+          key,
+          label: def.displayName || key,
+          value,
+          isMarkdown,
+          renderedHtml: isMarkdown ? this.renderMarkdown(value) : '',
+        };
+      });
   });
 
   // Field card display condition: existing extracted values for read-only display, or editable with field
