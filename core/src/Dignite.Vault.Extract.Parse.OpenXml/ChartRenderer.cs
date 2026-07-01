@@ -65,7 +65,7 @@ internal static class ChartRenderer
             //    wide table would silently hang values under the wrong category. Bail to null; the caller
             //    counts it as a chart failure (#268) — an honest "could not be rendered as a table" signal
             //    instead of misaligned data.
-            foreach (var (idx, label) in ReadCache(FirstChildByLocalName(ser, "cat")))
+            foreach (var (idx, label) in ReadCategoryLabels(FirstChildByLocalName(ser, "cat")))
             {
                 if (!categories.TryGetValue(idx, out var existing))
                 {
@@ -190,6 +190,82 @@ internal static class ChartRenderer
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Reads a <c>c:cat</c> container's cached category labels into an index → label map. A single-level axis
+    /// (<c>c:strCache</c> / <c>c:numCache</c>) reads through <see cref="ReadCache"/> unchanged. A
+    /// <b>multi-level</b> axis (<c>c:multiLvlStrRef</c> with several <c>c:lvl</c> blocks) repeats <c>idx</c>
+    /// values per level, so a flat <c>Descendants("pt")</c> read would collide the levels and mislabel rows
+    /// (#321) — instead compose one compound label per position from outermost to innermost (e.g.
+    /// <c>"2024 / Q1"</c>). Per ECMA-376 the first <c>c:lvl</c> is the innermost level, and an outer level
+    /// caches its label only at each group's first index, so each level is forward-filled across its span.
+    /// </summary>
+    private static IReadOnlyDictionary<int, string> ReadCategoryLabels(OpenXmlElement? catContainer)
+    {
+        if (catContainer is null)
+        {
+            return new Dictionary<int, string>();
+        }
+
+        var levels = catContainer
+            .Descendants<OpenXmlElement>()
+            .Where(e => e.LocalName == "lvl")
+            .ToList();
+
+        if (levels.Count == 0)
+        {
+            // Single-level (or no) category cache: the flat index → label read is correct.
+            return ReadCache(catContainer);
+        }
+
+        // Each c:lvl is its own index → label map, authored innermost-first.
+        var levelMaps = levels.Select(ReadCache).ToList();
+
+        var indices = new SortedSet<int>();
+        foreach (var map in levelMaps)
+        {
+            foreach (var idx in map.Keys)
+            {
+                indices.Add(idx);
+            }
+        }
+
+        var result = new Dictionary<int, string>();
+        foreach (var idx in indices)
+        {
+            // Outermost (last authored) to innermost (first authored); forward-fill each level so a position
+            // inside an outer group inherits the label cached at that group's first index.
+            var parts = new List<string>();
+            for (var lvl = levelMaps.Count - 1; lvl >= 0; lvl--)
+            {
+                var label = ForwardFill(levelMaps[lvl], idx);
+                if (label.Length > 0)
+                {
+                    parts.Add(label);
+                }
+            }
+
+            result[idx] = string.Join(" / ", parts);
+        }
+
+        return result;
+    }
+
+    /// <summary>The label at the greatest index &lt;= <paramref name="idx"/> present in <paramref name="level"/>,
+    /// or empty — so an outer category label cached only at its group's first position fills the rest of the group.</summary>
+    private static string ForwardFill(IReadOnlyDictionary<int, string> level, int idx)
+    {
+        var best = -1;
+        foreach (var key in level.Keys)
+        {
+            if (key <= idx && key > best)
+            {
+                best = key;
+            }
+        }
+
+        return best >= 0 ? level[best] : string.Empty;
     }
 
     private static OpenXmlElement? FirstChildByLocalName(OpenXmlElement parent, string localName)

@@ -56,7 +56,11 @@ internal static class PptxFixtures
         IReadOnlyList<string>? SecondSeriesCategories = null,
         // When true, the FIRST series omits its c:cat cache entirely (categories must seed from a later
         // series instead of the first).
-        bool FirstSeriesOmitsCategories = false);
+        bool FirstSeriesOmitsCategories = false,
+        // When set, the category axis is a two-level (c:multiLvlStrRef) axis: each tuple is (outer, inner) for
+        // that position. Verifies multi-level axes compose compound labels ("2024 / Q1") rather than colliding
+        // idx values across levels (#321). Takes precedence over the single-level Categories.
+        IReadOnlyList<(string Outer, string Inner)>? TwoLevelCategories = null);
 
     /// <summary>A native table: rows of cells (first row is the header), at an EMU offset.</summary>
     public sealed record TableSpec(IReadOnlyList<IReadOnlyList<string>> Rows, long OffsetX = 100, long OffsetY = 6_000_000);
@@ -388,13 +392,39 @@ internal static class PptxFixtures
             return $"<c:cat><c:strRef><c:f>cats</c:f><c:strCache><c:ptCount val=\"{cats.Count}\"/>{points}</c:strCache></c:strRef></c:cat>";
         }
 
+        string MultiLevelCategoryCache(IReadOnlyList<(string Outer, string Inner)> cats)
+        {
+            var inner = string.Concat(cats.Select((c, i) => $"<c:pt idx=\"{i}\"><c:v>{Escape(c.Inner)}</c:v></c:pt>"));
+            // Outer level: cache a point only where the outer label changes (the group's first index), exactly
+            // as Excel writes a multi-level axis — the extractor must forward-fill the label across the group.
+            var outer = new StringBuilder();
+            string? prev = null;
+            for (var i = 0; i < cats.Count; i++)
+            {
+                if (cats[i].Outer != prev)
+                {
+                    outer.Append($"<c:pt idx=\"{i}\"><c:v>{Escape(cats[i].Outer)}</c:v></c:pt>");
+                    prev = cats[i].Outer;
+                }
+            }
+
+            // Innermost c:lvl first (per ECMA-376), then the outer level.
+            return $"<c:cat><c:multiLvlStrRef><c:f>cats</c:f><c:multiLvlStrCache><c:ptCount val=\"{cats.Count}\"/>"
+                 + $"<c:lvl>{inner}</c:lvl><c:lvl>{outer}</c:lvl>"
+                 + "</c:multiLvlStrCache></c:multiLvlStrRef></c:cat>";
+        }
+
         var seriesXml = string.Concat(chart.Series.Select((ser, si) =>
         {
             var valuePoints = string.Concat(ser.Values.Select((v, i) =>
                 $"<c:pt{Idx(i)}><c:v>{Escape(v)}</c:v></c:pt>"));
             var cats = si == 1 && chart.SecondSeriesCategories is not null ? chart.SecondSeriesCategories : chart.Categories;
             // The first series can be made to omit its category cache so seeding falls to a later series.
-            var catXml = si == 0 && chart.FirstSeriesOmitsCategories ? string.Empty : CategoryCache(cats);
+            var catXml = si == 0 && chart.FirstSeriesOmitsCategories
+                ? string.Empty
+                : chart.TwoLevelCategories is not null
+                    ? MultiLevelCategoryCache(chart.TwoLevelCategories)
+                    : CategoryCache(cats);
             return $"""
                     <c:ser>
                       <c:idx val="{si}"/><c:order val="{si}"/>

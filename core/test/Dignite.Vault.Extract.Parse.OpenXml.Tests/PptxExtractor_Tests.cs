@@ -724,4 +724,28 @@ public class PptxExtractor_Tests
         // Exactly one branch survives collapsing — the content must not be doubled from both Choice and Fallback.
         (result.Markdown.Split("MC_WRAPPED_CONTENT").Length - 1).ShouldBe(1);
     }
+
+    [Fact]
+    public async Task Renders_a_multi_level_category_axis_as_compound_row_labels()
+    {
+        // #321: a multi-level category axis (c:multiLvlStrRef with an inner "quarter" level and an outer
+        // "year" level) repeats idx values per level. Flattening every level into one idx→label map collided
+        // the indices and mislabeled rows (idx 0 became the outer "2023" instead of "2023 / Q1"). The renderer
+        // must compose one compound label per position, outer → inner.
+        var chart = new PptxFixtures.ChartSpec(
+            Title: null,
+            Categories: System.Array.Empty<string>(),
+            Series: new[] { ("Revenue", (IReadOnlyList<string>)new[] { "10", "20", "30", "40" }) },
+            TwoLevelCategories: new[] { ("2023", "Q1"), ("2023", "Q2"), ("2024", "Q1"), ("2024", "Q2") });
+
+        var pptx = PptxFixtures.Build(new PptxFixtures.SlideSpec().Chart(chart));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(pptx), PptxContext());
+
+        result.Markdown.ShouldContain("| 2023 / Q1 | 10 |");
+        result.Markdown.ShouldContain("| 2023 / Q2 | 20 |");
+        result.Markdown.ShouldContain("| 2024 / Q1 | 30 |");
+        result.Markdown.ShouldContain("| 2024 / Q2 | 40 |");
+        result.IsComplete.ShouldBeTrue();
+    }
 }
