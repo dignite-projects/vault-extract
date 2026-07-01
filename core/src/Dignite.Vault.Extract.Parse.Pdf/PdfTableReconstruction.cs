@@ -223,7 +223,13 @@ internal static class PdfTableReconstruction
             var bandFromBottom = BandIndex(rows, (cell.Bounds.Top + cell.Bounds.Bottom) / 2.0);
             if (column < 0 || bandFromBottom < 0)
             {
-                continue; // outside the drawn grid — not table content
+                // A fragment whose centre is outside the drawn boundaries is deliberately dropped as non-table
+                // content. NOTE (#450 review): the caller claims a block by its CENTROID being inside the grid,
+                // so a block straddling the outer rule could contribute a fragment that lands here and is not
+                // re-rendered by the stream path — a narrow lossy edge, unlike the strict non-lossy guarantee
+                // RenderPageCore enforces around segmentation. It is bounded by real ruled tables enclosing their
+                // text, and by this method returning null (un-claiming the blocks) whenever the grid degrades.
+                continue;
             }
 
             var row = grid.RowCount - 1 - bandFromBottom; // ascending-y band -> top-to-bottom row
