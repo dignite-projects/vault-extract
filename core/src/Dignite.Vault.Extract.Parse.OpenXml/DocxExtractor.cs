@@ -173,7 +173,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
             var mainPart = document.MainDocumentPart;
             var body = mainPart?.Document?.Body;
 
-            var state = new ExtractionState
+            var state = new OpenXmlExtractionState
             {
                 ImageBudget = _options.MaxImagesPerFile,
                 LanguageHints = ResolveLanguageHints(context)
@@ -196,7 +196,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
                         // OpenXML parses lazily, so a malformed block can fault here on access. Skip it and
                         // mark the result incomplete rather than failing the whole document.
                         Logger.LogWarning(ex, "Failed to process a document block; skipping it.");
-                        state.FailedBlocks++;
+                        state.FailedContainers++;
                     }
                 }
             }
@@ -204,7 +204,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
             // Single source of truth for the #268 signal: the reason is built from the counters and is
             // null iff nothing was lost; completeness derives from it (no parallel hand-synced predicate).
             var incompleteReason = BuildIncompleteReason(
-                state.FailedBlocks, state.DroppedByCap, state.Undecodable, state.OversizedImages,
+                state.FailedContainers, state.DroppedByCap, state.Undecodable, state.OversizedImages,
                 state.TruncatedOcr, state.FailedFigureOcr, state.ChartFailures);
             var complete = incompleteReason is null;
             if (!complete)
@@ -240,7 +240,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         DocumentFormat.OpenXml.OpenXmlElement element,
         MainDocumentPart mainPart,
         List<string> blocks,
-        ExtractionState state,
+        OpenXmlExtractionState state,
         int depth,
         CancellationToken cancellationToken)
     {
@@ -254,7 +254,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
                 {
                     // Native table -> Markdown table (pure structured extraction, no OCR). A null/empty render
                     // (layout-only or empty grid) is simply not added; a parse fault is caught by the caller's
-                    // per-block try/catch and tripped as FailedBlocks.
+                    // per-block try/catch and tripped as FailedContainers.
                     var renderedTable = WordTableRenderer.Render(table);
                     if (!string.IsNullOrWhiteSpace(renderedTable))
                     {
@@ -286,7 +286,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
                 if (!string.IsNullOrWhiteSpace(element.InnerText))
                 {
                     Logger.LogWarning("Skipping an unsupported body block <{Name}> that carries text.", element.LocalName);
-                    state.FailedBlocks++;
+                    state.FailedContainers++;
                 }
 
                 break;
@@ -305,7 +305,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         W.Paragraph paragraph,
         MainDocumentPart mainPart,
         List<string> blocks,
-        ExtractionState state,
+        OpenXmlExtractionState state,
         CancellationToken cancellationToken)
     {
         var headingLevel = WordStyleMap.HeadingLevel(paragraph);
@@ -384,7 +384,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         DocumentFormat.OpenXml.OpenXmlElement container,
         MainDocumentPart mainPart,
         List<string> blocks,
-        ExtractionState state,
+        OpenXmlExtractionState state,
         CancellationToken cancellationToken)
     {
         // Skip drawings nested inside a text box (txbxContent): the text box's own (outer) drawing is
@@ -420,7 +420,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         DocumentFormat.OpenXml.OpenXmlElement? container,
         MainDocumentPart mainPart,
         List<string> blocks,
-        ExtractionState state,
+        OpenXmlExtractionState state,
         int depth,
         CancellationToken cancellationToken)
     {
@@ -436,7 +436,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
             Logger.LogWarning("Content-control nesting exceeded depth {Max}; skipping the remaining subtree.", MaxBlockNestingDepth);
             if (!string.IsNullOrWhiteSpace(container.InnerText))
             {
-                state.FailedBlocks++;
+                state.FailedContainers++;
             }
 
             return;
@@ -453,7 +453,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         W.Drawing drawing,
         MainDocumentPart mainPart,
         List<string> blocks,
-        ExtractionState state,
+        OpenXmlExtractionState state,
         CancellationToken cancellationToken)
     {
         var embed = drawing.Descendants<A.Blip>().FirstOrDefault()?.Embed?.Value;
@@ -477,112 +477,27 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
     }
 
     /// <summary>
-    /// Resolves an embedded image relationship to its bytes and transcribes it via the host-selected
-    /// <see cref="IOcrProvider"/>, appending the transcription (optionally captioned) as a block. Shared by
-    /// the DrawingML (<c>a:blip</c>) and legacy VML (<c>v:imagedata</c>) image paths. Honors the per-file
-    /// image budget and trips the #268 counters on cap / oversize / undecodable / OCR-failure / truncation.
+    /// Resolves an embedded image relationship and transcribes it via the host-selected
+    /// <see cref="IOcrProvider"/>, appending the (optionally captioned) transcription as a block. Shared by
+    /// the DrawingML (<c>a:blip</c>) and legacy VML (<c>v:imagedata</c>) image paths. The figure-OCR pipeline
+    /// itself — budget guard, resolve, image-outcome switch, OCR, truncation signal, caption — lives in the
+    /// shared <see cref="OpenXmlFigureTranscriber"/> (#317, shared with <see cref="PptxExtractor"/>); this
+    /// wrapper only supplies the DOCX part container + caption and sinks the finished block in flow order.
     /// </summary>
     private async Task TranscribeEmbeddedImageAsync(
         string relationshipId,
         string? caption,
         MainDocumentPart mainPart,
         List<string> blocks,
-        ExtractionState state,
+        OpenXmlExtractionState state,
         CancellationToken cancellationToken)
     {
-        if (state.ImageBudget <= 0)
+        var block = await OpenXmlFigureTranscriber.TranscribeAsync(
+            mainPart, relationshipId, caption, state, _options, _ocrProvider, Logger, cancellationToken);
+        if (block is not null)
         {
-            state.DroppedByCap++;
-            return;
+            blocks.Add(block);
         }
-
-        OpenXmlImagePayload.ResolvedImage resolved;
-        try
-        {
-            var part = mainPart.GetPartById(relationshipId);
-            resolved = part is ImagePart imagePart
-                ? OpenXmlImagePayload.TryResolve(imagePart, _options.MaxImageBytesPerImage)
-                // A dangling relationship / non-image part: treat as undecodable.
-                : new OpenXmlImagePayload.ResolvedImage(OpenXmlImagePayload.ImageOutcome.Undecodable, null, null);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            Logger.LogWarning(ex, "Failed to resolve/decode an embedded DOCX image; skipping it.");
-            resolved = new OpenXmlImagePayload.ResolvedImage(OpenXmlImagePayload.ImageOutcome.Undecodable, null, null);
-        }
-
-        switch (resolved.Outcome)
-        {
-            case OpenXmlImagePayload.ImageOutcome.Oversized:
-                // A single image larger than the per-image byte cap (e.g. a ZIP-decompression bomb). Skipped
-                // before full materialization; trips the completeness signal but never OOMs the worker.
-                Logger.LogWarning("Skipped an embedded image exceeding the {Cap}-byte per-image cap.", _options.MaxImageBytesPerImage);
-                state.OversizedImages++;
-                return;
-
-            case OpenXmlImagePayload.ImageOutcome.Undecodable:
-                // Vector (EMF/WMF), dangling relationship, or undecodable/mislabeled bytes.
-                state.Undecodable++;
-                return;
-
-            case OpenXmlImagePayload.ImageOutcome.Ok:
-                break;
-
-            default:
-                // A future outcome added to the enum must not silently fall through to RecognizeAsync with
-                // possibly-null bytes — fail closed by treating it as undecodable.
-                Logger.LogWarning("Unhandled image outcome {Outcome}; treating as undecodable.", resolved.Outcome);
-                state.Undecodable++;
-                return;
-        }
-
-        state.ImageBudget--;
-
-        OcrResult ocr;
-        try
-        {
-            using var imageStream = new MemoryStream(resolved.Bytes!, writable: false);
-            ocr = await _ocrProvider.RecognizeAsync(
-                imageStream,
-                new OcrOptions
-                {
-                    ContentType = resolved.ContentType!,
-                    LanguageHints = state.LanguageHints
-                },
-                cancellationToken);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            // A single figure's OCR failing (provider timeout / rate-limit / auth / one bad image) must NOT
-            // discard the document text already extracted — figure OCR is an auxiliary augmentation, not the
-            // document's primary payload (the #210/#268 "auxiliary step must not break the main pipeline"
-            // principle). Skip this figure and mark the result incomplete. OperationCanceledException still
-            // propagates so a host/job shutdown aborts promptly.
-            Logger.LogWarning(ex, "Embedded-image OCR failed; keeping the document text, skipping this figure.");
-            state.FailedFigureOcr++;
-            return;
-        }
-
-        if (!ocr.IsComplete)
-        {
-            // OCR truncated at the token limit or discarded by the repetition guard.
-            state.TruncatedOcr++;
-        }
-
-        var transcription = ocr.Markdown?.Trim() ?? string.Empty;
-        if (transcription.Length == 0)
-        {
-            return;
-        }
-
-        // Caption (alt-text) is author-controlled free text (often multi-line), so collapse newlines via
-        // MarkdownText.InlineLabel AND inline-escape via MarkdownText.EscapeInline so the bold caption can't
-        // break the OCR block (often a table) below it, nor inject a link/emphasis from a literal [..](..)/*.
-        var markdown = string.IsNullOrWhiteSpace(caption)
-            ? transcription
-            : "**" + MarkdownText.EscapeInline(MarkdownText.InlineLabel(caption)) + "**\n\n" + transcription;
-
-        blocks.Add(markdown);
     }
 
     /// <summary>
@@ -617,7 +532,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
     /// renderable category/value cache (e.g. scatter/bubble) or an unreadable part trips the completeness
     /// signal (#268); a non-chart drawing with no blip (SmartArt / diagram / OLE) is an accepted blind spot.
     /// </summary>
-    private void HandleChart(W.Drawing drawing, MainDocumentPart mainPart, List<string> blocks, ExtractionState state)
+    private void HandleChart(W.Drawing drawing, MainDocumentPart mainPart, List<string> blocks, OpenXmlExtractionState state)
     {
         var chartId = drawing.Descendants<C.ChartReference>().FirstOrDefault()?.Id?.Value;
         if (string.IsNullOrEmpty(chartId))
@@ -766,7 +681,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
     /// consumer can override to supply hints (e.g. from per-tenant config).
     /// </summary>
     protected virtual IList<string> ResolveLanguageHints(TextExtractionContext context)
-        => context.LanguageHints ?? new List<string>();
+        => OpenXmlExtractionState.ResolveLanguageHints(context);
 
     /// <summary>
     /// Builds the #268 incompleteness reason from the loss counters, or returns <c>null</c> when nothing was
@@ -776,57 +691,6 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
     /// </summary>
     internal static string? BuildIncompleteReason(
         int failedBlocks, int droppedByCap, int undecodable, int oversizedImages, int truncatedOcr, int failedFigureOcr, int chartFailures)
-    {
-        var parts = new List<string>();
-        if (failedBlocks > 0)
-        {
-            parts.Add($"{failedBlocks} document block(s) could not be parsed and were skipped");
-        }
-
-        if (undecodable > 0)
-        {
-            parts.Add($"{undecodable} embedded image(s) could not be decoded to a supported raster format (e.g. EMF/WMF vector)");
-        }
-
-        if (oversizedImages > 0)
-        {
-            parts.Add($"{oversizedImages} embedded image(s) exceeded the per-image size cap and were skipped");
-        }
-
-        if (failedFigureOcr > 0)
-        {
-            parts.Add($"{failedFigureOcr} embedded image(s) failed OCR (provider error)");
-        }
-
-        if (truncatedOcr > 0)
-        {
-            parts.Add($"{truncatedOcr} image transcription(s) were truncated or discarded by the OCR provider");
-        }
-
-        if (chartFailures > 0)
-        {
-            parts.Add($"{chartFailures} chart(s) could not be rendered as a table");
-        }
-
-        if (droppedByCap > 0)
-        {
-            parts.Add($"{droppedByCap} image(s) were skipped after reaching the per-file image cap");
-        }
-
-        return parts.Count == 0 ? null : string.Join("; ", parts) + ".";
-    }
-
-    /// <summary>Mutable per-extraction accumulator: image budget and #268 loss counters.</summary>
-    protected sealed class ExtractionState
-    {
-        public int ImageBudget;
-        public int FailedBlocks;
-        public int DroppedByCap;
-        public int Undecodable;
-        public int OversizedImages;
-        public int TruncatedOcr;
-        public int FailedFigureOcr;
-        public int ChartFailures;
-        public IList<string> LanguageHints = new List<string>();
-    }
+        => OpenXmlIncompleteReason.Build(
+            "document block", failedBlocks, droppedByCap, undecodable, oversizedImages, truncatedOcr, failedFigureOcr, chartFailures);
 }
