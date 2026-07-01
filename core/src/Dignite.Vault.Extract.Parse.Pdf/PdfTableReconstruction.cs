@@ -49,8 +49,17 @@ internal static class PdfTableReconstruction
 
     // Two fragments belong to the same column unless a horizontal gap wider than this (in median-glyph-height
     // units) separates them — the column gutter. Sized so an ordinary inter-word space (a fraction of the
-    // glyph height) never reads as a column break, while a real gutter does.
+    // glyph height) never reads as a column break, while a real gutter does. Also the minimum WIDTH of a
+    // column-separating whitespace street in DetectColumnBands.
     private const double ColumnGutterScale = 0.8;
+
+    // A column gutter may be BRIDGED (filled) by a wide cell in a minority of rows and still be a real gutter;
+    // DetectColumnBands keeps the boundary while the street stays empty in all but this fraction of the rows
+    // (#446). Sized so up to ~a third of rows can bridge a gutter (a stray wide value / a numeric column whose
+    // longest entry reaches toward its neighbour) before the boundary dissolves — yet a column genuinely FILLED
+    // in half its rows still reads as content, never a gutter. A table too sparse for that distinction to hold
+    // is rejected downstream anyway (MinFillRatio), so erring toward keeping the boundary is safe.
+    private const double GutterBridgeToleranceFraction = 0.34;
 
     // Two fragments share a visual line when their vertical ranges overlap by at least this ratio (of the
     // shorter one). Mirrors PdfReadingOrder.GroupWordsIntoLines so line grouping is consistent.
@@ -94,19 +103,20 @@ internal static class PdfTableReconstruction
             return null;
         }
 
-        // 1. Columns: project every fragment's x-range onto the x-axis and split at gutters wider than the
-        // threshold. Robust to left/right/centre cell alignment — a column's content lands in its band whatever
-        // its alignment, and the gutter between bands is empty.
-        var columns = DetectColumnBands(meaningful, medianHeight * ColumnGutterScale);
-        if (columns.Count < MinColumns)
+        // 1. Visual lines: cluster fragments whose vertical ranges overlap (same as the paragraph path), top
+        // to bottom. Built first because column detection is now row-aware (#446).
+        var visualLines = GroupIntoVisualLines(meaningful);
+        if (visualLines.Count < MinRows)
         {
             return null;
         }
 
-        // 2. Visual lines: cluster fragments whose vertical ranges overlap (same as the paragraph path), top
-        // to bottom.
-        var visualLines = GroupIntoVisualLines(meaningful);
-        if (visualLines.Count < MinRows)
+        // 2. Columns: split the fragments at the vertical whitespace streets between columns. A street must be
+        // empty across (almost) every row, so a wide cell reaching into a gutter in a minority of rows no longer
+        // merges two columns for the whole table (#446). Robust to left/right/centre cell alignment — a column's
+        // content lands in its band whatever its alignment, and the gutter between bands is empty.
+        var columns = DetectColumnBands(visualLines, medianHeight * ColumnGutterScale);
+        if (columns.Count < MinColumns)
         {
             return null;
         }
@@ -186,38 +196,210 @@ internal static class PdfTableReconstruction
     }
 
     /// <summary>
-    /// Splits the fragments into column bands by x-projection: merges overlapping/abutting x-ranges and starts
-    /// a new band wherever an empty horizontal gap exceeds <paramref name="gutterThreshold"/>. Each returned
-    /// band is the <c>[left, right]</c> extent of one column's content.
+    /// Splits the fragments into column bands. A flat x-projection of every fragment merges two columns whenever
+    /// a single wide cell reaches across their gutter in even one row (#446: a 6-column bank statement whose
+    /// 日付/摘要 and an empty メモ column collapsed into their neighbours, content bleeding across cells). Two
+    /// complementary, both merge-averse column models are computed and the one that reveals <b>more</b> columns
+    /// is used — a merged column is the defect, so the finer partition is the safer choice, and the downstream
+    /// grid tests (cross-column-row ratio, fill ratio) reject an over-split scatter as non-lossy paragraphs.
+    /// <list type="bullet">
+    /// <item><b>Header anchor</b> (<see cref="HeaderAnchorCuts"/>): the top row — the header, after the caller
+    /// peeled any title/intro rows — usually shows every column cleanly with wide label gutters, including a
+    /// sparse or all-blank column (an empty メモ) and columns whose DATA gutters are too tight to resolve
+    /// (right-aligned numerics sitting ~a point apart). Each cell files into the last column whose start is left
+    /// of its centre.</item>
+    /// <item><b>Coverage sweep</b> (<see cref="CoverageSweepCuts"/>): the vertical whitespace streets that stay
+    /// empty across (almost) every row — robust when there is no clean header but the gutters are consistent, and
+    /// tolerant of a wide cell bridging a gutter in a minority of rows.</item>
+    /// </list>
+    /// Each returned band is the <c>[left, right]</c> extent of the fragments whose centre falls in it — matching
+    /// <see cref="ColumnOf"/>. No cut from either model → one band → the caller rejects it for having &lt; 2
+    /// columns (a single-column paragraph, or a table too tight to separate).
     /// </summary>
     private static List<(double Left, double Right)> DetectColumnBands(
-        IReadOnlyList<Cell> cells, double gutterThreshold)
+        IReadOnlyList<List<Cell>> visualLines, double gutterThreshold)
     {
-        var intervals = cells
+        var allCells = visualLines.SelectMany(line => line).ToList();
+        var x0 = allCells.Min(c => Math.Min(c.Bounds.Left, c.Bounds.Right));
+        var x1 = allCells.Max(c => Math.Max(c.Bounds.Left, c.Bounds.Right));
+
+        var headerCuts = HeaderAnchorCuts(visualLines[0], gutterThreshold);
+        var sweepCuts = CoverageSweepCuts(visualLines, gutterThreshold, x0, x1);
+        var cuts = headerCuts.Count > sweepCuts.Count ? headerCuts : sweepCuts;
+
+        // Assign each fragment to the column left of its centre; tighten each band to the fragments it holds.
+        var bands = new SortedDictionary<int, (double Left, double Right)>();
+        foreach (var cell in allCells)
+        {
+            var l = Math.Min(cell.Bounds.Left, cell.Bounds.Right);
+            var r = Math.Max(cell.Bounds.Left, cell.Bounds.Right);
+            var index = CountBelow(cuts, (l + r) / 2.0);
+            bands[index] = bands.TryGetValue(index, out var ext)
+                ? (Math.Min(ext.Left, l), Math.Max(ext.Right, r))
+                : (l, r);
+        }
+
+        return bands.Values.ToList();
+    }
+
+    /// <summary>
+    /// Column cuts anchored on the header row: reduces <paramref name="headerRow"/> to its clean column spans
+    /// (cells left-to-right, merging any two separated by less than <paramref name="gutterThreshold"/>) and
+    /// returns the left edge of every span after the first — the x where each new column begins. A cell then
+    /// belongs to the last column whose start is left of its centre (see <see cref="CountBelow"/>), which files a
+    /// column's content into it whatever its width (a wide wrapped description, a right-aligned number) as long
+    /// as it starts before the NEXT column's header. Returns an empty list when the row is a single span (no
+    /// interior column gutter), so the caller falls back to the coverage sweep.
+    /// </summary>
+    private static List<double> HeaderAnchorCuts(IReadOnlyList<Cell> headerRow, double gutterThreshold)
+    {
+        var intervals = headerRow
             .Select(c => (Left: Math.Min(c.Bounds.Left, c.Bounds.Right), Right: Math.Max(c.Bounds.Left, c.Bounds.Right)))
             .OrderBy(iv => iv.Left)
             .ToList();
 
-        var bands = new List<(double Left, double Right)>();
-        var left = intervals[0].Left;
+        var cuts = new List<double>();
         var right = intervals[0].Right;
         for (var i = 1; i < intervals.Count; i++)
         {
-            var iv = intervals[i];
-            if (iv.Left - right > gutterThreshold)
+            if (intervals[i].Left - right > gutterThreshold)
             {
-                bands.Add((left, right));
-                left = iv.Left;
-                right = iv.Right;
+                cuts.Add(intervals[i].Left); // a new column starts here
+                right = intervals[i].Right;
             }
             else
             {
-                right = Math.Max(right, iv.Right);
+                right = Math.Max(right, intervals[i].Right);
             }
         }
 
-        bands.Add((left, right));
-        return bands;
+        return cuts;
+    }
+
+    /// <summary>
+    /// Column cuts from the vertical whitespace <b>streets</b> that separate the columns across the rows.
+    /// Requiring a street to be empty across (almost) every row makes a boundary robust to a wide cell reaching
+    /// into a gutter in a minority of rows (#446), unlike a flat x-projection.
+    /// <para>
+    /// Each row is first reduced to its occupied x-spans (its cells, with sub-gutter gaps closed, so a row that
+    /// bridges a gutter with a wide cell yields ONE span across it). A street is a maximal x-run at least
+    /// <paramref name="gutterThreshold"/> wide whose row coverage stays within the bridge tolerance
+    /// (<see cref="GutterBridgeToleranceFraction"/>) AND that lies strictly inside the content extent
+    /// (<paramref name="x0"/>, <paramref name="x1"/>) — an interior gutter, never a page margin or a column's own
+    /// ragged edge; its midpoint is a column cut.
+    /// </para>
+    /// </summary>
+    private static List<double> CoverageSweepCuts(
+        IReadOnlyList<List<Cell>> visualLines, double gutterThreshold, double x0, double x1)
+    {
+        var spans = new List<(double Left, double Right)>();
+        foreach (var line in visualLines)
+        {
+            var intervals = line
+                .Select(c => (Left: Math.Min(c.Bounds.Left, c.Bounds.Right), Right: Math.Max(c.Bounds.Left, c.Bounds.Right)))
+                .OrderBy(iv => iv.Left)
+                .ToList();
+
+            var left = intervals[0].Left;
+            var right = intervals[0].Right;
+            for (var i = 1; i < intervals.Count; i++)
+            {
+                if (intervals[i].Left - right > gutterThreshold)
+                {
+                    spans.Add((left, right));
+                    left = intervals[i].Left;
+                    right = intervals[i].Right;
+                }
+                else
+                {
+                    right = Math.Max(right, intervals[i].Right);
+                }
+            }
+
+            spans.Add((left, right));
+        }
+
+        // Sweep the x-axis. On the slice between two consecutive span edges the coverage is how many rows' spans
+        // cover it (# spans starting at/before the slice − # already ended). A column gutter is a maximal run of
+        // slices whose coverage stays within the bridge tolerance; record the midpoint of each wide, interior run.
+        var startsSorted = spans.Select(s => s.Left).OrderBy(x => x).ToList();
+        var endsSorted = spans.Select(s => s.Right).OrderBy(x => x).ToList();
+        var boundaries = startsSorted.Concat(endsSorted).Distinct().OrderBy(x => x).ToList();
+        var maxBridge = (int)(visualLines.Count * GutterBridgeToleranceFraction);
+
+        var cuts = new List<double>();
+        double? runStart = null;
+        for (var k = 0; k + 1 < boundaries.Count; k++)
+        {
+            var coverage = CountAtMost(startsSorted, boundaries[k]) - CountAtMost(endsSorted, boundaries[k]);
+            if (coverage <= maxBridge)
+            {
+                runStart ??= boundaries[k];
+            }
+            else
+            {
+                TryAddColumnCut(cuts, runStart, boundaries[k], gutterThreshold, x0, x1);
+                runStart = null;
+            }
+        }
+
+        TryAddColumnCut(cuts, runStart, boundaries[^1], gutterThreshold, x0, x1);
+        return cuts;
+    }
+
+    /// <summary>
+    /// Records the midpoint of a low-coverage run <c>[runStart, runEnd]</c> as a column cut when it is a real
+    /// gutter: at least <paramref name="gutterThreshold"/> wide and strictly interior to the content extent
+    /// (<paramref name="x0"/>, <paramref name="x1"/>) — a run touching either end is a page margin or a column's
+    /// ragged edge, not a gutter. A null <paramref name="runStart"/> (no open run) is ignored.
+    /// </summary>
+    private static void TryAddColumnCut(
+        List<double> cuts, double? runStart, double runEnd, double gutterThreshold, double x0, double x1)
+    {
+        if (runStart is double start && runEnd - start >= gutterThreshold && start > x0 && runEnd < x1)
+        {
+            cuts.Add((start + runEnd) / 2.0);
+        }
+    }
+
+    /// <summary>Count of ascending-sorted values <c>&lt;= value</c> (binary search).</summary>
+    private static int CountAtMost(List<double> sorted, double value)
+    {
+        int lo = 0, hi = sorted.Count;
+        while (lo < hi)
+        {
+            var mid = (lo + hi) / 2;
+            if (sorted[mid] <= value)
+            {
+                lo = mid + 1;
+            }
+            else
+            {
+                hi = mid;
+            }
+        }
+
+        return lo;
+    }
+
+    /// <summary>Count of ascending-sorted values <c>&lt; value</c> (binary search) — a fragment's column index.</summary>
+    private static int CountBelow(List<double> sorted, double value)
+    {
+        int lo = 0, hi = sorted.Count;
+        while (lo < hi)
+        {
+            var mid = (lo + hi) / 2;
+            if (sorted[mid] < value)
+            {
+                lo = mid + 1;
+            }
+            else
+            {
+                hi = mid;
+            }
+        }
+
+        return lo;
     }
 
     /// <summary>Index of the column band whose extent contains the fragment's horizontal centre.</summary>

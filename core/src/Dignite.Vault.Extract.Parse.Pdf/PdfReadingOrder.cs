@@ -1128,9 +1128,16 @@ internal static class PdfReadingOrder
 
     /// <summary>
     /// Projects the boxes' horizontal extents onto the x-axis and splits them into column bands at gutters wider
-    /// than <paramref name="gutterThreshold"/> (overlapping/abutting extents merge into one band). Mirrors
-    /// <see cref="PdfTableReconstruction"/>'s own column detection so the cluster's column model matches the one
-    /// the reconstructor will later apply. Each band is the <c>[left, right]</c> extent of one column's content.
+    /// than <paramref name="gutterThreshold"/> (overlapping/abutting extents merge into one band). Each band is
+    /// the <c>[left, right]</c> extent of one column's content.
+    /// <para>
+    /// This is a deliberately COARSE, block-level model, used only by the cluster guards (whether a candidate
+    /// row bridges the established columns, and which leading rows to peel) — which need only "≥ 2 bands, and
+    /// does a full-width block span a gutter". It is NOT the reconstructor's final column model: since #446
+    /// <see cref="PdfTableReconstruction"/> detects columns from a row-aware whitespace-street sweep on the words
+    /// (so an occasional wide cell no longer merges two columns), which this flat block projection does not try
+    /// to reproduce. The two need not agree on the exact column count for the guards to hold.
+    /// </para>
     /// </summary>
     private static List<(double Left, double Right)> ColumnBands(IEnumerable<PdfRectangle> boxes, double gutterThreshold)
     {
