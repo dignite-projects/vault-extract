@@ -36,6 +36,7 @@ import {
   PipelineRunStatus,
 } from '@dignite/vault-extract';
 import { formatExtractedFieldValue } from '../../shared/format-field-value';
+import { stripMarkdownCodeFences } from '../../shared/strip-code-fences';
 import { DocumentFileBlobService } from '../../shared/document-file-blob.service';
 import { isImageContentType, isPdfContentType } from '../../shared/content-type';
 
@@ -326,8 +327,13 @@ export class DocumentDetailComponent implements OnInit {
   // bind the result via [innerHTML] so Angular's DomSanitizer runs. Never bypassSecurityTrustHtml — a
   // LongText field value is attacker-influenced too (LLM extraction / VLM OCR can be prompt-injected), so
   // the sanitizer has to stay on end to end.
+  // #448: strip stray ```markdown code fences first. A vision-LLM OCR transcription is sometimes wrapped —
+  // wholly or partly — in a code fence despite the prompt forbidding it, which would make marked render the
+  // fenced table as literal <pre><code> (raw pipes) instead of a GFM table. The backend guard removes this at
+  // the source for new documents; stripping here also rescues documents already stored with the fence
+  // (Document.Markdown is write-once).
   private renderMarkdown(md: string): string {
-    return md ? (marked.parse(md, { gfm: true, async: false }) as string) : '';
+    return md ? (marked.parse(stripMarkdownCodeFences(md), { gfm: true, async: false }) as string) : '';
   }
 
   // Owning cabinet name for the document, cabinetId to name. Returns null when unclassified or

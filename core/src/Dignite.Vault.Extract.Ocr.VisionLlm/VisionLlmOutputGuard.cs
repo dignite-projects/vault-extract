@@ -5,7 +5,9 @@ using System.Linq;
 namespace Dignite.Vault.Extract.Ocr.VisionLlm;
 
 /// <summary>
-/// Heuristic guard against vision-LLM repetition / hallucination loops.
+/// Output sanitation for the vision-LLM OCR provider: a repetition-loop <b>detector</b>
+/// (<see cref="LooksLikeRepetitionLoop"/>, discard on a trip) plus a code-fence <b>stripper</b>
+/// (<see cref="StripCodeFences"/>, unwrap in place).
 /// <para>
 /// Traditional OCR can only mis-read characters; a vision LLM driven in chat mode can additionally fall
 /// into a repetition loop that fills the token budget with the same line/phrase over and over (the
@@ -113,6 +115,69 @@ public static class VisionLlmOutputGuard
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Removes Markdown code-fence delimiter lines from a vision-LLM transcription, keeping the fenced
+    /// content in place.
+    /// <para>
+    /// The OCR system prompt forbids wrapping the output in a code fence, but a chat vision LLM still
+    /// sometimes wraps all — or, worse, only <b>part</b> — of its Markdown in a <c>```markdown</c> fence
+    /// anyway (#448: a passbook page whose table and footnotes were fenced while the header above them was
+    /// not, so the whole fenced block rendered as literal <c>&lt;pre&gt;&lt;code&gt;</c> and the table never
+    /// became a GFM table — it showed as raw pipes). An OCR'd business document (receipt / passbook /
+    /// invoice / contract / form) never legitimately contains a fenced code block, so dropping every fence
+    /// delimiter line is safe and unwraps the content — handling a whole-output fence, a partial fence, and
+    /// an unmatched (never-closed) fence uniformly. Only the delimiter lines are removed; the content
+    /// between them is preserved verbatim.
+    /// </para>
+    /// </summary>
+    public static string StripCodeFences(string? markdown)
+    {
+        if (string.IsNullOrEmpty(markdown))
+        {
+            return string.Empty;
+        }
+
+        // Fast path: no fence character at all (the overwhelming majority of transcriptions), so return the
+        // input untouched — including its original line endings.
+        if (markdown.IndexOf('`') < 0 && markdown.IndexOf('~') < 0)
+        {
+            return markdown;
+        }
+
+        // Split on '\n' only; a kept line keeps any trailing '\r', so original line endings survive.
+        var kept = markdown.Split('\n').Where(line => !IsCodeFenceLine(line));
+        return string.Join("\n", kept);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="line"/> is a Markdown code-fence delimiter: a run of at least three back-ticks
+    /// or three tildes at the start (leading indent tolerated), optionally followed by an info string that
+    /// contains no back-tick — so an inline <c>```code```</c> span sitting on its own line is not mistaken
+    /// for a fence.
+    /// </summary>
+    private static bool IsCodeFenceLine(string line)
+    {
+        var s = line.AsSpan().Trim();
+        if (s.Length < 3)
+        {
+            return false;
+        }
+
+        var marker = s[0];
+        if (marker != '`' && marker != '~')
+        {
+            return false;
+        }
+
+        var run = 0;
+        while (run < s.Length && s[run] == marker)
+        {
+            run++;
+        }
+
+        return run >= 3 && s[run..].IndexOf('`') < 0;
     }
 
     // Majority letters/digits → real content. Excludes Markdown table separators ("|---|---|"),

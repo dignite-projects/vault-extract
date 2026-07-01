@@ -109,4 +109,85 @@ public class VisionLlmOutputGuardTests
             MinDistinctRatio, MinLines, MinSegmentLength, MaxSegmentPeriod, MinSegmentRepeats)
             .ShouldBeTrue();
     }
+
+    // --- StripCodeFences (#448) ---
+
+    [Fact]
+    public void StripCodeFences_Leaves_Plain_Markdown_Untouched()
+    {
+        // Fast path: no fence character at all — returned byte-for-byte, line endings included.
+        const string markdown = "# 普通預金通帳\r\n\r\n| 年月日 | 摘要 |\r\n| --- | --- |\r\n| 7-1-31 | 繰越 |";
+        VisionLlmOutputGuard.StripCodeFences(markdown).ShouldBe(markdown);
+    }
+
+    [Fact]
+    public void StripCodeFences_Null_Or_Empty_Becomes_Empty()
+    {
+        VisionLlmOutputGuard.StripCodeFences(null).ShouldBe(string.Empty);
+        VisionLlmOutputGuard.StripCodeFences(string.Empty).ShouldBe(string.Empty);
+    }
+
+    [Fact]
+    public void StripCodeFences_Unwraps_A_Partial_Markdown_Fence_And_Preserves_Every_Content_Line()
+    {
+        // The #448 case: the model fenced only the lower part of the page (```markdown … ```), while the
+        // header above it stayed outside. Both delimiter lines go; every content line (header, table rows,
+        // footnote) survives verbatim so the table becomes a real GFM table again.
+        const string fenced =
+            "普通預金通帳\n\n```markdown\n| 年月日 | 摘要 |\n| --- | --- |\n| 7-1-31 | 繰越 |\n```\n\n※脚注";
+
+        var result = VisionLlmOutputGuard.StripCodeFences(fenced);
+
+        result.ShouldNotContain("```");
+        result.ShouldContain("普通預金通帳");
+        result.ShouldContain("| 年月日 | 摘要 |");
+        result.ShouldContain("| --- | --- |");
+        result.ShouldContain("| 7-1-31 | 繰越 |");
+        result.ShouldContain("※脚注");
+    }
+
+    [Fact]
+    public void StripCodeFences_Unwraps_A_Whole_Output_Fence()
+    {
+        var result = VisionLlmOutputGuard.StripCodeFences("```markdown\n# Title\n\nBody.\n```");
+
+        result.ShouldNotContain("```");
+        result.ShouldContain("# Title");
+        result.ShouldContain("Body.");
+    }
+
+    [Fact]
+    public void StripCodeFences_Unwraps_An_Unmatched_Opening_Fence()
+    {
+        // A never-closed fence would otherwise swallow the rest of the document as code.
+        var result = VisionLlmOutputGuard.StripCodeFences("```\n| a | b |\n| --- | --- |");
+
+        result.ShouldNotContain("```");
+        result.ShouldContain("| a | b |");
+        result.ShouldContain("| --- | --- |");
+    }
+
+    [Fact]
+    public void StripCodeFences_Strips_Tilde_Fences_And_A_Language_Info_String()
+    {
+        VisionLlmOutputGuard.StripCodeFences("~~~\ncontent\n~~~").ShouldNotContain("~~~");
+        VisionLlmOutputGuard.StripCodeFences("```md\ncontent\n```").ShouldNotContain("`");
+    }
+
+    [Fact]
+    public void StripCodeFences_Does_Not_Strip_An_Inline_Code_Line()
+    {
+        // A line carrying an inline code span (a back-tick that also closes on the same line) is real content,
+        // not a fence delimiter — it must survive unchanged.
+        const string markdown = "Use `dotnet build` to compile.";
+        VisionLlmOutputGuard.StripCodeFences(markdown).ShouldBe(markdown);
+    }
+
+    [Fact]
+    public void StripCodeFences_Does_Not_Strip_A_Triple_Backtick_Inline_Span()
+    {
+        // "```code```" on its own line is an inline span (a back-tick follows the opening run), not a fence.
+        const string markdown = "```code```";
+        VisionLlmOutputGuard.StripCodeFences(markdown).ShouldBe(markdown);
+    }
 }
