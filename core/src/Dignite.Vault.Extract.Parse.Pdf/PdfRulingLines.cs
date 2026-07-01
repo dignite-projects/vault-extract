@@ -6,23 +6,24 @@ using UglyToad.PdfPig.Core;
 namespace Dignite.Vault.Extract.Parse.Pdf;
 
 /// <summary>
-/// Detects a table's drawn ruling-line grid (#450 lattice path) from a page's vector subpath bounding
+/// Detects the drawn ruling-line grids on a page (#450 lattice path) from its vector subpath bounding
 /// rectangles. When a table draws its column/row separators as lines — bank statements, forms, financial
 /// reports — those lines are the <b>authoritative</b> column/row model: deterministic, unlike the whitespace
-/// heuristics of <see cref="PdfTableReconstruction"/>. Returns <c>null</c> when no grid of at least 2×2 cells
-/// is drawn, so the caller keeps the whitespace / stream path (a borderless table, or a table with only row
-/// rules and no column separators).
+/// heuristics of <see cref="PdfTableReconstruction"/>. Returns one <see cref="Grid"/> per drawn table; a page
+/// with no ruled grid (borderless tables, or a table with only row rules and no column separators) yields an
+/// empty list and the caller keeps the whitespace / stream path.
 /// <para>
 /// Robust to the two common encodings and their quirks: a ruling can be a thin filled rectangle OR a stroked
-/// line; a table border can be one stroked rectangle (contributing its four sides); and rulings are frequently
-/// <b>double-stroked</b> (two near-coincident segments ~a point apart). Every qualifying subpath contributes
-/// candidate boundary positions, and near-coincident candidates are clustered into a single boundary.
+/// line; a table border can be one stroked rectangle (its four sides); and rulings are frequently
+/// <b>double-stroked</b> (two near-coincident segments ~a point apart). Crucially, rules are grouped into
+/// SEPARATE tables by intersection (a connected component of mutually-crossing rules), so two distinct tables
+/// on one page are not merged into a single spurious grid.
 /// </para>
 /// </summary>
 internal static class PdfRulingLines
 {
     /// <summary>
-    /// The drawn grid: the ascending x of the vertical rules (column separators) and ascending y of the
+    /// One drawn table grid: the ascending x of the vertical rules (column separators) and ascending y of the
     /// horizontal rules (row separators). N boundaries delimit N-1 cells along that axis.
     /// </summary>
     public readonly record struct Grid(IReadOnlyList<double> ColumnBoundaries, IReadOnlyList<double> RowBoundaries)
@@ -32,20 +33,25 @@ internal static class PdfRulingLines
         public int RowCount => RowBoundaries.Count - 1;
     }
 
+    private readonly record struct HRule(double Y, double X1, double X2);
+
+    private readonly record struct VRule(double X, double Y1, double Y2);
+
     /// <summary>
-    /// Detects the ruling grid from the page's subpath bounding rectangles, or <c>null</c> when fewer than a
-    /// 2×2 grid of rules is present. <paramref name="minRuleLength"/> filters tick marks / glyph strokes,
+    /// Detects every drawn table grid on the page (top-to-bottom), or an empty list when none has at least a
+    /// 2×2 cell structure. <paramref name="minRuleLength"/> filters tick marks / glyph strokes,
     /// <paramref name="maxRuleThickness"/> separates a thin rule from a filled box, and
-    /// <paramref name="clusterTolerance"/> collapses double-stroked / near-coincident rules.
+    /// <paramref name="clusterTolerance"/> collapses double-stroked / near-coincident rules and sets the
+    /// intersection slack.
     /// </summary>
-    public static Grid? DetectGrid(
+    public static IReadOnlyList<Grid> DetectGrids(
         IReadOnlyList<PdfRectangle> subpathBounds,
         double minRuleLength = 18.0,
         double maxRuleThickness = 3.0,
         double clusterTolerance = 3.0)
     {
-        var verticalX = new List<double>();
-        var horizontalY = new List<double>();
+        var horizontals = new List<HRule>();
+        var verticals = new List<VRule>();
 
         foreach (var rect in subpathBounds)
         {
@@ -58,36 +64,102 @@ internal static class PdfRulingLines
 
             if (width >= minRuleLength && height <= maxRuleThickness)
             {
-                // A long, thin horizontal segment — one row rule at its centre line.
-                horizontalY.Add((top + bottom) / 2.0);
+                horizontals.Add(new HRule((top + bottom) / 2.0, left, right));
             }
             else if (height >= minRuleLength && width <= maxRuleThickness)
             {
-                // A long, thin vertical segment — one column rule at its centre line.
-                verticalX.Add((left + right) / 2.0);
+                verticals.Add(new VRule((left + right) / 2.0, bottom, top));
             }
             else if (width >= minRuleLength && height >= minRuleLength)
             {
-                // A large rectangle (a stroked table/cell border, or a shaded fill): contribute its four sides
-                // as candidate rules. Spurious sides from a fill fall out in clustering / the grid-shape check.
-                horizontalY.Add(top);
-                horizontalY.Add(bottom);
-                verticalX.Add(left);
-                verticalX.Add(right);
+                // A large rectangle (a stroked table/cell border, or a shaded fill): its four sides are rules.
+                horizontals.Add(new HRule(top, left, right));
+                horizontals.Add(new HRule(bottom, left, right));
+                verticals.Add(new VRule(left, bottom, top));
+                verticals.Add(new VRule(right, bottom, top));
             }
         }
 
-        var columns = Cluster(verticalX, clusterTolerance);
-        var rows = Cluster(horizontalY, clusterTolerance);
-
-        // A lattice needs >= 2 columns AND >= 2 rows (>= 3 boundaries on each axis). A page with only row rules
-        // (no vertical separators) is not a lattice here; the caller's whitespace path owns columns then.
-        if (columns.Count < 3 || rows.Count < 3)
+        // Group rules into separate tables: a table is a connected component of rules where a vertical and a
+        // horizontal cross. Union-find over [0..h) horizontals and [h..h+v) verticals.
+        var h = horizontals.Count;
+        var v = verticals.Count;
+        var parent = new int[h + v];
+        for (var i = 0; i < parent.Length; i++)
         {
-            return null;
+            parent[i] = i;
         }
 
-        return new Grid(columns, rows);
+        int Find(int x)
+        {
+            while (parent[x] != x)
+            {
+                parent[x] = parent[parent[x]];
+                x = parent[x];
+            }
+
+            return x;
+        }
+
+        for (var i = 0; i < h; i++)
+        {
+            for (var j = 0; j < v; j++)
+            {
+                if (Crosses(horizontals[i], verticals[j], clusterTolerance))
+                {
+                    parent[Find(i)] = Find(h + j);
+                }
+            }
+        }
+
+        var rowsByComponent = new Dictionary<int, List<double>>();
+        var columnsByComponent = new Dictionary<int, List<double>>();
+        for (var i = 0; i < h; i++)
+        {
+            AddTo(rowsByComponent, Find(i), horizontals[i].Y);
+        }
+
+        for (var j = 0; j < v; j++)
+        {
+            AddTo(columnsByComponent, Find(h + j), verticals[j].X);
+        }
+
+        var grids = new List<Grid>();
+        foreach (var (component, columnPositions) in columnsByComponent)
+        {
+            if (!rowsByComponent.TryGetValue(component, out var rowPositions))
+            {
+                continue; // vertical rules with no crossing horizontals — not a grid
+            }
+
+            var columns = Cluster(columnPositions, clusterTolerance);
+            var rows = Cluster(rowPositions, clusterTolerance);
+
+            // A lattice needs >= 2 columns AND >= 2 rows (>= 3 boundaries on each axis).
+            if (columns.Count >= 3 && rows.Count >= 3)
+            {
+                grids.Add(new Grid(columns, rows));
+            }
+        }
+
+        // Top-to-bottom (by the grid's top edge) for a stable, reading-order-ish sequence.
+        return grids.OrderByDescending(g => g.RowBoundaries[^1]).ToList();
+    }
+
+    /// <summary>Whether a horizontal and a vertical rule cross (within <paramref name="tolerance"/> slack).</summary>
+    private static bool Crosses(HRule horizontal, VRule vertical, double tolerance)
+        => vertical.X >= horizontal.X1 - tolerance && vertical.X <= horizontal.X2 + tolerance
+        && horizontal.Y >= vertical.Y1 - tolerance && horizontal.Y <= vertical.Y2 + tolerance;
+
+    private static void AddTo(Dictionary<int, List<double>> map, int key, double value)
+    {
+        if (!map.TryGetValue(key, out var list))
+        {
+            list = new List<double>();
+            map[key] = list;
+        }
+
+        list.Add(value);
     }
 
     /// <summary>

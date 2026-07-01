@@ -54,6 +54,54 @@ public class PdfLatticeIntegration_Tests
     }
 
     [Fact]
+    public void Reconstructs_two_ruled_tables_on_one_page_as_two_markdown_tables()
+    {
+        // #450 edge case: two stacked ruled tables with DIFFERENT column counts must be reconstructed as two
+        // separate tables (top-to-bottom), not merged into one spurious grid.
+        var pdf = PdfFixtures.BuildWithRules(
+            texts: new[]
+            {
+                // Top table (2 columns), band y 630..660 (header) / 600..630 (data).
+                ("A1", 60.0, 635.0), ("A2", 160.0, 635.0), ("a", 60.0, 605.0), ("b", 160.0, 605.0),
+                // Bottom table (3 columns), band y 430..460 (header) / 400..430 (data).
+                ("B1", 60.0, 435.0), ("B2", 160.0, 435.0), ("B3", 260.0, 435.0),
+                ("x", 60.0, 405.0), ("y", 160.0, 405.0), ("z", 260.0, 405.0)
+            },
+            verticalRules: new[]
+            {
+                (50.0, 600.0, 660.0), (150.0, 600.0, 660.0), (250.0, 600.0, 660.0),          // top: 2 columns
+                (50.0, 400.0, 460.0), (150.0, 400.0, 460.0), (250.0, 400.0, 460.0), (350.0, 400.0, 460.0) // bottom: 3 columns
+            },
+            horizontalRules: new[]
+            {
+                (600.0, 50.0, 250.0), (630.0, 50.0, 250.0), (660.0, 50.0, 250.0),
+                (400.0, 50.0, 350.0), (430.0, 50.0, 350.0), (460.0, 50.0, 350.0)
+            });
+
+        RenderFirstPage(pdf).ShouldBe(
+            "| A1 | A2 |\n| --- | --- |\n| a | b |\n\n" +
+            "| B1 | B2 | B3 |\n| --- | --- | --- |\n| x | y | z |");
+    }
+
+    [Fact]
+    public void Separates_columns_whose_gutter_is_too_tight_for_the_whitespace_path()
+    {
+        // A ruled table whose column gutter (~3pt) is narrower than the stream path's threshold and the
+        // segmenter's cut — the drawn rule at x=130 is the only column signal, and the lattice path honours it.
+        var pdf = PdfFixtures.BuildWithRules(
+            texts: new[]
+            {
+                ("Left", 55.0, 635.0), ("Right", 133.0, 635.0),
+                ("aaa", 55.0, 605.0), ("bbb", 133.0, 605.0)
+            },
+            verticalRules: new[] { (50.0, 600.0, 660.0), (130.0, 600.0, 660.0), (210.0, 600.0, 660.0) },
+            horizontalRules: new[] { (600.0, 50.0, 210.0), (630.0, 50.0, 210.0), (660.0, 50.0, 210.0) });
+
+        RenderFirstPage(pdf).ShouldBe(
+            "| Left | Right |\n| --- | --- |\n| aaa | bbb |");
+    }
+
+    [Fact]
     public void Falls_back_to_the_stream_path_when_no_grid_is_drawn()
     {
         // The same table with NO ruling lines: the lattice path finds no grid and the whitespace/stream path

@@ -656,6 +656,14 @@ internal static class PdfReadingOrder
             : 0.0;
         var paragraphModel = BuildParagraphModel(pageLines, medianLineHeight);
 
+        // #450 lattice: detect any drawn table grids from the page's vector ruling lines. This is authoritative
+        // (deterministic column/row boundaries), so it is detected up front and even keeps the single-block page
+        // out of the whitespace-only early return below when a grid is present. No rules -> empty -> the pure
+        // Phase A/B stream behaviour, unchanged.
+        var grids = reconstructTables && rulingBounds is { Count: > 0 }
+            ? PdfRulingLines.DetectGrids(rulingBounds)
+            : (IReadOnlyList<PdfRulingLines.Grid>)Array.Empty<PdfRulingLines.Grid>();
+
         IReadOnlyList<DlaTextBlock> orderedBlocks;
         try
         {
@@ -669,11 +677,11 @@ internal static class PdfReadingOrder
             return Render(pageLines, figures, headingScale, paragraphModel);
         }
 
-        // A single region (or no/one-block segmentation) is exactly the #301 behavior — render the whole
-        // page as one column. This is also the path the existing single-column fixtures take. (A table is
-        // almost always cut into several blocks, so single-block table reconstruction is not
-        // attempted here — an accepted #329 first-pass limitation.)
-        if (orderedBlocks.Count <= 1)
+        // A single region (or no/one-block segmentation) is the #301 behavior — render the whole page as one
+        // column — UNLESS a drawn grid is present: a small ruled table can land in a single segmentation block,
+        // and its grid still reconstructs it (the block path below claims it as a lattice table). Without a
+        // grid this stays the #329 single-block limitation (no whitespace table reconstruction on one block).
+        if (orderedBlocks.Count <= 1 && grids.Count == 0)
         {
             return Render(pageLines, figures, headingScale, paragraphModel);
         }
@@ -693,18 +701,11 @@ internal static class PdfReadingOrder
         // caption binding run within that block's single-region stream.
         var figuresByBlock = AssignFiguresToBlocks(orderedBlocks, figures);
 
-        // #450 lattice: if the page draws a table grid with vector rules, that grid is the authoritative
-        // column/row model. Detect it once from the ruling-line bounds; DetectTableClusters then prefers it for
-        // the blocks it covers and keeps the whitespace/stream path for everything else. No rules -> null -> the
-        // pure Phase A/B stream behaviour, unchanged.
-        var grid = reconstructTables && rulingBounds is { Count: > 0 }
-            ? PdfRulingLines.DetectGrid(rulingBounds)
-            : null;
-
-        // Phase B: re-aggregate neighbouring blocks into candidate table clusters and reconstruct the ones
-        // that confidently form a grid. A non-table page yields no clusters, so the loop below is exactly the
-        // Phase A per-block path; the host switch off -> empty maps -> identical to Phase A.
-        var tables = reconstructTables ? DetectTableClusters(orderedBlocks, grid) : TableClusters.Empty;
+        // Phase B: reconstruct tables — a drawn ruling grid as a deterministic lattice table (#450), and the
+        // remaining blocks via the whitespace/stream clustering. A non-table page yields no clusters, so the
+        // loop below is exactly the Phase A per-block path; the host switch off -> empty maps -> identical to
+        // Phase A.
+        var tables = reconstructTables ? DetectTableClusters(orderedBlocks, grids) : TableClusters.Empty;
 
         var rendered = new List<string>(orderedBlocks.Count);
         var emittedTables = new HashSet<int>();
@@ -816,47 +817,54 @@ internal static class PdfReadingOrder
     /// the reconstructor, which derives the grid from glyph geometry either way. A cluster that does not
     /// reconstruct as a table is absent from the result, so its blocks fall through to the Phase A paragraph path.
     /// </summary>
-    private static TableClusters DetectTableClusters(IReadOnlyList<DlaTextBlock> blocks, PdfRulingLines.Grid? grid)
+    private static TableClusters DetectTableClusters(
+        IReadOnlyList<DlaTextBlock> blocks, IReadOnlyList<PdfRulingLines.Grid> grids)
     {
         var result = new TableClusters();
 
-        // #450 lattice: a drawn ruling grid is the authoritative table — claim every block whose centre falls
+        // #450 lattice: each drawn ruling grid is an authoritative table — claim the blocks whose centre falls
         // inside it as ONE table, rendered deterministically from the drawn column/row boundaries (the case the
-        // whitespace path struggles with: tight gutters, sparse or empty columns). Blocks outside the grid (a
-        // title above it, a footnote below) are left for the stream path / paragraph flow. The table is placed
-        // at its topmost (lowest-index, earliest reading-order) block.
+        // whitespace path struggles with: tight gutters, sparse or empty columns). A block claimed by one grid
+        // is not re-claimed by another. Blocks outside every grid (a title above, a footnote below) are left for
+        // the stream path / paragraph flow; each table is placed at its topmost (earliest reading-order) block.
         var claimedByLattice = new HashSet<int>();
-        if (grid is { } g)
+        foreach (var g in grids)
         {
             var insideBlocks = new List<int>();
             for (var bi = 0; bi < blocks.Count; bi++)
             {
-                if (CentroidInsideGrid(blocks[bi].BoundingBox, g))
+                if (!claimedByLattice.Contains(bi) && CentroidInsideGrid(blocks[bi].BoundingBox, g))
                 {
                     insideBlocks.Add(bi);
                 }
             }
 
-            if (insideBlocks.Count >= 2)
+            if (insideBlocks.Count == 0)
             {
-                var latticeCells = insideBlocks
-                    .SelectMany(bi => blocks[bi].TextLines.SelectMany(line => line.Words))
-                    .Where(word => !string.IsNullOrWhiteSpace(word.Text))
-                    .Select(word => new PdfTableReconstruction.Cell(word.BoundingBox, word.Text))
-                    .ToList();
+                continue;
+            }
 
-                var lattice = PdfTableReconstruction.TryRenderLattice(latticeCells, g);
-                if (lattice is not null)
-                {
-                    var latticeLead = insideBlocks.Min();
-                    result.MarkdownByLead[latticeLead] = lattice;
-                    result.BlocksByLead[latticeLead] = insideBlocks;
-                    foreach (var bi in insideBlocks)
-                    {
-                        result.LeadByBlock[bi] = latticeLead;
-                        claimedByLattice.Add(bi);
-                    }
-                }
+            var latticeCells = insideBlocks
+                .SelectMany(bi => blocks[bi].TextLines.SelectMany(line => line.Words))
+                .Where(word => !string.IsNullOrWhiteSpace(word.Text))
+                .Select(word => new PdfTableReconstruction.Cell(word.BoundingBox, word.Text))
+                .ToList();
+
+            // TryRenderLattice returns null unless the claimed blocks fill a >= 2x2 grid, so a lone caption
+            // block that happens to sit inside a grid extent does not become a spurious table.
+            var lattice = PdfTableReconstruction.TryRenderLattice(latticeCells, g);
+            if (lattice is null)
+            {
+                continue;
+            }
+
+            var latticeLead = insideBlocks.Min();
+            result.MarkdownByLead[latticeLead] = lattice;
+            result.BlocksByLead[latticeLead] = insideBlocks;
+            foreach (var bi in insideBlocks)
+            {
+                result.LeadByBlock[bi] = latticeLead;
+                claimedByLattice.Add(bi);
             }
         }
 

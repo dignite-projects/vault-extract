@@ -27,13 +27,13 @@ public class PdfRulingLines_Tests
             HRule(100, 50, 350), HRule(200, 50, 350), HRule(300, 50, 350)
         };
 
-        var grid = PdfRulingLines.DetectGrid(bounds);
+        var grids = PdfRulingLines.DetectGrids(bounds);
 
-        grid.ShouldNotBeNull();
-        grid!.Value.ColumnCount.ShouldBe(3);
-        grid.Value.RowCount.ShouldBe(2);
-        grid.Value.ColumnBoundaries.ShouldBe(new[] { 50.0, 150, 250, 350 });
-        grid.Value.RowBoundaries.ShouldBe(new[] { 100.0, 200, 300 });
+        grids.Count.ShouldBe(1);
+        grids[0].ColumnCount.ShouldBe(3);
+        grids[0].RowCount.ShouldBe(2);
+        grids[0].ColumnBoundaries.ShouldBe(new[] { 50.0, 150, 250, 350 });
+        grids[0].RowBoundaries.ShouldBe(new[] { 100.0, 200, 300 });
     }
 
     [Fact]
@@ -47,13 +47,13 @@ public class PdfRulingLines_Tests
             HRule(100, 50, 350), HRule(100.8, 50, 350), HRule(200, 50, 350), HRule(200.8, 50, 350), HRule(300, 50, 350), HRule(300.8, 50, 350)
         };
 
-        var grid = PdfRulingLines.DetectGrid(bounds);
+        var grids = PdfRulingLines.DetectGrids(bounds);
 
-        grid.ShouldNotBeNull();
-        grid!.Value.ColumnBoundaries.Count.ShouldBe(3); // 50.4, 200.4, 350.4 — not six
-        grid.Value.RowBoundaries.Count.ShouldBe(3);
-        grid.Value.ColumnCount.ShouldBe(2);
-        grid.Value.RowCount.ShouldBe(2);
+        grids.Count.ShouldBe(1);
+        grids[0].ColumnBoundaries.Count.ShouldBe(3); // 50.4, 200.4, 350.4 — not six
+        grids[0].RowBoundaries.Count.ShouldBe(3);
+        grids[0].ColumnCount.ShouldBe(2);
+        grids[0].RowCount.ShouldBe(2);
     }
 
     [Fact]
@@ -67,15 +67,37 @@ public class PdfRulingLines_Tests
             HRule(200, 50, 350)       // interior row rule
         };
 
-        var grid = PdfRulingLines.DetectGrid(bounds);
+        var grids = PdfRulingLines.DetectGrids(bounds);
 
-        grid.ShouldNotBeNull();
-        grid!.Value.ColumnBoundaries.ShouldBe(new[] { 50.0, 200, 350 });
-        grid.Value.RowBoundaries.ShouldBe(new[] { 100.0, 200, 300 });
+        grids.Count.ShouldBe(1);
+        grids[0].ColumnBoundaries.ShouldBe(new[] { 50.0, 200, 350 });
+        grids[0].RowBoundaries.ShouldBe(new[] { 100.0, 200, 300 });
     }
 
     [Fact]
-    public void Returns_null_without_column_rules()
+    public void Separates_two_stacked_tables_into_two_grids()
+    {
+        // Two tables on one page, disjoint in x and y, with DIFFERENT column counts. They must NOT merge into
+        // one spurious grid — the intersection grouping keeps them apart (top-to-bottom order).
+        var bounds = new List<PdfRectangle>
+        {
+            // Top table: 2 columns x 2 rows.
+            VRule(50, 500, 560), VRule(150, 500, 560), VRule(250, 500, 560),
+            HRule(500, 50, 250), HRule(530, 50, 250), HRule(560, 50, 250),
+            // Bottom table: 3 columns x 2 rows, off to the right.
+            VRule(300, 300, 360), VRule(400, 300, 360), VRule(500, 300, 360), VRule(600, 300, 360),
+            HRule(300, 300, 600), HRule(330, 300, 600), HRule(360, 300, 600)
+        };
+
+        var grids = PdfRulingLines.DetectGrids(bounds);
+
+        grids.Count.ShouldBe(2);
+        grids[0].ColumnCount.ShouldBe(2); // top table first
+        grids[1].ColumnCount.ShouldBe(3);
+    }
+
+    [Fact]
+    public void Returns_no_grid_without_column_rules()
     {
         // Only horizontal (row) rules — no vertical separators. Not a lattice; columns are left to the stream path.
         var bounds = new List<PdfRectangle>
@@ -83,7 +105,7 @@ public class PdfRulingLines_Tests
             HRule(100, 50, 350), HRule(200, 50, 350), HRule(300, 50, 350)
         };
 
-        PdfRulingLines.DetectGrid(bounds).ShouldBeNull();
+        PdfRulingLines.DetectGrids(bounds).ShouldBeEmpty();
     }
 
     [Fact]
@@ -96,7 +118,7 @@ public class PdfRulingLines_Tests
             HRule(100, 50, 55)
         };
 
-        PdfRulingLines.DetectGrid(bounds).ShouldBeNull();
+        PdfRulingLines.DetectGrids(bounds).ShouldBeEmpty();
     }
 
     [Fact]
