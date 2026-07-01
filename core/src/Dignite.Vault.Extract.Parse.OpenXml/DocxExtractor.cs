@@ -100,24 +100,6 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
     /// </summary>
     private const int MaxListIndentLevels = 9;
 
-    /// <summary>
-    /// Open settings that collapse OOXML markup-compatibility (<c>mc:AlternateContent</c>) to its single
-    /// selected branch <b>before</b> parsing. Under the default <see cref="MarkupCompatibilityProcessMode.NoProcess"/>
-    /// both branches stay in the tree, so a <c>Descendants</c> walk would read the SAME content twice: a
-    /// modern Word text box stores its text in both the <c>mc:Choice</c> (DrawingML <c>wps:txbx</c>) and the
-    /// <c>mc:Fallback</c> (legacy VML that Word auto-writes), and an <c>AlternateContent</c>-wrapped picture
-    /// can carry a blip in both branches — duplicating text and double-OCR-ing (and double-charging the image
-    /// budget for) one logical figure. <see cref="FileFormatVersions.Office2019"/> is recent enough that the
-    /// SDK understands the modern (<c>wps</c> / DrawingML) namespaces, so it keeps the richer Choice branch
-    /// (the one whose <c>w:drawing</c> the image path can read) and drops the VML fallback.
-    /// </summary>
-    private static readonly OpenSettings McCollapsingOpenSettings = new()
-    {
-        MarkupCompatibilityProcessSettings = new MarkupCompatibilityProcessSettings(
-            MarkupCompatibilityProcessMode.ProcessAllParts,
-            DocumentFormat.OpenXml.FileFormatVersions.Office2019)
-    };
-
     private readonly IOcrProvider _ocrProvider;
     private readonly OpenXmlExtractorOptions _options;
 
@@ -148,7 +130,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         WordprocessingDocument document;
         try
         {
-            document = WordprocessingDocument.Open(new MemoryStream(bytes, writable: false), isEditable: false, McCollapsingOpenSettings);
+            document = WordprocessingDocument.Open(new MemoryStream(bytes, writable: false), isEditable: false, OpenXmlPackageSettings.McCollapsing);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

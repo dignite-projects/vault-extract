@@ -91,7 +91,10 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
         PresentationDocument document;
         try
         {
-            document = PresentationDocument.Open(new MemoryStream(bytes, writable: false), isEditable: false);
+            // Collapse OOXML markup-compatibility (mc:AlternateContent) to its selected branch before parsing,
+            // so a shape/picture PowerPoint wraps in an AlternateContent fork — which the typed WalkShapesAsync
+            // switch matches none of — is not silently skipped with no #268 signal (#319, shared with DOCX).
+            document = PresentationDocument.Open(new MemoryStream(bytes, writable: false), isEditable: false, OpenXmlPackageSettings.McCollapsing);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
