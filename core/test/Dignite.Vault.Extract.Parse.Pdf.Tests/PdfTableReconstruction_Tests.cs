@@ -132,6 +132,59 @@ public class PdfTableReconstruction_Tests
     }
 
     [Fact]
+    public void Keeps_all_five_columns_when_a_wide_cell_bridges_a_gutter_in_a_minority_of_rows()
+    {
+        // #446: a 5-column table whose columns each have ONE row with a wide value reaching toward the next
+        // column. A flat x-projection takes each column's MAX right edge (from that one wide row), which closes
+        // gutters 2/3/4 below the 0.8*12=9.6 threshold and merges C2..C5 into a single band — the customer-site
+        // failure where 5 columns collapsed to 2 and cell content bled across columns. Column detection must
+        // instead see each gutter as EMPTY in the other rows (a vertical whitespace street) and keep all five.
+        var cells = new List<PdfTableReconstruction.Cell>
+        {
+            Cell("ID", 50, 90, 700), Cell("Name", 110, 150, 700), Cell("Qty", 170, 210, 700), Cell("Price", 230, 270, 700), Cell("Total", 290, 330, 700),
+            Cell("1", 50, 80, 680), Cell("Longname", 110, 163, 680), Cell("10", 190, 210, 680), Cell("5", 250, 270, 680), Cell("50", 310, 330, 680),
+            Cell("2", 50, 80, 660), Cell("Bob", 130, 150, 660), Cell("Quantity99", 170, 223, 660), Cell("7", 250, 270, 660), Cell("70", 310, 330, 660),
+            Cell("3", 50, 80, 640), Cell("Ann", 130, 150, 640), Cell("20", 190, 210, 640), Cell("1234567", 230, 283, 640), Cell("90", 310, 330, 640),
+            Cell("4", 50, 80, 620), Cell("Sue", 130, 150, 620), Cell("30", 190, 210, 620), Cell("8", 250, 270, 620), Cell("Grand", 290, 330, 620)
+        };
+
+        PdfTableReconstruction.TryRender(cells).ShouldBe(
+            "| ID | Name | Qty | Price | Total |\n" +
+            "| --- | --- | --- | --- | --- |\n" +
+            "| 1 | Longname | 10 | 5 | 50 |\n" +
+            "| 2 | Bob | Quantity99 | 7 | 70 |\n" +
+            "| 3 | Ann | 20 | 1234567 | 90 |\n" +
+            "| 4 | Sue | 30 | 8 | Grand |");
+    }
+
+    [Fact]
+    public void Keeps_header_defined_columns_that_data_rows_blur_narrow_gutter_sparse_and_empty()
+    {
+        // #446, the customer bank statement (日付/摘要/入金金額/出金金額/残高/メモ): six columns the DATA rows
+        // blur — the date/description gutter is only a few points wide at data level (narrow gutter), the "In"
+        // column is filled in a single row (sparse), and the "Memo" column has only its header with nothing below
+        // (empty). A whitespace-only column model merges all three into their neighbours; the header row's wide
+        // label gutters keep the six columns distinct, and each cell — including a wide multi-word description —
+        // files into the column it sits under.
+        var cells = new List<PdfTableReconstruction.Cell>
+        {
+            Cell("Date", 50, 90, 200), Cell("Desc", 110, 160, 200), Cell("In", 300, 330, 200), Cell("Out", 360, 390, 200), Cell("Bal", 420, 460, 200), Cell("Memo", 500, 540, 200),
+            // Rows a full pitch apart (30) so a sparse data row is not folded as a wrapped continuation of the
+            // header. date ends at 95, description starts at 100 — a 5pt data gutter (< 0.8*12 = 9.6); In/Out/Bal right-aligned.
+            Cell("0101", 50, 95, 170), Cell("wire", 100, 135, 170), Cell("aaa", 138, 175, 170), Cell("bbb", 178, 260, 170), Cell("143", 372, 390, 170), Cell("1000", 428, 460, 170),
+            Cell("0102", 50, 95, 140), Cell("fee", 100, 130, 140), Cell("50", 378, 390, 140), Cell("950", 432, 460, 140),
+            Cell("0103", 50, 95, 110), Cell("interest", 100, 175, 110), Cell("7", 318, 330, 110), Cell("957", 432, 460, 110)
+        };
+
+        PdfTableReconstruction.TryRender(cells).ShouldBe(
+            "| Date | Desc | In | Out | Bal | Memo |\n" +
+            "| --- | --- | --- | --- | --- | --- |\n" +
+            "| 0101 | wire aaa bbb |  | 143 | 1000 |  |\n" +
+            "| 0102 | fee |  | 50 | 950 |  |\n" +
+            "| 0103 | interest | 7 |  | 957 |  |");
+    }
+
+    [Fact]
     public void Does_not_merge_a_distant_partial_line_into_the_row_above()
     {
         // A line that occupies a subset of columns but sits far below (a real, separate row that happens to
