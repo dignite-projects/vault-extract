@@ -196,6 +196,101 @@ internal static class PdfTableReconstruction
     }
 
     /// <summary>
+    /// Renders <paramref name="cells"/> against a table's <b>drawn ruling grid</b> (#450 lattice path): the
+    /// column/row boundaries come from the PDF's vector rules (<see cref="PdfRulingLines"/>), not from whitespace
+    /// heuristics, so the reconstruction is deterministic — the exact case where the stream path struggles (tight
+    /// gutters, sparse or empty columns). Each fragment is placed in the cell whose drawn boundaries contain its
+    /// centre; fragments outside the grid are ignored (they are not part of the table). Returns <c>null</c> when
+    /// the grid is smaller than 2×2 or no drawn row carries text, so the caller falls back to
+    /// <see cref="TryRender"/>.
+    /// </summary>
+    public static string? TryRenderLattice(IReadOnlyList<Cell> cells, PdfRulingLines.Grid grid)
+    {
+        var meaningful = cells.Where(c => !string.IsNullOrWhiteSpace(c.Text)).ToList();
+        if (meaningful.Count == 0 || grid.ColumnCount < MinColumns || grid.RowCount < MinRows)
+        {
+            return null;
+        }
+
+        var columns = grid.ColumnBoundaries; // ascending x
+        var rows = grid.RowBoundaries;       // ascending y (PDF user space is bottom-up)
+
+        // Bucket every fragment into its (row, column) cell by centre containment.
+        var buckets = new List<Cell>[grid.RowCount, grid.ColumnCount];
+        foreach (var cell in meaningful)
+        {
+            var column = BandIndex(columns, (cell.Bounds.Left + cell.Bounds.Right) / 2.0);
+            var bandFromBottom = BandIndex(rows, (cell.Bounds.Top + cell.Bounds.Bottom) / 2.0);
+            if (column < 0 || bandFromBottom < 0)
+            {
+                continue; // outside the drawn grid — not table content
+            }
+
+            var row = grid.RowCount - 1 - bandFromBottom; // ascending-y band -> top-to-bottom row
+            (buckets[row, column] ??= new List<Cell>()).Add(cell);
+        }
+
+        // Emit the rows that carry text (a drawn-but-blank spacer row is dropped, not rendered as an empty row).
+        var rendered = new List<IReadOnlyList<string>>(grid.RowCount);
+        for (var r = 0; r < grid.RowCount; r++)
+        {
+            var line = new string[grid.ColumnCount];
+            var hasText = false;
+            for (var c = 0; c < grid.ColumnCount; c++)
+            {
+                var bucket = buckets[r, c];
+                line[c] = bucket is null ? string.Empty : MarkdownText.EscapeInlineCell(JoinCellFragments(bucket));
+                hasText |= line[c].Length > 0;
+            }
+
+            if (hasText)
+            {
+                rendered.Add(line);
+            }
+        }
+
+        return rendered.Count < MinRows ? null : MarkdownText.RenderTable(rendered);
+    }
+
+    /// <summary>
+    /// Index of the cell band whose ascending <paramref name="boundaries"/> contain <paramref name="value"/>
+    /// (the largest <c>i</c> with <c>boundaries[i] &lt;= value</c>, in <c>[0, count-2]</c>), or <c>-1</c> when
+    /// the value falls outside the grid (left of the first boundary or at/after the last).
+    /// </summary>
+    private static int BandIndex(IReadOnlyList<double> boundaries, double value)
+    {
+        if (value < boundaries[0] || value >= boundaries[^1])
+        {
+            return -1;
+        }
+
+        int lo = 0, hi = boundaries.Count;
+        while (lo < hi)
+        {
+            var mid = (lo + hi) / 2;
+            if (boundaries[mid] <= value)
+            {
+                lo = mid + 1;
+            }
+            else
+            {
+                hi = mid;
+            }
+        }
+
+        return lo - 1;
+    }
+
+    /// <summary>
+    /// Joins the fragments that landed in one lattice cell in reading order. Fragments are first clustered into
+    /// visual lines (top-to-bottom, each left-to-right) via <see cref="GroupIntoVisualLines"/> — a raw
+    /// top-then-left sort mis-orders same-line words whose glyph boxes have slightly different tops (CJK
+    /// baselines / mixed sizes) — so a cell whose text wraps to several lines reads correctly.
+    /// </summary>
+    private static string JoinCellFragments(IReadOnlyList<Cell> cells)
+        => string.Join(" ", GroupIntoVisualLines(cells).SelectMany(line => line).Select(c => c.Text));
+
+    /// <summary>
     /// Splits the fragments into column bands. A flat x-projection of every fragment merges two columns whenever
     /// a single wide cell reaches across their gutter in even one row (#446: a 6-column bank statement whose
     /// 日付/摘要 and an empty メモ column collapsed into their neighbours, content bleeding across cells). Two
