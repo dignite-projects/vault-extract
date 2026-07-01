@@ -22,21 +22,25 @@ namespace Dignite.Vault.Extract.Mcp.Documents;
 /// Clarification happens in the client LLM; Extract does not implement a conversational agent.
 /// Matching rows include all ExtractedFields for the document directly, avoiding a second fetch. This tool handles only transport-layer concerns:
 /// lenient parsing of lifecycle strings, hard result-set limit clamped to <see cref="DocumentConsts.MaxSearchResultCount"/> to protect LLM context,
-/// and wrapping title / field values with <c>PromptBoundary</c> to prevent indirect prompt injection.
+/// wrapping title / field values with <c>PromptBoundary</c> to prevent indirect prompt injection, and surfacing a
+/// truncation signal (<see cref="DocumentSearchResult.Truncated"/> / <see cref="DocumentSearchResult.TotalCount"/>)
+/// so a capped result is not mistaken for the complete set (#445, parity with list_document_types).
 /// </summary>
 [McpServerToolType]
 public sealed class DocumentSearchTool
 {
     [McpServerTool(Name = "search_documents", Title = "Search Documents", ReadOnly = true)]
     [Description("Search Extract documents within a single document type by structured metadata "
-        + "and/or one or more extracted-field filters (all combined with AND). Returns up to 50 rows "
-        + "(id, uri, title, type, lifecycle, created-at, and the document's extracted field values); read a "
-        + "match's full Markdown via its vault-extract://documents/{id} resource uri. Structured field/metadata "
+        + "and/or one or more extracted-field filters (all combined with AND). Returns an object with items "
+        + "(up to 50: id, uri, title, type, lifecycle, created-at, and the document's extracted field values) "
+        + "plus totalCount and truncated; when truncated is true more documents matched than were returned, so "
+        + "narrow the query rather than treating items as the complete set. Read a match's full Markdown via its "
+        + "vault-extract://documents/{id} resource uri. Structured field/metadata "
         + "search only — no keyword/full-text or semantic/vector retrieval. documentTypeCode is required UNLESS "
         + "originDocumentId is given; if the user has not said which document type to search, ask them first. "
         + "To list the sub-documents of a container, pass that container's id as originDocumentId. Discover a "
         + "type's filterable field names and data types via its vault-extract://document-types/{code} resource.")]
-    public static async Task<IReadOnlyList<DocumentSearchResultItem>> SearchAsync(
+    public static async Task<DocumentSearchResult> SearchAsync(
         IDocumentAppService documentAppService,
         [Description("The document type code to search within (e.g. a classification result like "
             + "'contract.general'). Required UNLESS originDocumentId is given; a field value query always needs "
@@ -114,7 +118,7 @@ public sealed class DocumentSearchTool
         // This is the permission defense for LLM paths.
         var result = await documentAppService.GetListAsync(input);
 
-        return result.Items
+        var items = result.Items
             .Select(d => new DocumentSearchResultItem
             {
                 Uri = DocumentResourceUri.Format(d.Id),
@@ -133,5 +137,17 @@ public sealed class DocumentSearchTool
                 ExtractedFields = DocumentFieldProjection.Project(d.ExtractedFields)
             })
             .ToList();
+
+        // Parity with list_document_types (DocumentTypeListResult): the hard cap can elide matches, so carry
+        // an explicit truncation signal. Without it the calling LLM cannot tell a complete result from "the
+        // first N of thousands" and may answer as if it had seen every match. TotalCount is the pre-cap match
+        // count from the paged use case; Truncated trips whenever more matched than were returned (the
+        // caller's maxResultCount, or the MaxSearchResultCount ceiling).
+        return new DocumentSearchResult
+        {
+            Items = items,
+            TotalCount = (int)result.TotalCount,
+            Truncated = result.TotalCount > items.Count
+        };
     }
 }

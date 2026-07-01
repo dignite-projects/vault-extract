@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using Dignite.Vault.Extract.Ai;
 using Dignite.Vault.Extract.Documents;
@@ -100,9 +101,9 @@ public class DocumentSearchTool_Tests : VaultExtractTestBase<DocumentSearchToolT
 
         await _documentAppService.Received(1).GetListAsync(Arg.Is<GetDocumentListInput>(i =>
             i.OriginDocumentId == containerId && string.IsNullOrEmpty(i.DocumentTypeCode)));
-        result.Count.ShouldBe(1);
-        result[0].Id.ShouldBe(subDocId);
-        result[0].OriginDocumentId.ShouldBe(containerId);
+        result.Items.Count.ShouldBe(1);
+        result.Items[0].Id.ShouldBe(subDocId);
+        result.Items[0].OriginDocumentId.ShouldBe(containerId);
     }
 
     [Fact]
@@ -146,14 +147,14 @@ public class DocumentSearchTool_Tests : VaultExtractTestBase<DocumentSearchToolT
             && i.FieldFilters[0].Name == "amount" && i.FieldFilters[0].Min == "100" && i.FieldFilters[0].Max == "200"
             && i.MaxResultCount == DocumentConsts.MaxSearchResultCount));
 
-        result.Count.ShouldBe(1);
-        result[0].Id.ShouldBe(docId);
-        result[0].DocumentTypeCode.ShouldBe("contract.general");
-        result[0].LifecycleStatus.ShouldBe("Ready");
-        result[0].Uri.ShouldBe(DocumentResourceUri.Format(docId));
+        result.Items.Count.ShouldBe(1);
+        result.Items[0].Id.ShouldBe(docId);
+        result.Items[0].DocumentTypeCode.ShouldBe("contract.general");
+        result.Items[0].LifecycleStatus.ShouldBe("Ready");
+        result.Items[0].Uri.ShouldBe(DocumentResourceUri.Format(docId));
         // User-derived free text is wrapped with PromptBoundary to defend against indirect prompt
         // injection.
-        result[0].Title.ShouldBe(PromptBoundary.WrapField("Acme MSA"));
+        result.Items[0].Title.ShouldBe(PromptBoundary.WrapField("Acme MSA"));
     }
 
     [Fact]
@@ -189,10 +190,10 @@ public class DocumentSearchTool_Tests : VaultExtractTestBase<DocumentSearchToolT
             _documentAppService, documentTypeCode: "contract.general");
 
         // System-controlled provenance fields pass through verbatim (no PromptBoundary, no inlined sub-doc list).
-        result[0].IsContainer.ShouldBeTrue();
-        result[0].OriginDocumentId.ShouldBeNull();
-        result[1].IsContainer.ShouldBeFalse();
-        result[1].OriginDocumentId.ShouldBe(containerId);
+        result.Items[0].IsContainer.ShouldBeTrue();
+        result.Items[0].OriginDocumentId.ShouldBeNull();
+        result.Items[1].IsContainer.ShouldBeFalse();
+        result.Items[1].OriginDocumentId.ShouldBe(containerId);
     }
 
     [Fact]
@@ -263,11 +264,11 @@ public class DocumentSearchTool_Tests : VaultExtractTestBase<DocumentSearchToolT
         // defend against indirect prompt injection. Structured values such as numbers pass through
         // unchanged and preserve their JSON type (Number), so downstream LLMs can infer type from the
         // value without string conversion.
-        result[0].ExtractedFields.ShouldNotBeNull();
-        var partyName = result[0].ExtractedFields!["partyName"];
+        result.Items[0].ExtractedFields.ShouldNotBeNull();
+        var partyName = result.Items[0].ExtractedFields!["partyName"];
         partyName.ValueKind.ShouldBe(JsonValueKind.String);
         partyName.GetString().ShouldBe(PromptBoundary.WrapField("Acme Corp"));
-        var amount = result[0].ExtractedFields!["amount"];
+        var amount = result.Items[0].ExtractedFields!["amount"];
         amount.ValueKind.ShouldBe(JsonValueKind.Number);
         amount.GetInt32().ShouldBe(125000);
     }
@@ -298,7 +299,7 @@ public class DocumentSearchTool_Tests : VaultExtractTestBase<DocumentSearchToolT
 
         // Array elements are individually wrapped by PromptBoundary because each element is
         // user-derived free text and needs indirect prompt-injection defense.
-        var tags = result[0].ExtractedFields!["tags"];
+        var tags = result.Items[0].ExtractedFields!["tags"];
         tags.ValueKind.ShouldBe(JsonValueKind.Array);
         tags.GetArrayLength().ShouldBe(2);
         tags[0].GetString().ShouldBe(PromptBoundary.WrapField("urgent"));
@@ -334,11 +335,59 @@ public class DocumentSearchTool_Tests : VaultExtractTestBase<DocumentSearchToolT
 
         // JSON null from extraction fallback is skipped from projection, avoiding misleading literal null
         // output; only valid value fields remain.
-        result[0].ExtractedFields.ShouldNotBeNull();
-        result[0].ExtractedFields!.Count.ShouldBe(1);
-        var amount = result[0].ExtractedFields!["amount"];
+        result.Items[0].ExtractedFields.ShouldNotBeNull();
+        result.Items[0].ExtractedFields!.Count.ShouldBe(1);
+        var amount = result.Items[0].ExtractedFields!["amount"];
         amount.ValueKind.ShouldBe(JsonValueKind.Number);
         amount.GetInt32().ShouldBe(125000);
-        result[0].ExtractedFields!.ContainsKey("expiryDate").ShouldBeFalse();
+        result.Items[0].ExtractedFields!.ContainsKey("expiryDate").ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Signals_truncation_when_more_matched_than_returned()
+    {
+        // #445: parity with list_document_types. The hard cap (MaxSearchResultCount) can elide matches, so the
+        // result carries an explicit truncation signal — otherwise the LLM cannot tell a complete result from
+        // "the first 50 of thousands" and may answer as if it had seen every match. TotalCount is the pre-cap
+        // match count reported by the paged use case.
+        var items = Enumerable.Range(0, DocumentConsts.MaxSearchResultCount)
+            .Select(_ => new DocumentListItemDto
+            {
+                Id = Guid.NewGuid(),
+                LifecycleStatus = DocumentLifecycleStatus.Ready,
+                CreationTime = new DateTime(2024, 1, 1)
+            })
+            .ToList();
+        _documentAppService
+            .GetListAsync(Arg.Any<GetDocumentListInput>())
+            .Returns(new PagedResultDto<DocumentListItemDto>(4210, items));
+
+        var result = await DocumentSearchTool.SearchAsync(
+            _documentAppService, documentTypeCode: "contract.general");
+
+        result.Items.Count.ShouldBe(DocumentConsts.MaxSearchResultCount);
+        result.TotalCount.ShouldBe(4210);
+        result.Truncated.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Does_not_signal_truncation_when_all_matches_fit()
+    {
+        // The common case: fewer matches than the cap → complete result, Truncated=false, and TotalCount
+        // equals the item count so a client can trust it saw everything.
+        _documentAppService
+            .GetListAsync(Arg.Any<GetDocumentListInput>())
+            .Returns(new PagedResultDto<DocumentListItemDto>(2, new List<DocumentListItemDto>
+            {
+                new() { Id = Guid.NewGuid(), LifecycleStatus = DocumentLifecycleStatus.Ready, CreationTime = new DateTime(2024, 1, 1) },
+                new() { Id = Guid.NewGuid(), LifecycleStatus = DocumentLifecycleStatus.Ready, CreationTime = new DateTime(2024, 1, 1) }
+            }));
+
+        var result = await DocumentSearchTool.SearchAsync(
+            _documentAppService, documentTypeCode: "contract.general");
+
+        result.Items.Count.ShouldBe(2);
+        result.TotalCount.ShouldBe(2);
+        result.Truncated.ShouldBeFalse();
     }
 }
