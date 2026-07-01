@@ -125,6 +125,20 @@ internal static class PptxFixtures
             Notes = notes;
             return this;
         }
+
+        /// <summary>Text shapes wrapped in an mc:AlternateContent fork (#319), added via <see cref="McAlternateContentText"/>.</summary>
+        public List<string> McTexts { get; } = new();
+
+        /// <summary>
+        /// Adds a text shape wrapped in an <c>mc:AlternateContent</c> fork (a Choice + a Fallback carrying the
+        /// same text), to verify the extractor collapses the markup-compatibility fork on open (#319) instead of
+        /// skipping the AlternateContent node in the typed shape walk.
+        /// </summary>
+        public SlideSpec McAlternateContentText(string text)
+        {
+            McTexts.Add(text);
+            return this;
+        }
     }
 
     public static byte[] Build(params SlideSpec[] slides)
@@ -162,6 +176,11 @@ internal static class PptxFixtures
         foreach (var text in slide.Texts)
         {
             shapes.Append(TextShapeXml(shapeId++, text));
+        }
+
+        foreach (var mcText in slide.McTexts)
+        {
+            shapes.Append(McAlternateContentShapeXml(shapeId++, mcText));
         }
 
         foreach (var (line1, line2, x, y) in slide.SoftBreakTexts)
@@ -286,6 +305,29 @@ internal static class PptxFixtures
            </p:txBody>
          </p:sp>
          """;
+
+    private static string McAlternateContentShapeXml(uint id, string text)
+    {
+        // A shape PowerPoint wraps in a markup-compatibility fork: the Choice requires a modern namespace, the
+        // Fallback is the legacy equivalent. Both branches carry the same text so the assertion holds whichever
+        // branch the SDK selects when it collapses the markup on open. As a direct spTree child this is an
+        // <mc:AlternateContent> element — none of the typed shape cases — so without collapsing it is skipped.
+        string Sp(uint spId) =>
+            $"<p:sp><p:nvSpPr><p:cNvPr id=\"{spId}\" name=\"Mc{spId}\"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>" +
+            $"<p:spPr><a:xfrm><a:off x=\"100\" y=\"2000000\"/><a:ext cx=\"3000000\" cy=\"500000\"/></a:xfrm></p:spPr>" +
+            $"<p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>{Escape(text)}</a:t></a:r></a:p></p:txBody></p:sp>";
+
+        return $"""
+                <mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">
+                  <mc:Choice xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main" Requires="a14">
+                    {Sp(id)}
+                  </mc:Choice>
+                  <mc:Fallback>
+                    {Sp(id + 1000)}
+                  </mc:Fallback>
+                </mc:AlternateContent>
+                """;
+    }
 
     private static string PictureXml(uint id, ImageSpec image, string relId)
     {

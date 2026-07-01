@@ -705,4 +705,23 @@ public class PptxExtractor_Tests
             Arg.Is<OcrOptions>(o => o.LanguageHints.Count == 0),
             Arg.Any<CancellationToken>());
     }
+
+    [Fact]
+    public async Task Surfaces_a_shape_wrapped_in_mc_alternate_content()
+    {
+        // #319: a shape PowerPoint wraps in <mc:AlternateContent> is a direct spTree child of type
+        // AlternateContent — none of the typed WalkShapesAsync cases — so without collapsing the
+        // markup-compatibility fork on open its text is silently dropped with no #268 signal. Opening with the
+        // MC-collapsing settings resolves the fork to its selected branch (a real p:sp) before the walk runs.
+        var pptx = PptxFixtures.Build(new PptxFixtures.SlideSpec()
+            .Text("Ordinary slide text")
+            .McAlternateContentText("MC_WRAPPED_CONTENT"));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(pptx), PptxContext());
+
+        result.Markdown.ShouldContain("Ordinary slide text");
+        result.Markdown.ShouldContain("MC_WRAPPED_CONTENT");
+        // Exactly one branch survives collapsing — the content must not be doubled from both Choice and Fallback.
+        (result.Markdown.Split("MC_WRAPPED_CONTENT").Length - 1).ShouldBe(1);
+    }
 }
