@@ -58,6 +58,20 @@ describe('composeFieldFilters', () => {
     expect(out).toEqual([{ name: 'amount', value: '100' }]);
   });
 
+  it('keeps a literal "0" numeric equality (a falsy string must not be dropped)', () => {
+    const out = composeFieldFilters([
+      row({ fieldName: 'amount', dataType: FieldDataType.Number, mode: 'eq', value: '0' }),
+    ]);
+    expect(out).toEqual([{ name: 'amount', value: '0' }]);
+  });
+
+  it('keeps "0" range bounds (a "0" bound is a real bound, not an unset one)', () => {
+    const out = composeFieldFilters([
+      row({ fieldName: 'amount', dataType: FieldDataType.Number, mode: 'range', min: '0', max: '0' }),
+    ]);
+    expect(out).toEqual([{ name: 'amount', min: '0', max: '0' }]);
+  });
+
   it('emits a two-sided Number range as { name, min, max } with no value', () => {
     const out = composeFieldFilters([
       row({ fieldName: 'amount', dataType: FieldDataType.Number, mode: 'range', min: '10', max: '20' }),
