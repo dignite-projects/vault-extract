@@ -1,3 +1,15 @@
 tbody tr:hover {
   background-color: rgba(0, 0, 0, 0.025);
 }
+
+// #447: rendered Markdown preview of the prompt. Matches the textarea footprint (form-control gives the
+// border) and scrolls when long; trim the trailing margin of the last block so it doesn't pad the box.
+.field-prompt-preview {
+  min-height: 8rem;
+  max-height: 24rem;
+  height: auto;
+
+  > :last-child {
+    margin-bottom: 0;
+  }
+}

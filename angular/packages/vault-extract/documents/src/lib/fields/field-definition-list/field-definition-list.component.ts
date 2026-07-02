@@ -22,6 +22,7 @@ import {
 import { Confirmation, ConfirmationService, ToasterService } from '@abp/ng.theme.shared';
 import { NgbDropdownModule } from '@ng-bootstrap/ng-bootstrap';
 import { map, of, Subject, takeUntil } from 'rxjs';
+import { marked } from 'marked';
 import {
   CreateFieldDefinitionDto,
   DocumentTypeService,
@@ -30,6 +31,7 @@ import {
   FieldDefinitionDto,
   FieldDefinitionService,
   FieldDraftSuggestionService,
+  FieldPromptPolishService,
   fieldDataTypeOptions,
   EXTRACT_PERMISSIONS,
   SlugSuggestionService,
@@ -45,10 +47,10 @@ import { FieldReextractionModalComponent } from '../../reprocessing/field-reextr
 import { SlugSuggestionHandle, wireSlugSuggestion } from '../../shared/slug-suggestion';
 
 // Mirrors FieldDefinitionConsts (Domain.Shared): Name whitelist + length caps.
+// #447: Prompt has no length cap — it is admin-authored Markdown configuration, persisted uncapped.
 const NAME_PATTERN = /^[A-Za-z0-9_\-]{1,64}$/;
 const MAX_NAME_LENGTH = 64;
 const MAX_DISPLAY_NAME_LENGTH = 128;
-const MAX_PROMPT_LENGTH = 1024;
 
 const FIELD_DEFINITION_SORTS: SortAccessors<FieldDefinitionDto> = {
   displayOrder: field => field.displayOrder,
@@ -87,6 +89,7 @@ export class FieldDefinitionListComponent implements OnInit {
   private readonly documentTypeService = inject(DocumentTypeService);
   private readonly slugService = inject(SlugSuggestionService);
   private readonly draftService = inject(FieldDraftSuggestionService);
+  private readonly polishService = inject(FieldPromptPolishService);
   private readonly fb = inject(FormBuilder);
   private readonly confirmation = inject(ConfirmationService);
   private readonly toaster = inject(ToasterService);
@@ -129,6 +132,10 @@ export class FieldDefinitionListComponent implements OnInit {
   // draft" notice.
   isDrafting = signal(false);
   justDrafted = signal(false);
+  // #447: AI-polish (rewrite the prompt itself into clean Markdown) in progress, and Edit/Preview toggle
+  // for the Markdown prompt editor.
+  isPolishing = signal(false);
+  showPromptPreview = signal(false);
 
   private slugHandle?: SlugSuggestionHandle;
   private tableQuery: Partial<ABP.PageQueryParams> = {};
@@ -146,9 +153,10 @@ export class FieldDefinitionListComponent implements OnInit {
       [Validators.required, Validators.maxLength(MAX_NAME_LENGTH), Validators.pattern(NAME_PATTERN)],
     ],
     displayName: ['', [Validators.required, Validators.maxLength(MAX_DISPLAY_NAME_LENGTH)]],
-    // Extraction instruction is optional based on measured feedback: remove Validators.required and keep
-    // only the length cap. Backend NormalizePrompt converges blank values to null.
-    prompt: ['', [Validators.maxLength(MAX_PROMPT_LENGTH)]],
+    // Extraction instruction is optional (measured feedback: no Validators.required). #447: no maxLength —
+    // Prompt is admin-authored Markdown configuration, persisted uncapped. Backend NormalizePrompt
+    // converges blank values to null.
+    prompt: [''],
     dataType: [FieldDataType.Text, [Validators.required]],
     displayOrder: [0, [Validators.required]],
     isRequired: [false],
@@ -372,6 +380,8 @@ export class FieldDefinitionListComponent implements OnInit {
     this.slugHandle?.reset();
     this.justDrafted.set(false);
     this.isDrafting.set(false);
+    this.isPolishing.set(false);
+    this.showPromptPreview.set(false);
     this.editing.set('create');
   }
 
@@ -394,6 +404,8 @@ export class FieldDefinitionListComponent implements OnInit {
     this.slugHandle?.markManual();
     this.justDrafted.set(false);
     this.isDrafting.set(false);
+    this.isPolishing.set(false);
+    this.showPromptPreview.set(false);
     this.editing.set(field);
   }
 
@@ -464,6 +476,44 @@ export class FieldDefinitionListComponent implements OnInit {
     this.justDrafted.set(true);
   }
 
+  // #447: AI-polish the prompt TEXT itself (distinct from #264 draft, which infers the other metadata).
+  // One LLM call rewrites the operator's raw instruction into clean Markdown and writes it back into the
+  // editor for review. Fail-open: the backend returns the original prompt unchanged on provider failure,
+  // and errors surface as a non-destructive toast — the operator's input is never lost.
+  polish(): void {
+    const prompt = (this.form.controls.prompt.value ?? '').trim();
+    if (!prompt || this.isPolishing()) return;
+    this.isPolishing.set(true);
+    this.polishService.polish({ prompt })
+      // Cancel when the modal closes so a late response cannot overwrite a reopened form (mirrors draft).
+      .pipe(takeUntil(this.draftCancelled$), takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: result => {
+          this.isPolishing.set(false);
+          if (result.prompt && result.prompt !== prompt) {
+            // emitEvent:false so the displayName→slug wiring is not disturbed.
+            this.form.controls.prompt.setValue(result.prompt, { emitEvent: false });
+            this.form.controls.prompt.markAsDirty();
+            this.showPromptPreview.set(true);
+            this.toaster.success('::FieldDefinition:PolishDone', '::Success');
+          } else {
+            this.toaster.info('::FieldDefinition:PolishNoChange', '::Info');
+          }
+        },
+        error: () => {
+          this.isPolishing.set(false);
+          this.toaster.warn('::FieldDefinition:PolishUnavailable', '::Warning');
+        },
+      });
+  }
+
+  // #447: render the current prompt as Markdown for the Edit/Preview toggle. Angular sanitizes the bound
+  // [innerHTML], so marked's output is safe to render.
+  promptPreviewHtml(): string {
+    const prompt = this.form.controls.prompt.value ?? '';
+    return marked.parse(prompt, { gfm: true, async: false }) as string;
+  }
+
   // Display-name blur triggers slug auto-suggestion. Measured feedback changed this from pause debounce
   // to blur trigger.
   onDisplayNameBlur(): void {
@@ -498,6 +548,8 @@ export class FieldDefinitionListComponent implements OnInit {
     // the next opened form or leaving the draft button permanently disabled (#264 review #1).
     this.draftCancelled$.next();
     this.isDrafting.set(false);
+    this.isPolishing.set(false);
+    this.showPromptPreview.set(false);
     this.justDrafted.set(false);
     this.editing.set(null);
   }

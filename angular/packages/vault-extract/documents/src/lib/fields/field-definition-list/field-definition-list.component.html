@@ -133,13 +133,52 @@
             <button type="button" class="btn-close" (click)="closeModal()"></button>
           </div>
           <div class="modal-body">
-            <!-- #264: Prompt as the primary input. Admins focus on the extraction prompt, then use AI to draft the remaining editable field metadata. -->
+            <!-- Prompt is the primary input. #447: Markdown editor with Edit/Preview + AI-polish (rewrite the
+                 prompt into clean Markdown); #264: draft the remaining metadata FROM the prompt. -->
             <div class="mb-3">
-              <div class="d-flex align-items-center gap-2 mb-1">
+              <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
                 <label class="form-label mb-0">{{ '::FieldDefinition:Prompt' | abpLocalization }}</label>
+                <!-- #447: Edit / Preview toggle for the Markdown prompt. -->
+                <div class="btn-group btn-group-sm ms-auto" role="group">
+                  <button
+                    type="button"
+                    class="btn"
+                    [class.btn-secondary]="!showPromptPreview()"
+                    [class.btn-outline-secondary]="showPromptPreview()"
+                    (click)="showPromptPreview.set(false)"
+                  >
+                    {{ '::FieldDefinition:Prompt:Edit' | abpLocalization }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn"
+                    [class.btn-secondary]="showPromptPreview()"
+                    [class.btn-outline-secondary]="!showPromptPreview()"
+                    (click)="showPromptPreview.set(true)"
+                    [disabled]="!form.controls.prompt.value.trim()"
+                  >
+                    {{ '::FieldDefinition:Prompt:Preview' | abpLocalization }}
+                  </button>
+                </div>
+                <!-- #447: AI-polish the prompt text itself. -->
                 <button
                   type="button"
-                  class="btn btn-sm btn-outline-primary ms-auto"
+                  class="btn btn-sm btn-outline-primary"
+                  (click)="polish()"
+                  [disabled]="!form.controls.prompt.value.trim() || isPolishing()"
+                  title="{{ '::FieldDefinition:PolishHint' | abpLocalization }}"
+                >
+                  @if (isPolishing()) {
+                    <span class="spinner-border spinner-border-sm me-1"></span>
+                  } @else {
+                    <i class="fas fa-wand-magic-sparkles me-1"></i>
+                  }
+                  {{ '::FieldDefinition:Polish' | abpLocalization }}
+                </button>
+                <!-- #264: draft the remaining metadata FROM the prompt. -->
+                <button
+                  type="button"
+                  class="btn btn-sm btn-outline-primary"
                   (click)="draft()"
                   [disabled]="!form.controls.prompt.value.trim() || isDrafting()"
                   title="{{ '::FieldDefinition:DraftHint' | abpLocalization }}"
@@ -147,19 +186,22 @@
                   @if (isDrafting()) {
                     <span class="spinner-border spinner-border-sm me-1"></span>
                   } @else {
-                    <i class="fas fa-wand-magic-sparkles me-1"></i>
+                    <i class="fas fa-list-check me-1"></i>
                   }
                   {{ '::FieldDefinition:DraftFromPrompt' | abpLocalization }}
                 </button>
               </div>
-              <textarea
-                class="form-control"
-                rows="3"
-                formControlName="prompt"
-                [class.is-invalid]="form.controls.prompt.touched && form.controls.prompt.invalid"
-                placeholder="{{ '::FieldDefinition:PromptHint' | abpLocalization }}"
-              ></textarea>
-              <div class="form-text">{{ '::FieldDefinition:DraftHint' | abpLocalization }}</div>
+              @if (showPromptPreview()) {
+                <div class="field-prompt-preview form-control overflow-auto" [innerHTML]="promptPreviewHtml()"></div>
+              } @else {
+                <textarea
+                  class="form-control"
+                  rows="5"
+                  formControlName="prompt"
+                  placeholder="{{ '::FieldDefinition:PromptHint' | abpLocalization }}"
+                ></textarea>
+              }
+              <div class="form-text">{{ '::FieldDefinition:PromptMarkdownHint' | abpLocalization }}</div>
             </div>
 
             @if (justDrafted()) {

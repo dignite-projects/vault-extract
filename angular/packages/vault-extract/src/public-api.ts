@@ -10,6 +10,9 @@ export * from './lib/shared';
 
 // Hand-written, proxy-external services (survive proxy regeneration).
 export * from './lib/services/document-upload.service';
+// #447: named export (not `export *`) so the DTO interface names don't collide with the generated
+// proxy models when the AI-polish endpoint is picked up by a future `npm run generate-proxy`.
+export { FieldPromptPolishService } from './lib/services/field-prompt-polish.service';
 
 // --- generated proxy: services ---
 export * from './lib/proxy/http-api/documents/document.service';
