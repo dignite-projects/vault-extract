@@ -36,6 +36,7 @@ import {
   DocumentFieldFilter,
   DocumentLifecycleStatus,
   DocumentListItemDto,
+  DocumentListQueryService,
   DocumentReviewReasons,
   DocumentService,
   DocumentStatisticsService,
@@ -78,6 +79,10 @@ interface TableActivateEvent {
 })
 export class DocumentListComponent implements OnInit {
   private readonly documentService = inject(DocumentService);
+  // #415 fix: the list GET goes through the hand-written wrapper, which serializes the fieldFilters
+  // collection into the indexed query notation ASP.NET Core binds (the generated getList sends
+  // "[object Object]"). All other document operations still use the generated DocumentService.
+  private readonly documentListQueryService = inject(DocumentListQueryService);
   private readonly statisticsService = inject(DocumentStatisticsService);
   private readonly documentTypeService = inject(DocumentTypeService);
   private readonly fieldDefinitionService = inject(FieldDefinitionService);
@@ -341,7 +346,8 @@ export class DocumentListComponent implements OnInit {
 
     this.list
       .hookToQuery(query =>
-        this.documentService.getList({
+        // #415 fix: via the wrapper so fieldFilters serializes to bindable indexed query params.
+        this.documentListQueryService.getList({
           ...this.buildFilter(),
           maxResultCount: query.maxResultCount,
           skipCount: query.skipCount,
