@@ -494,7 +494,10 @@ internal static class PptxFixtures
 
         string MultiLevelCategoryCache(IReadOnlyList<(string Outer, string Inner)> cats)
         {
-            var inner = string.Concat(cats.Select((c, i) => $"<c:pt idx=\"{i}\"><c:v>{Escape(c.Inner)}</c:v></c:pt>"));
+            // An empty inner value omits its c:pt entirely — exactly how Excel writes a blank leaf cell (a
+            // position that carries only an outer-group label). The extractor must NOT forward-fill the leaf.
+            var inner = string.Concat(cats.Select((c, i) =>
+                string.IsNullOrEmpty(c.Inner) ? string.Empty : $"<c:pt idx=\"{i}\"><c:v>{Escape(c.Inner)}</c:v></c:pt>"));
             // Outer level: cache a point only where the outer label changes (the group's first index), exactly
             // as Excel writes a multi-level axis — the extractor must forward-fill the label across the group.
             var outer = new StringBuilder();

@@ -234,12 +234,18 @@ internal static class ChartRenderer
         var result = new Dictionary<int, string>();
         foreach (var idx in indices)
         {
-            // Outermost (last authored) to innermost (first authored); forward-fill each level so a position
-            // inside an outer group inherits the label cached at that group's first index.
+            // Outermost (last authored) to innermost (first authored).
             var parts = new List<string>();
             for (var lvl = levelMaps.Count - 1; lvl >= 0; lvl--)
             {
-                var label = ForwardFill(levelMaps[lvl], idx);
+                // Forward-fill only OUTER grouping levels: an outer category caches its label at its group's
+                // first index and spans the rest of the group. The innermost (leaf, lvl 0) is NOT a span — a
+                // leaf position with no pt is a genuinely blank cell, so read it exactly rather than carrying
+                // the previous leaf's label (which would fabricate e.g. "2024 / Q2" for a blank leaf that opens
+                // a new outer group, whose correct label is just "2024").
+                var label = lvl == 0
+                    ? (levelMaps[0].TryGetValue(idx, out var leaf) ? leaf : string.Empty)
+                    : ForwardFill(levelMaps[lvl], idx);
                 if (label.Length > 0)
                 {
                     parts.Add(label);

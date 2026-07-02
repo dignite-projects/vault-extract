@@ -750,6 +750,29 @@ public class PptxExtractor_Tests
     }
 
     [Fact]
+    public async Task A_blank_leaf_category_cell_is_not_filled_from_the_previous_leaf()
+    {
+        // #321 follow-up: forward-fill is a span semantic for OUTER grouping levels only. A blank INNER (leaf)
+        // cell — Excel omits its c:pt — must stay blank, not inherit the previous leaf's label. Here idx 2
+        // opens a new outer group "2024" with an empty inner, so its label must be "2024", NOT "2024 / Q2"
+        // (carrying Q2 across the group boundary).
+        var chart = new PptxFixtures.ChartSpec(
+            Title: null,
+            Categories: System.Array.Empty<string>(),
+            Series: new[] { ("Revenue", (IReadOnlyList<string>)new[] { "10", "20", "30" }) },
+            TwoLevelCategories: new[] { ("2023", "Q1"), ("2023", "Q2"), ("2024", "") });
+
+        var pptx = PptxFixtures.Build(new PptxFixtures.SlideSpec().Chart(chart));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(pptx), PptxContext());
+
+        result.Markdown.ShouldContain("| 2023 / Q1 | 10 |");
+        result.Markdown.ShouldContain("| 2023 / Q2 | 20 |");
+        result.Markdown.ShouldContain("| 2024 | 30 |");
+        result.Markdown.ShouldNotContain("2024 / Q2");
+    }
+
+    [Fact]
     public async Task Orders_grouped_shapes_by_their_own_position_not_xml_order()
     {
         StubOcr("GROUP_IMAGE");
