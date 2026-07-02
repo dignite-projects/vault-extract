@@ -854,6 +854,24 @@ public class DocxExtractor_Tests
     }
 
     [Fact]
+    public async Task Indents_the_continuation_of_a_multi_paragraph_footnote_body()
+    {
+        // #315: a footnote body with two paragraphs. The definition's continuation paragraph must be indented
+        // four spaces so it stays part of the [^fn2] definition (Markdown footnote syntax) rather than
+        // escaping flush-left as an ordinary document paragraph (which could also wedge between definitions).
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .Paragraph("Intro")
+            .Footnote("Body with a footnote", 2, "First note paragraph.\n\nSecond note paragraph."));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        result.Markdown.ShouldContain("[^fn2]: First note paragraph.");
+        // The continuation paragraph is indented four spaces (attached to the definition), never flush-left.
+        result.Markdown.ShouldContain("\n    Second note paragraph.");
+        result.Markdown.ShouldNotContain("\nSecond note paragraph.");
+    }
+
+    [Fact]
     public async Task A_document_without_notes_emits_no_note_markers()
     {
         var docx = DocxFixtures.Build(new DocxFixtures.DocSpec().Paragraph("Plain body, no notes."));

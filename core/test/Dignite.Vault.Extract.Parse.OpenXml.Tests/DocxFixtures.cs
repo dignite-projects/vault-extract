@@ -476,12 +476,18 @@ internal static class DocxFixtures
         return $"<w:p><w:r><w:t xml:space=\"preserve\">{Escape(note.ParagraphText)}</w:t></w:r><w:r>{reference}</w:r></w:p>";
     }
 
+    // A note body: one <w:p> per paragraph, splitting NoteText on a blank line so a multi-paragraph note body
+    // (#315 continuation-indent) can be authored as "para1\n\npara2".
+    private static string NoteBodyParagraphs(string noteText)
+        => string.Concat(noteText.Split("\n\n").Select(p =>
+            $"<w:p><w:r><w:t xml:space=\"preserve\">{Escape(p)}</w:t></w:r></w:p>"));
+
     private static string FootnotesXml(IEnumerable<NoteSpec> notes)
     {
         // Real Word documents carry auto-inserted separator / continuationSeparator notes; include them (with
         // sentinel text) so the extractor's separator exclusion is exercised. Author notes follow.
         var bodies = string.Concat(notes.Select(n =>
-            $"<w:footnote w:id=\"{n.Id}\"><w:p><w:r><w:t xml:space=\"preserve\">{Escape(n.NoteText!)}</w:t></w:r></w:p></w:footnote>"));
+            $"<w:footnote w:id=\"{n.Id}\">{NoteBodyParagraphs(n.NoteText!)}</w:footnote>"));
         return $"""
                 <w:footnotes xmlns:w="{NsW}">
                   <w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:t xml:space="preserve">SEP_SENTINEL</w:t></w:r></w:p></w:footnote>
@@ -494,7 +500,7 @@ internal static class DocxFixtures
     private static string EndnotesXml(IEnumerable<NoteSpec> notes)
     {
         var bodies = string.Concat(notes.Select(n =>
-            $"<w:endnote w:id=\"{n.Id}\"><w:p><w:r><w:t xml:space=\"preserve\">{Escape(n.NoteText!)}</w:t></w:r></w:p></w:endnote>"));
+            $"<w:endnote w:id=\"{n.Id}\">{NoteBodyParagraphs(n.NoteText!)}</w:endnote>"));
         return $"""
                 <w:endnotes xmlns:w="{NsW}">
                   <w:endnote w:type="separator" w:id="-1"><w:p><w:r><w:t xml:space="preserve">SEP_SENTINEL</w:t></w:r></w:p></w:endnote>

@@ -485,8 +485,38 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
             }
 
             var body = await RenderNoteBodyAsync(note, mainPart, state, cancellationToken);
-            blocks.Add(string.IsNullOrWhiteSpace(body) ? $"{reference.Marker}:" : $"{reference.Marker}: {body}");
+            blocks.Add(FormatNoteDefinition(reference.Marker, body));
         }
+    }
+
+    /// <summary>
+    /// Formats one Markdown-footnote definition: the label, then the body with every line AFTER the first
+    /// indented four spaces (blank separators kept blank). The indent is required by the Markdown footnote
+    /// syntax (Pandoc / cmark-gfm) so a multi-paragraph or figure note body stays attached to the definition;
+    /// without it the second paragraph is flush-left and escapes as an ordinary document-level paragraph (and
+    /// can wedge between two definitions), corrupting the output structure (#315).
+    /// </summary>
+    private static string FormatNoteDefinition(string marker, string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return $"{marker}:";
+        }
+
+        var lines = body.Replace("\r\n", "\n").Split('\n');
+        var sb = new System.Text.StringBuilder();
+        sb.Append(marker).Append(": ").Append(lines[0]);
+        for (var i = 1; i < lines.Length; i++)
+        {
+            sb.Append('\n');
+            // Keep a blank separator blank; indent every content continuation line so it attaches to the note.
+            if (lines[i].Length > 0)
+            {
+                sb.Append("    ").Append(lines[i]);
+            }
+        }
+
+        return sb.ToString();
     }
 
     /// <summary>
