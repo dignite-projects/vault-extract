@@ -136,6 +136,10 @@ export class FieldDefinitionListComponent implements OnInit {
   // for the Markdown prompt editor.
   isPolishing = signal(false);
   showPromptPreview = signal(false);
+  // #447: memoize the rendered Markdown preview so change-detection cycles while the Preview pane is open
+  // don't re-run marked.parse; keyed on the raw prompt string (null = nothing rendered yet).
+  private promptPreviewSource: string | null = null;
+  private promptPreviewCache = '';
 
   private slugHandle?: SlugSuggestionHandle;
   private tableQuery: Partial<ABP.PageQueryParams> = {};
@@ -508,10 +512,15 @@ export class FieldDefinitionListComponent implements OnInit {
   }
 
   // #447: render the current prompt as Markdown for the Edit/Preview toggle. Angular sanitizes the bound
-  // [innerHTML], so marked's output is safe to render.
+  // [innerHTML], so marked's output is safe to render. Read straight from the control (not a valueChanges
+  // signal) so polish()'s emitEvent:false write-back is reflected; re-parse only when the prompt changed.
   promptPreviewHtml(): string {
     const prompt = this.form.controls.prompt.value ?? '';
-    return marked.parse(prompt, { gfm: true, async: false }) as string;
+    if (prompt !== this.promptPreviewSource) {
+      this.promptPreviewSource = prompt;
+      this.promptPreviewCache = marked.parse(prompt, { gfm: true, async: false }) as string;
+    }
+    return this.promptPreviewCache;
   }
 
   // Display-name blur triggers slug auto-suggestion. Measured feedback changed this from pause debounce
