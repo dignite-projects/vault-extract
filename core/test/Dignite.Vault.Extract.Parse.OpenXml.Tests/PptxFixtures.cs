@@ -143,6 +143,35 @@ internal static class PptxFixtures
             McTexts.Add(text);
             return this;
         }
+
+        /// <summary>Caption + image pairs inside one grouped shape (#313), added via <see cref="GroupedCaptionAndImage"/>.</summary>
+        public List<(string Caption, long CaptionY, ImageSpec Image)> CaptionImageGroups { get; } = new();
+
+        /// <summary>
+        /// Adds a grouped shape containing a caption text (authored FIRST) at <paramref name="captionY"/> and an
+        /// image (authored SECOND) at the image's own offset, to verify group-transform reading order (#313):
+        /// the two must sort by their own positions within the group, not by XML/encounter order.
+        /// </summary>
+        public SlideSpec GroupedCaptionAndImage(string caption, long captionY, ImageSpec image)
+        {
+            CaptionImageGroups.Add((caption, captionY, image));
+            return this;
+        }
+
+        /// <summary>A slide body placeholder that omits its own xfrm (position inherited from the layout, #313).</summary>
+        public string? InheritedBodyText { get; private set; }
+
+        /// <summary>The Y offset (EMU) the layout's body placeholder carries — the position the slide's no-xfrm body placeholder should inherit (#313).</summary>
+        public long LayoutBodyOffsetY { get; private set; }
+
+        /// <summary>Adds a slide body placeholder with no xfrm, and a slide layout whose matching body
+        /// placeholder sits at <paramref name="layoutBodyY"/>, to verify layout-inherited position (#313).</summary>
+        public SlideSpec WithLayoutInheritedBody(string text, long layoutBodyY)
+        {
+            InheritedBodyText = text;
+            LayoutBodyOffsetY = layoutBodyY;
+            return this;
+        }
     }
 
     public static byte[] Build(params SlideSpec[] slides)
@@ -242,6 +271,29 @@ internal static class PptxFixtures
             shapes.Append(GroupXml(shapeId++, groupShapes.ToString()));
         }
 
+        foreach (var (caption, captionY, image) in slide.CaptionImageGroups)
+        {
+            var relId = $"rIdCapImg{slideIndex}_{imageRel++}";
+            var imagePart = slidePart.AddNewPart<ImagePart>(image.ContentType, relId);
+            using (var s = imagePart.GetStream(FileMode.Create, FileAccess.Write))
+            {
+                s.Write(image.Bytes, 0, image.Bytes.Length);
+            }
+
+            var groupId = shapeId++;
+            var captionId = shapeId++;
+            var picId = shapeId++;
+            shapes.Append(CaptionImageGroupXml(groupId, captionId, caption, captionY, picId, image, relId));
+        }
+
+        if (slide.InheritedBodyText is { Length: > 0 } inheritedBody)
+        {
+            shapes.Append(InheritedBodyPlaceholderXml(shapeId++, inheritedBody));
+            var layoutPart = slidePart.AddNewPart<SlideLayoutPart>();
+            layoutPart.SlideLayout = new SlideLayout(SlideLayoutXml(slide.LayoutBodyOffsetY));
+            layoutPart.SlideLayout.Save();
+        }
+
         slidePart.Slide = new Slide(SlideXml(shapes.ToString()));
 
         if (slide.Notes is { Length: > 0 })
@@ -272,6 +324,54 @@ internal static class PptxFixtures
            </a:xfrm></p:grpSpPr>
            {childShapes}
          </p:grpSp>
+         """;
+
+    /// <summary>
+    /// A grouped shape with a caption text (authored first) at <paramref name="captionY"/> and a picture
+    /// (authored second) at the image's own offset. The group carries its own <c>a:off</c>/<c>a:chOff</c>, so
+    /// the extractor must translate each child by the group offset and order them by their own positions (#313).
+    /// </summary>
+    private static string CaptionImageGroupXml(uint groupId, uint captionId, string caption, long captionY, uint picId, ImageSpec image, string relId) =>
+        $"""
+         <p:grpSp>
+           <p:nvGrpSpPr><p:cNvPr id="{groupId}" name="Group{groupId}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+           <p:grpSpPr><a:xfrm>
+             <a:off x="500000" y="500000"/><a:ext cx="6000000" cy="6000000"/>
+             <a:chOff x="0" y="0"/><a:chExt cx="6000000" cy="6000000"/>
+           </a:xfrm></p:grpSpPr>
+           <p:sp>
+             <p:nvSpPr><p:cNvPr id="{captionId}" name="Caption{captionId}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+             <p:spPr><a:xfrm><a:off x="100" y="{captionY}"/><a:ext cx="3000000" cy="500000"/></a:xfrm></p:spPr>
+             <p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>{Escape(caption)}</a:t></a:r></a:p></p:txBody>
+           </p:sp>
+           {PictureXml(picId, image, relId)}
+         </p:grpSp>
+         """;
+
+    /// <summary>A slide body placeholder (type=body, idx=1) with NO xfrm — its position is layout-inherited (#313).</summary>
+    private static string InheritedBodyPlaceholderXml(uint id, string text) =>
+        $"""
+         <p:sp>
+           <p:nvSpPr><p:cNvPr id="{id}" name="Body {id}"/><p:cNvSpPr/><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>
+           <p:spPr/>
+           <p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>{Escape(text)}</a:t></a:r></a:p></p:txBody>
+         </p:sp>
+         """;
+
+    /// <summary>A minimal slide layout whose body placeholder (type=body, idx=1) carries an xfrm at the given Y.</summary>
+    private static string SlideLayoutXml(long bodyY) =>
+        $"""
+         <p:sldLayout xmlns:p="{NsP}" xmlns:a="{NsA}" xmlns:r="{NsR}" type="obj">
+           <p:cSld><p:spTree>
+             <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+             <p:grpSpPr/>
+             <p:sp>
+               <p:nvSpPr><p:cNvPr id="2" name="Body Placeholder"/><p:cNvSpPr/><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>
+               <p:spPr><a:xfrm><a:off x="838200" y="{bodyY}"/><a:ext cx="7772400" cy="4351338"/></a:xfrm></p:spPr>
+               <p:txBody><a:bodyPr/><a:lstStyle/><a:p/></p:txBody>
+             </p:sp>
+           </p:spTree></p:cSld>
+         </p:sldLayout>
          """;
 
     private static string TextShapeXml(uint id, TextSpec text)

@@ -225,9 +225,9 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
     /// <summary>
     /// Walks a shape container (the slide's shape tree or a grouped shape) in document order, dispatching
     /// pictures to OCR, charts/tables to structured rendering, and text shapes to Markdown. Recurses into
-    /// grouped shapes; for items inside a group, the group's own offset anchors their reading position and
-    /// document-encounter order (<see cref="PptxExtractionState.Sequence"/>) breaks ties within the group —
-    /// avoiding the child-coordinate-space math a precise absolute position would require.
+    /// grouped shapes; each shape's absolute slide position is its own offset plus the accumulated group
+    /// translation (<paramref name="groupY"/>/<paramref name="groupX"/> — the running sum of each enclosing
+    /// group's <c>a:off − a:chOff</c>, #313), with <see cref="PptxExtractionState.Sequence"/> breaking ties.
     /// </summary>
     private async Task WalkShapesAsync(
         DocumentFormat.OpenXml.OpenXmlElement container,
@@ -247,28 +247,36 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
             {
                 case P.GroupShape group:
                     {
-                        var (gy, gx) = inGroup ? (groupY, groupX) : OffsetOf(group);
-                        await WalkShapesAsync(group, slidePart, inGroup: true, gy, gx, blocks, state, cancellationToken);
+                        // Descend with the group's translation composed in (#313): a child's absolute slide
+                        // position is its own offset plus the accumulated (group a:off − a:chOff) of every
+                        // enclosing group. Group scale is uniform per axis, so it preserves the per-axis order
+                        // and the translation alone is enough for reading order.
+                        var (offY, offX) = OffsetOf(group) ?? (0, 0);
+                        var (childOffY, childOffX) = GroupChildOffset(group);
+                        await WalkShapesAsync(
+                            group, slidePart, inGroup: true,
+                            groupY + offY - childOffY, groupX + offX - childOffX,
+                            blocks, state, cancellationToken);
                         break;
                     }
 
                 case P.Picture picture:
                     {
-                        var (y, x) = PositionFor(picture, inGroup, groupY, groupX);
+                        var (y, x) = AbsolutePosition(picture, slidePart, inGroup, groupY, groupX);
                         await HandlePictureAsync(picture, slidePart, y, x, blocks, state, cancellationToken);
                         break;
                     }
 
                 case P.GraphicFrame graphicFrame:
                     {
-                        var (y, x) = PositionFor(graphicFrame, inGroup, groupY, groupX);
+                        var (y, x) = AbsolutePosition(graphicFrame, slidePart, inGroup, groupY, groupX);
                         HandleGraphicFrame(graphicFrame, slidePart, y, x, blocks, state);
                         break;
                     }
 
                 case P.Shape shape:
                     {
-                        var (y, x) = PositionFor(shape, inGroup, groupY, groupX);
+                        var (y, x) = AbsolutePosition(shape, slidePart, inGroup, groupY, groupX);
                         HandleTextShape(shape, y, x, blocks, state);
                         break;
                     }
@@ -456,12 +464,30 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
         return parts.Count == 0 ? null : string.Join("\n\n", parts);
     }
 
-    private static (long Y, long X) PositionFor(
-        DocumentFormat.OpenXml.OpenXmlElement shape, bool inGroup, long groupY, long groupX)
-        => inGroup ? (groupY, groupX) : OffsetOf(shape);
+    /// <summary>
+    /// The absolute slide position (EMU) of a shape for reading-order sorting (#313): the shape's own offset
+    /// translated by the accumulated group offset (<paramref name="groupY"/>/<paramref name="groupX"/>). A
+    /// top-level placeholder that omits its own <c>a:xfrm</c> inherits its position from the slide layout /
+    /// master rather than collapsing to (0,0); an in-group shape without an xfrm falls back to the group origin.
+    /// </summary>
+    private static (long Y, long X) AbsolutePosition(
+        DocumentFormat.OpenXml.OpenXmlElement shape, SlidePart slidePart, bool inGroup, long groupY, long groupX)
+    {
+        if (OffsetOf(shape) is { } own)
+        {
+            return (groupY + own.Y, groupX + own.X);
+        }
 
-    /// <summary>The shape's own top-left offset in EMU, or (0,0) when it inherits position from the layout.</summary>
-    private static (long Y, long X) OffsetOf(DocumentFormat.OpenXml.OpenXmlElement shape)
+        if (!inGroup && ResolveInheritedOffset(shape, slidePart) is { } inherited)
+        {
+            return inherited;
+        }
+
+        return (groupY, groupX);
+    }
+
+    /// <summary>The shape's own top-left offset in EMU, or <c>null</c> when it carries no explicit <c>a:xfrm</c>.</summary>
+    private static (long Y, long X)? OffsetOf(DocumentFormat.OpenXml.OpenXmlElement shape)
     {
         var offset = shape switch
         {
@@ -472,9 +498,87 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
             _ => null
         };
 
-        // A shape with no explicit xfrm inherits its position from the slide layout/master; we cannot
-        // resolve that here, so it sorts to the top by position and keeps document order via Sequence.
-        return offset is null ? (0, 0) : (offset.Y?.Value ?? 0, offset.X?.Value ?? 0);
+        return offset is null ? null : (offset.Y?.Value ?? 0, offset.X?.Value ?? 0);
+    }
+
+    /// <summary>A group's child coordinate-space origin (<c>a:chOff</c>), or (0,0).</summary>
+    private static (long Y, long X) GroupChildOffset(P.GroupShape group)
+    {
+        var childOffset = group.GroupShapeProperties?.TransformGroup?.ChildOffset;
+        return childOffset is null ? (0, 0) : (childOffset.Y?.Value ?? 0, childOffset.X?.Value ?? 0);
+    }
+
+    /// <summary>
+    /// The position a slide-level placeholder inherits from its slide layout (then master) when it omits its
+    /// own <c>a:xfrm</c> (#313): match the layout / master placeholder by <c>idx</c> (the stable key) then
+    /// type, and read its offset. Returns <c>null</c> when the shape is not a placeholder or no match carries
+    /// an offset — the caller then keeps (0,0), preserving prior behavior.
+    /// </summary>
+    private static (long Y, long X)? ResolveInheritedOffset(DocumentFormat.OpenXml.OpenXmlElement shape, SlidePart slidePart)
+    {
+        if (shape is not P.Shape placeholderShape)
+        {
+            return null;
+        }
+
+        var ph = placeholderShape.NonVisualShapeProperties?.ApplicationNonVisualDrawingProperties?.PlaceholderShape;
+        if (ph is null)
+        {
+            return null;
+        }
+
+        var type = ph.Type?.Value;
+        var index = ph.Index?.Value;
+
+        return MatchingPlaceholderOffset(slidePart.SlideLayoutPart?.SlideLayout?.CommonSlideData?.ShapeTree, type, index)
+            ?? MatchingPlaceholderOffset(slidePart.SlideLayoutPart?.SlideMasterPart?.SlideMaster?.CommonSlideData?.ShapeTree, type, index);
+    }
+
+    /// <summary>The offset of the placeholder in <paramref name="shapeTree"/> matching the given idx + type.</summary>
+    private static (long Y, long X)? MatchingPlaceholderOffset(P.ShapeTree? shapeTree, P.PlaceholderValues? type, uint? index)
+    {
+        if (shapeTree is null)
+        {
+            return null;
+        }
+
+        foreach (var candidate in shapeTree.Elements<P.Shape>())
+        {
+            var ph = candidate.NonVisualShapeProperties?.ApplicationNonVisualDrawingProperties?.PlaceholderShape;
+            if (ph is null)
+            {
+                continue;
+            }
+
+            // idx is the primary placeholder key; when the slide placeholder carries one, require the same
+            // idx. Otherwise fall back to a type match (title / body placeholders often omit idx).
+            var indexMatches = index is null ? ph.Index?.Value is null : ph.Index?.Value == index;
+            if (indexMatches
+                && PlaceholderTypesMatch(ph.Type?.Value, type)
+                && candidate.ShapeProperties?.Transform2D?.Offset is { } offset)
+            {
+                return (offset.Y?.Value ?? 0, offset.X?.Value ?? 0);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Whether two placeholder types are equivalent for inheritance — an absent type defaults to
+    /// Body, and CenteredTitle counts as Title.</summary>
+    private static bool PlaceholderTypesMatch(P.PlaceholderValues? a, P.PlaceholderValues? b)
+    {
+        static P.PlaceholderValues Normalize(P.PlaceholderValues? type)
+        {
+            if (type is null)
+            {
+                return P.PlaceholderValues.Body;
+            }
+
+            return type.Value == P.PlaceholderValues.CenteredTitle ? P.PlaceholderValues.Title : type.Value;
+        }
+
+        return Normalize(a) == Normalize(b);
     }
 
     private static string ShapeText(P.Shape shape)
