@@ -134,6 +134,22 @@ public class ExportTemplateAppService : VaultExtractAppService, IExportTemplateA
             // Upper time bound includes the full Max date (< Max + 1 day), matching date picker intuition.
             if (input.CreationTimeMax.HasValue)
                 query = query.Where(d => d.CreationTime < input.CreationTimeMax.Value.Date.AddDays(1));
+
+            // #414: extracted-field-value filters, AND-combined with the metadata filters above. Resolve the
+            // field names against the template's type (unknown field loud-fails via the shared resolver — the
+            // same path the document list / MCP search use), match document ids through the EXISTS query
+            // (GetFieldMatchedIdsAsync; the ambient IMultiTenant filter keeps it in the caller's layer), then
+            // intersect. The Take(limit + 1) below still bounds the export size.
+            if (input.FieldFilters is { Count: > 0 })
+            {
+                var fieldQueries = await DocumentFieldQueryResolver.ResolveAsync(
+                    _fieldDefinitionRepository,
+                    input.FieldFilters,
+                    template.DocumentTypeId,
+                    await ResolveTypeCodeForErrorAsync(template.DocumentTypeId));
+                var matchedIds = await _documentRepository.GetFieldMatchedIdsAsync(template.DocumentTypeId, fieldQueries);
+                query = query.Where(d => matchedIds.Contains(d.Id));
+            }
         }
 
         // Single fetch of (Max + 1) projected to ExportProjection (non-entity type -> does not SELECT Markdown and does not enter tracker).
@@ -249,6 +265,20 @@ public class ExportTemplateAppService : VaultExtractAppService, IExportTemplateA
         if (type == null)
         {
             throw new EntityNotFoundException(typeof(DocumentType), documentTypeId);
+        }
+    }
+
+    /// <summary>
+    /// Resolves the template's document-type code for a readable "unknown field" error message only (#414: the
+    /// export is already scoped by <c>DocumentTypeId</c>). Soft-delete-traversed so a deleted type still yields
+    /// its code; falls back to the id when the type row is gone.
+    /// </summary>
+    protected virtual async Task<string> ResolveTypeCodeForErrorAsync(Guid documentTypeId)
+    {
+        using (DataFilter.Disable<ISoftDelete>())
+        {
+            var type = await _documentTypeRepository.FindAsync(documentTypeId);
+            return type?.TypeCode ?? documentTypeId.ToString();
         }
     }
 

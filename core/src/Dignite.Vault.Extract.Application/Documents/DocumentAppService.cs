@@ -116,23 +116,9 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         }
 
         // DTO validation already guarantees DocumentTypeCode is non-empty when FieldFilters exist; documentTypeId was resolved above and is non-null, otherwise we already threw or returned.
-        var fieldQueries = new List<DocumentFieldQuery>(input.FieldFilters.Count);
-        foreach (var filter in input.FieldFilters)
-        {
-            var definition = await _fieldDefinitionRepository.FindByNameAsync(documentTypeId!.Value, filter.Name!);
-            if (definition == null)
-            {
-                throw new BusinessException(VaultExtractErrorCodes.ExtractedField.Unknown)
-                    .WithData("FieldName", filter.Name!)
-                    .WithData("DocumentTypeCode", input.DocumentTypeCode!);
-            }
-
-            // Internally match child rows by FieldDefinitionId (#207); FieldName is only for repository error diagnostics.
-            fieldQueries.Add(new DocumentFieldQuery(
-                definition.Id, filter.Name!, definition.DataType, filter.Value, filter.Min, filter.Max));
-        }
-
-        return fieldQueries;
+        // Shared with ExportTemplateAppService.ExportAsync (#414) so the unknown-field loud-fail stays single-sourced.
+        return await DocumentFieldQueryResolver.ResolveAsync(
+            _fieldDefinitionRepository, input.FieldFilters, documentTypeId!.Value, input.DocumentTypeCode!);
     }
 
     protected virtual async Task<PagedResultDto<DocumentListItemDto>> ExecuteListQueryAsync(
