@@ -179,18 +179,12 @@ public class FieldDefinition : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// <summary>
     /// Normalizes optional extraction instructions: blank values (null / whitespace-only) always collapse to null,
     /// meaning "no prompt"; when empty, the LLM infers from Name + DataType only.
-    /// Non-empty values only validate the length limit (<see cref="FieldDefinitionConsts.MaxPromptLength"/>).
-    /// No NotNullOrWhiteSpace check because Prompt is optional.
+    /// No length limit (#447): Prompt is admin-authored configuration (may be long, structured Markdown) and is
+    /// persisted uncapped as <c>nvarchar(max)</c>. No NotNullOrWhiteSpace check because Prompt is optional.
     /// </summary>
     private static string? NormalizePrompt(string? prompt)
     {
-        if (string.IsNullOrWhiteSpace(prompt))
-        {
-            return null;
-        }
-
-        Check.Length(prompt, nameof(prompt), FieldDefinitionConsts.MaxPromptLength);
-        return prompt;
+        return string.IsNullOrWhiteSpace(prompt) ? null : prompt;
     }
 
     /// <summary>

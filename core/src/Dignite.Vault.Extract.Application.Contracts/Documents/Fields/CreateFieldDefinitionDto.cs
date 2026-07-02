@@ -18,8 +18,7 @@ public class CreateFieldDefinitionDto
     [DynamicStringLength(typeof(FieldDefinitionConsts), nameof(FieldDefinitionConsts.MaxDisplayNameLength))]
     public string DisplayName { get; set; } = default!;
 
-    /// <summary>Extraction instruction, <b>optional</b>. When blank, the LLM infers what to extract from <see cref="Name"/> and <see cref="DataType"/> only.</summary>
-    [DynamicStringLength(typeof(FieldDefinitionConsts), nameof(FieldDefinitionConsts.MaxPromptLength))]
+    /// <summary>Extraction instruction, <b>optional</b>. When blank, the LLM infers what to extract from <see cref="Name"/> and <see cref="DataType"/> only. #447: length uncapped — admin-authored configuration (may be long, structured Markdown).</summary>
     public string? Prompt { get; set; }
 
     public FieldDataType DataType { get; set; } = FieldDataType.Text;

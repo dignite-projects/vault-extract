@@ -4,7 +4,15 @@ public static class FieldDefinitionConsts
 {
     public static int MaxNameLength { get; set; } = 64;
     public static int MaxDisplayNameLength { get; set; } = 128;
-    public static int MaxPromptLength { get; set; } = 1024;
+
+    /// <summary>
+    /// Cap for LLM-facing prompt <b>inputs</b> — the draft-from-instruction request (#264) and the
+    /// AI-polish request (#447). The persisted <c>FieldDefinition.Prompt</c> is intentionally uncapped
+    /// (<c>nvarchar(max)</c>, #447: it is admin-authored configuration, not end-user input), so this
+    /// bounds only the interactive LLM call to guard cost / abuse — it is no longer a column or
+    /// create/update DTO constraint.
+    /// </summary>
+    public static int MaxPromptLength { get; set; } = 4000;
 
     /// <summary>
     /// Whitelist for field <see cref="FieldDefinition.Name"/>: only letters / digits / underscore /

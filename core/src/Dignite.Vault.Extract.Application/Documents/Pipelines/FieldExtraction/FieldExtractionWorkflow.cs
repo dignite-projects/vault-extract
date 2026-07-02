@@ -79,7 +79,8 @@ public class FieldExtractionWorkflow : ITransientDependency
         // "instructions" and "user data" separately, together with PromptBoundary.WrapField + BoundaryRule.
         // FieldDefinition.Name is already entity-layer allow-list validated as [A-Za-z0-9_-]{1,64}
         // (see FieldDefinitionConsts.NamePattern), so it cannot contain line breaks, quotes, or Markdown control characters.
-        // f.Prompt is protected by the MaxPromptLength limit.
+        // f.Prompt is admin-authored configuration (uncapped since #447); its injection defense is PromptBoundary.WrapField
+        // (applied in BuildSchemaUserMessage) + BoundaryRule, not a length limit.
         var schemaMessage = BuildSchemaUserMessage(fields);
         var messages = new List<ChatMessage>
         {

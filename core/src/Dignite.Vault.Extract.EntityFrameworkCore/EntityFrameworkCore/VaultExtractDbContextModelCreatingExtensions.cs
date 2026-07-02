@@ -308,7 +308,8 @@ public static class VaultExtractDbContextModelCreatingExtensions
             b.Property(x => x.Name).IsRequired().HasMaxLength(FieldDefinitionConsts.MaxNameLength);
             b.Property(x => x.DisplayName).IsRequired().HasMaxLength(FieldDefinitionConsts.MaxDisplayNameLength);
             // Prompt is optional (nullable): when empty, the LLM infers from Name + DataType only. FieldDefinition.NormalizePrompt collapses whitespace to null.
-            b.Property(x => x.Prompt).IsRequired(false).HasMaxLength(FieldDefinitionConsts.MaxPromptLength);
+            // #447: no HasMaxLength -> nvarchar(max). Prompt is admin-authored configuration (may be long, structured Markdown), so its length is intentionally uncapped.
+            b.Property(x => x.Prompt).IsRequired(false);
             b.Property(x => x.DataType).IsRequired();
 
             // Internal association to parent document type (#207): FK -> DocumentType.Id, OnDelete Restrict. Soft delete does not trigger it; hard-deleting a referenced type is rejected by the DB.
