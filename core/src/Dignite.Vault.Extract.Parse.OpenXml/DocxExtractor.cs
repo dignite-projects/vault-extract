@@ -46,7 +46,8 @@ namespace Dignite.Vault.Extract.Parse.OpenXml;
 /// <b>Tracked changes: accepted view.</b> Inserted-revision text lives in <c>w:t</c> (read normally);
 /// deleted-revision text lives in <c>w:delText</c> (LocalName "delText", not "t"). Reading only <c>w:t</c>
 /// therefore yields the accepted view of tracked changes for free (#308 decision). Comments and
-/// headers/footers are excluded (author-private / page boilerplate); footnotes/endnotes are deferred.
+/// headers/footers are excluded (author-private / page boilerplate); footnotes/endnotes are surfaced as
+/// Markdown-footnote definitions at the end of the document (#315).
 /// </para>
 /// <para>
 /// <b>Relationship to ElBruno.</b> Unlike <c>.pptx</c>, the catch-all ElBruno provider <i>can</i> convert
@@ -155,7 +156,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
             var mainPart = document.MainDocumentPart;
             var body = mainPart?.Document?.Body;
 
-            var state = new OpenXmlExtractionState
+            var state = new DocxExtractionState
             {
                 ImageBudget = _options.MaxImagesPerFile,
                 LanguageHints = ResolveLanguageHints(context)
@@ -183,11 +184,16 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
                 }
             }
 
+            // Footnotes / endnotes: markers were emitted inline during the body walk (WordParagraphRenderer
+            // collected each reference); resolve their bodies from the notes parts and append them as a
+            // Markdown-footnote-style notes section at the end of the document (#315).
+            await AppendNotesAsync(mainPart, blocks, state, cancellationToken);
+
             // Single source of truth for the #268 signal: the reason is built from the counters and is
             // null iff nothing was lost; completeness derives from it (no parallel hand-synced predicate).
             var incompleteReason = BuildIncompleteReason(
                 state.FailedContainers, state.DroppedByCap, state.Undecodable, state.OversizedImages,
-                state.TruncatedOcr, state.FailedFigureOcr, state.ChartFailures);
+                state.TruncatedOcr, state.FailedFigureOcr, state.ChartFailures, state.FailedNotes);
             var complete = incompleteReason is null;
             if (!complete)
             {
@@ -222,7 +228,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         DocumentFormat.OpenXml.OpenXmlElement element,
         MainDocumentPart mainPart,
         List<string> blocks,
-        OpenXmlExtractionState state,
+        DocxExtractionState state,
         int depth,
         CancellationToken cancellationToken)
     {
@@ -287,7 +293,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         W.Paragraph paragraph,
         MainDocumentPart mainPart,
         List<string> blocks,
-        OpenXmlExtractionState state,
+        DocxExtractionState state,
         CancellationToken cancellationToken)
     {
         var headingLevel = WordStyleMap.HeadingLevel(paragraph, mainPart);
@@ -309,7 +315,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         else
         {
             // Body paragraphs render with inline formatting (bold/italic) and hyperlinks.
-            var markdown = WordParagraphRenderer.Render(paragraph, mainPart);
+            var markdown = WordParagraphRenderer.Render(paragraph, mainPart, state.NoteReferences);
             if (!string.IsNullOrWhiteSpace(markdown))
             {
                 // A list item (w:numPr) gets a Markdown bullet / ordered marker, indented by nesting level.
@@ -366,7 +372,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         DocumentFormat.OpenXml.OpenXmlElement container,
         MainDocumentPart mainPart,
         List<string> blocks,
-        OpenXmlExtractionState state,
+        DocxExtractionState state,
         CancellationToken cancellationToken)
     {
         // Skip drawings nested inside a text box (txbxContent): the text box's own (outer) drawing is
@@ -397,12 +403,125 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         }
     }
 
+    /// <summary>
+    /// Resolves the footnote / endnote references collected during the body walk (#315) and appends each note
+    /// body as a Markdown-footnote definition (<c>[^fn{id}]: body</c>) at the end of the document, in
+    /// first-reference order and de-duplicated (a note referenced twice is defined once). The auto-inserted
+    /// separator / continuation notes are excluded (no author content). A reference that cannot be resolved —
+    /// a dangling id, or a missing FootnotesPart / EndnotesPart — trips the #268 signal via
+    /// <see cref="DocxExtractionState.FailedNotes"/> rather than being silently dropped.
+    /// </summary>
+    private async Task AppendNotesAsync(
+        MainDocumentPart? mainPart,
+        List<string> blocks,
+        DocxExtractionState state,
+        CancellationToken cancellationToken)
+    {
+        if (mainPart is null || state.NoteReferences.Count == 0)
+        {
+            return;
+        }
+
+        var footnotes = BuildNoteBodyMap(mainPart.FootnotesPart?.Footnotes?.Elements<W.Footnote>());
+        var endnotes = BuildNoteBodyMap(mainPart.EndnotesPart?.Endnotes?.Elements<W.Endnote>());
+
+        var seen = new HashSet<NoteReference>();
+        foreach (var reference in state.NoteReferences)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // A note referenced more than once is defined a single time.
+            if (!seen.Add(reference))
+            {
+                continue;
+            }
+
+            var map = reference.Kind == NoteKind.Footnote ? footnotes : endnotes;
+            if (map is null || !map.TryGetValue(reference.Id, out var note))
+            {
+                // Dangling reference, or the notes part is missing entirely — surface the loss (#268).
+                Logger.LogWarning(
+                    "A {Kind} reference (id {Id}) could not be resolved to a note body.", reference.Kind, reference.Id);
+                state.FailedNotes++;
+                continue;
+            }
+
+            var body = await RenderNoteBodyAsync(note, mainPart, state, cancellationToken);
+            blocks.Add(string.IsNullOrWhiteSpace(body) ? $"{reference.Marker}:" : $"{reference.Marker}: {body}");
+        }
+    }
+
+    /// <summary>
+    /// Indexes footnote / endnote definitions by <c>w:id</c>, excluding the auto-inserted
+    /// <c>separator</c> / <c>continuationSeparator</c> notes (they carry no author content). Returns
+    /// <c>null</c> when the part is absent, so the caller distinguishes "no notes part" (a reference is
+    /// therefore dangling) from an empty part.
+    /// </summary>
+    private static IReadOnlyDictionary<long, W.FootnoteEndnoteType>? BuildNoteBodyMap(
+        IEnumerable<W.FootnoteEndnoteType>? notes)
+    {
+        if (notes is null)
+        {
+            return null;
+        }
+
+        var map = new Dictionary<long, W.FootnoteEndnoteType>();
+        foreach (var note in notes)
+        {
+            if (note.Id?.Value is not { } id)
+            {
+                continue;
+            }
+
+            var type = note.Type?.Value;
+            if (type == W.FootnoteEndnoteValues.Separator || type == W.FootnoteEndnoteValues.ContinuationSeparator)
+            {
+                continue;
+            }
+
+            map[id] = note;
+        }
+
+        return map;
+    }
+
+    /// <summary>
+    /// Renders a footnote / endnote body to Markdown by reusing the body paragraph/run renderer (so a note
+    /// that carries formatting / links is handled consistently) and transcribing any embedded image in the
+    /// note through the shared <see cref="OpenXmlFigureTranscriber"/> (#315 red line: notes go through the
+    /// host <see cref="IOcrProvider"/>, no new LLM call site). Paragraphs are joined with blank lines. A
+    /// nested note reference inside a note is not followed (no collector is passed), so it does not recurse.
+    /// </summary>
+    private async Task<string> RenderNoteBodyAsync(
+        W.FootnoteEndnoteType note,
+        MainDocumentPart mainPart,
+        DocxExtractionState state,
+        CancellationToken cancellationToken)
+    {
+        var parts = new List<string>();
+        foreach (var paragraph in note.Elements<W.Paragraph>())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var text = WordParagraphRenderer.Render(paragraph, mainPart);
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                parts.Add(text);
+            }
+
+            // A figure inside a note (rare) is transcribed via the same host OCR path, appended after its text.
+            await ExtractContainerFiguresAsync(paragraph, mainPart, parts, state, cancellationToken);
+        }
+
+        return string.Join("\n\n", parts);
+    }
+
     /// <summary>Recursively renders the block-level children of a content-control / custom-XML wrapper.</summary>
     private async Task RenderChildBlocksAsync(
         DocumentFormat.OpenXml.OpenXmlElement? container,
         MainDocumentPart mainPart,
         List<string> blocks,
-        OpenXmlExtractionState state,
+        DocxExtractionState state,
         int depth,
         CancellationToken cancellationToken)
     {
@@ -435,7 +554,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         W.Drawing drawing,
         MainDocumentPart mainPart,
         List<string> blocks,
-        OpenXmlExtractionState state,
+        DocxExtractionState state,
         CancellationToken cancellationToken)
     {
         var embed = drawing.Descendants<A.Blip>().FirstOrDefault()?.Embed?.Value;
@@ -471,7 +590,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         string? caption,
         MainDocumentPart mainPart,
         List<string> blocks,
-        OpenXmlExtractionState state,
+        DocxExtractionState state,
         CancellationToken cancellationToken)
     {
         var block = await OpenXmlFigureTranscriber.TranscribeAsync(
@@ -514,7 +633,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
     /// renderable category/value cache (e.g. scatter/bubble) or an unreadable part trips the completeness
     /// signal (#268); a non-chart drawing with no blip (SmartArt / diagram / OLE) is an accepted blind spot.
     /// </summary>
-    private void HandleChart(W.Drawing drawing, MainDocumentPart mainPart, List<string> blocks, OpenXmlExtractionState state)
+    private void HandleChart(W.Drawing drawing, MainDocumentPart mainPart, List<string> blocks, DocxExtractionState state)
     {
         var chartId = drawing.Descendants<C.ChartReference>().FirstOrDefault()?.Id?.Value;
         if (string.IsNullOrEmpty(chartId))
@@ -672,7 +791,21 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
     /// path lands in a later #308 build-order step.
     /// </summary>
     internal static string? BuildIncompleteReason(
-        int failedBlocks, int droppedByCap, int undecodable, int oversizedImages, int truncatedOcr, int failedFigureOcr, int chartFailures)
+        int failedBlocks, int droppedByCap, int undecodable, int oversizedImages, int truncatedOcr, int failedFigureOcr, int chartFailures, int failedNotes = 0)
         => OpenXmlIncompleteReason.Build(
-            "document block", failedBlocks, droppedByCap, undecodable, oversizedImages, truncatedOcr, failedFigureOcr, chartFailures);
+            "document block", failedBlocks, droppedByCap, undecodable, oversizedImages, truncatedOcr, failedFigureOcr, chartFailures, failedNotes);
+
+    /// <summary>
+    /// DOCX-specific per-extraction accumulator: extends the shared <see cref="OpenXmlExtractionState"/> with
+    /// the footnote / endnote references collected during the body walk (in reading order) and the count of
+    /// references that could not be resolved to a note body (#315).
+    /// </summary>
+    protected sealed class DocxExtractionState : OpenXmlExtractionState
+    {
+        /// <summary>Footnote / endnote references seen in the body, in reading order (#315).</summary>
+        internal List<NoteReference> NoteReferences { get; } = new();
+
+        /// <summary>References whose note body could not be resolved — dangling id / missing notes part (#268).</summary>
+        public int FailedNotes;
+    }
 }

@@ -831,6 +831,87 @@ public class DocxExtractor_Tests
         result.IsComplete.ShouldBeTrue();
     }
 
+    [Fact]
+    public async Task Surfaces_footnote_and_endnote_markers_and_bodies()
+    {
+        // #315: an in-text marker at the reference position, and the resolved note body appended at the end.
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .Footnote("Body with a footnote", 2, "The footnote text.")
+            .Endnote("Body with an endnote", 3, "The endnote text."));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        // Markers sit at the reference's reading position (right after the run text).
+        result.Markdown.ShouldContain("Body with a footnote[^fn2]");
+        result.Markdown.ShouldContain("Body with an endnote[^en3]");
+        // The resolved bodies are appended as Markdown-footnote definitions.
+        result.Markdown.ShouldContain("[^fn2]: The footnote text.");
+        result.Markdown.ShouldContain("[^en3]: The endnote text.");
+        // The definitions come AFTER the body text they annotate.
+        result.Markdown.IndexOf("[^fn2]:", StringComparison.Ordinal)
+            .ShouldBeGreaterThan(result.Markdown.IndexOf("Body with a footnote", StringComparison.Ordinal));
+        result.IsComplete.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task A_document_without_notes_emits_no_note_markers()
+    {
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec().Paragraph("Plain body, no notes."));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        result.Markdown.ShouldContain("Plain body, no notes.");
+        result.Markdown.ShouldNotContain("[^");
+        result.IsComplete.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Excludes_separator_notes_from_output()
+    {
+        // The FootnotesPart carries the auto-inserted separator / continuationSeparator notes (sentinel text);
+        // only the referenced author note is emitted, never the separators.
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .Footnote("See note", 2, "Author footnote."));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        result.Markdown.ShouldContain("[^fn2]: Author footnote.");
+        result.Markdown.ShouldNotContain("SEP_SENTINEL");
+        result.Markdown.ShouldNotContain("CONT_SENTINEL");
+        result.IsComplete.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Marks_incomplete_for_a_dangling_note_reference()
+    {
+        // A footnote ref to id 99 with a FootnotesPart present (real note 2 + separators) but no id 99 —
+        // dangling, so the completeness signal trips rather than silently dropping the note.
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .Footnote("Real", 2, "Real note.")
+            .DanglingFootnote("Dangling", 99));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        result.Markdown.ShouldContain("[^fn2]: Real note.");
+        result.IsComplete.ShouldBeFalse();
+        result.IncompleteReason!.ShouldContain("footnote/endnote reference");
+    }
+
+    [Fact]
+    public async Task Marks_incomplete_when_the_notes_part_is_missing()
+    {
+        // A footnote reference with NO FootnotesPart at all (missing part) — dangling, tripping #268. The
+        // in-text marker is still emitted at its reading position.
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .DanglingFootnote("Orphan ref", 2));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        result.Markdown.ShouldContain("Orphan ref[^fn2]");
+        result.IsComplete.ShouldBeFalse();
+        result.IncompleteReason!.ShouldContain("footnote/endnote reference");
+    }
+
     private static int CountOccurrences(string haystack, string needle)
     {
         var count = 0;

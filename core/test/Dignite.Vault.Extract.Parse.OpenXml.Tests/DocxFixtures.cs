@@ -109,6 +109,14 @@ internal static class DocxFixtures
     /// <summary>A modern DrawingML text box (wps:txbx) containing a paragraph of text AND an embedded image.</summary>
     public sealed record TextBoxImageSpec(string Text, ImageSpec Image) : BlockSpec;
 
+    /// <summary>
+    /// A paragraph carrying a footnote / endnote reference after its text (#315). <c>NoteText</c> null = a
+    /// DANGLING reference (no matching note body); when it is the only note of its kind the notes part is not
+    /// created either (the missing-part case). The notes part, when created, also carries the auto-inserted
+    /// separator / continuationSeparator notes so the extractor's separator exclusion is exercised.
+    /// </summary>
+    public sealed record NoteSpec(string ParagraphText, int Id, bool IsEndnote, string? NoteText) : BlockSpec;
+
     public sealed class DocSpec
     {
         public List<BlockSpec> Blocks { get; } = new();
@@ -247,6 +255,27 @@ internal static class DocxFixtures
             Blocks.Add(new TextBoxImageSpec(text, image));
             return this;
         }
+
+        /// <summary>A paragraph whose text is followed by a footnote reference; the note body is registered in the FootnotesPart.</summary>
+        public DocSpec Footnote(string paragraphText, int id, string noteText)
+        {
+            Blocks.Add(new NoteSpec(paragraphText, id, IsEndnote: false, noteText));
+            return this;
+        }
+
+        /// <summary>A paragraph whose text is followed by an endnote reference; the note body is registered in the EndnotesPart.</summary>
+        public DocSpec Endnote(string paragraphText, int id, string noteText)
+        {
+            Blocks.Add(new NoteSpec(paragraphText, id, IsEndnote: true, noteText));
+            return this;
+        }
+
+        /// <summary>A footnote reference whose id has no matching note body — dangling if a FootnotesPart exists, missing-part if not.</summary>
+        public DocSpec DanglingFootnote(string paragraphText, int id)
+        {
+            Blocks.Add(new NoteSpec(paragraphText, id, IsEndnote: false, NoteText: null));
+            return this;
+        }
     }
 
     public static byte[] Build(DocSpec spec)
@@ -354,7 +383,27 @@ internal static class DocxFixtures
                     case TextBoxImageSpec textBoxImage:
                         body.Append(TextBoxImageXml(textBoxImage.Text, textBoxImage.Image, AddImage(mainPart, textBoxImage.Image, ref imageRel)));
                         break;
+
+                    case NoteSpec note:
+                        body.Append(NoteReferenceParagraphXml(note));
+                        break;
                 }
+            }
+
+            var footnoteBodies = spec.Blocks.OfType<NoteSpec>().Where(n => !n.IsEndnote && n.NoteText is not null).ToList();
+            if (footnoteBodies.Count > 0)
+            {
+                var footnotesPart = mainPart.AddNewPart<FootnotesPart>();
+                footnotesPart.Footnotes = new Footnotes(FootnotesXml(footnoteBodies));
+                footnotesPart.Footnotes.Save();
+            }
+
+            var endnoteBodies = spec.Blocks.OfType<NoteSpec>().Where(n => n.IsEndnote && n.NoteText is not null).ToList();
+            if (endnoteBodies.Count > 0)
+            {
+                var endnotesPart = mainPart.AddNewPart<EndnotesPart>();
+                endnotesPart.Endnotes = new Endnotes(EndnotesXml(endnoteBodies));
+                endnotesPart.Endnotes.Save();
             }
 
             mainPart.Document = new Document(DocumentXml(body.ToString()));
@@ -400,6 +449,43 @@ internal static class DocxFixtures
 
     private static string SoftBreakXml(SoftBreakSpec softBreak) =>
         $"<w:p><w:r><w:t xml:space=\"preserve\">{Escape(softBreak.Line1)}</w:t><w:br/><w:t xml:space=\"preserve\">{Escape(softBreak.Line2)}</w:t></w:r></w:p>";
+
+    private static string NoteReferenceParagraphXml(NoteSpec note)
+    {
+        var reference = note.IsEndnote
+            ? $"<w:endnoteReference w:id=\"{note.Id}\"/>"
+            : $"<w:footnoteReference w:id=\"{note.Id}\"/>";
+        // Text run, then a separate run carrying only the reference (as Word authors it).
+        return $"<w:p><w:r><w:t xml:space=\"preserve\">{Escape(note.ParagraphText)}</w:t></w:r><w:r>{reference}</w:r></w:p>";
+    }
+
+    private static string FootnotesXml(IEnumerable<NoteSpec> notes)
+    {
+        // Real Word documents carry auto-inserted separator / continuationSeparator notes; include them (with
+        // sentinel text) so the extractor's separator exclusion is exercised. Author notes follow.
+        var bodies = string.Concat(notes.Select(n =>
+            $"<w:footnote w:id=\"{n.Id}\"><w:p><w:r><w:t xml:space=\"preserve\">{Escape(n.NoteText!)}</w:t></w:r></w:p></w:footnote>"));
+        return $"""
+                <w:footnotes xmlns:w="{NsW}">
+                  <w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:t xml:space="preserve">SEP_SENTINEL</w:t></w:r></w:p></w:footnote>
+                  <w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:t xml:space="preserve">CONT_SENTINEL</w:t></w:r></w:p></w:footnote>
+                  {bodies}
+                </w:footnotes>
+                """;
+    }
+
+    private static string EndnotesXml(IEnumerable<NoteSpec> notes)
+    {
+        var bodies = string.Concat(notes.Select(n =>
+            $"<w:endnote w:id=\"{n.Id}\"><w:p><w:r><w:t xml:space=\"preserve\">{Escape(n.NoteText!)}</w:t></w:r></w:p></w:endnote>"));
+        return $"""
+                <w:endnotes xmlns:w="{NsW}">
+                  <w:endnote w:type="separator" w:id="-1"><w:p><w:r><w:t xml:space="preserve">SEP_SENTINEL</w:t></w:r></w:p></w:endnote>
+                  <w:endnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:t xml:space="preserve">CONT_SENTINEL</w:t></w:r></w:p></w:endnote>
+                  {bodies}
+                </w:endnotes>
+                """;
+    }
 
     private static string ImageParagraphXml(ImageSpec image, string relId) =>
         $"<w:p><w:r>{InlineDrawingXml(image, relId)}</w:r></w:p>";

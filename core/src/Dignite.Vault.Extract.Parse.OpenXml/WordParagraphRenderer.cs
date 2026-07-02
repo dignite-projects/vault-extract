@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using DocumentFormat.OpenXml.Packaging;
@@ -25,9 +26,12 @@ namespace Dignite.Vault.Extract.Parse.OpenXml;
 /// </summary>
 internal static class WordParagraphRenderer
 {
-    public static string Render(W.Paragraph paragraph, MainDocumentPart mainPart)
+    public static string Render(
+        W.Paragraph paragraph,
+        MainDocumentPart mainPart,
+        ICollection<NoteReference>? noteReferences = null)
     {
-        var builder = new InlineBuilder(mainPart);
+        var builder = new InlineBuilder(mainPart, noteReferences);
         builder.Walk(paragraph);
         return builder.ToMarkdown();
     }
@@ -39,12 +43,17 @@ internal static class WordParagraphRenderer
     private sealed class InlineBuilder
     {
         private readonly MainDocumentPart _mainPart;
+        private readonly ICollection<NoteReference>? _noteReferences;
         private readonly StringBuilder _sb = new();
         private string? _pendingText;
         private bool _pendingBold;
         private bool _pendingItalic;
 
-        public InlineBuilder(MainDocumentPart mainPart) => _mainPart = mainPart;
+        public InlineBuilder(MainDocumentPart mainPart, ICollection<NoteReference>? noteReferences)
+        {
+            _mainPart = mainPart;
+            _noteReferences = noteReferences;
+        }
 
         public void Walk(DocumentFormat.OpenXml.OpenXmlElement container)
         {
@@ -54,6 +63,7 @@ internal static class WordParagraphRenderer
                 {
                     case W.Run run:
                         AppendRun(run);
+                        AppendNoteMarkers(run);
                         break;
 
                     case W.Hyperlink link:
@@ -132,6 +142,36 @@ internal static class WordParagraphRenderer
             _pendingText = null;
             _pendingBold = false;
             _pendingItalic = false;
+        }
+
+        /// <summary>
+        /// Emits a stable inline footnote/endnote marker (<c>[^fn{id}]</c> / <c>[^en{id}]</c>) for each
+        /// <c>w:footnoteReference</c> / <c>w:endnoteReference</c> in the run, at its reading position, and
+        /// records the reference so the caller can resolve + append the note bodies (#315). The marker is
+        /// generated structure, so it is appended directly (past run-text inline-escaping), like a hyperlink.
+        /// </summary>
+        private void AppendNoteMarkers(W.Run run)
+        {
+            foreach (var child in run.ChildElements)
+            {
+                var reference = child switch
+                {
+                    W.FootnoteReference fn when fn.Id?.Value is { } fnId => new NoteReference(NoteKind.Footnote, fnId),
+                    W.EndnoteReference en when en.Id?.Value is { } enId => new NoteReference(NoteKind.Endnote, enId),
+                    _ => (NoteReference?)null
+                };
+
+                if (reference is not { } note)
+                {
+                    continue;
+                }
+
+                // The marker is generated structure (not run text), so flush pending run text first and append
+                // the raw marker directly — bypassing the inline-escaping that would turn "[" into "\[".
+                Flush();
+                _sb.Append(note.Marker);
+                _noteReferences?.Add(note);
+            }
         }
 
         private string RenderHyperlink(W.Hyperlink link)

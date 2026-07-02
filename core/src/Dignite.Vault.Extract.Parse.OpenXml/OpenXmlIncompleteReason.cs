@@ -22,7 +22,8 @@ internal static class OpenXmlIncompleteReason
         int oversizedImages,
         int truncatedOcr,
         int failedFigureOcr,
-        int chartFailures)
+        int chartFailures,
+        int failedNotes = 0)
     {
         var parts = new List<string>();
         if (failedContainers > 0)
@@ -53,6 +54,11 @@ internal static class OpenXmlIncompleteReason
         if (chartFailures > 0)
         {
             parts.Add($"{chartFailures} chart(s) could not be rendered as a table");
+        }
+
+        if (failedNotes > 0)
+        {
+            parts.Add($"{failedNotes} footnote/endnote reference(s) could not be resolved to a note body");
         }
 
         if (droppedByCap > 0)
