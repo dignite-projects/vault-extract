@@ -225,7 +225,7 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
 
         if (shapeTree is not null)
         {
-            await WalkShapesAsync(shapeTree, slidePart, inGroup: false, groupY: 0, groupX: 0, blocks, state, cancellationToken);
+            await WalkShapesAsync(shapeTree, slidePart, inGroup: false, GroupTransform.Identity, blocks, state, cancellationToken);
         }
 
         var body = SlideReadingOrder.Render(blocks);
@@ -246,16 +246,15 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
     /// <summary>
     /// Walks a shape container (the slide's shape tree or a grouped shape) in document order, dispatching
     /// pictures to OCR, charts/tables to structured rendering, and text shapes to Markdown. Recurses into
-    /// grouped shapes; each shape's absolute slide position is its own offset plus the accumulated group
-    /// translation (<paramref name="groupY"/>/<paramref name="groupX"/> — the running sum of each enclosing
-    /// group's <c>a:off − a:chOff</c>, #313), with <see cref="PptxExtractionState.Sequence"/> breaking ties.
+    /// grouped shapes; each shape's absolute slide position is the accumulated group transform
+    /// (<paramref name="transform"/> — every enclosing group's translation AND <c>ext/chExt</c> scale, #313 /
+    /// #456) applied to its own offset, with <see cref="PptxExtractionState.Sequence"/> breaking ties.
     /// </summary>
     private async Task WalkShapesAsync(
         DocumentFormat.OpenXml.OpenXmlElement container,
         SlidePart slidePart,
         bool inGroup,
-        long groupY,
-        long groupX,
+        GroupTransform transform,
         List<SlideReadingOrder.SlideBlock> blocks,
         PptxExtractionState state,
         CancellationToken cancellationToken)
@@ -268,36 +267,33 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
             {
                 case P.GroupShape group:
                     {
-                        // Descend with the group's translation composed in (#313): a child's absolute slide
-                        // position is its own offset plus the accumulated (group a:off − a:chOff) of every
-                        // enclosing group. Group scale is uniform per axis, so it preserves the per-axis order
-                        // and the translation alone is enough for reading order.
-                        var (offY, offX) = OffsetOf(group) ?? (0, 0);
-                        var (childOffY, childOffX) = GroupChildOffset(group);
+                        // Descend with the group's full transform composed in (#313 / #456): the child frame is
+                        // mapped to slide coordinates by the group's translation (a:off − a:chOff) AND its scale
+                        // (a:ext / a:chExt). A resized group has ext ≠ chExt, so translation alone would place
+                        // its children at the wrong slide position for the slide-global reading-order sort.
                         await WalkShapesAsync(
-                            group, slidePart, inGroup: true,
-                            groupY + offY - childOffY, groupX + offX - childOffX,
+                            group, slidePart, inGroup: true, ComposeGroup(transform, group),
                             blocks, state, cancellationToken);
                         break;
                     }
 
                 case P.Picture picture:
                     {
-                        var (y, x) = AbsolutePosition(picture, slidePart, inGroup, groupY, groupX);
+                        var (y, x) = AbsolutePosition(picture, slidePart, inGroup, transform);
                         await HandlePictureAsync(picture, slidePart, y, x, blocks, state, cancellationToken);
                         break;
                     }
 
                 case P.GraphicFrame graphicFrame:
                     {
-                        var (y, x) = AbsolutePosition(graphicFrame, slidePart, inGroup, groupY, groupX);
+                        var (y, x) = AbsolutePosition(graphicFrame, slidePart, inGroup, transform);
                         HandleGraphicFrame(graphicFrame, slidePart, y, x, blocks, state);
                         break;
                     }
 
                 case P.Shape shape:
                     {
-                        var (y, x) = AbsolutePosition(shape, slidePart, inGroup, groupY, groupX);
+                        var (y, x) = AbsolutePosition(shape, slidePart, inGroup, transform);
                         HandleTextShape(shape, y, x, blocks, state);
                         break;
                     }
@@ -486,17 +482,17 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
     }
 
     /// <summary>
-    /// The absolute slide position (EMU) of a shape for reading-order sorting (#313): the shape's own offset
-    /// translated by the accumulated group offset (<paramref name="groupY"/>/<paramref name="groupX"/>). A
-    /// top-level placeholder that omits its own <c>a:xfrm</c> inherits its position from the slide layout /
-    /// master rather than collapsing to (0,0); an in-group shape without an xfrm falls back to the group origin.
+    /// The absolute slide position (EMU) of a shape for reading-order sorting (#313 / #456): the accumulated
+    /// group <paramref name="transform"/> applied to the shape's own offset. A top-level placeholder that omits
+    /// its own <c>a:xfrm</c> inherits its position from the slide layout / master rather than collapsing to
+    /// (0,0); an in-group shape without an xfrm falls back to the group frame's mapped origin.
     /// </summary>
     private static (long Y, long X) AbsolutePosition(
-        DocumentFormat.OpenXml.OpenXmlElement shape, SlidePart slidePart, bool inGroup, long groupY, long groupX)
+        DocumentFormat.OpenXml.OpenXmlElement shape, SlidePart slidePart, bool inGroup, GroupTransform transform)
     {
         if (OffsetOf(shape) is { } own)
         {
-            return (groupY + own.Y, groupX + own.X);
+            return transform.Apply(own.Y, own.X);
         }
 
         if (!inGroup && ResolveInheritedOffset(shape, slidePart) is { } inherited)
@@ -504,7 +500,48 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
             return inherited;
         }
 
-        return (groupY, groupX);
+        return transform.Origin;
+    }
+
+    /// <summary>
+    /// The accumulated affine map from the current shape container's coordinate frame to slide coordinates
+    /// (#313 / #456): <c>slide = Offset + Scale · local</c>, per axis. Identity at the slide root; each
+    /// enclosing group composes its translation and its <c>ext/chExt</c> scale (see <see cref="ComposeGroup"/>)
+    /// so a resized group places its children at their real slide position for cross-group reading order.
+    /// </summary>
+    private readonly record struct GroupTransform(double OffY, double OffX, double ScaleY, double ScaleX)
+    {
+        public static GroupTransform Identity => new(0, 0, 1, 1);
+
+        /// <summary>Maps a shape's own child-frame offset (EMU) to an absolute slide position (EMU).</summary>
+        public (long Y, long X) Apply(long localY, long localX)
+            => ((long)(OffY + ScaleY * localY), (long)(OffX + ScaleX * localX));
+
+        /// <summary>This frame's mapped origin — where an in-group shape with no explicit xfrm is placed.</summary>
+        public (long Y, long X) Origin => ((long)OffY, (long)OffX);
+    }
+
+    /// <summary>
+    /// Composes an enclosing group's transform onto <paramref name="t"/>. A child at child-frame coordinate
+    /// <c>c</c> maps to the parent frame as <c>off + (c − chOff)·(ext/chExt)</c>; folding that through the
+    /// incoming affine <c>t</c> keeps the result affine. A missing / zero child extent means no scaling
+    /// information → scale 1 (translation only), preserving the pre-#456 behavior for such groups.
+    /// </summary>
+    private static GroupTransform ComposeGroup(GroupTransform t, P.GroupShape group)
+    {
+        var xfrm = group.GroupShapeProperties?.TransformGroup;
+        long offY = xfrm?.Offset?.Y ?? 0, offX = xfrm?.Offset?.X ?? 0;
+        long chOffY = xfrm?.ChildOffset?.Y ?? 0, chOffX = xfrm?.ChildOffset?.X ?? 0;
+        var sY = xfrm?.Extents?.Cy is { } ey && xfrm.ChildExtents?.Cy is { } cey && cey != 0 ? (double)ey / cey : 1.0;
+        var sX = xfrm?.Extents?.Cx is { } ex && xfrm.ChildExtents?.Cx is { } cex && cex != 0 ? (double)ex / cex : 1.0;
+
+        // slide = t.Off + t.Scale·(off + (local − chOff)·s)
+        //       = [t.Off + t.Scale·off − t.Scale·chOff·s] + [t.Scale·s]·local
+        return new GroupTransform(
+            t.OffY + t.ScaleY * offY - t.ScaleY * chOffY * sY,
+            t.OffX + t.ScaleX * offX - t.ScaleX * chOffX * sX,
+            t.ScaleY * sY,
+            t.ScaleX * sX);
     }
 
     /// <summary>The shape's own top-left offset in EMU, or <c>null</c> when it carries no explicit <c>a:xfrm</c>.</summary>
@@ -520,13 +557,6 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
         };
 
         return offset is null ? null : (offset.Y?.Value ?? 0, offset.X?.Value ?? 0);
-    }
-
-    /// <summary>A group's child coordinate-space origin (<c>a:chOff</c>), or (0,0).</summary>
-    private static (long Y, long X) GroupChildOffset(P.GroupShape group)
-    {
-        var childOffset = group.GroupShapeProperties?.TransformGroup?.ChildOffset;
-        return childOffset is null ? (0, 0) : (childOffset.Y?.Value ?? 0, childOffset.X?.Value ?? 0);
     }
 
     /// <summary>

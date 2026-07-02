@@ -811,4 +811,23 @@ public class PptxExtractor_Tests
         body.ShouldBeGreaterThanOrEqualTo(0);
         manual.ShouldBeLessThan(body, "the manually-positioned shape (higher) must render before the layout-inherited body placeholder (lower)");
     }
+
+    [Fact]
+    public async Task Composes_group_scale_into_the_reading_order_position()
+    {
+        // #456: a group scaled to one-third (ext cy = chExt cy / 3) at off y=500,000 contains a text at
+        // child-frame y=5,000,000, so its true slide y = 500,000 + 5,000,000/3 ≈ 2.17M. An ungrouped text sits
+        // at y=3M, so the group child must render FIRST. Translation-only (the pre-#456 math) placed the child
+        // at 500,000 + 5,000,000 = 5.5M and wrongly ordered it after the ungrouped text.
+        var pptx = PptxFixtures.Build(new PptxFixtures.SlideSpec()
+            .ScaledGroupOrdering(inside: "INSIDE_GROUP", insideLocalY: 5_000_000, outside: "OUTSIDE_SHAPE", outsideY: 3_000_000));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(pptx), PptxContext());
+
+        var inside = result.Markdown.IndexOf("INSIDE_GROUP", StringComparison.Ordinal);
+        var outside = result.Markdown.IndexOf("OUTSIDE_SHAPE", StringComparison.Ordinal);
+        inside.ShouldBeGreaterThanOrEqualTo(0);
+        outside.ShouldBeGreaterThanOrEqualTo(0);
+        inside.ShouldBeLessThan(outside, "the scaled group's child (true y ≈ 2.17M) must render before the ungrouped shape at y=3M");
+    }
 }
