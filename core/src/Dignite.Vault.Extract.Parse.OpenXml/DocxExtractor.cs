@@ -290,7 +290,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         OpenXmlExtractionState state,
         CancellationToken cancellationToken)
     {
-        var headingLevel = WordStyleMap.HeadingLevel(paragraph);
+        var headingLevel = WordStyleMap.HeadingLevel(paragraph, mainPart);
         if (headingLevel is int level)
         {
             // Headings render as plain collapsed text (no inline emphasis markup inside an ATX heading).
