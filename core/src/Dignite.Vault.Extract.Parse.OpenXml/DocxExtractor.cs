@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Volo.Abp.DependencyInjection;
+using A = DocumentFormat.OpenXml.Drawing;
 using C = DocumentFormat.OpenXml.Drawing.Charts;
 using Pic = DocumentFormat.OpenXml.Drawing.Pictures;
 using DW = DocumentFormat.OpenXml.Drawing.Wordprocessing;
@@ -397,6 +398,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         // in a style attribute, not wp:extent), so a tiny VML icon may be transcribed; VML in modern DOCX is
         // rare, so this is accepted.
         var pictures = new List<Pic.Picture>();
+        var fillDrawings = new List<W.Drawing>();
         var chartDrawings = new List<W.Drawing>();
         var vmlImages = new List<DocumentFormat.OpenXml.OpenXmlElement>();
 
@@ -409,7 +411,23 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
                     break;
 
                 case W.Drawing drawing when !HasTextBoxAncestor(drawing):
-                    chartDrawings.Add(drawing);
+                    // A drawing that contains a pic:pic is already covered by the Pic.Picture case above. One
+                    // WITHOUT a pic:pic but WITH an a:blip is a shape/group whose fill is a picture
+                    // (wps:wsp/a:blipFill/a:blip) — real image content the picture walk misses, so transcribe
+                    // it rather than dropping it silently (#322 fill-image regression). Anything else is a
+                    // chart (c:chart) or a SmartArt/diagram/OLE blind spot.
+                    if (!drawing.Descendants<Pic.Picture>().Any())
+                    {
+                        if (drawing.Descendants<A.Blip>().Any())
+                        {
+                            fillDrawings.Add(drawing);
+                        }
+                        else
+                        {
+                            chartDrawings.Add(drawing);
+                        }
+                    }
+
                     break;
 
                 default:
@@ -427,6 +445,15 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         {
             cancellationToken.ThrowIfCancellationRequested();
             await HandlePictureAsync(picture, mainPart, blocks, state, cancellationToken);
+        }
+
+        // Shape/group picture fills (a:blipFill on a wps:wsp / wpg, no pic:pic): transcribe via the shape's
+        // own extent / alt-text. Emitted after the pictures; these were previously dropped entirely, so no
+        // prior output ordering is disturbed (#322).
+        foreach (var drawing in fillDrawings)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await HandleFillDrawingAsync(drawing, mainPart, blocks, state, cancellationToken);
         }
 
         // Charts: a w:drawing referencing a c:chart renders as a table; HandleChart self-filters non-charts.
@@ -656,6 +683,37 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
     }
 
     /// <summary>
+    /// Transcribes a shape / group picture-fill drawing — a <c>wps:wsp</c> / <c>wpg</c> whose fill is an
+    /// <c>a:blipFill</c> with no <c>pic:pic</c> for the picture walk to catch. Judges the decorative-size
+    /// filter on the drawing's OWN <c>wp:extent</c> and reads its caption from the drawing's <c>wp:docPr</c>.
+    /// Restores the pre-#322 blip-anywhere behavior for fill images that the pic:pic walk otherwise dropped
+    /// silently (#322).
+    /// </summary>
+    private async Task HandleFillDrawingAsync(
+        W.Drawing drawing,
+        MainDocumentPart mainPart,
+        List<string> blocks,
+        DocxExtractionState state,
+        CancellationToken cancellationToken)
+    {
+        var embed = drawing.Descendants<A.Blip>().FirstOrDefault()?.Embed?.Value;
+        if (string.IsNullOrEmpty(embed))
+        {
+            return;
+        }
+
+        // No pic:pic, so IsDecorative(Pic.Picture) does not apply — judge the drawing's own wp:extent (the
+        // outermost inline/anchor extent; no extent => cannot judge => keep).
+        if (IsDecorativeExtent(drawing.Descendants<DW.Extent>().FirstOrDefault()))
+        {
+            return;
+        }
+
+        var caption = CaptionFromDocProperties(drawing.Descendants<DW.DocProperties>().FirstOrDefault());
+        await TranscribeEmbeddedImageAsync(embed, caption, mainPart, blocks, state, cancellationToken);
+    }
+
+    /// <summary>
     /// Resolves an embedded image relationship and transcribes it via the host-selected
     /// <see cref="IOcrProvider"/>, appending the (optionally captioned) transcription as a block. Shared by
     /// the DrawingML (<c>a:blip</c>) and legacy VML (<c>v:imagedata</c>) image paths. The figure-OCR pipeline
@@ -748,8 +806,14 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
     /// image is judged by its own size rather than the text box's.
     /// </summary>
     protected virtual bool IsDecorative(Pic.Picture picture)
+        => IsDecorativeExtent(NearestDrawingExtent(picture));
+
+    /// <summary>
+    /// Whether a <c>wp:extent</c> is below the decorative threshold (skipped silently). Shared by the picture
+    /// path (its nearest inline/anchor extent) and the shape-fill path (the drawing's own extent, #322).
+    /// </summary>
+    private bool IsDecorativeExtent(DW.Extent? extent)
     {
-        var extent = NearestDrawingExtent(picture);
         if (extent?.Cx is null || extent.Cy is null)
         {
             // No display extents: cannot judge — do not skip.
@@ -895,8 +959,12 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
     }
 
     private static string? AltTextOf(Pic.Picture picture)
+        => CaptionFromDocProperties(NearestDocProperties(picture));
+
+    /// <summary>The caption from a <c>wp:docPr</c>: its description (<c>@descr</c>), or its title as a fallback.
+    /// Shared by the picture path (nearest docPr) and the shape-fill path (the drawing's own docPr, #322).</summary>
+    private static string? CaptionFromDocProperties(DW.DocProperties? props)
     {
-        var props = NearestDocProperties(picture);
         var description = props?.Description?.Value;
         return !string.IsNullOrWhiteSpace(description) ? description : props?.Title?.Value;
     }

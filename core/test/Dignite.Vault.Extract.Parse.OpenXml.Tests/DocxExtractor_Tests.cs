@@ -980,6 +980,25 @@ public class DocxExtractor_Tests
     }
 
     [Fact]
+    public async Task Transcribes_a_shape_picture_fill_image()
+    {
+        StubOcr("FILL_FIG");
+
+        // #322 regression: a shape whose fill is a picture (wps:wsp/a:blipFill/a:blip) has no pic:pic, so the
+        // pic:pic walk missed it and it was dropped silently. It carries real image content, so it must be
+        // transcribed via the shape's own extent + alt-text.
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .ShapeFillImage(Png(alt: null), altText: "FILL_ALT"));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        await _ocr.Received(1).RecognizeAsync(
+            Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
+        result.Markdown.ShouldContain("FILL_FIG");
+        result.Markdown.ShouldContain("**FILL_ALT**");
+    }
+
+    [Fact]
     public async Task Uses_the_images_own_caption_for_a_text_box_image()
     {
         StubOcr("BOX_FIG");

@@ -123,6 +123,9 @@ internal static class DocxFixtures
     /// <summary>A paragraph carrying a single grouped drawing (wpg:wgp) with several pictures (#322).</summary>
     public sealed record GroupedImagesSpec(IReadOnlyList<ImageSpec> Images) : BlockSpec;
 
+    /// <summary>A shape whose fill is a picture (wps:wsp/a:blipFill/a:blip, no pic:pic) — a #322 fill image.</summary>
+    public sealed record ShapeFillImageSpec(ImageSpec Image, string? AltText) : BlockSpec;
+
     public sealed class DocSpec
     {
         public List<BlockSpec> Blocks { get; } = new();
@@ -303,6 +306,13 @@ internal static class DocxFixtures
             Blocks.Add(new GroupedImagesSpec(images));
             return this;
         }
+
+        /// <summary>A shape (wps:wsp) whose fill is a picture — real image content with no pic:pic (#322 fill regression).</summary>
+        public DocSpec ShapeFillImage(ImageSpec image, string? altText = null)
+        {
+            Blocks.Add(new ShapeFillImageSpec(image, altText));
+            return this;
+        }
     }
 
     public static byte[] Build(DocSpec spec)
@@ -419,6 +429,10 @@ internal static class DocxFixtures
                         body.Append(GroupedImagesXml(
                             grouped.Images,
                             grouped.Images.Select(img => AddImage(mainPart, img, ref imageRel)).ToList()));
+                        break;
+
+                    case ShapeFillImageSpec shapeFill:
+                        body.Append(ShapeFillImageXml(AddImage(mainPart, shapeFill.Image, ref imageRel), shapeFill.AltText));
                         break;
                 }
             }
@@ -671,6 +685,31 @@ internal static class DocxFixtures
            </wp:inline>
          </w:drawing></w:r></w:p>
          """;
+
+    // A shape (wps:wsp) whose fill is a picture (a:blipFill/a:blip) with NO pic:pic. The wp:extent is large
+    // enough not to be decorative-filtered; an optional descr becomes the caption (#322 fill regression).
+    private static string ShapeFillImageXml(string relId, string? altText)
+    {
+        var descr = string.IsNullOrEmpty(altText) ? string.Empty : $" descr=\"{Escape(altText)}\"";
+        return $"""
+                <w:p><w:r><w:drawing>
+                  <wp:inline>
+                    <wp:extent cx="2000000" cy="2000000"/>
+                    <wp:docPr id="70" name="ShapeFill 70"{descr}/>
+                    <a:graphic>
+                      <a:graphicData uri="{WpsUri}">
+                        <wps:wsp>
+                          <wps:spPr>
+                            <a:blipFill><a:blip r:embed="{relId}"/><a:stretch><a:fillRect/></a:stretch></a:blipFill>
+                          </wps:spPr>
+                          <wps:bodyPr/>
+                        </wps:wsp>
+                      </a:graphicData>
+                    </a:graphic>
+                  </wp:inline>
+                </w:drawing></w:r></w:p>
+                """;
+    }
 
     private static string DeeplyNestedSdtXml(int depth, string text)
     {
