@@ -390,4 +390,58 @@ public class DocumentSearchTool_Tests : VaultExtractTestBase<DocumentSearchToolT
         result.TotalCount.ShouldBe(2);
         result.Truncated.ShouldBeFalse();
     }
+
+    [Fact]
+    public async Task Does_not_signal_truncation_when_matches_exactly_fill_the_cap()
+    {
+        // Boundary: exactly MaxSearchResultCount matched and all were returned — nothing was elided, so
+        // Truncated must be false. Guards against a "full page == truncated" formula (items.Count >= cap),
+        // which passes the other two cases but would wrongly nudge the LLM to narrow an already-complete result.
+        var items = Enumerable.Range(0, DocumentConsts.MaxSearchResultCount)
+            .Select(_ => new DocumentListItemDto
+            {
+                Id = Guid.NewGuid(),
+                LifecycleStatus = DocumentLifecycleStatus.Ready,
+                CreationTime = new DateTime(2024, 1, 1)
+            })
+            .ToList();
+        _documentAppService
+            .GetListAsync(Arg.Any<GetDocumentListInput>())
+            .Returns(new PagedResultDto<DocumentListItemDto>(DocumentConsts.MaxSearchResultCount, items));
+
+        var result = await DocumentSearchTool.SearchAsync(
+            _documentAppService, documentTypeCode: "contract.general");
+
+        result.Items.Count.ShouldBe(DocumentConsts.MaxSearchResultCount);
+        result.TotalCount.ShouldBe(DocumentConsts.MaxSearchResultCount);
+        result.Truncated.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Signals_truncation_against_the_returned_count_not_the_ceiling()
+    {
+        // The truncation signal compares against the actually-returned row count, not the MaxSearchResultCount
+        // ceiling — so a caller-supplied smaller maxResultCount that elides matches is still reported truncated
+        // (the code comment promises both the caller cap and the ceiling as trigger sources). Here the caller
+        // asks for 5, 10 matched, 5 returned → truncated. Guards against a "TotalCount > cap" formula, which
+        // would report false (10 > 50) and let the LLM treat 5 rows as all 10.
+        var items = Enumerable.Range(0, 5)
+            .Select(_ => new DocumentListItemDto
+            {
+                Id = Guid.NewGuid(),
+                LifecycleStatus = DocumentLifecycleStatus.Ready,
+                CreationTime = new DateTime(2024, 1, 1)
+            })
+            .ToList();
+        _documentAppService
+            .GetListAsync(Arg.Any<GetDocumentListInput>())
+            .Returns(new PagedResultDto<DocumentListItemDto>(10, items));
+
+        var result = await DocumentSearchTool.SearchAsync(
+            _documentAppService, documentTypeCode: "contract.general", maxResultCount: 5);
+
+        result.Items.Count.ShouldBe(5);
+        result.TotalCount.ShouldBe(10);
+        result.Truncated.ShouldBeTrue();
+    }
 }
