@@ -912,6 +912,41 @@ public class DocxExtractor_Tests
         result.IncompleteReason!.ShouldContain("footnote/endnote reference");
     }
 
+    [Fact]
+    public async Task Transcribes_every_image_in_a_grouped_drawing()
+    {
+        StubOcr("GROUPED_FIG");
+
+        // #322: a grouped drawing (wpg:wgp) with two pictures. The old Descendants<Blip>().FirstOrDefault()
+        // walk transcribed only the first; iterating pic:pic transcribes each.
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .GroupedImages(Png(alt: null), Png(alt: null)));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        await _ocr.Received(2).RecognizeAsync(
+            Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
+        CountOccurrences(result.Markdown, "GROUPED_FIG").ShouldBe(2);
+        result.IsComplete.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Uses_the_images_own_caption_for_a_text_box_image()
+    {
+        StubOcr("BOX_FIG");
+
+        // #322: a text-box image's caption must come from the image's OWN wp:inline/docPr (descr "IMAGE_ALT"),
+        // not the outer text box's docPr (which carries no descr). Before the pic:pic refactor the outer
+        // drawing's docPr was read, so the image's alt-text was lost.
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .TextBoxWithImage("box text", Png(alt: "IMAGE_ALT")));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        result.Markdown.ShouldContain("**IMAGE_ALT**");
+        CountOccurrences(result.Markdown, "BOX_FIG").ShouldBe(1);
+    }
+
     private static int CountOccurrences(string haystack, string needle)
     {
         var count = 0;

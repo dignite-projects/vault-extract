@@ -29,6 +29,7 @@ internal static class DocxFixtures
     private const string NsC = "http://schemas.openxmlformats.org/drawingml/2006/chart";
     private const string PictureUri = "http://schemas.openxmlformats.org/drawingml/2006/picture";
     private const string WpsUri = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape";
+    private const string WpgUri = "http://schemas.microsoft.com/office/word/2010/wordprocessingGroup";
     private const string ChartUri = "http://schemas.openxmlformats.org/drawingml/2006/chart";
 
     /// <summary>An image to embed: raster bytes, MIME type, optional alt-text, EMU display extent.</summary>
@@ -116,6 +117,9 @@ internal static class DocxFixtures
     /// separator / continuationSeparator notes so the extractor's separator exclusion is exercised.
     /// </summary>
     public sealed record NoteSpec(string ParagraphText, int Id, bool IsEndnote, string? NoteText) : BlockSpec;
+
+    /// <summary>A paragraph carrying a single grouped drawing (wpg:wgp) with several pictures (#322).</summary>
+    public sealed record GroupedImagesSpec(IReadOnlyList<ImageSpec> Images) : BlockSpec;
 
     public sealed class DocSpec
     {
@@ -276,6 +280,13 @@ internal static class DocxFixtures
             Blocks.Add(new NoteSpec(paragraphText, id, IsEndnote: false, NoteText: null));
             return this;
         }
+
+        /// <summary>A single grouped drawing (wpg:wgp) containing several pictures, to exercise the pic:pic walk (#322).</summary>
+        public DocSpec GroupedImages(params ImageSpec[] images)
+        {
+            Blocks.Add(new GroupedImagesSpec(images));
+            return this;
+        }
     }
 
     public static byte[] Build(DocSpec spec)
@@ -387,6 +398,12 @@ internal static class DocxFixtures
                     case NoteSpec note:
                         body.Append(NoteReferenceParagraphXml(note));
                         break;
+
+                    case GroupedImagesSpec grouped:
+                        body.Append(GroupedImagesXml(
+                            grouped.Images,
+                            grouped.Images.Select(img => AddImage(mainPart, img, ref imageRel)).ToList()));
+                        break;
                 }
             }
 
@@ -489,6 +506,41 @@ internal static class DocxFixtures
 
     private static string ImageParagraphXml(ImageSpec image, string relId) =>
         $"<w:p><w:r>{InlineDrawingXml(image, relId)}</w:r></w:p>";
+
+    /// <summary>
+    /// One inline drawing whose graphic is a wpg:wgp GROUP of several pic:pic pictures (each with its own
+    /// blip + a:ext). The old FirstOrDefault-blip walk transcribed only the first picture; the pic:pic walk
+    /// (#322) transcribes each. The group's wp:inline carries a large extent so the pictures are not
+    /// decorative-filtered.
+    /// </summary>
+    private static string GroupedImagesXml(IReadOnlyList<ImageSpec> images, IReadOnlyList<string> relIds)
+    {
+        var pics = string.Concat(images.Select((image, i) =>
+        {
+            var descr = image.AltText is { Length: > 0 } ? $" descr=\"{Escape(image.AltText)}\"" : string.Empty;
+            return $"<pic:pic><pic:nvPicPr><pic:cNvPr id=\"{i + 1}\" name=\"GroupImg{i}\"{descr}/><pic:cNvPicPr/></pic:nvPicPr>"
+                 + $"<pic:blipFill><a:blip r:embed=\"{relIds[i]}\"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>"
+                 + $"<pic:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"{image.ExtentCx}\" cy=\"{image.ExtentCy}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>";
+        }));
+
+        return $"""
+                <w:p><w:r><w:drawing>
+                  <wp:inline>
+                    <wp:extent cx="4000000" cy="2000000"/>
+                    <wp:docPr id="500" name="Group 1"/>
+                    <a:graphic>
+                      <a:graphicData uri="{WpgUri}">
+                        <wpg:wgp xmlns:wpg="{WpgUri}">
+                          <wpg:cNvGrpSpPr/>
+                          <wpg:grpSpPr/>
+                          {pics}
+                        </wpg:wgp>
+                      </a:graphicData>
+                    </a:graphic>
+                  </wp:inline>
+                </w:drawing></w:r></w:p>
+                """;
+    }
 
     /// <summary>A single inline <c>w:drawing</c> carrying a picture blip — the shared building block.</summary>
     private static string InlineDrawingXml(ImageSpec image, string relId) =>

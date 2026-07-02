@@ -11,8 +11,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Volo.Abp.DependencyInjection;
-using A = DocumentFormat.OpenXml.Drawing;
 using C = DocumentFormat.OpenXml.Drawing.Charts;
+using Pic = DocumentFormat.OpenXml.Drawing.Pictures;
 using DW = DocumentFormat.OpenXml.Drawing.Wordprocessing;
 using W = DocumentFormat.OpenXml.Wordprocessing;
 
@@ -363,10 +363,13 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
     }
 
     /// <summary>
-    /// Transcribes a container's (paragraph or table) embedded images and renders its chart drawings.
-    /// Covers both DrawingML images (<c>a:blip</c> in <c>w:drawing</c>) and legacy VML raster images
-    /// (<c>v:imagedata</c> in <c>w:pict</c>), so a compatibility-mode / legacy DOCX does not silently drop
-    /// figures. Used for both body paragraphs and table cells (a Markdown cell can't host a transcription).
+    /// Transcribes a container's (paragraph, table cell, or note) embedded images and renders its chart
+    /// drawings. Images are walked as <b>picture instances</b> (<c>pic:pic</c>) rather than <c>w:drawing</c>
+    /// elements (#322), so a grouped drawing's several pictures are each transcribed once, a text-box image is
+    /// transcribed once with its OWN extent / caption (read from the picture's nearest <c>wp:inline</c> /
+    /// <c>wp:anchor</c>), and the previous grouped-multi-image loss and double-OCR special-case both go away.
+    /// Charts ride the <c>c:chart</c> reference on a <c>w:drawing</c>; legacy VML raster images ride
+    /// <c>v:imagedata</c> — neither is a <c>pic:pic</c>, so each keeps its own pass.
     /// </summary>
     private async Task ExtractContainerFiguresAsync(
         DocumentFormat.OpenXml.OpenXmlElement container,
@@ -375,19 +378,26 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         DocxExtractionState state,
         CancellationToken cancellationToken)
     {
-        // Skip drawings nested inside a text box (txbxContent): the text box's own (outer) drawing is
-        // processed once and its recursive blip lookup transcribes the inner image a single time. Without
-        // this skip the recursive Descendants walk visits BOTH the outer text-box drawing AND the nested
-        // image drawing and OCRs the same image twice (double cost + double budget + duplicate block).
+        // Images: one transcription per picture instance. A pic:pic appears exactly once in the tree, so a
+        // grouped drawing's images and a text-box image are each handled once with no double-OCR guard needed.
+        foreach (var picture in container.Descendants<Pic.Picture>())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await HandlePictureAsync(picture, mainPart, blocks, state, cancellationToken);
+        }
+
+        // Charts: a w:drawing referencing a c:chart renders its backing data as a table (no pic:pic).
+        // HandleChart self-filters non-chart drawings, so image / SmartArt / diagram / OLE drawings fall
+        // through untouched. A chart nested in a text box stays skipped (an accepted blind spot, unchanged).
         foreach (var drawing in container.Descendants<W.Drawing>().Where(d => !HasTextBoxAncestor(d)))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await HandleDrawingAsync(drawing, mainPart, blocks, state, cancellationToken);
+            HandleChart(drawing, mainPart, blocks, state);
         }
 
-        // Legacy VML raster images (w:pict/v:imagedata) are not W.Drawing, so the DrawingML walk above
-        // misses them. They reference PNG/JPEG bytes via an r:id (or o:relid) relationship — transcribe them
-        // too rather than silently dropping the figure. (A vector-only VML shape has no imagedata relationship.)
+        // Legacy VML raster images (w:pict/v:imagedata) are not pic:pic, so the picture walk above misses
+        // them. They reference PNG/JPEG bytes via an r:id (or o:relid) relationship — transcribe them too
+        // rather than silently dropping the figure. (A vector-only VML shape has no imagedata relationship.)
         // Known limitation: VML images are NOT decorative-size-filtered (a VML shape's size lives in its style
         // attribute, not wp:extent), so a tiny VML icon may be transcribed where its DrawingML equivalent
         // would be skipped by IsDecorative. VML in modern DOCX is rare, so this is accepted (see #318-area).
@@ -550,23 +560,26 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         }
     }
 
-    private async Task HandleDrawingAsync(
-        W.Drawing drawing,
+    /// <summary>
+    /// Transcribes one embedded picture (<c>pic:pic</c>) via the host OCR path, reading its decorative-size
+    /// threshold and caption from the picture's own <c>wp:inline</c> / <c>wp:anchor</c> ancestor so a grouped
+    /// or text-box image uses its OWN extent / alt-text rather than the group's / text box's (#322).
+    /// </summary>
+    private async Task HandlePictureAsync(
+        Pic.Picture picture,
         MainDocumentPart mainPart,
         List<string> blocks,
         DocxExtractionState state,
         CancellationToken cancellationToken)
     {
-        var embed = drawing.Descendants<A.Blip>().FirstOrDefault()?.Embed?.Value;
+        var embed = picture.BlipFill?.Blip?.Embed?.Value;
         if (string.IsNullOrEmpty(embed))
         {
-            // No image blip: a chart (render its backing data as a table) or SmartArt/diagram/OLE (an
-            // accepted blind spot). Charts go through the format-agnostic ChartRenderer — no OCR / vision.
-            HandleChart(drawing, mainPart, blocks, state);
+            // A picture with no embedded blip (e.g. a linked / external image) — nothing to transcribe.
             return;
         }
 
-        if (IsDecorative(drawing))
+        if (IsDecorative(picture))
         {
             // Icon / bullet / logo / spacer — not figure content, not counted against completeness.
             return;
@@ -574,7 +587,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
 
         // Native alt-text (wp:docPr/@descr, fallback @title) is a real caption signal — strictly better than
         // PDF's nearest-text heuristic.
-        await TranscribeEmbeddedImageAsync(embed, AltTextOf(drawing), mainPart, blocks, state, cancellationToken);
+        await TranscribeEmbeddedImageAsync(embed, AltTextOf(picture), mainPart, blocks, state, cancellationToken);
     }
 
     /// <summary>
@@ -664,10 +677,14 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         blocks.Add(table!);
     }
 
-    /// <summary>Whether the drawing's display size is below the decorative threshold (skipped silently).</summary>
-    protected virtual bool IsDecorative(W.Drawing drawing)
+    /// <summary>
+    /// Whether the picture's display size is below the decorative threshold (skipped silently). The extent is
+    /// read from the picture's nearest <c>wp:inline</c> / <c>wp:anchor</c> ancestor (#322), so a text-box
+    /// image is judged by its own size rather than the text box's.
+    /// </summary>
+    protected virtual bool IsDecorative(Pic.Picture picture)
     {
-        var extent = drawing.Descendants<DW.Extent>().FirstOrDefault();
+        var extent = NearestDrawingExtent(picture);
         if (extent?.Cx is null || extent.Cy is null)
         {
             // No display extents: cannot judge — do not skip.
@@ -691,6 +708,16 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         var pixelArea = cx * cy / (EmuPerPixel96 * EmuPerPixel96);
         return pixelArea < _options.MinImagePixels;
     }
+
+    /// <summary>The nearest inline (<c>wp:inline</c>) or floating (<c>wp:anchor</c>) drawing-wrapper ancestor
+    /// of the picture, or <c>null</c> — the source of the picture's own extent + docPr (#322). For a text-box
+    /// image this is the inner drawing (the image's), not the outer text-box drawing.</summary>
+    private static DocumentFormat.OpenXml.OpenXmlElement? NearestDrawingWrapper(Pic.Picture picture)
+        => picture.Ancestors().FirstOrDefault(a => a is DW.Inline or DW.Anchor);
+
+    /// <summary>The <c>wp:extent</c> of the picture's nearest inline / floating drawing ancestor, or <c>null</c>.</summary>
+    private static DW.Extent? NearestDrawingExtent(Pic.Picture picture)
+        => NearestDrawingWrapper(picture)?.GetFirstChild<DW.Extent>();
 
     /// <summary>
     /// Concatenates a paragraph's visible run text in document order: run text (<c>w:t</c>), tabs
@@ -768,12 +795,17 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         return MarkdownText.EscapeBlockText(sb.ToString().Trim());
     }
 
-    private static string? AltTextOf(W.Drawing drawing)
+    private static string? AltTextOf(Pic.Picture picture)
     {
-        var props = drawing.Descendants<DW.DocProperties>().FirstOrDefault();
+        var props = NearestDocProperties(picture);
         var description = props?.Description?.Value;
         return !string.IsNullOrWhiteSpace(description) ? description : props?.Title?.Value;
     }
+
+    /// <summary>The <c>wp:docPr</c> of the picture's nearest inline / floating drawing ancestor — the image's
+    /// own caption source, not the group's / text box's (#322).</summary>
+    private static DW.DocProperties? NearestDocProperties(Pic.Picture picture)
+        => NearestDrawingWrapper(picture)?.GetFirstChild<DW.DocProperties>();
 
     /// <summary>
     /// Resolves the OCR language hints for embedded-image transcription: the per-document hints from the
