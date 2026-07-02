@@ -172,6 +172,16 @@ internal static class PptxFixtures
             LayoutBodyOffsetY = layoutBodyY;
             return this;
         }
+
+        /// <summary>A group scaled ext ≪ chExt containing one text at InsideLocalY, plus an ungrouped text at
+        /// OutsideY — to verify the group's ext/chExt scale is composed into the reading-order position (#456).</summary>
+        public (string Inside, long InsideLocalY, string Outside, long OutsideY)? ScaledGroup { get; private set; }
+
+        public SlideSpec ScaledGroupOrdering(string inside, long insideLocalY, string outside, long outsideY)
+        {
+            ScaledGroup = (inside, insideLocalY, outside, outsideY);
+            return this;
+        }
     }
 
     public static byte[] Build(params SlideSpec[] slides)
@@ -294,6 +304,14 @@ internal static class PptxFixtures
             layoutPart.SlideLayout.Save();
         }
 
+        if (slide.ScaledGroup is { } scaled)
+        {
+            var groupId = shapeId++;
+            var innerId = shapeId++;
+            shapes.Append(ScaledGroupTextXml(groupId, innerId, scaled.Inside, scaled.InsideLocalY));
+            shapes.Append(PlainTextShapeXml(shapeId++, scaled.Outside, scaled.OutsideY));
+        }
+
         slidePart.Slide = new Slide(SlideXml(shapes.ToString()));
 
         if (slide.Notes is { Length: > 0 })
@@ -346,6 +364,38 @@ internal static class PptxFixtures
            </p:sp>
            {PictureXml(picId, image, relId)}
          </p:grpSp>
+         """;
+
+    /// <summary>
+    /// A group scaled to one-third (ext cy = chExt cy / 3) at off y=500000, containing one text shape at
+    /// child-frame <paramref name="localY"/>. Its true slide Y is <c>500000 + localY/3</c>, well ABOVE the
+    /// translation-only <c>500000 + localY</c> — so composing the ext/chExt scale changes its reading-order
+    /// rank against an ungrouped shape (#456).
+    /// </summary>
+    private static string ScaledGroupTextXml(uint groupId, uint textId, string text, long localY) =>
+        $"""
+         <p:grpSp>
+           <p:nvGrpSpPr><p:cNvPr id="{groupId}" name="Group{groupId}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+           <p:grpSpPr><a:xfrm>
+             <a:off x="500000" y="500000"/><a:ext cx="2000000" cy="2000000"/>
+             <a:chOff x="0" y="0"/><a:chExt cx="6000000" cy="6000000"/>
+           </a:xfrm></p:grpSpPr>
+           <p:sp>
+             <p:nvSpPr><p:cNvPr id="{textId}" name="Inner{textId}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+             <p:spPr><a:xfrm><a:off x="0" y="{localY}"/><a:ext cx="1000000" cy="500000"/></a:xfrm></p:spPr>
+             <p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>{Escape(text)}</a:t></a:r></a:p></p:txBody>
+           </p:sp>
+         </p:grpSp>
+         """;
+
+    /// <summary>An ungrouped text shape at an explicit slide offset (#456 reading-order comparison target).</summary>
+    private static string PlainTextShapeXml(uint id, string text, long y) =>
+        $"""
+         <p:sp>
+           <p:nvSpPr><p:cNvPr id="{id}" name="Text{id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+           <p:spPr><a:xfrm><a:off x="0" y="{y}"/><a:ext cx="3000000" cy="500000"/></a:xfrm></p:spPr>
+           <p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>{Escape(text)}</a:t></a:r></a:p></p:txBody>
+         </p:sp>
          """;
 
     /// <summary>A slide body placeholder (type=body, idx=1) with NO xfrm — its position is layout-inherited (#313).</summary>
