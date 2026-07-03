@@ -136,8 +136,8 @@ namespace Dignite.Vault.Extract.Host;
     typeof(VaultExtractParseOpenXmlModule),         // OpenXML: PPTX (slide text/notes, #307) + DOCX (headings/tables/lists/inline formatting/hyperlinks/text boxes, #308), each with charts/tables + embedded-image transcription. Claims .pptx and .docx. REQUIRED for .pptx (ElBruno has no PresentationML converter -> empty Markdown, no OCR fallback since .pptx != .pdf); .docx degrades gracefully to ElBruno if this module is omitted.
     typeof(VaultExtractParseElBrunoMarkItDownModule),
     typeof(VaultExtractVisionLlmOcrModule)                  // Vision-LLM OCR for photos, receipts, and image PDFs; current default OCR provider (#259). IOcrProvider implementations are mutually exclusive: when switching providers, update the .csproj ProjectReference and ConfigureAI keyed vision IChatClient together. See docs/en/text-extraction/ocr-vision-llm.md.
-    // typeof(VaultExtractPaddleOcrModule),                 // Local PaddleOCR sidecar (free CPU, PP-StructureV3); to switch back, uncomment this, comment VisionLlm, and restore its .csproj ProjectReference
-    // typeof(VaultExtractAzureDocumentIntelligenceModule), // Cloud option (higher accuracy); when switching, also comment / enable the matching ProjectReference in .csproj
+                                                            // typeof(VaultExtractPaddleOcrModule),                 // Local PaddleOCR sidecar (free CPU, PP-StructureV3); to switch back, uncomment this, comment VisionLlm, and restore its .csproj ProjectReference
+                                                            // typeof(VaultExtractAzureDocumentIntelligenceModule), // Cloud option (higher accuracy); when switching, also comment / enable the matching ProjectReference in .csproj
 )]
 public class VaultExtractHostModule : AbpModule
 {
@@ -265,6 +265,22 @@ public class VaultExtractHostModule : AbpModule
         ConfigureAI(context, configuration);
         ConfigureOpenTelemetry(context, configuration);
         ConfigureRequestLimits(context);
+        ConfigureMcpRateLimiter(context);
+    }
+
+    // #433: rate-limit the /mcp egress endpoint (API-key brute-force + invalid-key log-flood + DoS backstop).
+    // The mechanism (per-IP fixed-window policy, 429 rejection) lives in the Mcp egress module
+    // (AddVaultExtractMcpRateLimiter, mirroring #428's AddVaultExtractMcpApiKey); the host owns the config and the
+    // pipeline wiring. Enabled by default with generous limits (Mcp:RateLimit), applied to /mcp via
+    // RequireRateLimiting in OnApplicationInitialization so it covers BOTH the API-key channel and the #278
+    // discovery-401 path. The limiter never fires for legitimate, in-limit MCP session traffic.
+    private void ConfigureMcpRateLimiter(ServiceConfigurationContext context)
+    {
+        var configuration = context.Services.GetConfiguration();
+        context.Services.AddVaultExtractMcpRateLimiter(options =>
+        {
+            configuration.GetSection("Mcp:RateLimit").Bind(options);
+        });
     }
 
     // #221: upload request body limits as Kestrel / Form-layer backstop. The real fail-closed friendly error lives in
@@ -749,6 +765,9 @@ public class VaultExtractHostModule : AbpModule
 
         app.UseCorrelationId();
         app.UseRouting();
+        // #433: rate limiter, after UseRouting so it can read the endpoint's RequireRateLimiting metadata.
+        // Only the /mcp endpoint opts in (below); every other endpoint is unaffected.
+        app.UseRateLimiter();
         app.UseStaticFiles();
         app.UseAbpStudioLink();
         app.UseAbpSecurityHeaders();
@@ -787,8 +806,11 @@ public class VaultExtractHostModule : AbpModule
             // Tool / resource method bodies still perform explicit permission assertions as fail-closed double insurance.
             // #278: McpDiscoveryChallengeMarker lets 401 responses without token be routed by McpDiscoveryAuthorizationResultHandler
             // to McpAuth challenge, injecting the `WWW-Authenticate: Bearer resource_metadata="..."` discovery pointer.
+            // #433: RequireRateLimiting scopes the /mcp rate limiter to this endpoint, covering the API-key
+            // channel and the #278 discovery-401 path in one place.
             endpoints.MapMcp("/mcp")
                 .RequireAuthorization()
+                .RequireRateLimiting(McpRateLimiterDefaults.PolicyName)
                 .WithMetadata(McpDiscoveryChallengeMarker.Instance);
         });
     }

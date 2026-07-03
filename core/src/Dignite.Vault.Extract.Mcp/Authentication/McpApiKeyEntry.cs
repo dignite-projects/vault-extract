@@ -10,10 +10,22 @@ namespace Dignite.Vault.Extract.Mcp.Authentication;
 public class McpApiKeyEntry
 {
     /// <summary>
-    /// The shared secret. Supplied via environment variables / user-secrets, <b>never committed</b>;
-    /// at least <see cref="McpApiKeyDefaults.MinKeyLength"/> characters, CSPRNG-generated.
+    /// The shared secret in plaintext. Supplied via environment variables / user-secrets, <b>never committed</b>;
+    /// at least <see cref="McpApiKeyDefaults.MinKeyLength"/> characters, CSPRNG-generated. Configure <b>either</b>
+    /// this <b>or</b> <see cref="KeyHash"/> for a given entry, not both — the runtime compares SHA-256 digests, so
+    /// the two forms are interchangeable and setting both is ambiguous (rejected fail-fast).
     /// </summary>
     public string Key { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Hash-at-rest alternative to <see cref="Key"/> (#435): the lowercase hex SHA-256 digest
+    /// (<see cref="McpApiKeyHasher.Sha256HexLength"/> hex chars) of the shared secret. Prefer this so a leak of
+    /// host config / the secret store does not hand over usable keys — the digest is not reversible to the key.
+    /// Compute it with <see cref="McpApiKeyHasher.ComputeSha256Hex"/> or the documented shell one-liner. The
+    /// runtime compares <c>SHA256(presented)</c> against this digest via <c>FixedTimeEquals</c>, identical to the
+    /// plaintext path. Mutually exclusive with <see cref="Key"/>.
+    /// </summary>
+    public string? KeyHash { get; set; }
 
     /// <summary>
     /// The <c>Guid</c> of a real, provisioned ABP <c>IdentityUser</c> this key authenticates as; stamped as
