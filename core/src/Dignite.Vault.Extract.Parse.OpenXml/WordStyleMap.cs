@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using DocumentFormat.OpenXml.Packaging;
@@ -40,7 +41,15 @@ internal static class WordStyleMap
     /// resolved against <c>styles.xml</c> (the <c>basedOn</c> chain + style-level outline); when <c>null</c>,
     /// only the paragraph's own properties are considered (the pre-#316 behavior).
     /// </summary>
-    public static int? HeadingLevel(W.Paragraph paragraph, MainDocumentPart? mainPart = null)
+    /// <param name="styleHeadingCache">Optional per-document <c>styleId → level</c> memo (#458): when supplied,
+    /// a custom style's <c>basedOn</c>-chain resolution is computed once per distinct style id rather than once
+    /// per styled paragraph. Mirrors <see cref="WordListNumbering.Resolve"/>'s optional <c>formatCache</c>. Only
+    /// the step-3 style-chain walk is memoized; the built-in-id and paragraph-direct-outline checks (steps 1-2)
+    /// are per-paragraph direct formatting and are never keyed by style id.</param>
+    public static int? HeadingLevel(
+        W.Paragraph paragraph,
+        MainDocumentPart? mainPart = null,
+        IDictionary<string, int?>? styleHeadingCache = null)
     {
         var properties = paragraph.ParagraphProperties;
         if (properties is null)
@@ -78,7 +87,7 @@ internal static class WordStyleMap
         //    or a style-level outlineLvl). Requires the style part; otherwise the paragraph is not a heading.
         if (!string.IsNullOrEmpty(styleId) && mainPart is not null)
         {
-            return ResolveStyleHeadingLevel(styleId!, mainPart);
+            return ResolveStyleHeadingLevel(styleId!, mainPart, styleHeadingCache);
         }
 
         return null;
@@ -118,12 +127,39 @@ internal static class WordStyleMap
     }
 
     /// <summary>
-    /// Resolves a custom paragraph style against <c>styles.xml</c> by walking the <c>w:basedOn</c> chain: a
-    /// built-in <c>HeadingN</c> / <c>Title</c> id reached along the chain (even a latent style with no
-    /// explicit definition) supplies the level, as does the first style-level <c>w:outlineLvl</c> encountered
-    /// (the closest override wins). Returns <c>null</c> when the chain resolves to no heading.
+    /// Resolves a custom paragraph style to a heading level, reading a per-document memo first (#458): the
+    /// <c>styleId → level</c> resolution is walked once per distinct style id, so a corporate template whose
+    /// every "Body Text" paragraph shares one custom style scans <c>styles.xml</c> once rather than once per
+    /// paragraph. The walk itself lives in <see cref="ComputeStyleHeadingLevel"/>; this wrapper mirrors
+    /// <see cref="WordListNumbering"/>'s <c>ResolveFormat</c> cache layer (a <c>null</c> level is a legitimate
+    /// cached result — "resolved, not a heading" — so absence-of-key, not null-value, is the miss).
     /// </summary>
-    private static int? ResolveStyleHeadingLevel(string styleId, MainDocumentPart mainPart)
+    private static int? ResolveStyleHeadingLevel(
+        string styleId,
+        MainDocumentPart mainPart,
+        IDictionary<string, int?>? styleHeadingCache)
+    {
+        if (styleHeadingCache is not null && styleHeadingCache.TryGetValue(styleId, out var cached))
+        {
+            return cached;
+        }
+
+        var level = ComputeStyleHeadingLevel(styleId, mainPart);
+        if (styleHeadingCache is not null)
+        {
+            styleHeadingCache[styleId] = level;
+        }
+
+        return level;
+    }
+
+    /// <summary>
+    /// Walks a custom paragraph style's <c>w:basedOn</c> chain against <c>styles.xml</c>: a built-in
+    /// <c>HeadingN</c> / <c>Title</c> id reached along the chain (even a latent style with no explicit
+    /// definition) supplies the level, as does the first style-level <c>w:outlineLvl</c> encountered (the
+    /// closest override wins). Returns <c>null</c> when the chain resolves to no heading.
+    /// </summary>
+    private static int? ComputeStyleHeadingLevel(string styleId, MainDocumentPart mainPart)
     {
         var styles = mainPart.StyleDefinitionsPart?.Styles;
         if (styles is null)

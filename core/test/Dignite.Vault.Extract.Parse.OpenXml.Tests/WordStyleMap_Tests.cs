@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
@@ -197,6 +198,56 @@ public class WordStyleMap_Tests
         using (document)
         {
             WordStyleMap.HeadingLevel(paragraph, mainPart).ShouldBeNull();
+        }
+    }
+
+    [Fact]
+    public void Caches_a_resolved_custom_style_heading_level()
+    {
+        // #458: the first resolution of a custom style writes styleId -> level into the memo, so subsequent
+        // paragraphs sharing the style skip the basedOn-chain walk over styles.xml.
+        var (document, mainPart, paragraph) = BuildWithStyles(
+            "ChapterTitle",
+            "<w:style w:type=\"paragraph\" w:styleId=\"ChapterTitle\"><w:basedOn w:val=\"Heading1\"/></w:style>");
+        using (document)
+        {
+            var cache = new Dictionary<string, int?>();
+            WordStyleMap.HeadingLevel(paragraph, mainPart, cache).ShouldBe(1);
+            cache.ShouldContainKeyAndValue("ChapterTitle", 1);
+        }
+    }
+
+    [Fact]
+    public void A_cache_hit_short_circuits_the_style_chain_walk()
+    {
+        // #458: a hit on the memo returns the cached level without touching styles.xml. Pre-seed a sentinel the
+        // chain would never produce (the style is based on Heading1 => H1) and assert the sentinel is returned,
+        // proving the memo — not the walk — supplied the answer.
+        var (document, mainPart, paragraph) = BuildWithStyles(
+            "ChapterTitle",
+            "<w:style w:type=\"paragraph\" w:styleId=\"ChapterTitle\"><w:basedOn w:val=\"Heading1\"/></w:style>");
+        using (document)
+        {
+            var cache = new Dictionary<string, int?> { ["ChapterTitle"] = 4 };
+            WordStyleMap.HeadingLevel(paragraph, mainPart, cache).ShouldBe(4);
+        }
+    }
+
+    [Fact]
+    public void Caches_a_non_heading_custom_style_as_a_null_level()
+    {
+        // #458: "resolved, not a heading" is a real cached result. The memo stores the key with a null value so
+        // a repeated body-text paragraph is a cache HIT (absence-of-key is the miss, not null-value) and does
+        // not re-walk the chain.
+        var (document, mainPart, paragraph) = BuildWithStyles(
+            "BodyCustom",
+            "<w:style w:type=\"paragraph\" w:styleId=\"BodyCustom\"><w:basedOn w:val=\"Normal\"/></w:style>");
+        using (document)
+        {
+            var cache = new Dictionary<string, int?>();
+            WordStyleMap.HeadingLevel(paragraph, mainPart, cache).ShouldBeNull();
+            cache.ShouldContainKey("BodyCustom");
+            cache["BodyCustom"].ShouldBeNull();
         }
     }
 }
