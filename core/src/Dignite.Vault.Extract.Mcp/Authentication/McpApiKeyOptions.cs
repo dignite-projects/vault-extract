@@ -31,6 +31,24 @@ public class McpApiKeyOptions
     /// </summary>
     public bool RequireHttps { get; set; } = true;
 
+    /// <summary>
+    /// Minimum seconds between <c>Warning</c>-level "present-but-invalid key" security events (#433). A
+    /// present-but-invalid key is an attack signal (unlike a simply-absent one), so it is logged at Warning with
+    /// the source IP + header name (never the value); this gate throttles it so an unauthenticated caller cannot
+    /// flood Warning-level logs/alerts, dropping to Debug between windows. The <c>/mcp</c> rate limiter caps the
+    /// request volume that can reach the middleware in the first place. Default 60s; <c>0</c> = warn every time.
+    /// </summary>
+    public int InvalidKeyWarningWindowSeconds { get; set; } = 60;
+
+    /// <summary>
+    /// When <c>true</c> (default <c>false</c>), the host's optional service-account seed (#434) enforces
+    /// least-privilege on every configured key's <see cref="McpApiKeyEntry.ServiceAccountUserId"/>: it applies the
+    /// minimal <c>VaultExtract.Documents</c> grant and fails startup if the account is missing, holds any other
+    /// VaultExtract permission, or has any role. Opt-in so OAuth-only deployments and hosts that manage the
+    /// accounts by hand are untouched. Seeding never creates users.
+    /// </summary>
+    public bool SeedServiceAccounts { get; set; } = false;
+
     /// <summary>Configured keys. Empty = feature disabled.</summary>
     public List<McpApiKeyEntry> Keys { get; set; } = new();
 
@@ -65,15 +83,7 @@ public class McpApiKeyOptions
             var entry = Keys[i];
             var where = $"Mcp:ApiKey:Keys[{i}]";
 
-            if (string.IsNullOrWhiteSpace(entry.Key)
-                || entry.Key == McpApiKeyDefaults.PlaceholderKey
-                || entry.Key.Length < McpApiKeyDefaults.MinKeyLength)
-            {
-                throw new AbpException(
-                    $"{where}.Key is missing, the placeholder, or shorter than {McpApiKeyDefaults.MinKeyLength} characters. " +
-                    "Supply a CSPRNG-generated secret (>= 32 chars) via environment variables or user-secrets — never commit it. " +
-                    "Leave Mcp:ApiKey:Keys empty to disable the API-key channel (OAuth-only).");
-            }
+            ValidateSecret(entry, where);
 
             if (!Guid.TryParse(entry.ServiceAccountUserId, out var userId) || userId == Guid.Empty)
             {
@@ -88,12 +98,72 @@ public class McpApiKeyOptions
             }
         }
 
-        var duplicate = Keys.GroupBy(k => k.Key).FirstOrDefault(g => g.Count() > 1);
+        // Dedup on the effective digest (#435), not the raw Key, so a plaintext key and the pre-computed hash of
+        // the same key are recognised as the same credential; each key must stay distinct so audit attribution
+        // and independent revocation remain meaningful.
+        var duplicate = Keys.GroupBy(McpApiKeyHasher.EffectiveDigestHex).FirstOrDefault(g => g.Count() > 1);
         if (duplicate != null)
         {
             throw new AbpException(
-                "Mcp:ApiKey:Keys contains duplicate Key values; each key must be distinct so audit " +
-                "attribution and independent revocation stay meaningful.");
+                "Mcp:ApiKey:Keys contains duplicate keys (same secret configured twice, possibly one as Key and " +
+                "one as KeyHash); each key must be distinct so audit attribution and independent revocation stay meaningful.");
         }
+    }
+
+    // A key is configured EITHER as plaintext Key OR as its SHA-256 KeyHash (#435), never both and never neither.
+    // Plaintext mirrors ConfigureAI's placeholder/length fail-fast; the hash form only needs to be a well-formed
+    // 64-char hex digest (its entropy was fixed when it was generated from the >=32-char key).
+    private static void ValidateSecret(McpApiKeyEntry entry, string where)
+    {
+        var hasKey = !string.IsNullOrWhiteSpace(entry.Key);
+        var hasHash = !string.IsNullOrWhiteSpace(entry.KeyHash);
+
+        if (hasKey && hasHash)
+        {
+            throw new AbpException(
+                $"{where} sets both Key and KeyHash; configure exactly one (they are interchangeable — the runtime " +
+                "compares SHA-256 digests). Prefer KeyHash so a config/secret-store leak does not expose usable keys.");
+        }
+
+        if (!hasKey && !hasHash)
+        {
+            throw new AbpException(
+                $"{where} has neither Key nor KeyHash. Supply a CSPRNG-generated secret (>= {McpApiKeyDefaults.MinKeyLength} chars) " +
+                "as Key, or its lowercase hex SHA-256 as KeyHash, via environment variables or user-secrets — never commit it. " +
+                "Leave Mcp:ApiKey:Keys empty to disable the API-key channel (OAuth-only).");
+        }
+
+        if (hasKey)
+        {
+            if (entry.Key == McpApiKeyDefaults.PlaceholderKey
+                || entry.Key.Length < McpApiKeyDefaults.MinKeyLength)
+            {
+                throw new AbpException(
+                    $"{where}.Key is the placeholder or shorter than {McpApiKeyDefaults.MinKeyLength} characters. " +
+                    "Supply a CSPRNG-generated secret (>= 32 chars) via environment variables or user-secrets — never commit it.");
+            }
+
+            return;
+        }
+
+        if (entry.KeyHash!.Length != McpApiKeyHasher.Sha256HexLength || !IsHex(entry.KeyHash))
+        {
+            throw new AbpException(
+                $"{where}.KeyHash must be a {McpApiKeyHasher.Sha256HexLength}-character hex SHA-256 digest of the key " +
+                "(compute it with the documented one-liner). Leave it empty and set Key to configure the plaintext key instead.");
+        }
+    }
+
+    private static bool IsHex(string value)
+    {
+        foreach (var c in value)
+        {
+            if (!Uri.IsHexDigit(c))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

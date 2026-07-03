@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Security.Claims;
@@ -45,9 +47,12 @@ public class McpApiKeyAuthentication_Tests
     // >= McpApiKeyDefaults.MinKeyLength (32). Test-only values, not real secrets.
     private const string ValidKey = "test-mcp-api-key-0123456789abcdefghijklmnop";
     private const string SecondKey = "second-mcp-api-key-zyxwvutsrqponmlkjihgfedcba";
+    // #435: presented in plaintext but configured only as its SHA-256 digest (KeyHash).
+    private const string HashOnlyKey = "hash-only-mcp-api-key-abcdefghijklmnopqrstuvwx";
 
     private static readonly Guid ServiceAccountId = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private static readonly Guid SecondAccountId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+    private static readonly Guid HashAccountId = Guid.Parse("33333333-3333-3333-3333-333333333333");
 
     [Fact]
     public async Task Valid_api_key_authenticates_as_the_mapped_service_account()
@@ -198,7 +203,135 @@ public class McpApiKeyAuthentication_Tests
         Should.NotThrow(() => options.Validate());
     }
 
-    private static async Task<TestServer> BuildServerAsync(bool requireHttps = false)
+    // ---- #435: hash-at-rest (KeyHash) ----
+
+    [Fact]
+    public async Task A_keyhash_configured_key_authenticates_when_the_plaintext_is_presented()
+    {
+        // The entry carries only the SHA-256 digest; the client still sends the plaintext key. The runtime
+        // hashes the presented value and constant-time-compares digests, so the hash-at-rest form is transparent.
+        using var server = await BuildServerAsync(customize: options => options.Keys.Add(new McpApiKeyEntry
+        {
+            KeyHash = McpApiKeyHasher.ComputeSha256Hex(HashOnlyKey),
+            ServiceAccountUserId = HashAccountId.ToString(),
+            Label = "hash-test"
+        }));
+        using var client = server.CreateClient();
+        client.DefaultRequestHeaders.Add(HeaderName, HashOnlyKey);
+
+        var response = await client.GetAsync("/mcp");
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadAsStringAsync()).ShouldBe(HashAccountId.ToString());
+    }
+
+    [Fact]
+    public void Configuration_setting_both_key_and_keyhash_fails_fast()
+    {
+        var options = new McpApiKeyOptions
+        {
+            Keys = new List<McpApiKeyEntry>
+            {
+                new()
+                {
+                    Key = ValidKey,
+                    KeyHash = McpApiKeyHasher.ComputeSha256Hex(ValidKey),
+                    ServiceAccountUserId = ServiceAccountId.ToString()
+                }
+            }
+        };
+
+        Should.Throw<AbpException>(() => options.Validate());
+    }
+
+    [Fact]
+    public void Configuration_with_neither_key_nor_keyhash_fails_fast()
+    {
+        var options = new McpApiKeyOptions
+        {
+            Keys = new List<McpApiKeyEntry>
+            {
+                new() { ServiceAccountUserId = ServiceAccountId.ToString() }
+            }
+        };
+
+        Should.Throw<AbpException>(() => options.Validate());
+    }
+
+    [Fact]
+    public void Configuration_with_a_malformed_keyhash_fails_fast()
+    {
+        var options = new McpApiKeyOptions
+        {
+            Keys = new List<McpApiKeyEntry>
+            {
+                // Not 64 hex chars.
+                new() { KeyHash = "not-a-valid-sha256-digest", ServiceAccountUserId = ServiceAccountId.ToString() }
+            }
+        };
+
+        Should.Throw<AbpException>(() => options.Validate());
+    }
+
+    [Fact]
+    public void Configuration_with_a_plaintext_key_duplicating_a_keyhash_fails_fast()
+    {
+        // Same secret configured twice — once as plaintext, once as its digest — must be rejected as a duplicate
+        // so audit attribution / independent revocation stay meaningful.
+        var options = new McpApiKeyOptions
+        {
+            Keys = new List<McpApiKeyEntry>
+            {
+                new() { Key = ValidKey, ServiceAccountUserId = ServiceAccountId.ToString() },
+                new() { KeyHash = McpApiKeyHasher.ComputeSha256Hex(ValidKey), ServiceAccountUserId = SecondAccountId.ToString() }
+            }
+        };
+
+        Should.Throw<AbpException>(() => options.Validate());
+    }
+
+    // ---- #433: rate-limited invalid-key Warning, no value leak ----
+
+    [Fact]
+    public async Task Invalid_key_logs_a_throttled_warning_that_never_contains_the_value()
+    {
+        const string firstBadKey = "invalid-key-one-aaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const string secondBadKey = "invalid-key-two-bbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+        var provider = new CapturingLoggerProvider();
+        using var server = await BuildServerAsync(loggerProvider: provider);
+
+        // Two DIFFERENT invalid keys back-to-back. The default 60s throttle window means only the first emits a
+        // Warning; the second stays at Debug — an unauthenticated caller cannot flood Warning-level alerts.
+        using (var client = server.CreateClient())
+        {
+            client.DefaultRequestHeaders.Add(HeaderName, firstBadKey);
+            (await client.GetAsync("/mcp")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        }
+
+        using (var client = server.CreateClient())
+        {
+            client.DefaultRequestHeaders.Add(HeaderName, secondBadKey);
+            (await client.GetAsync("/mcp")).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        }
+
+        var warnings = provider.Entries
+            .Where(e => e.Level == LogLevel.Warning && e.Message.Contains("invalid MCP API key"))
+            .ToList();
+
+        // Rate-limited to one Warning across the window despite two invalid attempts.
+        warnings.Count.ShouldBe(1);
+        warnings[0].Message.ShouldContain(HeaderName);
+
+        // The secret value must never appear in any captured log entry, at any level.
+        provider.Entries.ShouldNotContain(e => e.Message.Contains(firstBadKey));
+        provider.Entries.ShouldNotContain(e => e.Message.Contains(secondBadKey));
+    }
+
+    private static async Task<TestServer> BuildServerAsync(
+        bool requireHttps = false,
+        Action<McpApiKeyOptions>? customize = null,
+        ILoggerProvider? loggerProvider = null)
     {
         var host = await new HostBuilder()
             .ConfigureWebHost(web =>
@@ -236,8 +369,20 @@ public class McpApiKeyAuthentication_Tests
                                 Label = "abp-ai-test"
                             }
                         };
+
+                        // Let a test append a KeyHash entry / tweak the throttle window without rebuilding all of this.
+                        customize?.Invoke(options);
                     });
                 });
+                if (loggerProvider != null)
+                {
+                    // Capture the middleware's ILogger output (invalid-key Warning + no-value-leak assertions).
+                    web.ConfigureLogging(logging =>
+                    {
+                        logging.SetMinimumLevel(LogLevel.Trace);
+                        logging.AddProvider(loggerProvider);
+                    });
+                }
                 web.Configure(app =>
                 {
                     app.UseRouting();
@@ -293,6 +438,39 @@ public class McpApiKeyAuthentication_Tests
             identity.AddClaim(new Claim("stage", RawClaim));
             return Task.FromResult(AuthenticateResult.Success(
                 new AuthenticationTicket(new ClaimsPrincipal(identity), TokenScheme)));
+        }
+    }
+
+    // Captures every log entry (level + rendered message) so a test can assert what was / was not logged.
+    private sealed class CapturingLoggerProvider : ILoggerProvider
+    {
+        public ConcurrentBag<(LogLevel Level, string Message)> Entries { get; } = new();
+
+        public ILogger CreateLogger(string categoryName) => new CapturingLogger(Entries);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class CapturingLogger : ILogger
+        {
+            private readonly ConcurrentBag<(LogLevel, string)> _entries;
+
+            public CapturingLogger(ConcurrentBag<(LogLevel, string)> entries) => _entries = entries;
+
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel,
+                EventId eventId,
+                TState state,
+                Exception? exception,
+                Func<TState, Exception?, string> formatter)
+            {
+                _entries.Add((logLevel, formatter(state, exception)));
+            }
         }
     }
 }

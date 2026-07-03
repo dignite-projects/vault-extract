@@ -124,14 +124,22 @@ Some MCP clients cannot run the OAuth flow above but can send a **static custom 
   "ApiKey": {
     "HeaderName": "X-Api-Key",                       // configurable; match it to the client's header
     "RequireHttps": true,                            // ignore a key presented over plain HTTP (default true)
+    "SeedServiceAccounts": false,                    // opt-in least-privilege seed/guard (#434), see below
     "Keys": [
       {
-        "Key": "<a CSPRNG secret, >= 32 chars>",     // env / user-secrets only
+        // Configure EITHER the plaintext Key OR its KeyHash (hash-at-rest, #435) — not both.
+        "KeyHash": "<lowercase hex sha256 of the key>",  // preferred: a config leak does not expose usable keys
+        // "Key": "<a CSPRNG secret, >= 32 chars>",      // alternative: plaintext, env / user-secrets only
         "ServiceAccountUserId": "<guid of a provisioned service-account user>",
         "TenantId": null,                            // host space; set a tenant Guid once multi-tenant
         "Label": "codex-prod"                        // audit attribution; never the key value
       }
     ]
+  },
+  "RateLimit": {                                     // #433: /mcp rate limiter (per client IP); on by default
+    "Enabled": true,
+    "PermitLimit": 300,                              // requests per window per IP — generous; a DoS/brute-force cap
+    "WindowSeconds": 60
   }
 }
 ```
@@ -141,11 +149,17 @@ Some MCP clients cannot run the OAuth flow above but can send a **static custom 
 1. **Provision a dedicated service-account user** (ABP admin UI or your own seed), then
 2. **Grant it only `VaultExtract.Documents`** (`ExtractPermissions.Documents.Default`) — directly at the user level, **no roles**. That single permission covers every MCP path (`search_documents`, `get_document`, `list_document_types`, the document and document-type resources). Granting anything more — or via a shared role — would let an API-key caller exceed an OAuth user; don't.
 
+Set `Mcp:ApiKey:SeedServiceAccounts: true` to have the host **enforce** that least-privilege at startup (opt-in, #434): for every configured `ServiceAccountUserId` it applies the `VaultExtract.Documents` grant and **fails startup** if the account is missing, holds any other VaultExtract permission, or has any role. It never creates users — provision the account first, then copy its Guid into config. Leave it `false` (default) to manage the accounts by hand.
+
 **Operational notes.**
 
 - **TLS only.** The key is a long-lived, bearer-equivalent secret. `Mcp:ApiKey:RequireHttps` (default `true`) makes the server **ignore a key presented over a non-HTTPS request** (it falls through to Bearer), so a key never travels in clear text; behind a TLS-terminating proxy this relies on the host's forwarded-headers handling. Also configure the proxy to strip any inbound copy of the header before forwarding. Set `RequireHttps: false` only for a deliberate plain-HTTP deployment (e.g. local testing).
+- **Hash-at-rest (preferred, #435).** Configure a key's **`KeyHash`** (lowercase hex SHA-256 of the key) instead of the plaintext `Key`, so a leak of host config / the secret store does not hand over usable keys — the runtime compares digests, so the two forms are interchangeable. Set exactly one of `Key` / `KeyHash` per entry. Compute the digest without echoing the secret to history:
+  - bash: `printf %s "$MCP_KEY" | sha256sum` (take the hex, lowercase)
+  - PowerShell: `[BitConverter]::ToString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($env:MCP_KEY))).Replace('-','').ToLower()`
 - **Rotation / revocation.** Multiple keys are supported, each with its own `Label` for audit attribution. Rotate with an overlap window (add the new key → migrate clients → remove the old). Revoke by removing the key from config (or removing the service account's grant). The API-key principal does **not** pass through ABP dynamic claims, so *disabling the underlying user is not an instant revocation path* — remove the key.
-- **Generation / fail-fast.** Generate keys from a CSPRNG (≥ 256 bits, e.g. 32 random bytes base64url); the host refuses to start on a placeholder value or a key shorter than 32 characters when keys are configured.
+- **Generation / fail-fast.** Generate keys from a CSPRNG (≥ 256 bits, e.g. 32 random bytes base64url); the host refuses to start on a placeholder value or a plaintext key shorter than 32 characters, a malformed `KeyHash`, both/neither of `Key`/`KeyHash`, or duplicate keys when keys are configured.
+- **Rate limiting (#433).** The `/mcp` endpoint is rate-limited per client IP (`Mcp:RateLimit`, on by default, `300`/`60s`), covering both the API-key channel and the discovery `401` path; over-limit requests get `429`. Limits are generous so legitimate MCP session traffic is unaffected — widen `PermitLimit` / `WindowSeconds` or set `Enabled: false` for unusual deployments. Behind a reverse proxy the per-IP partition is only as accurate as the host's forwarded-headers handling. A **present-but-invalid** key is logged as a rate-limited `Warning` (source IP + header name, **never** the value) — an attack signal a simply-absent key does not raise.
 
 #### Connect OpenAI Codex
 

@@ -1,13 +1,12 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Security.Claims;
 using System.Security.Cryptography;
-using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Volo.Abp.Security.Claims;
 
 namespace Dignite.Vault.Extract.Mcp.Authentication;
 
@@ -46,7 +45,12 @@ public sealed class McpApiKeyAuthenticationMiddleware
     private readonly ILogger<McpApiKeyAuthenticationMiddleware> _logger;
     private readonly string _headerName;
     private readonly bool _requireHttps;
+    private readonly long _invalidKeyWarningWindowMs;
     private readonly IReadOnlyList<CompiledKey> _keys;
+
+    // Monotonic (boot-relative, not wall-clock) throttle gate for the invalid-key Warning (#433). One shared
+    // instance backs all requests (convention middleware is instantiated once), so this is a global gate.
+    private long _lastInvalidKeyWarningTicks;
 
     public McpApiKeyAuthenticationMiddleware(
         RequestDelegate next,
@@ -59,11 +63,16 @@ public sealed class McpApiKeyAuthenticationMiddleware
         var value = options.Value;
         _headerName = value.HeaderName;
         _requireHttps = value.RequireHttps;
+        _invalidKeyWarningWindowMs = Math.Max(0, value.InvalidKeyWarningWindowSeconds) * 1000L;
+        // Seed the gate so the first present-but-invalid key logs a Warning immediately.
+        _lastInvalidKeyWarningTicks = Environment.TickCount64 - _invalidKeyWarningWindowMs - 1;
 
-        // Precompute SHA-256 digests once. Comparing fixed-length digests (not the raw keys) removes the
-        // length side-channel and lets FixedTimeEquals run over a constant-size buffer.
+        // Precompute the 32-byte SHA-256 digest of every configured key once — from the plaintext Key or the
+        // pre-computed KeyHash (#435), whichever was configured. Comparing fixed-length digests (not the raw
+        // keys) removes the length side-channel and lets FixedTimeEquals run over a constant-size buffer.
+        // Options.Validate() already fail-fast-checked the hash shape at startup, so EffectiveDigest won't throw.
         _keys = value.Keys
-            .Select(k => new CompiledKey(SHA256.HashData(Encoding.UTF8.GetBytes(k.Key)), k))
+            .Select(k => new CompiledKey(McpApiKeyHasher.EffectiveDigest(k), k))
             .ToList();
     }
 
@@ -82,19 +91,14 @@ public sealed class McpApiKeyAuthenticationMiddleware
                 var matched = Match(presented);
                 if (matched != null)
                 {
-                    context.User = BuildPrincipal(matched);
+                    context.User = McpApiKeyPrincipalFactory.Create(matched);
                     _logger.LogDebug(
                         "MCP request authenticated via API key (label: {Label}).",
                         string.IsNullOrWhiteSpace(matched.Label) ? "<unlabeled>" : matched.Label);
                 }
                 else
                 {
-                    // Present-but-invalid key. Logged at Debug (not Warning) so an unauthenticated caller
-                    // cannot flood Warning-level logs / alerts; a rate-limited security event is the proper
-                    // signal (deferred, see #428). Never log the value.
-                    _logger.LogDebug(
-                        "An invalid MCP API key was presented in header '{Header}'; falling through to Bearer authentication.",
-                        _headerName);
+                    LogInvalidKey(context);
                 }
             }
         }
@@ -119,7 +123,7 @@ public sealed class McpApiKeyAuthenticationMiddleware
 
     private McpApiKeyEntry? Match(string presented)
     {
-        var presentedHash = SHA256.HashData(Encoding.UTF8.GetBytes(presented));
+        var presentedHash = McpApiKeyHasher.ComputeDigest(presented);
 
         // Compare against every configured key with no early-exit, so neither the match position nor the
         // key count is timing-observable; SHA-256 digests are a fixed 32 bytes for FixedTimeEquals.
@@ -135,23 +139,40 @@ public sealed class McpApiKeyAuthenticationMiddleware
         return matched;
     }
 
-    private static ClaimsPrincipal BuildPrincipal(McpApiKeyEntry entry)
+    // Present-but-invalid key: an attack signal (unlike a simply-absent key). Emit a Warning with the source IP
+    // + header name (NEVER the value) so it surfaces at default log levels, throttled by ShouldWarnInvalidKey so
+    // an unauthenticated caller cannot flood Warning-level logs/alerts; between windows it stays Debug. The /mcp
+    // rate limiter (#433) caps how many such requests can reach here at all.
+    private void LogInvalidKey(HttpContext context)
     {
-        var claims = new List<Claim>
+        if (ShouldWarnInvalidKey())
         {
-            new(AbpClaimTypes.UserId, entry.ServiceAccountUserId)
-        };
+            _logger.LogWarning(
+                "An invalid MCP API key was presented in header '{Header}' from {RemoteIp}; falling through to Bearer authentication.",
+                _headerName,
+                context.Connection.RemoteIpAddress?.ToString() ?? "unknown");
+        }
+        else
+        {
+            _logger.LogDebug(
+                "An invalid MCP API key was presented in header '{Header}'; falling through to Bearer authentication.",
+                _headerName);
+        }
+    }
 
-        if (!string.IsNullOrWhiteSpace(entry.TenantId))
+    // True at most once per configured window: the window elapsed AND this thread won the compare-exchange.
+    // Concurrent losers fall back to Debug. Environment.TickCount64 is monotonic (not wall-clock), so it is
+    // unaffected by clock changes and needs no IClock.
+    private bool ShouldWarnInvalidKey()
+    {
+        var now = Environment.TickCount64;
+        var last = Interlocked.Read(ref _lastInvalidKeyWarningTicks);
+        if (now - last < _invalidKeyWarningWindowMs)
         {
-            claims.Add(new Claim(AbpClaimTypes.TenantId, entry.TenantId));
+            return false;
         }
 
-        // Non-empty authenticationType => IsAuthenticated == true (load-bearing; see class remarks). The
-        // key's Label is used only for log attribution, NOT stamped as AbpClaimTypes.UserName: faking a
-        // user name would mislead audit correlation against the real Identity service-account user.
-        var identity = new ClaimsIdentity(claims, McpApiKeyDefaults.AuthenticationType);
-        return new ClaimsPrincipal(identity);
+        return Interlocked.CompareExchange(ref _lastInvalidKeyWarningTicks, now, last) == last;
     }
 
     private sealed record CompiledKey(byte[] Hash, McpApiKeyEntry Entry);
