@@ -115,10 +115,17 @@ internal static class DocxFixtures
     /// DANGLING reference (no matching note body); when it is the only note of its kind the notes part is not
     /// created either (the missing-part case). The notes part, when created, also carries the auto-inserted
     /// separator / continuationSeparator notes so the extractor's separator exclusion is exercised.
+    /// <para>
+    /// <c>BodyLinkText</c> / <c>BodyLinkUrl</c> author a hyperlink inside the note BODY whose relationship is
+    /// registered on the owning notes part (#457). <c>BodyLinkMainDecoyUrl</c>, when set, registers the SAME
+    /// relationship id on the main part with a different target, so a resolver that consults the main part
+    /// instead of the notes part yields the wrong URL.
+    /// </para>
     /// </summary>
     public sealed record NoteSpec(
         string ParagraphText, int Id, bool IsEndnote, string? NoteText,
-        int? HeadingLevel = null, bool InTableCell = false) : BlockSpec;
+        int? HeadingLevel = null, bool InTableCell = false,
+        string? BodyLinkText = null, string? BodyLinkUrl = null, string? BodyLinkMainDecoyUrl = null) : BlockSpec;
 
     /// <summary>A paragraph carrying a single grouped drawing (wpg:wgp) with several pictures (#322).</summary>
     public sealed record GroupedImagesSpec(IReadOnlyList<ImageSpec> Images) : BlockSpec;
@@ -276,6 +283,29 @@ internal static class DocxFixtures
         public DocSpec Endnote(string paragraphText, int id, string noteText)
         {
             Blocks.Add(new NoteSpec(paragraphText, id, IsEndnote: true, noteText));
+            return this;
+        }
+
+        /// <summary>
+        /// A paragraph with a footnote whose BODY carries a hyperlink (#457). The hyperlink relationship is
+        /// registered on the FootnotesPart. When <paramref name="mainDecoyUrl"/> is non-null the SAME
+        /// relationship id is also registered on the main part with a DIFFERENT target, so a correct resolver
+        /// must pick the note's own part rather than the main document's.
+        /// </summary>
+        public DocSpec FootnoteWithBodyLink(
+            string paragraphText, int id, string noteText, string linkText, string linkUrl, string? mainDecoyUrl = null)
+        {
+            Blocks.Add(new NoteSpec(paragraphText, id, IsEndnote: false, noteText,
+                BodyLinkText: linkText, BodyLinkUrl: linkUrl, BodyLinkMainDecoyUrl: mainDecoyUrl));
+            return this;
+        }
+
+        /// <summary>An endnote counterpart of <see cref="FootnoteWithBodyLink"/> — the link relationship lives on the EndnotesPart (#457).</summary>
+        public DocSpec EndnoteWithBodyLink(
+            string paragraphText, int id, string noteText, string linkText, string linkUrl, string? mainDecoyUrl = null)
+        {
+            Blocks.Add(new NoteSpec(paragraphText, id, IsEndnote: true, noteText,
+                BodyLinkText: linkText, BodyLinkUrl: linkUrl, BodyLinkMainDecoyUrl: mainDecoyUrl));
             return this;
         }
 
@@ -441,6 +471,7 @@ internal static class DocxFixtures
             if (footnoteBodies.Count > 0)
             {
                 var footnotesPart = mainPart.AddNewPart<FootnotesPart>();
+                RegisterNoteBodyHyperlinks(mainPart, footnotesPart, footnoteBodies);
                 footnotesPart.Footnotes = new Footnotes(FootnotesXml(footnoteBodies));
                 footnotesPart.Footnotes.Save();
             }
@@ -449,6 +480,7 @@ internal static class DocxFixtures
             if (endnoteBodies.Count > 0)
             {
                 var endnotesPart = mainPart.AddNewPart<EndnotesPart>();
+                RegisterNoteBodyHyperlinks(mainPart, endnotesPart, endnoteBodies);
                 endnotesPart.Endnotes = new Endnotes(EndnotesXml(endnoteBodies));
                 endnotesPart.Endnotes.Save();
             }
@@ -514,19 +546,47 @@ internal static class DocxFixtures
     }
 
     // A note body: one <w:p> per paragraph, splitting NoteText on a blank line so a multi-paragraph note body
-    // (#315 continuation-indent) can be authored as "para1\n\npara2".
-    private static string NoteBodyParagraphs(string noteText)
-        => string.Concat(noteText.Split("\n\n").Select(p =>
-            $"<w:p><w:r><w:t xml:space=\"preserve\">{Escape(p)}</w:t></w:r></w:p>"));
+    // (#315 continuation-indent) can be authored as "para1\n\npara2". A body hyperlink (#457), when present, is
+    // appended to the LAST paragraph so the note reads "text <link>" at its reading position.
+    private static string NoteBodyParagraphs(NoteSpec note)
+    {
+        var paragraphs = note.NoteText!.Split("\n\n");
+        var linkXml = note is { BodyLinkText: { } linkText, BodyLinkUrl: not null }
+            ? $"<w:hyperlink r:id=\"{NoteBodyLinkRelId(note)}\"><w:r><w:t xml:space=\"preserve\">{Escape(linkText)}</w:t></w:r></w:hyperlink>"
+            : string.Empty;
+        return string.Concat(paragraphs.Select((p, i) =>
+            $"<w:p><w:r><w:t xml:space=\"preserve\">{Escape(p)}</w:t></w:r>{(i == paragraphs.Length - 1 ? linkXml : string.Empty)}</w:p>"));
+    }
+
+    // The stable relationship id for a note body's hyperlink (#457). Footnote / endnote ids can overlap, so the
+    // prefix keeps them distinct within a part; the SAME id is intentionally reused on the main part as a decoy
+    // in the collision test.
+    private static string NoteBodyLinkRelId(NoteSpec note) => $"rIdNoteLink{(note.IsEndnote ? "En" : "Fn")}{note.Id}";
+
+    // Registers each note body's hyperlink relationship on its OWN part (FootnotesPart / EndnotesPart). When a
+    // decoy is requested, the same relationship id is registered on the main part pointing elsewhere, so a note
+    // resolved against the main part would surface the wrong URL (#457).
+    private static void RegisterNoteBodyHyperlinks(MainDocumentPart mainPart, OpenXmlPart notesPart, IEnumerable<NoteSpec> notes)
+    {
+        foreach (var note in notes.Where(n => n.BodyLinkUrl is not null))
+        {
+            var relId = NoteBodyLinkRelId(note);
+            notesPart.AddHyperlinkRelationship(new System.Uri(note.BodyLinkUrl!), isExternal: true, relId);
+            if (note.BodyLinkMainDecoyUrl is not null)
+            {
+                mainPart.AddHyperlinkRelationship(new System.Uri(note.BodyLinkMainDecoyUrl), isExternal: true, relId);
+            }
+        }
+    }
 
     private static string FootnotesXml(IEnumerable<NoteSpec> notes)
     {
         // Real Word documents carry auto-inserted separator / continuationSeparator notes; include them (with
         // sentinel text) so the extractor's separator exclusion is exercised. Author notes follow.
         var bodies = string.Concat(notes.Select(n =>
-            $"<w:footnote w:id=\"{n.Id}\">{NoteBodyParagraphs(n.NoteText!)}</w:footnote>"));
+            $"<w:footnote w:id=\"{n.Id}\">{NoteBodyParagraphs(n)}</w:footnote>"));
         return $"""
-                <w:footnotes xmlns:w="{NsW}">
+                <w:footnotes xmlns:w="{NsW}" xmlns:r="{NsR}">
                   <w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:t xml:space="preserve">SEP_SENTINEL</w:t></w:r></w:p></w:footnote>
                   <w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:t xml:space="preserve">CONT_SENTINEL</w:t></w:r></w:p></w:footnote>
                   {bodies}
@@ -537,9 +597,9 @@ internal static class DocxFixtures
     private static string EndnotesXml(IEnumerable<NoteSpec> notes)
     {
         var bodies = string.Concat(notes.Select(n =>
-            $"<w:endnote w:id=\"{n.Id}\">{NoteBodyParagraphs(n.NoteText!)}</w:endnote>"));
+            $"<w:endnote w:id=\"{n.Id}\">{NoteBodyParagraphs(n)}</w:endnote>"));
         return $"""
-                <w:endnotes xmlns:w="{NsW}">
+                <w:endnotes xmlns:w="{NsW}" xmlns:r="{NsR}">
                   <w:endnote w:type="separator" w:id="-1"><w:p><w:r><w:t xml:space="preserve">SEP_SENTINEL</w:t></w:r></w:p></w:endnote>
                   <w:endnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:t xml:space="preserve">CONT_SENTINEL</w:t></w:r></w:p></w:endnote>
                   {bodies}

@@ -497,6 +497,13 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         var footnotes = BuildNoteBodyMap(mainPart.FootnotesPart?.Footnotes?.Elements<W.Footnote>());
         var endnotes = BuildNoteBodyMap(mainPart.EndnotesPart?.Endnotes?.Elements<W.Endnote>());
 
+        // #457: a hyperlink inside a note body is a relationship of the FootnotesPart / EndnotesPart, not the
+        // main part, so it must be resolved against the owning part's own id -> uri map. Built once per part,
+        // mirroring the body-path cache (#318). A missing part yields no map here, but that pairs with a null
+        // body map above (the note is then unresolvable), so a resolved note always has its part's map in hand.
+        var footnoteHyperlinkUris = mainPart.FootnotesPart is { } footnotesPart ? BuildHyperlinkUris(footnotesPart) : null;
+        var endnoteHyperlinkUris = mainPart.EndnotesPart is { } endnotesPart ? BuildHyperlinkUris(endnotesPart) : null;
+
         var seen = new HashSet<NoteReference>();
         foreach (var reference in state.NoteReferences)
         {
@@ -508,7 +515,8 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
                 continue;
             }
 
-            var map = reference.Kind == NoteKind.Footnote ? footnotes : endnotes;
+            var isFootnote = reference.Kind == NoteKind.Footnote;
+            var map = isFootnote ? footnotes : endnotes;
             if (map is null || !map.TryGetValue(reference.Id, out var note))
             {
                 // Dangling reference, or the notes part is missing entirely — surface the loss (#268).
@@ -518,7 +526,8 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
                 continue;
             }
 
-            var body = await RenderNoteBodyAsync(note, mainPart, state, cancellationToken);
+            var hyperlinkUris = isFootnote ? footnoteHyperlinkUris : endnoteHyperlinkUris;
+            var body = await RenderNoteBodyAsync(note, mainPart, hyperlinkUris, state, cancellationToken);
             blocks.Add(FormatNoteDefinition(reference.Marker, body));
         }
     }
@@ -597,6 +606,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
     private async Task<string> RenderNoteBodyAsync(
         W.FootnoteEndnoteType note,
         MainDocumentPart mainPart,
+        IReadOnlyDictionary<string, string?>? hyperlinkUris,
         DocxExtractionState state,
         CancellationToken cancellationToken)
     {
@@ -605,7 +615,9 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var text = WordParagraphRenderer.Render(paragraph, mainPart);
+            // #457: resolve note-body hyperlinks against the owning notes part's relationships (threaded in),
+            // not the main document's — the two parts have independent r:id spaces.
+            var text = WordParagraphRenderer.Render(paragraph, mainPart, hyperlinkUris: hyperlinkUris);
             if (!string.IsNullOrWhiteSpace(text))
             {
                 parts.Add(text);
@@ -975,13 +987,15 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         => NearestDrawingWrapper(picture)?.GetFirstChild<DW.DocProperties>();
 
     /// <summary>
-    /// Builds the per-document hyperlink relationship-id → URI map once (#318). Relationship ids are unique,
-    /// so a plain dictionary suffices; a relationship with no target maps to <c>null</c> (an internal anchor).
+    /// Builds a part's hyperlink relationship-id → URI map once (#318 for the main part; #457 for a
+    /// FootnotesPart / EndnotesPart, whose note-body links live in a separate relationship space). Relationship
+    /// ids are unique within a part, so a plain dictionary suffices; a relationship with no target maps to
+    /// <c>null</c> (an internal anchor).
     /// </summary>
-    private static IReadOnlyDictionary<string, string?> BuildHyperlinkUris(MainDocumentPart mainPart)
+    private static IReadOnlyDictionary<string, string?> BuildHyperlinkUris(OpenXmlPart part)
     {
         var map = new Dictionary<string, string?>();
-        foreach (var relationship in mainPart.HyperlinkRelationships)
+        foreach (var relationship in part.HyperlinkRelationships)
         {
             map[relationship.Id] = relationship.Uri?.ToString();
         }

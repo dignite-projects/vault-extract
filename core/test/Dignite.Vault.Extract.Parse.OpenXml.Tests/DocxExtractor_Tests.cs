@@ -962,6 +962,42 @@ public class DocxExtractor_Tests
     }
 
     [Fact]
+    public async Task Resolves_a_footnote_body_hyperlink_against_the_footnotes_part()
+    {
+        // #457: a hyperlink inside a footnote body is a relationship of the FootnotesPart, not the main part.
+        // Here the r:id exists ONLY in the FootnotesPart, so resolving against the main part (the old bug)
+        // finds nothing and drops the URL, degrading the link to plain text.
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .Paragraph("Intro")
+            .FootnoteWithBodyLink("See note", 2, "Reference: ", "the source", "https://notes.example/fn-source"));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        result.Markdown.ShouldContain("[^fn2]: Reference: [the source](https://notes.example/fn-source)");
+        result.IsComplete.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Resolves_an_endnote_body_hyperlink_against_its_own_part_when_the_id_collides_with_the_main_part()
+    {
+        // #457: the endnote body's r:id ALSO exists in the main part (a legitimate collision — the two parts
+        // have independent relationship spaces) pointing at a DIFFERENT target. The note link must resolve to
+        // the EndnotesPart's target, never the main document's decoy (the old bug resolved to the decoy).
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .Paragraph("Intro")
+            .EndnoteWithBodyLink(
+                "See endnote", 3, "Cited at ", "the archive",
+                linkUrl: "https://notes.example/en-archive",
+                mainDecoyUrl: "https://main.example/decoy"));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        result.Markdown.ShouldContain("[^en3]: Cited at [the archive](https://notes.example/en-archive)");
+        result.Markdown.ShouldNotContain("https://main.example/decoy");
+        result.IsComplete.ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task Transcribes_every_image_in_a_grouped_drawing()
     {
         StubOcr("GROUPED_FIG");
