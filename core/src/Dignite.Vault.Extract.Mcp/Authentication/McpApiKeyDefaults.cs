@@ -20,11 +20,20 @@ public static class McpApiKeyDefaults
     public const string DefaultPathPrefix = "/mcp";
 
     /// <summary>
-    /// AuthenticationType stamped on the synthetic principal. MUST be non-empty so the identity is
-    /// <c>IsAuthenticated == true</c> — otherwise <c>RequireAuthorization</c> rejects it (401) and ABP's
-    /// <c>UseAbpOpenIddictValidation</c> <c>!IsAuthenticated</c> guard would re-run OpenIddict over it.
+    /// Name of the ASP.NET Core authentication scheme the API-key handler is registered under (#431). The host's
+    /// cookie <c>ForwardDefaultSelector</c> forwards a <c>/mcp</c> + key request to this scheme; the authentication
+    /// ticket carries this name, and it equals <see cref="AuthenticationType"/> so the dynamic-claims path sees a
+    /// consistent scheme for the key principal.
     /// </summary>
-    public const string AuthenticationType = "McpApiKey";
+    public const string AuthenticationScheme = "McpApiKey";
+
+    /// <summary>
+    /// AuthenticationType stamped on the synthetic principal (same value as <see cref="AuthenticationScheme"/>).
+    /// MUST be non-empty so the identity is <c>IsAuthenticated == true</c> — otherwise <c>RequireAuthorization</c>
+    /// rejects it (401) and ABP's <c>UseAbpOpenIddictValidation</c> <c>!IsAuthenticated</c> guard would re-run
+    /// OpenIddict over it.
+    /// </summary>
+    public const string AuthenticationType = AuthenticationScheme;
 
     /// <summary>
     /// Committed-config placeholder, rejected fail-fast at startup (mirroring <c>ConfigureAI</c>'s

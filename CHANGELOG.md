@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **MCP API-key channel is now a real authentication scheme** (#431), replacing the path-scoped middleware. A valid key authenticates via an ASP.NET Core `AuthenticationHandler` (engaged by the cookie `ForwardDefaultSelector`, keeping the endpoint's bare scheme-free `RequireAuthorization()`), so its principal flows through ABP `UseDynamicClaims` — **disabling or deleting the mapped service-account user now revokes the key on the next request**, at parity with a Bearer user (previously revocation was config-removal-only).
 - **MCP API-key channel hardening** (follow-ups to #428 / #430): the `/mcp` endpoint is now **rate-limited** per client IP — covering both the API-key channel and the OAuth discovery `401` path — and a present-but-invalid key raises a rate-limited security `Warning` (source IP + header name, never the value) (#433). API keys can be configured as a **SHA-256 `KeyHash`** (hash-at-rest) instead of plaintext, so a config/secret-store leak no longer exposes usable keys (#435). An opt-in host seed (`Mcp:ApiKey:SeedServiceAccounts`) **enforces least privilege** on each configured service account — applying exactly the `VaultExtract.Documents` grant and failing startup if the account is missing, over-privileged, or holds any role (#434).
 
 ### Added

@@ -340,7 +340,33 @@ public class VaultExtractHostModule : AbpModule
 
     private void ConfigureAuthentication(ServiceConfigurationContext context)
     {
-        context.Services.ForwardIdentityAuthenticationForBearer(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
+        // The default (application-cookie) scheme forwards per request. This subsumes ABP's
+        // ForwardIdentityAuthenticationForBearer (Bearer -> OpenIddict) and adds the #431 branch: a /mcp request
+        // carrying only the API-key header is authenticated by the McpApiKey scheme, so its result flows through
+        // UseDynamicClaims for live enrichment + real-time revocation (a middleware-set principal did not).
+        // The /mcp endpoint keeps its bare scheme-free RequireAuthorization() — no scheme is added to the
+        // endpoint policy (the #278 invariant), so the dynamic-claims-enriched principal is not dropped.
+        context.Services.ConfigureApplicationCookie(options =>
+        {
+            options.ForwardDefaultSelector = ctx =>
+            {
+                string authorization = ctx.Request.Headers.Authorization.ToString();
+                if (!authorization.IsNullOrWhiteSpace()
+                    && authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Bearer wins whenever present (an API-key header alongside it is ignored).
+                    return OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme;
+                }
+
+                if (ctx.RequestServices.GetRequiredService<McpApiKeyRegistry>().IsApiKeyRequest(ctx))
+                {
+                    return McpApiKeyDefaults.AuthenticationScheme;
+                }
+
+                return null; // fall back to the cookie itself (browser / MVC Account)
+            };
+        });
+
         context.Services.Configure<AbpClaimsPrincipalFactoryOptions>(options =>
         {
             options.IsDynamicClaimsEnabled = true;
@@ -350,16 +376,16 @@ public class VaultExtractHostModule : AbpModule
         ConfigureMcpApiKey(context);
     }
 
-    // #428: optional static API-key fallback auth for the /mcp egress, parallel to the OpenIddict Bearer
-    // chain and the #278 OAuth discovery flow. It exists for MCP clients that cannot run the dynamic OAuth
-    // flow but can send a static request header (OpenAI Codex, ABP AI Management); Claude's native custom
-    // connector is OAuth-only and keeps using #278, unaffected. The shipped appsettings.json ships an empty
-    // Mcp:ApiKey:Keys, so the channel is DISABLED by default and OAuth-only deployments are untouched. Real
-    // keys + the key -> service-account mapping are host deployment config (env / user-secrets), never
-    // committed. The channel mechanism (matching, constant-time compare, synthetic-principal construction)
-    // lives in the Mcp egress module (AddVaultExtractMcpApiKey, mirroring #422's AddVaultExtractMcpDiscovery); the
-    // middleware is wired into the pipeline in OnApplicationInitialization via UseVaultExtractMcpApiKey, before
-    // UseAuthentication. See docs/en/egress/mcp-server.md.
+    // #428 / #431: optional static API-key auth for the /mcp egress, parallel to the OpenIddict Bearer chain and
+    // the #278 OAuth discovery flow. It exists for MCP clients that cannot run the dynamic OAuth flow but can send
+    // a static request header (OpenAI Codex, ABP AI Management); Claude's native custom connector is OAuth-only
+    // and keeps using #278, unaffected. The shipped appsettings.json ships an empty Mcp:ApiKey:Keys, so the
+    // channel is DISABLED by default and OAuth-only deployments are untouched. Real keys + the key ->
+    // service-account mapping are host deployment config (env / user-secrets), never committed. #431: the channel
+    // mechanism is a real authentication scheme (McpApiKey) registered by AddVaultExtractMcpApiKey (matching,
+    // constant-time compare, synthetic-principal construction); it is engaged by the cookie ForwardDefaultSelector
+    // in ConfigureAuthentication (routing /mcp + key requests to the scheme) rather than a pipeline middleware, so
+    // a valid key flows through UseDynamicClaims. See docs/en/egress/mcp-server.md.
     private void ConfigureMcpApiKey(ServiceConfigurationContext context)
     {
         var configuration = context.Services.GetConfiguration();
@@ -772,12 +798,9 @@ public class VaultExtractHostModule : AbpModule
         app.UseAbpStudioLink();
         app.UseAbpSecurityHeaders();
         app.UseCors();
-        // #428: static API-key fallback auth for /mcp, inserted before the OpenIddict Bearer chain. No-op
-        // unless Mcp:ApiKey:Keys is configured. A valid key sets an authenticated least-privilege
-        // service-account principal that the bare RequireAuthorization() on /mcp accepts; a missing/invalid
-        // key falls through unauthenticated, so the Bearer chain and the #278 discovery challenge are
-        // unaffected. Scoped (segment-aware) to the /mcp path inside UseVaultExtractMcpApiKey.
-        app.UseVaultExtractMcpApiKey();
+        // #431: the static API-key channel is now an authentication scheme (McpApiKey) engaged by the cookie
+        // ForwardDefaultSelector during UseAuthentication (see ConfigureAuthentication), not a pipeline
+        // middleware — so a valid key authenticates as a real scheme and flows through UseDynamicClaims below.
         app.UseAuthentication();
         app.UseAbpOpenIddictValidation();
 

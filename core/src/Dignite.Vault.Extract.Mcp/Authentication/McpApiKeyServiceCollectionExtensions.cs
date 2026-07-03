@@ -1,26 +1,27 @@
 using System;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace Dignite.Vault.Extract.Mcp.Authentication;
 
 /// <summary>
-/// Reusable wiring for the optional static API-key fallback auth channel on <c>/mcp</c> (#428), exported by
-/// the Mcp egress module so any host enables it with one <c>Add</c> + one <c>Use</c> call. Mirrors the #422
-/// <c>AddVaultExtractMcpDiscovery</c> split: the deployment-agnostic MECHANISM (header matching, constant-time
-/// compare, synthetic-principal construction) lives in this module; the HOST owns all configuration and the
-/// key → service-account mapping, and calls <see cref="UseVaultExtractMcpApiKey"/> from its
-/// <c>OnApplicationInitialization</c> — so the "middleware only wired in host" rule holds.
+/// Reusable wiring for the static API-key channel on <c>/mcp</c> (#428), exported by the Mcp egress module.
+/// #431 upgraded the channel from a path-scoped middleware to a real ASP.NET Core authentication scheme
+/// (<see cref="McpApiKeyDefaults.AuthenticationScheme"/>) so a valid key flows through ABP <c>UseDynamicClaims</c>
+/// for live enrichment + real-time revocation. This method registers the deployment-agnostic MECHANISM (options +
+/// validation, the singleton <see cref="McpApiKeyRegistry"/>, and the handler/scheme). The HOST still owns the
+/// deployment decisions: the config binding and the cookie <c>ForwardDefaultSelector</c> that routes a
+/// <c>/mcp</c> + key request to this scheme (it cannot live here because it is Identity/cookie-specific and the
+/// Mcp egress module does not depend on Identity).
 /// </summary>
 public static class McpApiKeyServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers and fail-fast-validates the API-key options. A no-op feature when no keys are configured
-    /// (OAuth-only deployment). Pair with <see cref="UseVaultExtractMcpApiKey"/> in the pipeline, before
-    /// <c>UseAuthentication</c>.
+    /// Registers and fail-fast-validates the API-key options, the singleton match registry, and the
+    /// <see cref="McpApiKeyDefaults.AuthenticationScheme"/> authentication scheme. A no-op-at-runtime feature when
+    /// no keys are configured (the registry reports <c>IsEnabled == false</c>, so the host's selector never routes
+    /// to the scheme). The host wires the forwarding selector; the endpoint keeps its bare
+    /// scheme-free <c>RequireAuthorization()</c> (the #278 invariant).
     /// </summary>
     public static IServiceCollection AddVaultExtractMcpApiKey(
         this IServiceCollection services,
@@ -39,37 +40,17 @@ public static class McpApiKeyServiceCollectionExtensions
         // field-copy that a future property could silently drift out of.
         services.Configure(configure);
 
+        services.AddSingleton<McpApiKeyRegistry>();
+
+        // Register the scheme unconditionally so the host's ForwardDefaultSelector can always resolve it; when no
+        // keys are configured the registry short-circuits (IsEnabled == false) and it is never forwarded to.
+        // DisplayName null: this is a machine credential channel, not an interactive login provider, so the ABP
+        // Account module must not render it as a login-page button (same as the #422 McpAuth discovery scheme).
+        services
+            .AddAuthentication()
+            .AddScheme<AuthenticationSchemeOptions, McpApiKeyAuthenticationHandler>(
+                McpApiKeyDefaults.AuthenticationScheme, displayName: null, configureOptions: null);
+
         return services;
-    }
-
-    /// <summary>
-    /// Inserts the API-key middleware, scoped (segment-aware) to the configured <c>/mcp</c> path prefix so
-    /// it never runs for the admin UI / REST / Swagger. A no-op when no keys are configured. MUST be called
-    /// before <c>UseAuthentication</c>.
-    /// </summary>
-    public static IApplicationBuilder UseVaultExtractMcpApiKey(this IApplicationBuilder app)
-    {
-        ArgumentNullException.ThrowIfNull(app);
-
-        var options = app.ApplicationServices.GetRequiredService<IOptions<McpApiKeyOptions>>().Value;
-        var logger = app.ApplicationServices
-            .GetRequiredService<ILoggerFactory>()
-            .CreateLogger("Dignite.Vault.Extract.Mcp.Authentication.McpApiKey");
-
-        if (options.Keys is null || options.Keys.Count == 0)
-        {
-            logger.LogInformation(
-                "MCP API-key channel is disabled (no Mcp:ApiKey:Keys configured); /mcp uses OpenIddict Bearer + #278 discovery only.");
-            return app; // disabled: OAuth-only deployment
-        }
-
-        logger.LogInformation(
-            "MCP API-key channel enabled with {KeyCount} key(s) on header '{Header}', scoped to '{Path}'.",
-            options.Keys.Count, options.HeaderName, options.PathPrefix);
-
-        var prefix = new PathString(options.PathPrefix);
-        return app.UseWhen(
-            context => context.Request.Path.StartsWithSegments(prefix),
-            branch => branch.UseMiddleware<McpApiKeyAuthenticationMiddleware>());
     }
 }
