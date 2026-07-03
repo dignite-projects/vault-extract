@@ -635,10 +635,12 @@ internal static class PdfReadingOrder
     /// </para>
     /// </summary>
     public static string RenderPage(
-        IReadOnlyList<Word> words, IReadOnlyList<Figure> figures, bool reconstructTables = true,
-        PdfHeadingScale? headingScale = null, IReadOnlyList<PdfRectangle>? rulingBounds = null)
+        IReadOnlyList<Word> words, IReadOnlyList<Figure> figures, bool reconstructTables,
+        PdfHeadingScale? headingScale, IReadOnlyList<PdfRectangle>? rulingBounds,
+        out int latticeDroppedFragments)
     {
-        var markdown = RenderPageCore(words, figures, reconstructTables, headingScale, rulingBounds);
+        var markdown = RenderPageCore(
+            words, figures, reconstructTables, headingScale, rulingBounds, out latticeDroppedFragments);
         // #403: a heading that wrapped across lines / bands renders as adjacent same-level "# …" blocks; stitch
         // them back into one heading (e.g. the title and its trailing 「書」). A no-op when no headings exist.
         return headingScale is { HasHeadings: true } ? MergeAdjacentHeadings(markdown) : markdown;
@@ -646,8 +648,12 @@ internal static class PdfReadingOrder
 
     private static string RenderPageCore(
         IReadOnlyList<Word> words, IReadOnlyList<Figure> figures, bool reconstructTables,
-        PdfHeadingScale? headingScale, IReadOnlyList<PdfRectangle>? rulingBounds)
+        PdfHeadingScale? headingScale, IReadOnlyList<PdfRectangle>? rulingBounds,
+        out int latticeDroppedFragments)
     {
+        // No lattice table built on the early flat-render fall-throughs below -> no dropped fragment.
+        latticeDroppedFragments = 0;
+
         // #407: build the page's justification-aware paragraph model once (right margin + measured wrap pitch)
         // and feed it to every Render call below, so a paragraph the segmenter cut into per-line blocks re-folds.
         var pageLines = GroupWordsIntoLines(words);
@@ -706,6 +712,7 @@ internal static class PdfReadingOrder
         // loop below is exactly the Phase A per-block path; the host switch off -> empty maps -> identical to
         // Phase A.
         var tables = reconstructTables ? DetectTableClusters(orderedBlocks, grids) : TableClusters.Empty;
+        latticeDroppedFragments = tables.LatticeDroppedFragments;
 
         var rendered = new List<string>(orderedBlocks.Count);
         var emittedTables = new HashSet<int>();
@@ -807,6 +814,14 @@ internal static class PdfReadingOrder
 
         /// <summary>Lead block index -> all block indices in the cluster (ascending).</summary>
         public Dictionary<int, List<int>> BlocksByLead { get; } = new();
+
+        /// <summary>
+        /// #268: count of meaningful fragments the lattice path dropped as outside-the-drawn-grid, summed across
+        /// every EMITTED lattice table on the page. Only emitted tables count — a lattice that returned null
+        /// un-claims its blocks so the stream/paragraph path re-renders them (non-lossy), and those drops are not
+        /// losses. <see cref="PdfExtractor"/> surfaces this into the #268 completeness signal.
+        /// </summary>
+        public int LatticeDroppedFragments { get; set; }
     }
 
     /// <summary>
@@ -852,11 +867,14 @@ internal static class PdfReadingOrder
 
             // TryRenderLattice returns null unless the claimed blocks fill a >= 2x2 grid, so a lone caption
             // block that happens to sit inside a grid extent does not become a spurious table.
-            var lattice = PdfTableReconstruction.TryRenderLattice(latticeCells, g);
+            var lattice = PdfTableReconstruction.TryRenderLattice(latticeCells, g, out var droppedFragments);
             if (lattice is null)
             {
                 continue;
             }
+
+            // Only an EMITTED table's drops are losses (a null return un-claimed the blocks for the stream path).
+            result.LatticeDroppedFragments += droppedFragments;
 
             var latticeLead = insideBlocks.Min();
             result.MarkdownByLead[latticeLead] = lattice;

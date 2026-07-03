@@ -128,6 +128,8 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
             var truncatedOcr = 0;
             var failedFigureOcr = 0;
             var figureOcrCount = 0;
+            // #268 (#450 lattice): meaningful table fragments dropped as outside-the-drawn-grid, across all pages.
+            var latticeDroppedFragments = 0;
             // Distinct from failedPages (GetWords fault → whole page dropped): here GetImages faulted but
             // the page's text was already extracted and is retained — only its images are skipped.
             var pagesWithSkippedImages = 0;
@@ -292,7 +294,9 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
                 }
 
                 var pageMarkdown = PdfReadingOrder.RenderPage(
-                    renderWords, figures, _options.ReconstructTables, headingScale, rulingBounds);
+                    renderWords, figures, _options.ReconstructTables, headingScale, rulingBounds,
+                    out var pageLatticeDropped);
+                latticeDroppedFragments += pageLatticeDropped;
                 if (!string.IsNullOrWhiteSpace(pageMarkdown))
                 {
                     pageMarkdowns.Add(pageMarkdown);
@@ -303,7 +307,8 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
             // is null iff nothing was lost; completeness derives from it (no parallel hand-synced predicate
             // that could drift when a new counter is added).
             var incompleteReason = BuildIncompleteReason(
-                failedPages, pagesWithSkippedImages, droppedByCap, undecodable, truncatedOcr, failedFigureOcr);
+                failedPages, pagesWithSkippedImages, droppedByCap, undecodable, truncatedOcr, failedFigureOcr,
+                latticeDroppedFragments);
             var complete = incompleteReason is null;
             if (!complete)
             {
@@ -510,7 +515,8 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
     /// boolean predicate.
     /// </summary>
     internal static string? BuildIncompleteReason(
-        int failedPages, int pagesWithSkippedImages, int droppedByCap, int undecodable, int truncatedOcr, int failedFigureOcr)
+        int failedPages, int pagesWithSkippedImages, int droppedByCap, int undecodable, int truncatedOcr, int failedFigureOcr,
+        int latticeDroppedFragments)
     {
         var parts = new List<string>();
         if (failedPages > 0)
@@ -541,6 +547,11 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
         if (droppedByCap > 0)
         {
             parts.Add($"{droppedByCap} image(s) were skipped after reaching the per-document image cap");
+        }
+
+        if (latticeDroppedFragments > 0)
+        {
+            parts.Add($"{latticeDroppedFragments} table fragment(s) fell outside a drawn table grid and were dropped");
         }
 
         return parts.Count == 0 ? null : string.Join("; ", parts) + ".";

@@ -134,15 +134,18 @@ public class PdfRulingLines_Tests
             Cell("Apple", 60, 110, 150), Cell("10", 160, 185, 150)    // bottom row
         };
 
-        PdfTableReconstruction.TryRenderLattice(cells, grid).ShouldBe(
-            "| Name | Price |\n| --- | --- |\n| Apple | 10 |");
+        var markdown = PdfTableReconstruction.TryRenderLattice(cells, grid, out var dropped);
+
+        markdown.ShouldBe("| Name | Price |\n| --- | --- |\n| Apple | 10 |");
+        dropped.ShouldBe(0); // every cell is inside the drawn grid
     }
 
     [Fact]
-    public void Keeps_an_empty_drawn_column_and_ignores_fragments_outside_the_grid()
+    public void Keeps_an_empty_drawn_column_and_reports_fragments_outside_the_grid()
     {
         // 3 columns; the middle column has no content (a drawn-but-empty column, like メモ). A fragment whose
-        // centre is outside the grid extent is not table content and is dropped.
+        // centre is outside the grid extent is not table content, so it is dropped — AND counted (#268), so the
+        // caller trips the completeness signal instead of losing it silently.
         var grid = new PdfRulingLines.Grid(
             new[] { 50.0, 150, 250, 350 }, new[] { 100.0, 200, 300 });
 
@@ -150,11 +153,13 @@ public class PdfRulingLines_Tests
         {
             Cell("A", 60, 100, 250), Cell("C", 260, 300, 250),
             Cell("x", 60, 100, 150), Cell("z", 260, 300, 150),
-            Cell("outside", 400, 480, 150) // right of the last boundary (350) -> ignored
+            Cell("outside", 400, 480, 150) // right of the last boundary (350) -> dropped + counted
         };
 
-        PdfTableReconstruction.TryRenderLattice(cells, grid).ShouldBe(
-            "| A |  | C |\n| --- | --- | --- |\n| x |  | z |");
+        var markdown = PdfTableReconstruction.TryRenderLattice(cells, grid, out var dropped);
+
+        markdown.ShouldBe("| A |  | C |\n| --- | --- | --- |\n| x |  | z |");
+        dropped.ShouldBe(1);
     }
 
     [Fact]
@@ -176,7 +181,9 @@ public class PdfRulingLines_Tests
             Cell("v", 310, 350, 150)
         };
 
-        PdfTableReconstruction.TryRenderLattice(cells, grid).ShouldBe(
-            "| H | H2 |\n| --- | --- |\n| wire alpha beta cont | v |");
+        var markdown = PdfTableReconstruction.TryRenderLattice(cells, grid, out var dropped);
+
+        markdown.ShouldBe("| H | H2 |\n| --- | --- |\n| wire alpha beta cont | v |");
+        dropped.ShouldBe(0);
     }
 }

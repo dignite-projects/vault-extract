@@ -26,7 +26,7 @@ public class PdfLatticeIntegration_Tests
             .ToList();
 
         return PdfReadingOrder.RenderPage(
-            words, Array.Empty<PdfReadingOrder.Figure>(), true, PdfHeadingScale.Build(words), rulingBounds);
+            words, Array.Empty<PdfReadingOrder.Figure>(), true, PdfHeadingScale.Build(words), rulingBounds, out _);
     }
 
     [Fact]
