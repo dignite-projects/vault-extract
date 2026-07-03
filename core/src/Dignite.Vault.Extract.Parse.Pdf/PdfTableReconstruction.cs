@@ -204,8 +204,14 @@ internal static class PdfTableReconstruction
     /// the grid is smaller than 2×2 or no drawn row carries text, so the caller falls back to
     /// <see cref="TryRender"/>.
     /// </summary>
-    public static string? TryRenderLattice(IReadOnlyList<Cell> cells, PdfRulingLines.Grid grid)
+    /// <param name="droppedFragments">Count of meaningful fragments whose centre fell outside the drawn grid and
+    /// were dropped. Only a real loss when this method returns a table (non-null): on a <c>null</c> return the
+    /// caller un-claims the blocks and the stream/paragraph path re-renders them, so the caller reads this only
+    /// past the null check.</param>
+    public static string? TryRenderLattice(IReadOnlyList<Cell> cells, PdfRulingLines.Grid grid, out int droppedFragments)
     {
+        droppedFragments = 0;
+
         var meaningful = cells.Where(c => !string.IsNullOrWhiteSpace(c.Text)).ToList();
         if (meaningful.Count == 0 || grid.ColumnCount < MinColumns || grid.RowCount < MinRows)
         {
@@ -223,12 +229,15 @@ internal static class PdfTableReconstruction
             var bandFromBottom = BandIndex(rows, (cell.Bounds.Top + cell.Bounds.Bottom) / 2.0);
             if (column < 0 || bandFromBottom < 0)
             {
-                // A fragment whose centre is outside the drawn boundaries is deliberately dropped as non-table
-                // content. NOTE (#450 review): the caller claims a block by its CENTROID being inside the grid,
+                // A fragment whose centre is outside the drawn boundaries is dropped as non-table content, and
+                // COUNTED (#450 review / #268): the caller claims a block by its CENTROID being inside the grid,
                 // so a block straddling the outer rule could contribute a fragment that lands here and is not
                 // re-rendered by the stream path — a narrow lossy edge, unlike the strict non-lossy guarantee
                 // RenderPageCore enforces around segmentation. It is bounded by real ruled tables enclosing their
                 // text, and by this method returning null (un-claiming the blocks) whenever the grid degrades.
+                // Reporting the count lets the caller trip the #268 completeness signal instead of silently
+                // losing the fragment.
+                droppedFragments++;
                 continue;
             }
 
