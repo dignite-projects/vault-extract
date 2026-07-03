@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="..\..\..\common.test.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Dignite.Vault.Extract</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- DocumentSearchTool + the synthetic principal compile through Microsoft.AspNetCore.Authorization. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="NSubstitute" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.extensibility.execution" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Volo.Abp.Autofac" />
+    <PackageReference Include="Volo.Abp.Authorization" />
+    <PackageReference Include="Volo.Abp.TestBase" />
+    <!-- The point of this project: a REAL permission checker + store (no AddAlwaysAllowAuthorization), so the
+         key-authenticated service-account principal resolves grants through ABP's genuine permission pipeline (#432). -->
+    <PackageReference Include="Volo.Abp.PermissionManagement.EntityFrameworkCore" />
+    <PackageReference Include="Volo.Abp.EntityFrameworkCore.Sqlite" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Dignite.Vault.Extract.Mcp\Dignite.Vault.Extract.Mcp.csproj" />
+    <ProjectReference Include="..\..\src\Dignite.Vault.Extract.Application\Dignite.Vault.Extract.Application.csproj" />
+    <ProjectReference Include="..\..\src\Dignite.Vault.Extract.EntityFrameworkCore\Dignite.Vault.Extract.EntityFrameworkCore.csproj" />
+  </ItemGroup>
+
+</Project>
