@@ -302,7 +302,7 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
         DocxExtractionState state,
         CancellationToken cancellationToken)
     {
-        var headingLevel = WordStyleMap.HeadingLevel(paragraph, mainPart);
+        var headingLevel = WordStyleMap.HeadingLevel(paragraph, mainPart, state.StyleHeadingCache);
         if (headingLevel is int level)
         {
             // Headings render as plain collapsed text (no inline emphasis markup inside an ATX heading).
@@ -1041,5 +1041,9 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
 
         /// <summary>Per-document <c>(numId, level) → numbering-format</c> memo, populated lazily (#318).</summary>
         public Dictionary<(int NumId, int Level), W.NumberFormatValues?> NumberingFormatCache { get; } = new();
+
+        /// <summary>Per-document custom-style <c>styleId → heading-level</c> memo, populated lazily (#458). Spares
+        /// every styled body paragraph a fresh <c>w:basedOn</c>-chain walk over styles.xml.</summary>
+        public Dictionary<string, int?> StyleHeadingCache { get; } = new();
     }
 }
