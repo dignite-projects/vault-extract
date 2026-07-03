@@ -205,8 +205,10 @@ internal static class WordParagraphRenderer
                 return null;
             }
 
-            // Per-document id -> uri cache (#318) avoids an O(relationships) scan per hyperlink; a null cache
-            // (e.g. the note-body render path) falls back to the direct lookup.
+            // Both render paths pass a prebuilt id -> uri cache — the main part's (#318) for the body, the
+            // owning notes part's (#457) for a note body — so a link resolves in O(1) against the part that
+            // actually owns the relationship. A null cache is only a defensive fallback to the direct
+            // O(relationships) scan against the main part.
             if (_hyperlinkUris is not null)
             {
                 return _hyperlinkUris.TryGetValue(id, out var uri) ? uri : null;
