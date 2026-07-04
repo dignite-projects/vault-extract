@@ -196,13 +196,12 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         var contentType = input.File.ContentType ?? "application/octet-stream";
         var extension = Path.GetExtension(fileName);
 
-        // Fail-closed file validation (#221): dual allow-list for content-type + extension. Any accepted file is stored as a blob
+        // Fail-closed file validation (#221 / #471): exact extension/content-type allow-list. Any accepted file is stored as a blob
         // and triggers text extraction / classification jobs, consuming compute and creating uncertain behavior for unsupported formats.
         // Therefore unsupported channel formats loud-fail immediately: no blob write and no enqueue.
-        // Content-type is client-spoofable, while extension determines blob suffix + DefaultTextExtractor dispatch, so both are validated.
-        if (string.IsNullOrEmpty(extension) ||
-            !DocumentConsts.AllowedUploadExtensions.Contains(extension) ||
-            !DocumentConsts.AllowedUploadContentTypes.Contains(contentType))
+        // Content-type is client-spoofable, while extension determines blob suffix + DefaultTextExtractor dispatch. Requiring
+        // an approved pair prevents a valid MIME from one format being combined with another format's valid extension.
+        if (!DocumentConsts.IsAllowedUploadType(extension, contentType))
         {
             throw new BusinessException(VaultExtractErrorCodes.Document.UnsupportedFileType)
                 .WithData("FileName", fileName)

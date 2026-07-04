@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -35,6 +36,12 @@ public class ElBrunoMarkdownProvider : IMarkdownTextProvider, ITransientDependen
         TextExtractionContext context,
         CancellationToken cancellationToken = default)
     {
+        var isXlsx = string.Equals(context.FileExtension, ".xlsx", StringComparison.OrdinalIgnoreCase);
+        if (isXlsx)
+        {
+            await XlsxSafetyGuard.ValidatePackageAsync(fileStream, cancellationToken: cancellationToken);
+        }
+
         var conversion = await _markdownService.ConvertAsync(
             fileStream,
             context.FileExtension ?? string.Empty,
@@ -42,10 +49,26 @@ public class ElBrunoMarkdownProvider : IMarkdownTextProvider, ITransientDependen
 
         if (!conversion.Success)
         {
-            Logger.LogDebug("ElBruno conversion failed for {Extension}: {Error}",
+            Logger.LogWarning("ElBruno conversion failed for {Extension}: {Error}",
                 context.FileExtension, conversion.ErrorMessage);
+
+            // XLSX is an explicitly supported upload format (#471), not an opportunistic catch-all format.
+            // A corrupt/encrypted workbook must fail the parse run instead of being persisted as a successful
+            // document with empty Markdown. PDF keeps its empty-result behavior because the orchestrator uses
+            // that signal to invoke whole-page OCR for scanned PDFs.
+            if (isXlsx)
+            {
+                throw new InvalidDataException(
+                    $"Could not convert XLSX to Markdown: {conversion.ErrorMessage ?? "unknown conversion error"}");
+            }
+
             // Still report provider identity so failed results keep provenance.
             return new TextExtractionResult { ProviderName = ProviderIdentifier };
+        }
+
+        if (isXlsx)
+        {
+            XlsxSafetyGuard.ValidateMarkdown(conversion.Markdown ?? string.Empty);
         }
 
         // Pure text-to-Markdown conversion has no spatial model, so NativePayload stays null.

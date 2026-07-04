@@ -1,7 +1,9 @@
 using System.IO;
+using System.IO.Compression;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using ClosedXML.Excel;
 using Dignite.Vault.Extract.Abstractions.Parse;
 using Dignite.Vault.Extract.Ocr;
 using Dignite.Vault.Extract.Parse;
@@ -69,6 +71,116 @@ public class DefaultTextExtractor_Tests : AbpIntegratedTest<DefaultTextExtractor
 
         result.Markdown.ShouldContain("Hello World");
         result.UsedOcr.ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData(".csv", "text/csv", "Name,City\nAlice,Tokyo", "Alice", "Tokyo")]
+    [InlineData(".tsv", "text/tab-separated-values", "Name\tCity\nAlice\tTokyo", "Alice", "Tokyo")]
+    public async Task Should_Convert_Delimited_Files_To_Markdown_Tables(
+        string extension,
+        string contentType,
+        string content,
+        string expectedName,
+        string expectedCity)
+    {
+        var stream = new MemoryStream(Encoding.UTF8.GetBytes(content));
+        var ctx = new TextExtractionContext
+        {
+            ContentType = contentType,
+            FileExtension = extension
+        };
+
+        var result = await _extractor.ExtractAsync(stream, ctx);
+
+        result.Markdown.ShouldContain("|");
+        result.Markdown.ShouldContain(expectedName);
+        result.Markdown.ShouldContain(expectedCity);
+        result.UsedOcr.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Should_Convert_All_NonEmpty_Xlsx_Worksheets_To_Markdown()
+    {
+        using var workbook = new XLWorkbook();
+        var people = workbook.AddWorksheet("People");
+        people.Cell("A1").Value = "Name";
+        people.Cell("B1").Value = "City";
+        people.Cell("A2").Value = "Alice";
+        people.Cell("B2").Value = "Tokyo";
+
+        var totals = workbook.AddWorksheet("Totals");
+        totals.Cell("A1").Value = "Count";
+        totals.Cell("A2").Value = 1;
+        workbook.AddWorksheet("Empty");
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        stream.Position = 0;
+
+        var result = await _extractor.ExtractAsync(stream, new TextExtractionContext
+        {
+            ContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            FileExtension = ".xlsx"
+        });
+
+        result.Markdown.ShouldContain("People");
+        result.Markdown.ShouldContain("Alice");
+        result.Markdown.ShouldContain("Tokyo");
+        result.Markdown.ShouldContain("Totals");
+        result.Markdown.ShouldContain("Count");
+        result.UsedOcr.ShouldBeFalse();
+        result.ProviderName.ShouldBe(ElBrunoMarkdownProvider.ProviderIdentifier);
+    }
+
+    [Fact]
+    public async Task Should_Fail_Explicitly_For_Malformed_Xlsx()
+    {
+        var stream = new MemoryStream(Encoding.UTF8.GetBytes("not an xlsx package"));
+        var ctx = new TextExtractionContext
+        {
+            ContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            FileExtension = ".xlsx"
+        };
+
+        await Should.ThrowAsync<InvalidDataException>(() => _extractor.ExtractAsync(stream, ctx));
+    }
+
+    [Fact]
+    public async Task Xlsx_Preflight_Should_Reject_Expanded_Content_Over_The_Budget()
+    {
+        using var stream = BuildZip(("xl/sharedStrings.xml", new string('x', 512)));
+        var limits = TestXlsxLimits(maxExpandedArchiveBytes: 128);
+
+        var exception = await Should.ThrowAsync<InvalidDataException>(
+            () => XlsxSafetyGuard.ValidatePackageAsync(stream, limits));
+
+        exception.Message.ShouldContain("expanded content exceeds");
+    }
+
+    [Fact]
+    public async Task Xlsx_Preflight_Should_Reject_Cell_Count_Over_The_Budget()
+    {
+        const string worksheet =
+            "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">" +
+            "<sheetData><row><c/><c/><c/></row></sheetData></worksheet>";
+        using var stream = BuildZip(("xl/worksheets/sheet1.xml", worksheet));
+        var limits = TestXlsxLimits(maxCells: 2);
+
+        var exception = await Should.ThrowAsync<InvalidDataException>(
+            () => XlsxSafetyGuard.ValidatePackageAsync(stream, limits));
+
+        exception.Message.ShouldContain("more than 2 cells");
+    }
+
+    [Fact]
+    public void Xlsx_Output_Should_Reject_Markdown_Over_The_Budget()
+    {
+        var limits = TestXlsxLimits(maxMarkdownCharacters: 4);
+
+        var exception = Should.Throw<InvalidDataException>(
+            () => XlsxSafetyGuard.ValidateMarkdown("12345", limits));
+
+        exception.Message.ShouldContain("5 characters");
     }
 
     [Fact]
@@ -208,4 +320,34 @@ public class DefaultTextExtractor_Tests : AbpIntegratedTest<DefaultTextExtractor
             context.Services.AddSingleton<IOcrProvider>(fakeOcr);
         }
     }
+
+    private static MemoryStream BuildZip(params (string Name, string Content)[] entries)
+    {
+        var stream = new MemoryStream();
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var (name, content) in entries)
+            {
+                var entry = archive.CreateEntry(name, CompressionLevel.SmallestSize);
+                using var writer = new StreamWriter(
+                    entry.Open(), Encoding.UTF8, bufferSize: 1_024, leaveOpen: false);
+                writer.Write(content);
+            }
+        }
+
+        stream.Position = 0;
+        return stream;
+    }
+
+    private static XlsxSafetyLimits TestXlsxLimits(
+        long maxExpandedArchiveBytes = 10_000,
+        long maxCells = 100,
+        int maxMarkdownCharacters = 10_000)
+        => new(
+            MaxCompressedBytes: 10_000,
+            MaxExpandedArchiveBytes: maxExpandedArchiveBytes,
+            MaxArchiveEntries: 10,
+            MaxWorksheets: 5,
+            MaxCells: maxCells,
+            MaxMarkdownCharacters: maxMarkdownCharacters);
 }

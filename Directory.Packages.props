@@ -100,6 +100,7 @@
         <PackageVersion Include="Azure.AI.DocumentIntelligence" Version="1.0.0" />
         <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.0" />
         <PackageVersion Include="ElBruno.MarkItDotNet" Version="0.6.0" />
+        <PackageVersion Include="ElBruno.MarkItDotNet.Excel" Version="0.6.0" />
         <!-- PdfPig: digital-PDF text layer + embedded raster image extraction for the PdfExtractor (#301).
              Pinned to the exact version ElBruno.MarkItDotNet 0.6.0 pulls transitively, so the host process
              resolves a single PdfPig (no upgrade/downgrade conflict between the two providers). -->
@@ -112,7 +113,9 @@
         <!-- Must exactly match the SkiaSharp main package version transitively used by PDFtoImage 5.2.1 (3.119.2). -->
         <PackageVersion Include="SkiaSharp.NativeAssets.Linux" Version="3.119.2" />
         <PackageVersion Include="Markdig" Version="1.1.3" />
-        <PackageVersion Include="ClosedXML" Version="0.104.2" />
+        <!-- ElBruno.MarkItDotNet.Excel 0.6.0 requires ClosedXML >= 0.105.0. Keep the
+             application export writer and XLSX Markdown converter on one resolved version. -->
+        <PackageVersion Include="ClosedXML" Version="0.105.0" />
         <PackageVersion Include="IdentityModel" Version="7.0.0" />
         <PackageVersion Include="KubernetesClient" Version="18.0.5" />
         <PackageVersion Include="Serilog.AspNetCore" Version="9.0.0" />
