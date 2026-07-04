@@ -270,6 +270,64 @@ public class DocumentAppService_Delete_Tests
         exception.Code.ShouldBe(VaultExtractErrorCodes.Document.UnsupportedFileType);
     }
 
+    [Theory]
+    [InlineData("data.csv", "text/csv")]
+    [InlineData("data.csv", "application/csv")]
+    [InlineData("data.csv", "application/vnd.ms-excel")]
+    [InlineData("data.tsv", "text/tab-separated-values")]
+    [InlineData("data.tsv", "text/tsv")]
+    [InlineData("notes.txt", "text/plain")]
+    [InlineData("REPORT.DOCX", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")]
+    [InlineData("slides.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation")]
+    [InlineData("book.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")]
+    public async Task UploadAsync_Accepts_Supported_Digital_Document_Types(
+        string fileName,
+        string contentType)
+    {
+        await _appService.UploadAsync(CreateUploadInput([1, 2, 3], fileName, contentType));
+
+        await _documentRepository.Received(1).InsertAsync(
+            Arg.Is<Document>(d =>
+                d.FileOrigin != null &&
+                d.FileOrigin.OriginalFileName == fileName &&
+                d.FileOrigin.ContentType == contentType),
+            Arg.Any<bool>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("legacy.doc", "application/msword")]
+    [InlineData("legacy.xls", "application/vnd.ms-excel")]
+    [InlineData("macro.xlsm", "application/vnd.ms-excel.sheet.macroEnabled.12")]
+    [InlineData("readme.md", "text/markdown")]
+    [InlineData("archive.zip", "application/zip")]
+    [InlineData("unknown.xlsx", "application/octet-stream")]
+    public async Task UploadAsync_Rejects_Digital_Types_Outside_The_Explicit_AllowList(
+        string fileName,
+        string contentType)
+    {
+        var exception = await Should.ThrowAsync<BusinessException>(() =>
+            _appService.UploadAsync(CreateUploadInput([1, 2, 3], fileName, contentType)));
+
+        exception.Code.ShouldBe(VaultExtractErrorCodes.Document.UnsupportedFileType);
+    }
+
+    [Theory]
+    [InlineData("book.xlsx", "text/plain")]
+    [InlineData("notes.txt", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")]
+    [InlineData("report.docx", "application/vnd.ms-excel")]
+    [InlineData("slides.pptx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")]
+    [InlineData("data.csv", "text/tab-separated-values")]
+    public async Task UploadAsync_Rejects_Mismatched_Allowed_Extension_And_ContentType(
+        string fileName,
+        string contentType)
+    {
+        var exception = await Should.ThrowAsync<BusinessException>(() =>
+            _appService.UploadAsync(CreateUploadInput([1, 2, 3], fileName, contentType)));
+
+        exception.Code.ShouldBe(VaultExtractErrorCodes.Document.UnsupportedFileType);
+    }
+
     [Fact]
     public async Task UploadAsync_Throws_FileTooLarge_When_Declared_ContentLength_Exceeds_Limit()
     {

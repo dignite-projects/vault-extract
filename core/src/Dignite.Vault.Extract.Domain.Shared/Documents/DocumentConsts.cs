@@ -19,27 +19,45 @@ public static class DocumentConsts
     public static long MaxUploadFileBytes { get; set; } = 20L * 1024 * 1024;
 
     /// <summary>
-    /// Allow-list for upload content-type, case-insensitive (#221). Fail-closed safety gate:
-    /// not in allow-list -> loud <c>BusinessException</c> (<c>Document.UnsupportedFileType</c>), no blob write, no pipeline trigger.
-    /// Defaults align with the frontend document-upload component + "SupportedFormats" copy (images + PDF).
-    /// Static mutable: if the host enables MarkItDown digital-native documents such as Word / HTML / CSV, extend this as needed
-    /// and keep <see cref="AllowedUploadExtensions"/> in sync.
+    /// Per-extension upload content-type allow-list, case-insensitive (#221 / #471). Fail-closed safety gate:
+    /// an extension/content-type pair not present here -> loud <c>BusinessException</c>
+    /// (<c>Document.UnsupportedFileType</c>), no blob write, no pipeline trigger.
+    /// Generic MIME types such as application/octet-stream / application/zip remain excluded.
     /// </summary>
-    public static ISet<string> AllowedUploadContentTypes { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    {
-        "image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf"
-    };
+    public static IDictionary<string, ISet<string>> AllowedUploadContentTypesByExtension { get; set; } =
+        new Dictionary<string, ISet<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            [".jpg"] = ContentTypes("image/jpeg"),
+            [".jpeg"] = ContentTypes("image/jpeg"),
+            [".png"] = ContentTypes("image/png"),
+            [".gif"] = ContentTypes("image/gif"),
+            [".webp"] = ContentTypes("image/webp"),
+            [".pdf"] = ContentTypes("application/pdf"),
+            [".csv"] = ContentTypes("text/csv", "application/csv", "application/vnd.ms-excel"),
+            [".tsv"] = ContentTypes("text/tab-separated-values", "text/tsv"),
+            [".txt"] = ContentTypes("text/plain"),
+            [".docx"] = ContentTypes("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+            // .pptx extraction requires the OpenXml module (VaultExtractParseOpenXmlModule): ElBruno has no
+            // PresentationML converter, so with that module absent a .pptx degrades to an empty document rather
+            // than graceful text (unlike .docx, which the ElBruno catch-all can still convert).
+            [".pptx"] = ContentTypes("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+            [".xlsx"] = ContentTypes("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        };
 
     /// <summary>
-    /// Allow-list for upload file extensions, including leading dot and case-insensitive (#221). Double-validated with
-    /// <see cref="AllowedUploadContentTypes"/>: content-type is client-spoofable, while extension determines blobName suffix
-    /// and <c>DefaultTextExtractor</c> dispatch (images go to OCR, others to Markdown), so both must be fail-closed validated.
-    /// Defaults correspond to the content-type allow-list.
+    /// Returns whether the exact extension/content-type pair is supported. Extension and MIME comparisons are
+    /// case-insensitive, but MIME parameters and generic fallbacks are intentionally not normalized into acceptance.
     /// </summary>
-    public static ISet<string> AllowedUploadExtensions { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    public static bool IsAllowedUploadType(string extension, string contentType)
     {
-        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".pdf"
-    };
+        return !string.IsNullOrEmpty(extension) &&
+               !string.IsNullOrEmpty(contentType) &&
+               AllowedUploadContentTypesByExtension.TryGetValue(extension, out var contentTypes) &&
+               contentTypes.Contains(contentType);
+    }
+
+    private static ISet<string> ContentTypes(params string[] values)
+        => new HashSet<string>(values, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Language tag detected during OCR / extraction, ISO 639-1 or IETF.</summary>
     public static int MaxLanguageLength { get; set; } = 16;

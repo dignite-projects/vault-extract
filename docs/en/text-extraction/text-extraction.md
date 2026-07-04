@@ -6,7 +6,7 @@ Every document uploaded to Dignite Vault Extract passes through a text-extractio
 
 Dignite Vault Extract is an AI-native platform. Markdown is the **single text payload** of the pipeline. But what Markdown contributes depends on whether the source document has structure — be honest about both cases:
 
-**With structure — real signal.** For contracts, reports, CSV, DOCX with headings, layout-aware OCR output (PP-StructureV3, Azure DI `prebuilt-layout`): headings, tables and lists are not formatting decoration — they are semantic signals that downstream RAG chunkers (header-path injection) and Dignite Vault Extract's own LLM prompts (system prompt: "input is Markdown") rely on. Use them in full.
+**With structure — real signal.** For contracts, reports, CSV/TSV, XLSX, DOCX/PPTX with headings and layout, or layout-aware OCR output (PP-StructureV3, Azure DI `prebuilt-layout`): headings, tables and lists are not formatting decoration — they are semantic signals that downstream RAG chunkers (header-path injection) and Dignite Vault Extract's own LLM prompts (system prompt: "input is Markdown") rely on. Use them in full.
 
 **Without structure — container, not signal.** For OCR loose paragraphs, plain `.txt`, PP-OCRv4 line dumps, single-line notes: the Markdown wrapper is a **container name**, not a signal upgrade — `string.Join("\n\n", paragraphs)` and the plain text it wraps are byte-for-byte indistinguishable. We still route this through the Markdown contract so internal pipelines (classification / Host & tenant field extraction / title generation) and downstream consumers (RAG / business systems) stay on one shape. The wrapper buys uniformity, not LLM comprehension.
 
@@ -25,11 +25,12 @@ Source contract: [`ITextExtractor`](../core/src/Dignite.Vault.Extract.Abstractio
 ```
 Upload → DocumentParseBackgroundJob
               │
-              ├─→ digital text layer? (PDF / DOCX / HTML / TXT / CSV / RTF / EPUB …)
+              ├─→ digital text layer? (PDF / DOCX / PPTX / XLSX / TXT / CSV / TSV …)
               │     └─→ IMarkdownTextProvider, dispatched per file by extension:
               │           • .pdf → PdfExtractor (PdfPig: text layer + embedded-image OCR, inlined)
               │           • .pptx / .docx → OpenXmlExtractor (structure + charts/tables + embedded-image OCR, inlined)
-              │           • everything else → ElBruno MarkItDown (catch-all)
+              │           • .xlsx → ElBruno MarkItDown Excel plugin
+              │           • .csv / .tsv / .txt and everything else → ElBruno MarkItDown (catch-all)
               │
               └─→ image / scan?
                     └─→ IOcrProvider (PaddleOCR / Azure Document Intelligence / Vision-LLM)
@@ -48,7 +49,9 @@ The image/scan path is dispatched by file kind. The digital path is dispatched *
 |---|---|---|
 | **PdfExtractor** (`Dignite.Vault.Extract.Parse.Pdf`, PdfPig) | `.pdf` | Extracts the digital text layer **and** embedded raster images. Each image is transcribed through the host-selected `IOcrProvider` and inlined into the Markdown at its reading position (#301), so embedded figures are no longer silently dropped. Vector-only graphics are an accepted blind spot (`GetImages()` does not see them). |
 | **OpenXmlExtractor** (`Dignite.Vault.Extract.Parse.OpenXml`, OpenXML SDK) | `.pptx`, `.docx` | Owns the whole PowerPoint / Word pass: rebuilds structure (PPTX slide text + speaker notes, #307; DOCX headings / tables / lists / inline formatting / hyperlinks / text boxes, #308) **and** transcribes embedded raster images through the host-selected `IOcrProvider`, renders `ChartPart` backing data as Markdown tables, inlining everything at reading position. EMF/WMF vector images are an accepted blind spot. |
-| **ElBruno MarkItDown** (`Dignite.Vault.Extract.Parse.ElBrunoMarkItDown`) | catch-all (HTML / TXT / CSV / RTF / EPUB; also `.docx` when the OpenXml module is absent, and `.pdf` when the Pdf module is absent) | Default fallback; enabled by the host module, no configuration. |
+| **ElBruno MarkItDown** (`Dignite.Vault.Extract.Parse.ElBrunoMarkItDown`) | catch-all (XLSX via its Excel plugin; HTML / TXT / CSV / TSV / RTF / EPUB; also `.docx` when the OpenXml module is absent, and `.pdf` when the Pdf module is absent) | Default fallback; enabled by the host module. XLSX conversion emits each non-empty worksheet as Markdown tables. |
+
+**XLSX resource boundary (#471).** An XLSX is a compressed ZIP package, so the 20 MiB upload limit alone does not bound the memory or CPU required to open it. Before ClosedXML materializes the workbook, the ElBruno provider drains every archive entry through a shared expanded-byte budget and rejects packages exceeding the entry, worksheet, or cell caps. The resulting Markdown has a separate character cap. A limit violation fails the parse run explicitly; it is never persisted as a successful empty extraction.
 
 **Embedded images in digital PDFs (#301).** PdfExtractor reuses the host-selected `IOcrProvider` for figure transcription — no separate vision client is wired at the Markdown-provider layer, and the semantics are transcription only (no chart/describe modes). Image-heavy PDFs are bounded by `PdfExtractorOptions` (`MaxImagesPerPdf`, `MinImagePixels` — tiny decorative images are skipped). When images are dropped (cap reached / undecodable codec such as JBIG2/JPX) or a figure's OCR is truncated, the result is marked incomplete via the #268 completeness signal.
 
