@@ -27,6 +27,9 @@ public sealed record DocumentSearchResultItem
 
     public required Guid Id { get; init; }
 
+    /// <summary>Owning cabinet id, or null when the document is uncategorized.</summary>
+    public Guid? CabinetId { get; init; }
+
     /// <summary>Display title, already wrapped with PromptBoundary.</summary>
     public string? Title { get; init; }
 

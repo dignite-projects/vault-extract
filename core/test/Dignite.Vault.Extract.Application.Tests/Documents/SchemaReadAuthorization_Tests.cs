@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
@@ -81,6 +82,7 @@ public class SchemaReadAuthorizationTestModule : AbpModule
 
         context.Services.AddSingleton(Substitute.For<IDocumentTypeRepository>());
         context.Services.AddSingleton(Substitute.For<IFieldDefinitionRepository>());
+        context.Services.AddSingleton(Substitute.For<ICabinetRepository>());
         context.Services.AddSingleton(Substitute.For<IDocumentRepository>());
     }
 }
@@ -94,16 +96,20 @@ public class SchemaReadAuthorization_Tests : VaultExtractApplicationTestBase<Sch
 {
     private readonly IDocumentTypeAppService _documentTypeAppService;
     private readonly IFieldDefinitionAppService _fieldDefinitionAppService;
+    private readonly ICabinetReadAppService _cabinetReadAppService;
     private readonly IDocumentTypeRepository _documentTypeRepository;
     private readonly IFieldDefinitionRepository _fieldDefinitionRepository;
+    private readonly ICabinetRepository _cabinetRepository;
     private readonly GrantSetAuthorizationService _authorization;
 
     public SchemaReadAuthorization_Tests()
     {
         _documentTypeAppService = GetRequiredService<IDocumentTypeAppService>();
         _fieldDefinitionAppService = GetRequiredService<IFieldDefinitionAppService>();
+        _cabinetReadAppService = GetRequiredService<ICabinetReadAppService>();
         _documentTypeRepository = GetRequiredService<IDocumentTypeRepository>();
         _fieldDefinitionRepository = GetRequiredService<IFieldDefinitionRepository>();
+        _cabinetRepository = GetRequiredService<ICabinetRepository>();
         _authorization = GetRequiredService<GrantSetAuthorizationService>();
     }
 
@@ -144,6 +150,57 @@ public class SchemaReadAuthorization_Tests : VaultExtractApplicationTestBase<Sch
         var result = await _documentTypeAppService.GetVisibleAsync();
 
         result.Count.ShouldBe(1);
+    }
+
+    // ---- Cabinet reads: bounded non-HTTP read service ----
+
+    [Fact]
+    public async Task CabinetRead_Throws_When_Neither_Documents_Nor_Cabinets_Granted()
+    {
+        Grant(/* nothing */);
+
+        await Should.ThrowAsync<AbpAuthorizationException>(() => _cabinetReadAppService.GetListAsync());
+    }
+
+    [Fact]
+    public async Task CabinetRead_Succeeds_For_Documents_Default_Only()
+    {
+        Grant(VaultExtractPermissions.Documents.Default);
+        _cabinetRepository.GetQueryableAsync()
+            .Returns(new List<Cabinet> { new(Guid.NewGuid(), null, "Legal") }.AsQueryable());
+
+        var result = await _cabinetReadAppService.GetListAsync();
+
+        result.Items.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task CabinetRead_Succeeds_For_Cabinets_Default_Only()
+    {
+        Grant(VaultExtractPermissions.Cabinets.Default);
+        _cabinetRepository.GetQueryableAsync()
+            .Returns(new List<Cabinet> { new(Guid.NewGuid(), null, "Legal") }.AsQueryable());
+
+        var result = await _cabinetReadAppService.GetListAsync();
+
+        result.Items.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task CabinetRead_Applies_Database_Query_Cap_And_Returns_Genuine_Total()
+    {
+        Grant(VaultExtractPermissions.Documents.Default);
+        var cabinets = Enumerable.Range(0, CabinetReadConsts.MaxResultCount + 5)
+            .Select(i => new Cabinet(Guid.NewGuid(), null, $"Cabinet {i:D4}"))
+            .OrderByDescending(c => c.Name)
+            .AsQueryable();
+        _cabinetRepository.GetQueryableAsync().Returns(cabinets);
+
+        var result = await _cabinetReadAppService.GetListAsync();
+
+        result.TotalCount.ShouldBe(CabinetReadConsts.MaxResultCount + 5);
+        result.Items.Count.ShouldBe(CabinetReadConsts.MaxResultCount);
+        result.Items[0].Name.ShouldBe("Cabinet 0000");
     }
 
     // ---- FieldDefinition reads: active GetListAsync ----

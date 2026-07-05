@@ -17,8 +17,8 @@ namespace Dignite.Vault.Extract.Mcp.Documents;
 /// permission assertions, parameter validation, field definition resolution, and tenant isolation all run inside AppService.
 /// Retrieval converges to structured field queries: metadata plus one or more ExtractedFields value filters, ANDed together.
 /// There is no keyword full-text / substring search because degraded retrieval engines are OUT of scope; see CLAUDE.md / Issue #204.
-/// Field value queries are anchored to required <c>documentTypeCode</c>: fields such as amount have no stable meaning outside a type,
-/// guiding downstream AI clients to **ask a clarifying question** when the user did not specify a type.
+/// Field value queries are anchored to required <c>documentTypeCode</c>: fields such as amount have no stable meaning outside a type.
+/// Metadata-only queries may instead be anchored to a cabinet or source container.
 /// Clarification happens in the client LLM; Extract does not implement a conversational agent.
 /// Matching rows include all ExtractedFields for the document directly, avoiding a second fetch. This tool handles only transport-layer concerns:
 /// lenient parsing of lifecycle strings, hard result-set limit clamped to <see cref="DocumentConsts.MaxSearchResultCount"/> to protect LLM context,
@@ -30,16 +30,17 @@ namespace Dignite.Vault.Extract.Mcp.Documents;
 public sealed class DocumentSearchTool
 {
     [McpServerTool(Name = "search_documents", Title = "Search Documents", ReadOnly = true)]
-    [Description("Search Extract documents within a single document type by structured metadata "
-        + "and/or one or more extracted-field filters (all combined with AND). Returns an object with items "
-        + "(up to 50: id, uri, title, type, lifecycle, created-at, and the document's extracted field values) "
+    [Description("Search Extract documents within a required structured scope by metadata and/or one or "
+        + "more extracted-field filters (all combined with AND). Returns an object with items "
+        + "(up to 50: id, uri, cabinet id, title, type, lifecycle, created-at, and extracted field values) "
         + "plus totalCount and truncated; when truncated is true more documents matched than were returned, so "
         + "narrow the query rather than treating items as the complete set. Read a match's full Markdown via its "
         + "vault-extract://documents/{id} resource uri. Structured field/metadata "
-        + "search only — no keyword/full-text or semantic/vector retrieval. documentTypeCode is required UNLESS "
-        + "originDocumentId is given; if the user has not said which document type to search, ask them first. "
+        + "search only — no keyword/full-text or semantic/vector retrieval. At least one scope anchor is required: "
+        + "documentTypeCode, originDocumentId, or cabinetId. Extracted-field filters always require documentTypeCode. "
         + "To list the sub-documents of a container, pass that container's id as originDocumentId. Discover a "
-        + "type's filterable field names and data types via its vault-extract://document-types/{code} resource.")]
+        + "type's filterable fields via vault-extract://document-types/{code}; discover cabinet ids via "
+        + "resources/list or list_cabinets.")]
     public static async Task<DocumentSearchResult> SearchAsync(
         IDocumentAppService documentAppService,
         [Description("The document type code to search within (e.g. a classification result like "
@@ -51,6 +52,10 @@ public sealed class DocumentSearchTool
             + "container (the documents whose origin is this id). Pass a container's id here to enumerate its "
             + "sub-documents. Optional; when given, documentTypeCode is not required.")]
         string? originDocumentId = null,
+        [Description("Filter to one cabinet id (UUID). Resolve a user-facing cabinet name through resources/list "
+            + "or list_cabinets first. Optional; when given, documentTypeCode is not required unless fieldFilters "
+            + "are also supplied.")]
+        string? cabinetId = null,
         [Description("Filter by lifecycle status. One of: Uploaded, Processing, Ready, Failed, Archived. Optional.")]
         string? lifecycleStatus = null,
         [Description("Extracted-field filters, all combined with AND (every filter must match). Each entry "
@@ -76,17 +81,35 @@ public sealed class DocumentSearchTool
             originDocumentIdValue = parsedOriginId;
         }
 
-        // documentTypeCode anchors a type/field query and stays required — EXCEPT when originDocumentId is given,
-        // where the query is a provenance lookup that does not need a type. Without either, an empty documentTypeCode
-        // would make GetListAsync degrade to metadata retrieval across all types, contrary to the contract; reject
-        // loudly instead of silently widening. Permissions / tenant / limits still apply inside AppService.
-        if (string.IsNullOrWhiteSpace(documentTypeCode) && originDocumentIdValue is null)
+        // CabinetId is a query-scope anchor, so parse it strictly. This intentionally differs from the
+        // legacy lenient origin/lifecycle parsing above: silently dropping an invalid cabinet id could
+        // broaden a request across every cabinet, or produce a misleading missing-type error.
+        Guid? cabinetIdValue = null;
+        if (!string.IsNullOrWhiteSpace(cabinetId))
+        {
+            if (!Guid.TryParse(cabinetId, out var parsedCabinetId))
+            {
+                throw new McpException($"Invalid cabinet id: {cabinetId}");
+            }
+            cabinetIdValue = parsedCabinetId;
+        }
+
+        // Extracted field declarations are type-bound even when the metadata search is cabinet-scoped.
+        if (fieldFilters is { Count: > 0 } && string.IsNullOrWhiteSpace(documentTypeCode))
+        {
+            throw new McpException("documentTypeCode is required when fieldFilters are specified.");
+        }
+
+        // A type, provenance id, or cabinet id is required so a malformed/underspecified request cannot
+        // degrade to retrieval across the entire current layer.
+        if (string.IsNullOrWhiteSpace(documentTypeCode)
+            && originDocumentIdValue is null
+            && cabinetIdValue is null)
         {
             throw new McpException(
-                "documentTypeCode is required unless originDocumentId is given: every type/field search anchors to a "
-                + "single document type. If the user has not said which type to search, ask them first; discover a "
-                + "type's filterable fields via its vault-extract://document-types/{code} resource. To list a container's "
-                + "sub-documents, pass the container id as originDocumentId.");
+                "At least one search scope is required: documentTypeCode, originDocumentId, or cabinetId. "
+                + "Extracted-field filters require documentTypeCode. Discover document types through "
+                + "list_document_types and cabinet ids through list_cabinets.");
         }
 
         // Leniently parse lifecycle filter values. LLM clients usually pass string names such as "Ready".
@@ -103,6 +126,7 @@ public sealed class DocumentSearchTool
         {
             DocumentTypeCode = documentTypeCode,
             OriginDocumentId = originDocumentIdValue,
+            CabinetId = cabinetIdValue,
             LifecycleStatus = lifecycle,
             FieldFilters = fieldFilters?.ToList(),
             // Clamp hard result-set limit to MaxSearchResultCount. This is an MCP transport concern:
@@ -123,6 +147,7 @@ public sealed class DocumentSearchTool
             {
                 Uri = DocumentResourceUri.Format(d.Id),
                 Id = d.Id,
+                CabinetId = d.CabinetId,
                 // User-derived free text (title) is wrapped with PromptBoundary to prevent indirect prompt injection.
                 Title = PromptBoundary.WrapField(d.Title),
                 DocumentTypeCode = d.DocumentTypeCode,

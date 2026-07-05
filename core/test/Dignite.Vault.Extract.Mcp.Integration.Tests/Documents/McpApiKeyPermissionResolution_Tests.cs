@@ -2,6 +2,7 @@ using System;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using Dignite.Vault.Extract.Documents;
+using Dignite.Vault.Extract.Documents.Cabinets;
 using Dignite.Vault.Extract.Documents.DocumentTypes;
 using Dignite.Vault.Extract.Mcp.Authentication;
 using Dignite.Vault.Extract.Mcp.Documents;
@@ -40,7 +41,9 @@ public class McpApiKeyPermissionResolution_Tests : McpApiKeyIntegrationTestBase<
     private static readonly Guid UngrantedServiceAccountId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 
     private readonly IDocumentAppService _documentAppService;
+    private readonly ICabinetReadAppService _cabinetReadAppService;
     private readonly IDocumentRepository _documentRepository;
+    private readonly ICabinetRepository _cabinetRepository;
     private readonly IDocumentTypeRepository _documentTypeRepository;
     private readonly IPermissionGrantRepository _permissionGrantRepository;
     private readonly IGuidGenerator _guidGenerator;
@@ -50,7 +53,9 @@ public class McpApiKeyPermissionResolution_Tests : McpApiKeyIntegrationTestBase<
     public McpApiKeyPermissionResolution_Tests()
     {
         _documentAppService = GetRequiredService<IDocumentAppService>();
+        _cabinetReadAppService = GetRequiredService<ICabinetReadAppService>();
         _documentRepository = GetRequiredService<IDocumentRepository>();
+        _cabinetRepository = GetRequiredService<ICabinetRepository>();
         _documentTypeRepository = GetRequiredService<IDocumentTypeRepository>();
         _permissionGrantRepository = GetRequiredService<IPermissionGrantRepository>();
         _guidGenerator = GetRequiredService<IGuidGenerator>();
@@ -99,6 +104,31 @@ public class McpApiKeyPermissionResolution_Tests : McpApiKeyIntegrationTestBase<
         {
             await Should.ThrowAsync<AbpAuthorizationException>(() =>
                 WithUnitOfWorkAsync(() => DocumentSearchTool.SearchAsync(_documentAppService, documentTypeCode: TypeCode)));
+        }
+    }
+
+    [Fact]
+    public async Task Documents_only_key_principal_can_discover_cabinets_without_cabinet_admin_permission()
+    {
+        var cabinetId = Guid.NewGuid();
+        await WithUnitOfWorkAsync(async () =>
+        {
+            await _cabinetRepository.InsertAsync(
+                new Cabinet(cabinetId, tenantId: null, "Legal", "Contracts"),
+                autoSave: true);
+            await GrantDocumentsDefaultAsync(GrantedServiceAccountId);
+        });
+
+        using (_principalAccessor.Change(ApiKeyPrincipal(GrantedServiceAccountId)))
+        {
+            await WithUnitOfWorkAsync(async () =>
+            {
+                // #473 permission decision: cabinet discovery is document-read metadata. The API-key
+                // service account keeps exactly Documents.Default and receives no Cabinets.* grant.
+                var result = await CabinetTools.ListAsync(_cabinetReadAppService);
+
+                result.Items.ShouldContain(c => c.Id == cabinetId);
+            });
         }
     }
 
