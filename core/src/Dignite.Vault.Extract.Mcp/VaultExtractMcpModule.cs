@@ -1,4 +1,3 @@
-using Dignite.Vault.Extract.Documents.DocumentTypes;
 using Dignite.Vault.Extract.Mcp.Documents;
 using Microsoft.Extensions.DependencyInjection;
 using Volo.Abp.Modularity;
@@ -32,26 +31,17 @@ public class VaultExtractMcpModule : AbpModule
             .WithHttpTransport()
             .WithResources<DocumentResources>()
             .WithResources<DocumentTypeResources>()
+            .WithResources<CabinetResources>()
             .WithTools<DocumentSearchTool>()
             .WithTools<DocumentTypeTools>()
+            .WithTools<CabinetTools>()
             .WithTools<DocumentTools>()
-            // resources/list dynamically enumerates document types visible to the current principal.
-            // AI uses it to discover documentTypeCode values, then reads each
-            // vault-extract://document-types/{code} resource to get the field schema. Documents themselves
-            // are not enumerated because their count is unbounded; they are discovered through the
-            // search tool. The read path is still automatically routed by DocumentTypeResources'
-            // UriTemplate. list and read responsibilities stay separate: this handler only fills
-            // resources/list, and template reads are unaffected.
+            // resources/list dynamically enumerates document types and cabinets visible to the current
+            // principal. Documents themselves are not enumerated because their count is unbounded; they
+            // are discovered through search_documents.
             .WithListResourcesHandler(async (ctx, ct) =>
             {
-                // Delegate to DocumentTypeResources.ListVisibleAsync. The projection centralizes
-                // fail-closed authorization assertions (OR assertion inside the AppService method
-                // body; MCP dispatch does not pass through HTTP [Authorize], but in-process AppService
-                // calls still execute normally), ambient tenant isolation (two-layer independent
-                // single-layer model), and hard result truncation after TypeCode ordering
-                // (VaultExtractMcpConsts.MaxDocumentTypeResults).
-                var documentTypeAppService = ctx.Services!.GetRequiredService<IDocumentTypeAppService>();
-                return await DocumentTypeResources.ListVisibleAsync(documentTypeAppService);
+                return await McpResourceCatalog.ListVisibleAsync(ctx.Services!);
             });
     }
 }

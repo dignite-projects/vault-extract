@@ -68,6 +68,7 @@ public class DocumentSearchTool_Tests : VaultExtractTestBase<DocumentSearchToolT
         // normally.
         properties.TryGetProperty("documentTypeCode", out _).ShouldBeTrue();
         properties.TryGetProperty("originDocumentId", out _).ShouldBeTrue();
+        properties.TryGetProperty("cabinetId", out _).ShouldBeTrue();
         properties.TryGetProperty("lifecycleStatus", out _).ShouldBeTrue();
         properties.TryGetProperty("maxResultCount", out _).ShouldBeTrue();
 
@@ -107,10 +108,65 @@ public class DocumentSearchTool_Tests : VaultExtractTestBase<DocumentSearchToolT
     }
 
     [Fact]
-    public async Task Requires_documentTypeCode_unless_originDocumentId_is_given()
+    public async Task Requires_type_origin_or_cabinet_scope()
     {
-        // Neither a type anchor nor an origin anchor: reject loudly instead of silently widening to all types.
+        // No type, provenance, or cabinet anchor: reject instead of widening to the whole current layer.
         await Should.ThrowAsync<McpException>(() => DocumentSearchTool.SearchAsync(_documentAppService));
+        await _documentAppService.DidNotReceive().GetListAsync(Arg.Any<GetDocumentListInput>());
+    }
+
+    [Fact]
+    public async Task Searches_one_cabinet_without_requiring_a_type()
+    {
+        var cabinetId = Guid.NewGuid();
+        var documentId = Guid.NewGuid();
+        _documentAppService
+            .GetListAsync(Arg.Any<GetDocumentListInput>())
+            .Returns(new PagedResultDto<DocumentListItemDto>(1, new List<DocumentListItemDto>
+            {
+                new()
+                {
+                    Id = documentId,
+                    CabinetId = cabinetId,
+                    LifecycleStatus = DocumentLifecycleStatus.Ready,
+                    CreationTime = new DateTime(2024, 1, 1)
+                }
+            }));
+
+        var result = await DocumentSearchTool.SearchAsync(
+            _documentAppService, cabinetId: cabinetId.ToString());
+
+        await _documentAppService.Received(1).GetListAsync(Arg.Is<GetDocumentListInput>(i =>
+            i.CabinetId == cabinetId && string.IsNullOrEmpty(i.DocumentTypeCode)));
+        result.Items.Count.ShouldBe(1);
+        result.Items[0].CabinetId.ShouldBe(cabinetId);
+    }
+
+    [Fact]
+    public async Task Rejects_invalid_cabinet_id_instead_of_widening_search()
+    {
+        var exception = await Should.ThrowAsync<McpException>(() =>
+            DocumentSearchTool.SearchAsync(
+                _documentAppService,
+                documentTypeCode: "contract.general",
+                cabinetId: "not-a-guid"));
+
+        exception.Message.ShouldContain("Invalid cabinet id");
+        await _documentAppService.DidNotReceive().GetListAsync(Arg.Any<GetDocumentListInput>());
+    }
+
+    [Fact]
+    public async Task Rejects_cabinet_field_filters_without_document_type()
+    {
+        await Should.ThrowAsync<McpException>(() =>
+            DocumentSearchTool.SearchAsync(
+                _documentAppService,
+                cabinetId: Guid.NewGuid().ToString(),
+                fieldFilters: new List<DocumentFieldFilter>
+                {
+                    new() { Name = "amount", Value = "100" }
+                }));
+
         await _documentAppService.DidNotReceive().GetListAsync(Arg.Any<GetDocumentListInput>());
     }
 
@@ -118,6 +174,7 @@ public class DocumentSearchTool_Tests : VaultExtractTestBase<DocumentSearchToolT
     public async Task Builds_input_and_maps_wrapped_result()
     {
         var docId = Guid.NewGuid();
+        var cabinetId = Guid.NewGuid();
         _documentAppService
             .GetListAsync(Arg.Any<GetDocumentListInput>())
             .Returns(new PagedResultDto<DocumentListItemDto>(1, new List<DocumentListItemDto>
@@ -125,6 +182,7 @@ public class DocumentSearchTool_Tests : VaultExtractTestBase<DocumentSearchToolT
                 new()
                 {
                     Id = docId,
+                    CabinetId = cabinetId,
                     Title = "Acme MSA",
                     DocumentTypeCode = "contract.general",
                     LifecycleStatus = DocumentLifecycleStatus.Ready,
@@ -135,6 +193,7 @@ public class DocumentSearchTool_Tests : VaultExtractTestBase<DocumentSearchToolT
         var result = await DocumentSearchTool.SearchAsync(
             _documentAppService,
             documentTypeCode: "contract.general",
+            cabinetId: cabinetId.ToString(),
             lifecycleStatus: "Ready",
             fieldFilters: new List<DocumentFieldFilter> { new() { Name = "amount", Min = "100", Max = "200" } });
 
@@ -142,6 +201,7 @@ public class DocumentSearchTool_Tests : VaultExtractTestBase<DocumentSearchToolT
         // fieldFilters pass-through, and result limit.
         await _documentAppService.Received(1).GetListAsync(Arg.Is<GetDocumentListInput>(i =>
             i.DocumentTypeCode == "contract.general"
+            && i.CabinetId == cabinetId
             && i.LifecycleStatus == DocumentLifecycleStatus.Ready
             && i.FieldFilters != null && i.FieldFilters.Count == 1
             && i.FieldFilters[0].Name == "amount" && i.FieldFilters[0].Min == "100" && i.FieldFilters[0].Max == "200"
@@ -150,6 +210,7 @@ public class DocumentSearchTool_Tests : VaultExtractTestBase<DocumentSearchToolT
         result.Items.Count.ShouldBe(1);
         result.Items[0].Id.ShouldBe(docId);
         result.Items[0].DocumentTypeCode.ShouldBe("contract.general");
+        result.Items[0].CabinetId.ShouldBe(cabinetId);
         result.Items[0].LifecycleStatus.ShouldBe("Ready");
         result.Items[0].Uri.ShouldBe(DocumentResourceUri.Format(docId));
         // User-derived free text is wrapped with PromptBoundary to defend against indirect prompt

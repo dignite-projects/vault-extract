@@ -108,4 +108,26 @@ public class DocumentResources_Tests : VaultExtractTestBase<DocumentResourcesTes
         text.ShouldContain("isContainer: false");
         text.ShouldContain($"originDocumentId: {originId}");
     }
+
+    [Fact]
+    public async Task Header_emits_cabinet_id_when_document_is_filed()
+    {
+        var documentId = Guid.NewGuid();
+        var cabinetId = Guid.NewGuid();
+        _documentAppService
+            .GetAsync(documentId)
+            .Returns(new DocumentDto
+            {
+                Id = documentId,
+                CabinetId = cabinetId,
+                LifecycleStatus = DocumentLifecycleStatus.Ready,
+                CreationTime = new DateTime(2024, 1, 1),
+                Markdown = "filed document"
+            });
+
+        var result = await DocumentResources.ReadAsync(documentId.ToString(), _documentAppService);
+
+        var header = ExtractMetadataHeader(((TextResourceContents)result).Text);
+        header.ShouldContain($"cabinetId: {cabinetId}");
+    }
 }
