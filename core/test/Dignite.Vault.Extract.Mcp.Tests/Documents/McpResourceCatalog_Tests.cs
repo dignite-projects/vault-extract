@@ -61,7 +61,9 @@ public sealed class McpCatalogGrantAuthorizationService : IAbpAuthorizationServi
     }
 }
 
-[DependsOn(typeof(VaultExtractTestBaseModule))]
+[DependsOn(
+    typeof(VaultExtractTestBaseModule),
+    typeof(VaultExtractMcpModule))]
 public class McpResourceCatalogTestModule : AbpModule
 {
     public override void ConfigureServices(ServiceConfigurationContext context)
@@ -83,12 +85,14 @@ public class McpResourceCatalog_Tests : VaultExtractTestBase<McpResourceCatalogT
     private readonly McpCatalogGrantAuthorizationService _authorization;
     private readonly IDocumentTypeAppService _documentTypeAppService;
     private readonly ICabinetReadAppService _cabinetReadAppService;
+    private readonly IMcpResourceCatalog _catalog;
 
     public McpResourceCatalog_Tests()
     {
         _authorization = GetRequiredService<McpCatalogGrantAuthorizationService>();
         _documentTypeAppService = GetRequiredService<IDocumentTypeAppService>();
         _cabinetReadAppService = GetRequiredService<ICabinetReadAppService>();
+        _catalog = GetRequiredService<IMcpResourceCatalog>();
     }
 
     [Fact]
@@ -108,7 +112,7 @@ public class McpResourceCatalog_Tests : VaultExtractTestBase<McpResourceCatalogT
             }
         });
 
-        var result = await McpResourceCatalog.ListVisibleAsync(ServiceProvider);
+        var result = await _catalog.ListVisibleAsync();
 
         result.Resources.Count.ShouldBe(1);
         result.Resources[0].Uri.ShouldBe(
@@ -130,11 +134,43 @@ public class McpResourceCatalog_Tests : VaultExtractTestBase<McpResourceCatalogT
                 new() { Id = cabinetId, Name = "Legal" }
             }));
 
-        var result = await McpResourceCatalog.ListVisibleAsync(ServiceProvider);
+        var result = await _catalog.ListVisibleAsync();
 
         result.Resources.Count.ShouldBe(1);
         result.Resources[0].Uri.ShouldBe(CabinetResourceUri.Format(cabinetId));
         await _documentTypeAppService.DidNotReceive().GetVisibleAsync();
+    }
+
+    [Fact]
+    public async Task Document_reader_sees_both_categories_in_registration_order()
+    {
+        // Documents.Default alone grants both built-in categories, and the output order follows the
+        // ResourceListContributors registration order (types before cabinets) deterministically.
+        _authorization.Granted = new HashSet<string>
+        {
+            VaultExtractPermissions.Documents.Default
+        };
+        _documentTypeAppService.GetVisibleAsync().Returns(new List<DocumentTypeDto>
+        {
+            new()
+            {
+                Id = Guid.NewGuid(),
+                TypeCode = "contract.general",
+                DisplayName = "Contract"
+            }
+        });
+        var cabinetId = Guid.NewGuid();
+        _cabinetReadAppService.GetListAsync().Returns(
+            new PagedResultDto<CabinetDto>(1, new List<CabinetDto>
+            {
+                new() { Id = cabinetId, Name = "Legal" }
+            }));
+
+        var result = await _catalog.ListVisibleAsync();
+
+        result.Resources.Count.ShouldBe(2);
+        result.Resources[0].Uri.ShouldBe(DocumentTypeResourceUri.Format("contract.general"));
+        result.Resources[1].Uri.ShouldBe(CabinetResourceUri.Format(cabinetId));
     }
 
     [Fact]
@@ -143,6 +179,6 @@ public class McpResourceCatalog_Tests : VaultExtractTestBase<McpResourceCatalogT
         _authorization.Granted.Clear();
 
         await Should.ThrowAsync<AbpAuthorizationException>(() =>
-            McpResourceCatalog.ListVisibleAsync(ServiceProvider));
+            _catalog.ListVisibleAsync());
     }
 }

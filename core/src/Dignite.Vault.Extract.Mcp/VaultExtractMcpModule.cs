@@ -1,3 +1,4 @@
+using Dignite.Vault.Extract.Mcp;
 using Dignite.Vault.Extract.Mcp.Documents;
 using Microsoft.Extensions.DependencyInjection;
 using Volo.Abp.Modularity;
@@ -15,7 +16,10 @@ namespace Dignite.Vault.Extract;
 /// host enables it with one call instead of re-authoring the handler (#422). Subscription + lifecycle notifications
 /// are future incremental work (#197). The outbound surface depends only on
 /// <c>Application.Contracts</c>, symmetric with REST: all read paths go through AppService interfaces
-/// and do not reach into Domain (#222).
+/// and do not reach into Domain (#222). The surface is additively extensible by downstream modules
+/// (e.g. a commercial edition, #475): extra tools via <c>AddMcpServer().WithTools&lt;TTools&gt;()</c> in
+/// their own module, extra resources/list categories via <see cref="VaultExtractMcpOptions.ResourceListContributors"/>;
+/// the open-source surface itself stays strictly single-tenant behind the ambient IMultiTenant filter.
 /// </summary>
 [DependsOn(
     typeof(VaultExtractApplicationContractsModule))]
@@ -23,6 +27,14 @@ public class VaultExtractMcpModule : AbpModule
 {
     public override void ConfigureServices(ServiceConfigurationContext context)
     {
+        // resources/list composition is contributor-based: each entry is one independently authorized,
+        // bounded category, and downstream modules append their own categories through the same options.
+        Configure<VaultExtractMcpOptions>(options =>
+        {
+            options.ResourceListContributors.Add<DocumentTypeMcpResourceListContributor>();
+            options.ResourceListContributors.Add<CabinetMcpResourceListContributor>();
+        });
+
         // Streamable HTTP transport. Capabilities declare only plain resources/tools, with no
         // subscribe / listChanged support, honestly advertising pull-only behavior so clients do not
         // wait for push notifications (#197 will add that later).
@@ -36,12 +48,13 @@ public class VaultExtractMcpModule : AbpModule
             .WithTools<DocumentTypeTools>()
             .WithTools<CabinetTools>()
             .WithTools<DocumentTools>()
-            // resources/list dynamically enumerates document types and cabinets visible to the current
-            // principal. Documents themselves are not enumerated because their count is unbounded; they
-            // are discovered through search_documents.
+            // resources/list dynamically enumerates the registered categories (document types and
+            // cabinets by default) visible to the current principal. Documents themselves are not
+            // enumerated because their count is unbounded; they are discovered through search_documents.
             .WithListResourcesHandler(async (ctx, ct) =>
             {
-                return await McpResourceCatalog.ListVisibleAsync(ctx.Services!);
+                var catalog = ctx.Services!.GetRequiredService<IMcpResourceCatalog>();
+                return await catalog.ListVisibleAsync(ct);
             });
     }
 }
