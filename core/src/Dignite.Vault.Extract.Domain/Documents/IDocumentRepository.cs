@@ -17,6 +17,23 @@ public interface IDocumentRepository : IRepository<Document, Guid>
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Whether any document other than <paramref name="excludeDocumentId"/> has a <c>FileOrigin.BlobName</c> equal to
+    /// <paramref name="blobName"/> — the #478 shared-blob reference check used by
+    /// <c>DocumentAppService.PermanentDeleteAsync</c> before reclaiming a blob a figure sub-document may share with
+    /// its source. Existence-only (SQL <c>EXISTS</c>, no row materialization).
+    /// <para>
+    /// The implementation disables the <c>ISoftDelete</c> filter itself (like <see cref="FindByContentHashAsync"/>):
+    /// a recycle-bin document is restorable, so it still counts as a live reference; a hard-deleted row no longer
+    /// exists and correctly does not. <c>IMultiTenant</c> still applies by ambient state (source and sub-documents
+    /// share a tenant).
+    /// </para>
+    /// </summary>
+    Task<bool> AnyWithFileOriginBlobNameAsync(
+        string blobName,
+        Guid? excludeDocumentId = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Duplicate-detection candidate query (#411): <b>other</b> documents in the current layer with the same
     /// <see cref="Document.DocumentTypeId"/> and the same <see cref="Document.FieldFingerprint"/> as the document
     /// being extracted. Two documents sharing a (type, fingerprint) are likely the same business entity re-uploaded.

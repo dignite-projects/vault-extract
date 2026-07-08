@@ -59,6 +59,7 @@ default — the #364-class missed-branch bug, hardened in #379), not a license t
 | `RoutedDocumentId` | **keep explicit** | reconstructable from `(OriginDocumentId, OriginConstituentKey)`, but the explicit pointer is the ledger's purpose (idempotency + retraction clarity); reconstructing the join is more complex, not less |
 | `SliceText` | **transient one-way seed** | duplicated by `Document.Markdown` after parse; bounded duplication is accepted; **do not add a parse→segment writeback to clear it** (couples parse job to the ledger for a low-value saving) |
 | `PageNumber` | **retained provenance** | deliberate out-of-band anchor (Markdown-first "named, strongly-typed, nullable extension field" rule); write-only by design, not dead weight |
+| `FigureContentHash` | **spawn-input (resumable)** | #477/#478: SHA-256 of the retained figure's **image bytes** (≠ `SegmentKey`, the transcription-**text** hash), parsed at detection from the in-span `figures/{hash}` reference; read once at spawn to resolve the source's `FigureManifest` and point the child `FileOrigin` at the **shared** blob. Null = Text slice / retention off → child `FileOrigin` stays null |
 
 Watch for accreted residue: a fast-iterated subsystem leaves write-only fields / never-assigned enum values / dead
 projections. #390 removed three (`DocumentSegmentStatus.NotADocument`, `DetectionContext.UploadedByUserName`,
