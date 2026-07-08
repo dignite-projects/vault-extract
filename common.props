@@ -21,7 +21,7 @@
         <Company>Dignite</Company>
         <Product>Dignite Vault Extract</Product>
         <Copyright>© Dignite</Copyright>
-        <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+        <PackageLicenseExpression>LGPL-3.0-only</PackageLicenseExpression>
         <PackageProjectUrl>https://github.com/dignite-projects/vault-extract</PackageProjectUrl>
         <RepositoryUrl>https://github.com/dignite-projects/vault-extract</RepositoryUrl>
         <RepositoryType>git</RepositoryType>

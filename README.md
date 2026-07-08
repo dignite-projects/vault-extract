@@ -175,4 +175,4 @@ External references:
 
 ## License
 
-Dignite Vault Extract is licensed under the [Apache License 2.0](./LICENSE).
+Dignite Vault Extract is licensed under the [GNU Lesser General Public License v3.0](./LICENSE).
