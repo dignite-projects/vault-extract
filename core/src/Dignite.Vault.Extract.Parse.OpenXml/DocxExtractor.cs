@@ -160,7 +160,9 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
             var state = new DocxExtractionState
             {
                 ImageBudget = _options.MaxImagesPerFile,
-                LanguageHints = ResolveLanguageHints(context)
+                LanguageHints = ResolveLanguageHints(context),
+                // #477: host-deployment-layer toggle (default off) — surface + persist retained figure images.
+                RetainFigureImages = context.RetainFigureImages
             };
 
             // Build the per-document hyperlink id -> uri cache once (#318) so a link resolves in O(1) rather
@@ -217,7 +219,10 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
                 IsComplete = complete,
                 IncompleteReason = incompleteReason,
                 // DOCX text + per-image OCR has no single aggregated spatial payload to archive (#210).
-                NativePayload = null
+                NativePayload = null,
+                // #477: retained figure source images (null when retention is off / none retained), for the
+                // Application layer to blob-store; the figures/{hash} references are already in the Markdown above.
+                Figures = state.RetainedFigures.Count > 0 ? state.RetainedFigures : null
             };
         }
     }

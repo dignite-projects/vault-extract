@@ -43,6 +43,19 @@ public class OpenXmlExtractionState
     public IList<string> LanguageHints = new List<string>();
 
     /// <summary>
+    /// #477 figure retention (default false; the host toggle threaded from
+    /// <see cref="TextExtractionContext.RetainFigureImages"/>). When true, <see cref="OpenXmlFigureTranscriber"/>
+    /// surfaces each embedded image's source bytes on <see cref="RetainedFigures"/> and prepends a
+    /// <c>figures/{hash}</c> reference to the figure block, so the Application layer can blob-store the image.
+    /// Off = today's behaviour (image OCR'd to text, bytes discarded, no reference).
+    /// </summary>
+    public bool RetainFigureImages;
+
+    /// <summary>Retained embedded-figure source images (#477), accumulated during the walk when
+    /// <see cref="RetainFigureImages"/> is on; surfaced on the format's <c>TextExtractionResult.Figures</c>.</summary>
+    public readonly List<ExtractedFigure> RetainedFigures = new();
+
+    /// <summary>
     /// Resolves the OCR language hints for embedded-image transcription: the per-document hints from the
     /// context, or empty. There is no central host default (#441 removed it); a provider that needs a
     /// language default reads its own config (e.g. <c>PaddleOcr:Languages</c>). Shared by both OpenXML

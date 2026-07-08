@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -274,8 +273,8 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
                         string? imageReference = null;
                         if (retainedFigures is not null)
                         {
-                            var figureHash = Sha256Hex(payload.Value.Bytes);
-                            imageReference = FigureReference(figureHash, payload.Value.ContentType);
+                            var figureHash = FigureReference.Sha256Hex(payload.Value.Bytes);
+                            imageReference = FigureReference.Build(figureHash, payload.Value.ContentType);
                             retainedFigures.Add(new ExtractedFigure(
                                 figureHash, payload.Value.Bytes, payload.Value.ContentType, pageContent.Page.Number));
                         }
@@ -359,35 +358,6 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
                 Figures = retainedFigures
             };
         }
-    }
-
-    /// <summary>SHA-256 (lowercase hex) of the image bytes — the retained figure's content hash / dedup key (#477),
-    /// matching the <c>figures/{hash}</c> Markdown reference and the Application-layer blob key.</summary>
-    private static string Sha256Hex(byte[] bytes)
-        => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
-
-    /// <summary>The document-relative Markdown reference for a retained figure (<c>figures/{hash}.{ext}</c>, #477).</summary>
-    private static string FigureReference(string contentHash, string contentType)
-        => "figures/" + contentHash + "." + ExtensionForContentType(contentType);
-
-    /// <summary>Maps an image MIME type to a file extension for the retained-figure reference — cosmetic, since the
-    /// egress resolves the blob by hash. Any <c>image/*</c> subtype passes through (<c>jpeg</c> → <c>jpg</c>);
-    /// a missing / non-image type falls back to <c>img</c>.</summary>
-    private static string ExtensionForContentType(string? contentType)
-    {
-        if (string.IsNullOrEmpty(contentType) ||
-            !contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
-        {
-            return "img";
-        }
-
-        var subtype = contentType["image/".Length..].Trim().ToLowerInvariant();
-        return subtype switch
-        {
-            "" => "img",
-            "jpeg" => "jpg",
-            _ => subtype
-        };
     }
 
     /// <summary>Whether an embedded image is below the <see cref="PdfExtractorOptions.MinImagePixels"/> threshold (decorative).</summary>

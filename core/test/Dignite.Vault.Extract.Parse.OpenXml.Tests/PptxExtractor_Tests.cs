@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Dignite.Vault.Extract.Abstractions.Parse;
@@ -32,8 +33,13 @@ public class PptxExtractor_Tests
                 IncludeSpeakerNotes = includeNotes
             }));
 
-    private static TextExtractionContext PptxContext()
-        => new() { ContentType = "application/vnd.openxmlformats-officedocument.presentationml.presentation", FileExtension = ".pptx" };
+    private static TextExtractionContext PptxContext(bool retainFigures = false)
+        => new()
+        {
+            ContentType = "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            FileExtension = ".pptx",
+            RetainFigureImages = retainFigures
+        };
 
     private void StubOcr(string markdown, bool isComplete = true, string? reason = null)
         => _ocr.RecognizeAsync(Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>())
@@ -117,6 +123,57 @@ public class PptxExtractor_Tests
             Arg.Any<Stream>(),
             Arg.Is<OcrOptions>(o => o.ContentType.StartsWith("image/", StringComparison.Ordinal)),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Retention_off_inlines_no_figure_reference_and_surfaces_no_Figures()
+    {
+        // #477 default (off): the transcription is inlined exactly as before — no figures/ reference, no Figures.
+        StubOcr("FIGURE");
+
+        var pptx = PptxFixtures.Build(new PptxFixtures.SlideSpec()
+            .Text("Body text")
+            .Image(Png(alt: null, x: 100, y: 1_000_000)));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(pptx), PptxContext());
+
+        result.Markdown.ShouldContain("FIGURE");
+        result.Markdown.ShouldNotContain("figures/");
+        result.Figures.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Retention_on_surfaces_the_source_image_and_prepends_the_reference()
+    {
+        // #477 on: the figure's source bytes are surfaced out-of-band on TextExtractionResult.Figures and a standard
+        // Markdown figures/{hash} reference is prepended ahead of the (captioned) transcription (OpenXML figures
+        // carry no *[Image OCR]* markers); the native alt-text is kept on the retained figure.
+        StubOcr("FIGURE");
+
+        var pptx = PptxFixtures.Build(new PptxFixtures.SlideSpec()
+            .Text("Body text")
+            .Image(Png(alt: "Chart 1", x: 100, y: 1_000_000)));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(pptx), PptxContext(retainFigures: true));
+
+        result.Figures.ShouldNotBeNull();
+        result.Figures!.Count.ShouldBe(1);
+        var figure = result.Figures[0];
+        figure.Content.Length.ShouldBeGreaterThan(0);
+        figure.ContentType.ShouldStartWith("image/");
+        figure.PageNumber.ShouldBeNull();
+        figure.AltText.ShouldBe("Chart 1");
+        figure.ContentHash.ShouldBe(Convert.ToHexString(SHA256.HashData(figure.Content)).ToLowerInvariant());
+
+        // In-band: the reference is prepended before the caption, which is before the transcription.
+        var reference = $"![figure](figures/{figure.ContentHash}.";
+        result.Markdown.ShouldContain(reference);
+        var referenceIndex = result.Markdown.IndexOf(reference, StringComparison.Ordinal);
+        var caption = result.Markdown.IndexOf("Chart 1", StringComparison.Ordinal);
+        var transcription = result.Markdown.IndexOf("FIGURE", StringComparison.Ordinal);
+        referenceIndex.ShouldBeGreaterThanOrEqualTo(0);
+        caption.ShouldBeGreaterThan(referenceIndex);
+        transcription.ShouldBeGreaterThan(caption);
     }
 
     [Fact]
