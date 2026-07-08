@@ -370,6 +370,7 @@
     "Extract:DocumentFileTooLarge": "檔案 '{FileName}' 超過了允許的大小上限 {MaxBytes} 位元組。",
     "Extract:DocumentUnsupportedFileType": "檔案 '{FileName}' 的類型（'{ContentType}'）不受支援。請上傳支援的圖片、PDF、CSV/TSV、DOCX、PPTX、TXT 或 XLSX 檔案。",
     "Extract:DocumentNoSourceBlob": "此文件沒有可供下載的來源檔案。",
+    "Extract:DocumentFigureNotFound": "未在此文件中找到請求的圖片 '{FileName}'。",
     "Extract:DocumentHasSubDocuments": "此文件仍包含由其分割出的子文件。請先刪除或移動這些子文件，再刪除此文件。",
     "Extract:UnknownPipelineCode": "管線 '{PipelineCode}' 不支援重試。",
     "Extract:PipelineNeverRan": "管線 '{PipelineCode}' 尚未執行。",

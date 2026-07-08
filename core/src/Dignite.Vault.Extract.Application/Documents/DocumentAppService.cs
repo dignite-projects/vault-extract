@@ -329,6 +329,32 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
             disposeStream: true);
     }
 
+    public virtual async Task<IRemoteStreamContent> GetFigureAsync(Guid id, string fileName)
+    {
+        await CheckPolicyAsync(VaultExtractPermissions.Documents.Default);
+
+        // Scalar fields + the ExtractionMetadata JSON column load with the entity; no child collection is needed.
+        // The load already applied the multi-tenant filter, so a figure of another tenant's document is unreachable.
+        var document = await _documentRepository.GetAsync(id, includeDetails: false);
+
+        // The Markdown reference is figures/{hash}.{ext}; the route's last segment is that file name, so the content
+        // hash is its name without the (cosmetic) extension.
+        var contentHash = Path.GetFileNameWithoutExtension(fileName);
+
+        // Resolve against the retained-figure manifest — NEVER build the blob key from the request hash. Only a
+        // figure this document actually retained (#477) is served, using the manifest's own stored BlobName +
+        // ContentType, so an arbitrary / stale / traversal hash cannot reach blob storage.
+        var figure = document.ExtractionMetadata?.Figures?
+            .FirstOrDefault(f => string.Equals(f.ContentHash, contentHash, StringComparison.Ordinal));
+        if (figure is null)
+            throw new BusinessException(VaultExtractErrorCodes.Document.FigureNotFound)
+                .WithData("FileName", fileName);
+
+        var stream = await _blobContainer.GetAsync(figure.BlobName);
+
+        return new RemoteStreamContent(stream, fileName, figure.ContentType, disposeStream: true);
+    }
+
     [Authorize(VaultExtractPermissions.Documents.Delete)]
     public virtual async Task DeleteAsync(Guid id)
     {
