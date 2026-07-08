@@ -141,7 +141,9 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
             var state = new PptxExtractionState
             {
                 ImageBudget = _options.MaxImagesPerFile,
-                LanguageHints = ResolveLanguageHints(context)
+                LanguageHints = ResolveLanguageHints(context),
+                // #477: host-deployment-layer toggle (default off) — surface + persist retained figure images.
+                RetainFigureImages = context.RetainFigureImages
             };
 
             var slideMarkdowns = new List<string>(slideIds.Count);
@@ -211,7 +213,10 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
                 IsComplete = complete,
                 IncompleteReason = incompleteReason,
                 // PPTX text + per-image OCR has no single aggregated spatial payload to archive (#210).
-                NativePayload = null
+                NativePayload = null,
+                // #477: retained figure source images (null when retention is off / none retained), for the
+                // Application layer to blob-store; the figures/{hash} references are already in the Markdown above.
+                Figures = state.RetainedFigures.Count > 0 ? state.RetainedFigures : null
             };
         }
     }

@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Dignite.Vault.Extract.Abstractions.Parse;
 using Dignite.Vault.Extract.Ocr;
 using DocumentFormat.OpenXml.Packaging;
 using Microsoft.Extensions.Logging;
@@ -132,8 +133,23 @@ internal static class OpenXmlFigureTranscriber
         // Caption (alt-text) is author-controlled free text (often multi-line), so collapse newlines via
         // MarkdownText.InlineLabel AND inline-escape via MarkdownText.EscapeInline so the bold caption can't
         // break the OCR block (often a table) below it, nor inject a link/emphasis from a literal [..](..)/*.
-        return string.IsNullOrWhiteSpace(caption)
+        var body = string.IsNullOrWhiteSpace(caption)
             ? transcription
             : "**" + MarkdownText.EscapeInline(MarkdownText.InlineLabel(caption)) + "**\n\n" + transcription;
+
+        // #477: when figure retention is on, surface the source image out-of-band on the state (the bytes just
+        // OCR'd — this seam persists nothing) and prepend a standard Markdown figures/{hash} image reference so the
+        // Application layer can blob-store it. OpenXML figures carry no *[Image OCR]* markers (unlike the PDF path),
+        // so the reference is an ordinary image line ahead of the (optionally captioned) transcription; the native
+        // alt-text/caption is kept on the retained figure.
+        if (state.RetainFigureImages)
+        {
+            var hash = FigureReference.Sha256Hex(resolved.Bytes!);
+            state.RetainedFigures.Add(
+                new ExtractedFigure(hash, resolved.Bytes!, resolved.ContentType!, pageNumber: null, altText: caption));
+            body = "![figure](" + FigureReference.Build(hash, resolved.ContentType!) + ")\n\n" + body;
+        }
+
+        return body;
     }
 }
