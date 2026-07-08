@@ -370,6 +370,7 @@
     "Extract:DocumentFileTooLarge": "文件 '{FileName}' 超过了允许的最大大小 {MaxBytes} 字节。",
     "Extract:DocumentUnsupportedFileType": "文件 '{FileName}' 的类型 ('{ContentType}') 不受支持。请上传支持的图片、PDF、CSV/TSV、DOCX、PPTX、TXT 或 XLSX 文件。",
     "Extract:DocumentNoSourceBlob": "该文档没有可供下载的源文件。",
+    "Extract:DocumentFigureNotFound": "未在该文档中找到请求的图片 '{FileName}'。",
     "Extract:DocumentHasSubDocuments": "该文档仍包含由其拆分出的子文档。请先删除或移动这些子文档，再删除该文档。",
     "Extract:UnknownPipelineCode": "流水线 '{PipelineCode}' 不支持重试。",
     "Extract:PipelineNeverRan": "流水线 '{PipelineCode}' 尚未运行。",

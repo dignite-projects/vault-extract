@@ -370,6 +370,7 @@
     "Extract:DocumentFileTooLarge": "ファイル '{FileName}' は許可されている最大サイズ {MaxBytes} バイトを超えています。",
     "Extract:DocumentUnsupportedFileType": "ファイル '{FileName}' のタイプ（'{ContentType}'）はサポートされていません。対応している画像、PDF、CSV/TSV、DOCX、PPTX、TXT、または XLSX ファイルをアップロードしてください。",
     "Extract:DocumentNoSourceBlob": "このドキュメントにはダウンロードできるソースファイルがありません。",
+    "Extract:DocumentFigureNotFound": "要求された図 '{FileName}' はこのドキュメントに見つかりませんでした。",
     "Extract:DocumentHasSubDocuments": "このドキュメントには、まだそこから派生したサブドキュメントがあります。このドキュメントを削除する前に、サブドキュメントを削除または移動してください。",
     "Extract:UnknownPipelineCode": "パイプライン '{PipelineCode}' は再試行できません。",
     "Extract:PipelineNeverRan": "パイプライン '{PipelineCode}' はまだ開始されていません。",

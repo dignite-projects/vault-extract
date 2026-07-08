@@ -16,6 +16,13 @@ public interface IDocumentAppService : IApplicationService
 
     Task<IRemoteStreamContent> GetBlobAsync(Guid id);
 
+    /// <summary>
+    /// Serves a retained embedded-figure image (#477) referenced from the document's Markdown as
+    /// <c>figures/{hash}.{ext}</c>. <paramref name="fileName"/> is that reference's last segment; its content hash
+    /// (the name without the cosmetic extension) is resolved against the document's retained-figure manifest.
+    /// </summary>
+    Task<IRemoteStreamContent> GetFigureAsync(Guid id, string fileName);
+
     Task DeleteAsync(Guid id);
 
     Task PermanentDeleteAsync(Guid id);

@@ -380,6 +380,52 @@ public class DocumentAppService_Delete_Tests
         }
     }
 
+    [Fact]
+    public async Task GetFigureAsync_Serves_The_Retained_Figure_Blob_By_Manifest_Hash()
+    {
+        // #477: the endpoint resolves the request hash against the retained-figure manifest and serves the blob by
+        // the manifest's OWN stored key + content type (never a key built from the request).
+        var doc = CreateDocument();
+        const string hash = "abc123";
+        var blobName = $"extraction-figures/{doc.Id}/{hash}";
+        SetExtractionMetadata(doc, new DocumentParseMetadata(
+            "PdfPig", null, figures: new[] { new FigureManifestEntry(blobName, hash, "image/png", 2048) }));
+
+        _documentRepository.GetAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(doc);
+        _blobContainer.GetAsync(blobName, Arg.Any<CancellationToken>())
+            .Returns(new MemoryStream(new byte[] { 1, 2, 3 }));
+
+        var result = await _appService.GetFigureAsync(doc.Id, $"{hash}.png");
+
+        result.ContentType.ShouldBe("image/png");
+        await _blobContainer.Received(1).GetAsync(blobName, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetFigureAsync_Throws_FigureNotFound_For_An_Unknown_Hash_Without_Touching_Blob_Storage()
+    {
+        // Security: a hash not in the manifest never reaches blob storage (no arbitrary / traversal fetch).
+        var doc = CreateDocument();
+        SetExtractionMetadata(doc, new DocumentParseMetadata(
+            "PdfPig", null,
+            figures: new[] { new FigureManifestEntry($"extraction-figures/{doc.Id}/known", "known", "image/png", 10) }));
+
+        _documentRepository.GetAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(doc);
+
+        var ex = await Should.ThrowAsync<BusinessException>(
+            () => _appService.GetFigureAsync(doc.Id, "unknown.png"));
+        ex.Code.ShouldBe(VaultExtractErrorCodes.Document.FigureNotFound);
+        await _blobContainer.DidNotReceive().GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    // Document.SetExtractionMetadata is internal and InternalsVisibleTo covers only EntityFrameworkCore.Tests, so
+    // set it via reflection here rather than broaden internal visibility for a test convenience.
+    private static void SetExtractionMetadata(Document document, DocumentParseMetadata metadata)
+        => typeof(Document)
+            .GetMethod("SetExtractionMetadata",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .Invoke(document, new object?[] { metadata });
+
     private static Document CreateDocument()
     {
         return new Document(
