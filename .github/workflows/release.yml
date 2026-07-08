@@ -96,7 +96,8 @@ jobs:
 
       # Projects with IsPackable=false (host / test projects; test projects are implicitly false
       # via Microsoft.NET.Test.Sdk) are skipped automatically. Only NuGet packages under core/src
-      # are produced.
+      # are produced. common.props' IncludeSymbols/SymbolPackageFormat make this emit a matching
+      # .snupkg next to every .nupkg.
       - name: Pack
         run: dotnet pack Dignite.Vault.Extract.slnx --no-build --configuration Release -o ./artifacts
 
@@ -104,22 +105,34 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: nuget-packages
-          path: artifacts/*.nupkg
+          path: |
+            artifacts/*.nupkg
+            artifacts/*.snupkg
           if-no-files-found: error
 
       # Pre-release builds go to GitHub Packages only (private to the org, authenticated with the
       # workflow's built-in GITHUB_TOKEN). The package's <RepositoryUrl> in common.props links it
       # to dignite-projects/vault-extract, which GitHub Packages requires for the push.
+      #
+      # GitHub Packages does not support .snupkg symbol packages and rejects the push outright, but
+      # `dotnet nuget push` auto-discovers and pushes any .snupkg co-located with the .nupkg it
+      # resolves - copy the .nupkg files alone into a scratch dir with no .snupkg siblings so that
+      # auto-discovery finds nothing and the push stays .nupkg-only. ./artifacts itself is untouched,
+      # so the NuGet.org push and the release-asset upload below still see both file types.
       - name: Push to GitHub Packages (pre-release)
         if: steps.channel.outputs.channel == 'preview'
         run: |
-          dotnet nuget push ./artifacts/*.nupkg \
+          mkdir -p ./artifacts-nupkg-only
+          cp ./artifacts/*.nupkg ./artifacts-nupkg-only/
+          dotnet nuget push ./artifacts-nupkg-only/*.nupkg \
             --api-key "${{ secrets.GITHUB_TOKEN }}" \
             --source https://nuget.pkg.github.com/dignite-projects/index.json \
             --skip-duplicate
 
       # Stable builds go to the public NuGet.org. Secrets cannot be referenced directly in if:
       # expressions, so inject through env and check in the shell; skip the push when not configured.
+      # Unlike GitHub Packages, NuGet.org's symbol server accepts .snupkg: `dotnet nuget push`
+      # auto-discovers each .nupkg's co-located .snupkg in ./artifacts and pushes both.
       - name: Push to NuGet.org (stable)
         if: steps.channel.outputs.channel == 'stable'
         env:

@@ -37,6 +37,22 @@
         <None Include="$(MSBuildThisFileDirectory).github\icon.png" Pack="true" PackagePath="\" Visible="false"/>
     </ItemGroup>
 
+    <!-- Source Link + symbol packages, so consumers can step into the exact source that built a
+         package. Deterministic is already SDK-default true. ContinuousIntegrationBuild is not, and
+         stays gated on GITHUB_ACTIONS: only CI builds should bake in path-independent PDBs, since
+         forcing it on locally would replace real local paths and break local step-through debugging. -->
+    <PropertyGroup Label="Source Link / symbol packages">
+        <PublishRepositoryUrl>true</PublishRepositoryUrl>
+        <EmbedUntrackedSources>true</EmbedUntrackedSources>
+        <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+        <IncludeSymbols>true</IncludeSymbols>
+        <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    </PropertyGroup>
+
+    <ItemGroup Label="Source Link / symbol packages">
+        <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All"/>
+    </ItemGroup>
+
     <ItemGroup>
         <PackageReference Include="ConfigureAwait.Fody" PrivateAssets="All"/>
         <PackageReference Include="Fody">
