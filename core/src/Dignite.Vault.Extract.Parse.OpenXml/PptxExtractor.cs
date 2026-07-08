@@ -150,6 +150,10 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
 
             foreach (var slideId in slideIds)
             {
+                // #480: 1-based slide ordinal for the figure marker's page anchor (*[Image OCR p:{slide}]*) and the
+                // retained figure's page number. Every SlideIdList entry occupies its position even if it fails to
+                // resolve below, so advance before any skip to keep later slides correctly numbered.
+                state.CurrentSlideNumber++;
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var relId = slideId.RelationshipId?.Value;
@@ -335,7 +339,7 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
         // truncation → caption, #317) returns the finished block; PPTX sinks it as a positioned SlideBlock so
         // reading-order sorting can place it by shape offset (state.Sequence breaks ties in document order).
         var block = await OpenXmlFigureTranscriber.TranscribeAsync(
-            slidePart, embed, AltTextOf(picture), state, _options, _ocrProvider, Logger, cancellationToken);
+            slidePart, embed, AltTextOf(picture), state.CurrentSlideNumber, state, _options, _ocrProvider, Logger, cancellationToken);
         if (block is not null)
         {
             blocks.Add(new SlideReadingOrder.SlideBlock(y, x, state.Sequence++, block));
@@ -723,5 +727,10 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
     private sealed class PptxExtractionState : OpenXmlExtractionState
     {
         public int Sequence;
+
+        /// <summary>1-based ordinal of the slide currently being walked — the figure marker's page anchor
+        /// (<c>*[Image OCR p:{slide}]*</c>) and the retained figure's <c>ExtractedFigure.PageNumber</c> (#480).
+        /// Slides are page-like (fixed-layout), so a slide ordinal is a valid provenance anchor.</summary>
+        public int CurrentSlideNumber;
     }
 }
