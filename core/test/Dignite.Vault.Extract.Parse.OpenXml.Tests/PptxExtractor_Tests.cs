@@ -71,14 +71,16 @@ public class PptxExtractor_Tests
     [Fact]
     public async Task Escapes_metacharacters_in_an_image_caption()
     {
-        // #320: PPTX picture alt-text is escaped like the DOCX/PDF captions, so it can't inject a link.
+        // #320/#480: PPTX picture alt-text is escaped like the DOCX/PDF captions (block-escaped, placed before the
+        // *[Image OCR]* marker, no longer bolded), so it can't inject a link.
         StubOcr("TRANSCRIPT");
         var pptx = PptxFixtures.Build(new PptxFixtures.SlideSpec()
             .Image(Png(alt: "See [details](http://evil.example)", x: 100, y: 100)));
 
         var result = await CreateExtractor().ExtractAsync(new MemoryStream(pptx), PptxContext());
 
-        result.Markdown.ShouldContain("**See \\[details\\](http://evil.example)**");
+        result.Markdown.ShouldContain("See \\[details\\](http://evil.example)");
+        result.Markdown.ShouldNotContain("**See");
     }
 
     [Fact]
@@ -143,11 +145,12 @@ public class PptxExtractor_Tests
     }
 
     [Fact]
-    public async Task Retention_on_surfaces_the_source_image_and_prepends_the_reference()
+    public async Task Retention_on_surfaces_the_source_image_and_inlines_the_reference_in_span()
     {
-        // #477 on: the figure's source bytes are surfaced out-of-band on TextExtractionResult.Figures and a standard
-        // Markdown figures/{hash} reference is prepended ahead of the (captioned) transcription (OpenXML figures
-        // carry no *[Image OCR]* markers); the native alt-text is kept on the retained figure.
+        // #477 on: the figure's source bytes are surfaced out-of-band on TextExtractionResult.Figures. #480: the
+        // figures/{hash} reference is inlined as the figure span's FIRST body line (INSIDE the *[Image OCR p:{slide}]*
+        // markers), matching the PDF path, so segmentation (#478) correlates it to the blob; the native alt-text
+        // caption is block-escaped BEFORE the open marker. The single slide here anchors the figure to p:1.
         StubOcr("FIGURE");
 
         var pptx = PptxFixtures.Build(new PptxFixtures.SlideSpec()
@@ -161,19 +164,42 @@ public class PptxExtractor_Tests
         var figure = result.Figures[0];
         figure.Content.Length.ShouldBeGreaterThan(0);
         figure.ContentType.ShouldStartWith("image/");
-        figure.PageNumber.ShouldBeNull();
+        figure.PageNumber.ShouldBe(1);
         figure.AltText.ShouldBe("Chart 1");
         figure.ContentHash.ShouldBe(Convert.ToHexString(SHA256.HashData(figure.Content)).ToLowerInvariant());
 
-        // In-band: the reference is prepended before the caption, which is before the transcription.
-        var reference = $"![figure](figures/{figure.ContentHash}.";
-        result.Markdown.ShouldContain(reference);
-        var referenceIndex = result.Markdown.IndexOf(reference, StringComparison.Ordinal);
+        // In-band order: caption (before the open marker) < open marker (slide-anchored) < reference (first body
+        // line) < transcription < close marker — byte-compatible with the PDF path.
         var caption = result.Markdown.IndexOf("Chart 1", StringComparison.Ordinal);
+        var open = result.Markdown.IndexOf("*[Image OCR p:1]*", StringComparison.Ordinal);
+        var reference = result.Markdown.IndexOf($"![figure](figures/{figure.ContentHash}.", StringComparison.Ordinal);
         var transcription = result.Markdown.IndexOf("FIGURE", StringComparison.Ordinal);
-        referenceIndex.ShouldBeGreaterThanOrEqualTo(0);
-        caption.ShouldBeGreaterThan(referenceIndex);
-        transcription.ShouldBeGreaterThan(caption);
+        var close = result.Markdown.IndexOf("*[End OCR]*", StringComparison.Ordinal);
+        caption.ShouldBeGreaterThanOrEqualTo(0);
+        open.ShouldBeGreaterThan(caption);
+        reference.ShouldBeGreaterThan(open);
+        transcription.ShouldBeGreaterThan(reference);
+        close.ShouldBeGreaterThan(transcription);
+    }
+
+    [Fact]
+    public async Task Anchors_the_figure_marker_to_its_slide_number()
+    {
+        // #480: PPTX figures carry the *[Image OCR p:{slide}]*…*[End OCR]* markers (slides are page-like), so
+        // ImageOcrMarkup.Contains fires the deterministic segmentation trigger and #478's figure FileOrigin applies.
+        // The anchor is the real 1-based slide ordinal — the image here is on the SECOND slide.
+        StubOcr("EMBEDDED DOC TEXT");
+
+        var pptx = PptxFixtures.Build(
+            new PptxFixtures.SlideSpec().Text("Intro slide"),
+            new PptxFixtures.SlideSpec().Image(Png(alt: null, x: 100, y: 1_000_000)));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(pptx), PptxContext());
+
+        result.Markdown.ShouldContain("*[Image OCR p:2]*");
+        result.Markdown.ShouldContain("*[End OCR]*");
+        result.Markdown.ShouldNotContain("*[Image OCR p:1]*");
+        ImageOcrMarkup.Contains(result.Markdown).ShouldBeTrue();
     }
 
     [Fact]
@@ -186,10 +212,14 @@ public class PptxExtractor_Tests
 
         var result = await CreateExtractor().ExtractAsync(new MemoryStream(pptx), PptxContext());
 
-        result.Markdown.ShouldContain("**Quarterly Revenue Diagram**");
+        result.Markdown.ShouldContain("Quarterly Revenue Diagram");
+        result.Markdown.ShouldNotContain("**Quarterly Revenue Diagram**");
         var caption = result.Markdown.IndexOf("Quarterly Revenue Diagram", StringComparison.Ordinal);
+        var open = result.Markdown.IndexOf("*[Image OCR p:1]*", StringComparison.Ordinal);
         var body = result.Markdown.IndexOf("transcribed chart text", StringComparison.Ordinal);
-        body.ShouldBeGreaterThan(caption, "the alt-text caption labels the figure block above the transcription");
+        caption.ShouldBeGreaterThanOrEqualTo(0);
+        open.ShouldBeGreaterThan(caption, "the caption labels the figure block above the open marker");
+        body.ShouldBeGreaterThan(open, "the transcription sits inside the markers, below the caption");
     }
 
     [Fact]
@@ -717,7 +747,8 @@ public class PptxExtractor_Tests
         var result = await CreateExtractor().ExtractAsync(new MemoryStream(pptx), PptxContext());
 
         result.Markdown.ShouldContain("GROUPED_FIGURE_TEXT");
-        result.Markdown.ShouldContain("**Nested diagram**");
+        result.Markdown.ShouldContain("Nested diagram");
+        result.Markdown.ShouldNotContain("**Nested diagram**");
         await _ocr.Received(1).RecognizeAsync(
             Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
     }

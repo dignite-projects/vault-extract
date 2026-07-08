@@ -39,6 +39,7 @@ internal static class OpenXmlFigureTranscriber
         OpenXmlPartContainer partContainer,
         string relationshipId,
         string? caption,
+        int? pageNumber,
         OpenXmlExtractionState state,
         OpenXmlExtractorOptions options,
         IOcrProvider ocrProvider,
@@ -130,26 +131,31 @@ internal static class OpenXmlFigureTranscriber
             return null;
         }
 
-        // Caption (alt-text) is author-controlled free text (often multi-line), so collapse newlines via
-        // MarkdownText.InlineLabel AND inline-escape via MarkdownText.EscapeInline so the bold caption can't
-        // break the OCR block (often a table) below it, nor inject a link/emphasis from a literal [..](..)/*.
-        var body = string.IsNullOrWhiteSpace(caption)
-            ? transcription
-            : "**" + MarkdownText.EscapeInline(MarkdownText.InlineLabel(caption)) + "**\n\n" + transcription;
-
         // #477: when figure retention is on, surface the source image out-of-band on the state (the bytes just
-        // OCR'd — this seam persists nothing) and prepend a standard Markdown figures/{hash} image reference so the
-        // Application layer can blob-store it. OpenXML figures carry no *[Image OCR]* markers (unlike the PDF path),
-        // so the reference is an ordinary image line ahead of the (optionally captioned) transcription; the native
-        // alt-text/caption is kept on the retained figure.
+        // OCR'd — this seam persists nothing) and build a figures/{hash} reference for ImageOcrMarkup.Wrap to inline
+        // as the span's FIRST body line (INSIDE the markers), exactly as the PDF path does — segmentation (#478)
+        // correlates a figure to its blob from there. The page anchor is the caller's (DOCX flow document → null;
+        // PPTX → 1-based slide number) and is carried onto the retained figure too, so its ExtractedFigure.PageNumber
+        // matches the marker.
+        string? imageReference = null;
         if (state.RetainFigureImages)
         {
             var hash = FigureReference.Sha256Hex(resolved.Bytes!);
+            imageReference = FigureReference.Build(hash, resolved.ContentType!);
             state.RetainedFigures.Add(
-                new ExtractedFigure(hash, resolved.Bytes!, resolved.ContentType!, pageNumber: null, altText: caption));
-            body = "![figure](" + FigureReference.Build(hash, resolved.ContentType!) + ")\n\n" + body;
+                new ExtractedFigure(hash, resolved.Bytes!, resolved.ContentType!, pageNumber, altText: caption));
         }
 
-        return body;
+        // #480: emit the byte-identical figure block the PDF path emits (PdfReadingOrder) — the transcription wrapped
+        // in the *[Image OCR]*…*[End OCR]* provenance markers (#371/#381), with the native caption escaped as a block
+        // BEFORE the open marker (not bolded, not inside the span) so the span body stays "reference + transcription"
+        // and the #373 child seed (ExtractBodies) stays clean. Before #480 OpenXML figures carried no markers, so
+        // ImageOcrMarkup.Contains was blind to them — no deterministic segmentation routing (#379) and #478's figure
+        // FileOrigin never applied. Caption (alt-text) is author-controlled source text, so EscapeBlockText
+        // neutralizes any leading block marker / inline link it carries (multi-line safe, unlike the old bold label).
+        var figureMarkup = ImageOcrMarkup.Wrap(transcription, pageNumber, imageReference);
+        return string.IsNullOrWhiteSpace(caption)
+            ? figureMarkup
+            : MarkdownText.EscapeBlockText(caption) + "\n\n" + figureMarkup;
     }
 }

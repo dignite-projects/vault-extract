@@ -185,15 +185,17 @@ public class DocxExtractor_Tests
     [Fact]
     public async Task Escapes_metacharacters_in_an_image_caption()
     {
-        // #320: alt-text is author-controlled source text; a bracketed link in it must not become a clickable
-        // link inside the bold caption.
+        // #320/#480: alt-text is author-controlled source text; a bracketed link in it must not become a clickable
+        // link. The caption is block-escaped (as on the PDF path) and placed before the *[Image OCR]* marker — no
+        // longer bolded.
         StubOcr("TRANSCRIPT");
         var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
             .Image(Png(alt: "See [details](http://evil.example)")));
 
         var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
 
-        result.Markdown.ShouldContain("**See \\[details\\](http://evil.example)**");
+        result.Markdown.ShouldContain("See \\[details\\](http://evil.example)");
+        result.Markdown.ShouldNotContain("**See");
     }
 
     [Fact]
@@ -265,11 +267,12 @@ public class DocxExtractor_Tests
     }
 
     [Fact]
-    public async Task Retention_on_surfaces_the_source_image_and_prepends_the_reference()
+    public async Task Retention_on_surfaces_the_source_image_and_inlines_the_reference_in_span()
     {
-        // #477 on: the figure's source bytes are surfaced out-of-band on TextExtractionResult.Figures and a standard
-        // Markdown figures/{hash} reference is prepended ahead of the (captioned) transcription. OpenXML figures
-        // carry no *[Image OCR]* markers, so the reference is an ordinary image line; the native alt-text is kept.
+        // #477 on: the figure's source bytes are surfaced out-of-band on TextExtractionResult.Figures. #480: the
+        // figures/{hash} reference is inlined as the figure span's FIRST body line (INSIDE the *[Image OCR]*
+        // markers), matching the PDF path, so segmentation (#478) correlates it to the blob; the native alt-text
+        // caption is block-escaped BEFORE the open marker.
         StubOcr("FIGURE");
 
         var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
@@ -289,15 +292,18 @@ public class DocxExtractor_Tests
         figure.AltText.ShouldBe("Chart 1");
         figure.ContentHash.ShouldBe(Convert.ToHexString(SHA256.HashData(figure.Content)).ToLowerInvariant());
 
-        // In-band: the reference is prepended before the caption, which is before the transcription.
-        var reference = $"![figure](figures/{figure.ContentHash}.";
-        result.Markdown.ShouldContain(reference);
-        var referenceIndex = result.Markdown.IndexOf(reference, StringComparison.Ordinal);
+        // In-band order: caption (before the open marker) < open marker < reference (first body line) <
+        // transcription < close marker — byte-compatible with the PDF path.
         var caption = result.Markdown.IndexOf("Chart 1", StringComparison.Ordinal);
+        var open = result.Markdown.IndexOf("*[Image OCR]*", StringComparison.Ordinal);
+        var reference = result.Markdown.IndexOf($"![figure](figures/{figure.ContentHash}.", StringComparison.Ordinal);
         var transcription = result.Markdown.IndexOf("FIGURE", StringComparison.Ordinal);
-        referenceIndex.ShouldBeGreaterThanOrEqualTo(0);
-        caption.ShouldBeGreaterThan(referenceIndex);
-        transcription.ShouldBeGreaterThan(caption);
+        var close = result.Markdown.IndexOf("*[End OCR]*", StringComparison.Ordinal);
+        caption.ShouldBeGreaterThanOrEqualTo(0);
+        open.ShouldBeGreaterThan(caption);
+        reference.ShouldBeGreaterThan(open);
+        transcription.ShouldBeGreaterThan(reference);
+        close.ShouldBeGreaterThan(transcription);
     }
 
     [Fact]
@@ -310,10 +316,35 @@ public class DocxExtractor_Tests
 
         var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
 
-        result.Markdown.ShouldContain("**Quarterly Revenue Diagram**");
+        result.Markdown.ShouldContain("Quarterly Revenue Diagram");
+        result.Markdown.ShouldNotContain("**Quarterly Revenue Diagram**");
         var caption = result.Markdown.IndexOf("Quarterly Revenue Diagram", StringComparison.Ordinal);
+        var open = result.Markdown.IndexOf("*[Image OCR]*", StringComparison.Ordinal);
         var body = result.Markdown.IndexOf("transcribed chart text", StringComparison.Ordinal);
-        body.ShouldBeGreaterThan(caption, "the alt-text caption labels the figure block above the transcription");
+        caption.ShouldBeGreaterThanOrEqualTo(0);
+        open.ShouldBeGreaterThan(caption, "the caption labels the figure block above the open marker");
+        body.ShouldBeGreaterThan(open, "the transcription sits inside the markers, below the caption");
+    }
+
+    [Fact]
+    public async Task Wraps_the_figure_transcription_in_ImageOcrMarkup_markers()
+    {
+        // #480: the deterministic segmentation trigger keys on ImageOcrMarkup.Contains(Document.Markdown). Before
+        // #480 OpenXML figures carried no markers, so a Word-embedded standalone document (e.g. a pasted invoice
+        // photo) was never deterministically routed — only the classifier's subjective flag could catch it, exactly
+        // the single-leg unreliability #379 fixed for the PDF path. DOCX is a flow document, so the marker is the
+        // bare page-less form, byte-compatible with the PDF path.
+        StubOcr("INVOICE TOTAL 42");
+
+        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
+            .Paragraph("Cover letter")
+            .Image(Png(alt: null)));
+
+        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
+
+        result.Markdown.ShouldContain("*[Image OCR]*");
+        result.Markdown.ShouldContain("*[End OCR]*");
+        ImageOcrMarkup.Contains(result.Markdown).ShouldBeTrue();
     }
 
     [Fact]
@@ -1090,7 +1121,8 @@ public class DocxExtractor_Tests
         await _ocr.Received(1).RecognizeAsync(
             Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
         result.Markdown.ShouldContain("FILL_FIG");
-        result.Markdown.ShouldContain("**FILL_ALT**");
+        result.Markdown.ShouldContain("FILL_ALT");          // #480: caption present, no longer bolded
+        result.Markdown.ShouldNotContain("**FILL_ALT**");
     }
 
     [Fact]
@@ -1106,7 +1138,8 @@ public class DocxExtractor_Tests
 
         var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
 
-        result.Markdown.ShouldContain("**IMAGE_ALT**");
+        result.Markdown.ShouldContain("IMAGE_ALT");         // #480: caption present, no longer bolded
+        result.Markdown.ShouldNotContain("**IMAGE_ALT**");
         CountOccurrences(result.Markdown, "BOX_FIG").ShouldBe(1);
     }
 
