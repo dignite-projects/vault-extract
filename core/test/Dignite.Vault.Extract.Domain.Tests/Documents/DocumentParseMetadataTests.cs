@@ -93,4 +93,67 @@ public class DocumentParseMetadataTests
         metadata!.IsComplete.ShouldBeTrue();
         metadata.IncompleteReason.ShouldBeNull();
     }
+
+    private static FigureManifestEntry CreateFigure(string hash = "fig-hash-1") =>
+        new($"extraction-figures/doc-1/{hash}", hash, "image/png", 2048);
+
+    [Fact]
+    public void FigureManifestEntry_Has_Structural_Equality()
+    {
+        CreateFigure().ValueEquals(CreateFigure()).ShouldBeTrue();
+        CreateFigure().ValueEquals(CreateFigure("other")).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Figures_Participate_In_Value_Equality_Even_When_Native_Manifest_Is_Null()
+    {
+        // #477: the figures atomics are emitted BEFORE the native-manifest yield break, so they must affect
+        // equality even in the common PDF case where NativePayloadManifest is null.
+        var withFigure = new DocumentParseMetadata("PdfPig", nativePayloadManifest: null, figures: new[] { CreateFigure() });
+        var withoutFigure = new DocumentParseMetadata("PdfPig", nativePayloadManifest: null);
+
+        withFigure.ValueEquals(withoutFigure).ShouldBeFalse(); // one figure vs null figures
+        withFigure.ValueEquals(new DocumentParseMetadata("PdfPig", null, figures: new[] { CreateFigure() }))
+            .ShouldBeTrue();
+        // A different figure hash is a different value.
+        withFigure.ValueEquals(new DocumentParseMetadata("PdfPig", null, figures: new[] { CreateFigure("fig-hash-2") }))
+            .ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Empty_Figures_List_Differs_From_Null_Figures()
+    {
+        var empty = new DocumentParseMetadata("PdfPig", null, figures: System.Array.Empty<FigureManifestEntry>());
+        var missing = new DocumentParseMetadata("PdfPig", null);
+        empty.ValueEquals(missing).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Figures_Survive_Json_Roundtrip()
+    {
+        var original = new DocumentParseMetadata(
+            "PdfPig", CreateManifest(), figures: new[] { CreateFigure("a"), CreateFigure("b") });
+
+        var roundtripped = JsonSerializer.Deserialize<DocumentParseMetadata>(JsonSerializer.Serialize(original));
+
+        roundtripped.ShouldNotBeNull();
+        roundtripped!.Figures.ShouldNotBeNull();
+        roundtripped.Figures!.Count.ShouldBe(2);
+        roundtripped.Figures[0].BlobName.ShouldBe("extraction-figures/doc-1/a");
+        roundtripped.Figures[0].ContentType.ShouldBe("image/png");
+        roundtripped.ValueEquals(original).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Legacy_Json_Without_Figures_Deserializes_As_Null_Figures()
+    {
+        // Zero-migration (#477): rows persisted before figure retention have no Figures member, so the
+        // constructor's optional parameter defaults it to null.
+        var legacyJson = "{\"ProviderName\":\"PdfPig\",\"NativePayloadManifest\":null,\"IsComplete\":true}";
+
+        var metadata = JsonSerializer.Deserialize<DocumentParseMetadata>(legacyJson);
+
+        metadata.ShouldNotBeNull();
+        metadata!.Figures.ShouldBeNull();
+    }
 }

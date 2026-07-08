@@ -403,6 +403,27 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
             }
         }
 
+        // #477: reclaim retained figure blobs by their manifest keys. ABP's IBlobContainer has no list-by-prefix, so
+        // (like the native-payload reclaim above) delete by stable key from ExtractionMetadata.Figures — never a
+        // prefix sweep. Best-effort: a failure is logged but does not block the permanent-delete flow.
+        var figureManifest = document.ExtractionMetadata?.Figures;
+        if (figureManifest is { Count: > 0 })
+        {
+            foreach (var figure in figureManifest)
+            {
+                try
+                {
+                    await _blobContainer.DeleteAsync(figure.BlobName);
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex,
+                        "Failed to delete retained figure blob {BlobName} for document {DocumentId}.",
+                        figure.BlobName, id);
+                }
+            }
+        }
+
         // Notify downstream consumers: the Document is unrecoverable, so derived data should be physically deleted.
         await _distributedEventBus.PublishAsync(
             new DocumentPermanentlyDeletedEto
