@@ -301,7 +301,7 @@ public class DocumentParseBackgroundJob
                 continue;
             }
 
-            var blobName = $"extraction-figures/{documentId}/{figure.ContentHash}";
+            var blobName = $"{DocumentConsts.FigureBlobNamePrefix}{documentId}/{figure.ContentHash}";
             try
             {
                 using var stream = new MemoryStream(content, writable: false);

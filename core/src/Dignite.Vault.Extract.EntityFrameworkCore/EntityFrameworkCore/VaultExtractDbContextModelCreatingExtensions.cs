@@ -252,6 +252,11 @@ public static class VaultExtractDbContextModelCreatingExtensions
             b.Property(x => x.Kind).IsRequired();
             b.Property(x => x.Status).IsRequired();
 
+            // #478: SHA-256 (hex) of a Figure-kind slice's retained image bytes (#477), parsed from the in-span
+            // figures/{hash} reference; null for Text slices / retention off. Read back at spawn to resolve the
+            // source's retained-figure manifest; looked up per row, never scanned — not indexed.
+            b.Property(x => x.FigureContentHash).HasMaxLength(DocumentSegmentConsts.MaxFigureContentHashLength);
+
             // #346: born-digital slice -> container Document, FK + CASCADE so hard-deleting the container removes
             // its segment rows (mirrors the #306 DocumentFigure child-side declaration). RoutedDocumentId is a
             // soft pointer to the spawned derived Document with NO FK constraint: the derived document is a peer

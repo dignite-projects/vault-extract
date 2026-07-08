@@ -155,6 +155,80 @@ public class DocumentSegmentationJob_Tests : VaultExtractTestBase<DocumentSegmen
     }
 
     [Fact]
+    public async Task Figure_Sub_Document_Gets_Its_FileOrigin_From_The_Shared_Retained_Blob()
+    {
+        // #478 (revisits #393): the figure span carries the #477 in-span figures/{hash} reference, and the source's
+        // retained-figure manifest has a matching entry. The spawned sub-document's FileOrigin must point at the
+        // SHARED blob (the manifest's own key — never a copy), with metadata from the manifest + the source's
+        // uploader snapshot, while the child seed (SliceText) stays pure transcription (reference line dropped).
+        var invoiceText = "INVOICE No 42 Total 100";
+        var imageHash = "abc123"; // short fake hash: parse + manifest match are length-agnostic (cap-friendly)
+        var sharedBlob = $"{DocumentConsts.FigureBlobNamePrefix}{Guid.NewGuid():D}/{imageHash}";
+        var marked = $"Contract body\n{ImageOcrMarkup.Wrap(invoiceText, 1, $"figures/{imageHash}.png")}";
+
+        var docId = await ArrangeContainerAsync(
+            markdown: "Contract body", asContainer: false, markedMarkdown: marked,
+            extractionMetadata: new DocumentParseMetadata(
+                "PdfPig", null,
+                figures: new[] { new FigureManifestEntry(sharedBlob, imageHash, "image/png", 2048) }));
+
+        StubSplit(("Contract body", false), (ImageOcrMarkup.OpenPagePrefix + "1]*", true));
+
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = docId });
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == docId);
+            segments.Count.ShouldBe(1);
+            segments[0].Kind.ShouldBe(DocumentSegmentKind.Figure);
+            // The ledger carries the image hash (resumable spawn input); the seed stays transcription-only.
+            segments[0].FigureContentHash.ShouldBe(imageHash);
+            segments[0].SliceText.ShouldBe(invoiceText);
+
+            var derived = await _documentRepository.GetListAsync(d => d.OriginDocumentId == docId);
+            derived.Count.ShouldBe(1);
+            var fileOrigin = derived[0].FileOrigin;
+            fileOrigin.ShouldNotBeNull();
+            fileOrigin!.BlobName.ShouldBe(sharedBlob);          // the SHARED blob — no copy was written
+            fileOrigin.ContentType.ShouldBe("image/png");
+            fileOrigin.ContentHash.ShouldBe(imageHash);
+            fileOrigin.FileSize.ShouldBe(2048);
+            fileOrigin.OriginalFileName.ShouldBe("figure-p1.png");
+            fileOrigin.UploadedByUserName.ShouldBe("test-user"); // the source's uploader snapshot
+        });
+    }
+
+    [Fact]
+    public async Task Figure_Spawn_Without_A_Manifest_Match_Leaves_FileOrigin_Null()
+    {
+        // #478 gating: the reference is present in the span, but the source has no retained-figure manifest
+        // (#477 retention was off / archive failed). The hash is still persisted on the ledger (resumability),
+        // and the sub-document spawns with FileOrigin null — exactly the pre-#478 behavior.
+        var invoiceText = "INVOICE No 42 Total 100";
+        var imageHash = "abc123";
+        var marked = $"Contract body\n{ImageOcrMarkup.Wrap(invoiceText, 1, $"figures/{imageHash}.png")}";
+
+        var docId = await ArrangeContainerAsync(
+            markdown: "Contract body", asContainer: false, markedMarkdown: marked);
+
+        StubSplit(("Contract body", false), (ImageOcrMarkup.OpenPagePrefix + "1]*", true));
+
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = docId });
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == docId);
+            segments.Count.ShouldBe(1);
+            segments[0].FigureContentHash.ShouldBe(imageHash);
+            segments[0].Status.ShouldBe(DocumentSegmentStatus.Spawned);
+
+            var derived = await _documentRepository.GetListAsync(d => d.OriginDocumentId == docId);
+            derived.Count.ShouldBe(1);
+            derived[0].FileOrigin.ShouldBeNull();
+        });
+    }
+
+    [Fact]
     public async Task Inlined_Figure_Span_In_A_Container_Spawns_Exactly_One_Invoice_Sub_Document()
     {
         // #356/#359 REGRESSION: a born-digital container whose Document.Markdown carries an inlined, marker-bracketed
@@ -701,7 +775,8 @@ public class DocumentSegmentationJob_Tests : VaultExtractTestBase<DocumentSegmen
     }
 
     private async Task<Guid> ArrangeContainerAsync(
-        string markdown, bool asContainer = true, string? markedMarkdown = null)
+        string markdown, bool asContainer = true, string? markedMarkdown = null,
+        DocumentParseMetadata? extractionMetadata = null)
     {
         var containerId = _guidGenerator.Create();
         await WithUnitOfWorkAsync(async () =>
@@ -716,6 +791,13 @@ public class DocumentSegmentationJob_Tests : VaultExtractTestBase<DocumentSegmen
                     contentHash: $"{Guid.NewGuid():N}{Guid.NewGuid():N}"[..64],
                     fileSize: 2048,
                     originalFileName: "bundle.pdf"));
+
+            // #478: a figure test supplies the source's retained-figure manifest (#477) so the spawn can resolve a
+            // figure segment's FigureContentHash against it. Internal setter, visible via InternalsVisibleTo.
+            if (extractionMetadata is not null)
+            {
+                doc.SetExtractionMetadata(extractionMetadata);
+            }
 
             // #381: the unified pass reads Document.Markdown, which now carries the inline *[Image OCR]*…*[End OCR]*
             // figure markers (no separate marked artifact). A figure test supplies that marked content via

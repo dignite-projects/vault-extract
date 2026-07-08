@@ -75,6 +75,17 @@ public class DocumentSegment : CreationAuditedAggregateRoot<Guid>, IMultiTenant
     public virtual int? PageNumber { get; private set; }
 
     /// <summary>
+    /// SHA-256 (lowercase hex) of the retained figure's <b>image bytes</b> (#477/#478), parsed from the in-span
+    /// <c>![figure](figures/{hash}.{ext})</c> reference of a <see cref="DocumentSegmentKind.Figure"/> slice at
+    /// detection time; <c>null</c> for a <see cref="DocumentSegmentKind.Text"/> slice or when retention was off.
+    /// Persisted so the spawn phase is resumable: at spawn it resolves the source document's retained-figure
+    /// manifest by this hash and points the derived document's <c>FileOrigin</c> at the <b>shared</b> blob
+    /// (<c>extraction-figures/{sourceId}/{hash}</c> — the image is never stored twice). Distinct from
+    /// <see cref="SegmentKey"/> (the hash of the transcription <b>text</b>, the idempotency identity).
+    /// </summary>
+    public virtual string? FigureContentHash { get; private set; }
+
+    /// <summary>
     /// The derived <see cref="Document"/> spawned from this slice, or <c>null</c> when not (yet) spawned /
     /// classified as a non-document segment.
     /// </summary>
@@ -103,7 +114,8 @@ public class DocumentSegment : CreationAuditedAggregateRoot<Guid>, IMultiTenant
         int ordinal,
         DocumentSegmentKind kind,
         DocumentSegmentStatus status = DocumentSegmentStatus.Pending,
-        int? pageNumber = null)
+        int? pageNumber = null,
+        string? figureContentHash = null)
         : base(id)
     {
         TenantId = tenantId;
@@ -114,6 +126,8 @@ public class DocumentSegment : CreationAuditedAggregateRoot<Guid>, IMultiTenant
         Kind = kind;
         Status = status;
         PageNumber = pageNumber;
+        FigureContentHash = Check.Length(
+            figureContentHash, nameof(figureContentHash), DocumentSegmentConsts.MaxFigureContentHashLength);
     }
 
     /// <summary>

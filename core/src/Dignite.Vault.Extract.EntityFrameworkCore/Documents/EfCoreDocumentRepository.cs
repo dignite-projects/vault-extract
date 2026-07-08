@@ -51,6 +51,26 @@ public class EfCoreDocumentRepository
         }
     }
 
+    public virtual async Task<bool> AnyWithFileOriginBlobNameAsync(
+        string blobName,
+        Guid? excludeDocumentId = null,
+        CancellationToken cancellationToken = default)
+    {
+        // #478 shared-blob reference check: soft-deleted documents are restorable, so they still count as live
+        // references (the same ISoftDelete-disable stance as FindByContentHashAsync above). excludeDocumentId keeps
+        // the document being permanently deleted from counting as its own reference — its hard delete may not be
+        // flushed yet within the ambient UoW.
+        using (DataFilter.Disable<ISoftDelete>())
+        {
+            var dbSet = await GetDbSetAsync();
+            return await dbSet.AnyAsync(
+                d => d.FileOrigin != null
+                    && d.FileOrigin.BlobName == blobName
+                    && (excludeDocumentId == null || d.Id != excludeDocumentId),
+                GetCancellationToken(cancellationToken));
+        }
+    }
+
     public virtual async Task<List<DuplicateCandidateModel>> FindDuplicateCandidatesAsync(
         Guid documentId,
         Guid documentTypeId,
@@ -239,8 +259,7 @@ public class EfCoreDocumentRepository
         // grouped projection; keep the two in sync.
         var byStatus = await dbSet
             .GroupBy(d => d.LifecycleStatus)
-            .Select(g => new
-            {
+            .Select(g => new {
                 Status = g.Key,
                 // #346: a container is an infrastructure wrapper, not a business document — its sub-documents are the
                 // real records. Exclude containers from the document counts / storage so a container + its N
@@ -367,31 +386,31 @@ public class EfCoreDocumentRepository
                     .Any(f => f.FieldDefinitionId == fieldDefinitionId && f.BooleanValue == boolValue));
 
             case FieldDataType.Number:
-            {
-                var (min, max) = ParseRange(fieldQuery, ParseDecimal);
-                return query.Where(d => d.ExtractedFieldValues.Any(f =>
-                    f.FieldDefinitionId == fieldDefinitionId
-                    && (min == null || f.NumberValue >= min)
-                    && (max == null || f.NumberValue <= max)));
-            }
+                {
+                    var (min, max) = ParseRange(fieldQuery, ParseDecimal);
+                    return query.Where(d => d.ExtractedFieldValues.Any(f =>
+                        f.FieldDefinitionId == fieldDefinitionId
+                        && (min == null || f.NumberValue >= min)
+                        && (max == null || f.NumberValue <= max)));
+                }
 
             case FieldDataType.Date:
-            {
-                var (min, max) = ParseRange(fieldQuery, ParseDate);
-                return query.Where(d => d.ExtractedFieldValues.Any(f =>
-                    f.FieldDefinitionId == fieldDefinitionId
-                    && (min == null || f.DateValue >= min)
-                    && (max == null || f.DateValue <= max)));
-            }
+                {
+                    var (min, max) = ParseRange(fieldQuery, ParseDate);
+                    return query.Where(d => d.ExtractedFieldValues.Any(f =>
+                        f.FieldDefinitionId == fieldDefinitionId
+                        && (min == null || f.DateValue >= min)
+                        && (max == null || f.DateValue <= max)));
+                }
 
             case FieldDataType.DateTime:
-            {
-                var (min, max) = ParseRange(fieldQuery, ParseDateTime);
-                return query.Where(d => d.ExtractedFieldValues.Any(f =>
-                    f.FieldDefinitionId == fieldDefinitionId
-                    && (min == null || f.DateTimeValue >= min)
-                    && (max == null || f.DateTimeValue <= max)));
-            }
+                {
+                    var (min, max) = ParseRange(fieldQuery, ParseDateTime);
+                    return query.Where(d => d.ExtractedFieldValues.Any(f =>
+                        f.FieldDefinitionId == fieldDefinitionId
+                        && (min == null || f.DateTimeValue >= min)
+                        && (max == null || f.DateTimeValue <= max)));
+                }
 
             default:
                 throw InvalidValue(name, fieldQuery.FieldDataType);

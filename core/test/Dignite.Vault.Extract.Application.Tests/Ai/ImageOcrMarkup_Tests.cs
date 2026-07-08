@@ -122,6 +122,19 @@ public class ImageOcrMarkup_Tests
     }
 
     [Fact]
+    public void TryParseImageReferenceHash_Extracts_The_Content_Hash_From_A_Reference_Line()
+    {
+        // #478: the segmentation pass correlates a figure span to its retained blob by this hash.
+        ImageOcrMarkup.TryParseImageReferenceHash("![figure](figures/abc123.png)").ShouldBe("abc123");
+        ImageOcrMarkup.TryParseImageReferenceHash("  ![diagram](figures/def456.jpg)  ").ShouldBe("def456"); // alt-agnostic + trimmed
+        ImageOcrMarkup.TryParseImageReferenceHash("![figure](figures/noext)").ShouldBe("noext");            // extension-less target
+        ImageOcrMarkup.TryParseImageReferenceHash("![logo](https://example.com/a.png)").ShouldBeNull();     // not a figures/ reference
+        ImageOcrMarkup.TryParseImageReferenceHash("![figure](figures/.png)").ShouldBeNull();                // empty hash
+        ImageOcrMarkup.TryParseImageReferenceHash("just prose").ShouldBeNull();
+        ImageOcrMarkup.TryParseImageReferenceHash(null).ShouldBeNull();
+    }
+
+    [Fact]
     public void Strip_And_ExtractBodies_Drop_The_Retained_Figure_Reference_Line()
     {
         // #477: the spawned child sub-document's seed is the transcription only (#373) — the retained image belongs to

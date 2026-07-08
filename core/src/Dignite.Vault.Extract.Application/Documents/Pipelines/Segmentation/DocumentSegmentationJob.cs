@@ -192,7 +192,11 @@ public class DocumentSegmentationJob
             markdown,
             source.IsContainer,
             alreadySegmented,
-            detection);
+            detection,
+            // #478: the source's retained-figure manifest (#477) + uploader snapshot, carried so the spawn phase can
+            // point a figure sub-document's FileOrigin at the SHARED retained blob without re-loading the source.
+            source.ExtractionMetadata?.Figures,
+            source.FileOrigin?.UploadedByUserName);
     }
 
     /// <summary>
@@ -281,7 +285,11 @@ public class DocumentSegmentationJob
                 ContentHasher.Sha256Hex(Encoding.UTF8.GetBytes(cleanText)),
                 cleanText,
                 isFigure ? DocumentSegmentKind.Figure : DocumentSegmentKind.Text,
-                isFigure ? ExtractFirstPage(slice.Text) : null));
+                isFigure ? ExtractFirstPage(slice.Text) : null,
+                // #478: the retained image's content hash from the in-span figures/{hash} reference (#477); parsed
+                // from the RAW slice (the clean seed above deliberately drops the reference line). Null when
+                // retention was off — the spawn then leaves FileOrigin null, exactly the pre-#478 behavior.
+                isFigure ? ExtractFigureContentHash(slice.Text) : null));
         }
 
         // Byte-identical detection among the spawnable slices: same content -> same key -> the unique
@@ -382,7 +390,8 @@ public class DocumentSegmentationJob
                     ordinal++,
                     p.Kind,
                     DocumentSegmentStatus.Pending,
-                    p.PageNumber));
+                    p.PageNumber,
+                    p.FigureContentHash));
             }
 
             // #377: mark the document segmented in the SAME transaction as the rows — the precise resume gate, so a
@@ -421,7 +430,7 @@ public class DocumentSegmentationJob
 
         var snapshot = pending
             .OrderBy(s => s.Ordinal)
-            .Select(s => new PendingSegment(s.Id, s.SegmentKey, s.Ordinal))
+            .Select(s => new PendingSegment(s.Id, s.SegmentKey, s.Ordinal, s.FigureContentHash, s.PageNumber))
             .ToList();
 
         await uow.CompleteAsync();
@@ -448,15 +457,20 @@ public class DocumentSegmentationJob
     private async Task SpawnDerivedDocumentAsync(
         PendingSegment segment, DetectionContext context, CancellationToken cancellationToken)
     {
+        // #478 (revisits #393): a Figure-kind segment whose retained image survives in the source's #477 manifest
+        // spawns with a FileOrigin pointing at the SHARED extraction-figures blob (no copy — the image is never
+        // stored twice); reclaim is reference-aware on both sides (DocumentAppService.PermanentDeleteAsync). A Text
+        // segment / retention-off figure keeps FileOrigin null. Markdown is still seeded from segment.SliceText by
+        // DocumentParseBackgroundJob (seed precedence) — the blob is provenance, never re-extracted (no drift).
+        var fileOrigin = BuildFigureFileOrigin(segment, context);
+
         // Shared complete-phase UoW (#358): insert the derived document, mark this segment Spawned, publish
         // DocumentUploadedEto, and queue text extraction — atomically. The reload guard is kind-aware (#371).
-        // FileOrigin is null: sub-documents carry no source blob; their Markdown is seeded from segment.SliceText
-        // by DocumentParseBackgroundJob instead of re-extracting a blob.
         await _derivedDocumentSpawner.SpawnAsync<DocumentSegment>(
             context.SourceDocumentId,
             context.TenantId,
             segment.SegmentKey,
-            fileOrigin: null,
+            fileOrigin,
             reloadClaimable: async () =>
             {
                 var entity = await _segmentRepository.FindAsync(segment.SegmentId);
@@ -615,25 +629,98 @@ public class DocumentSegmentationJob
         return null;
     }
 
+    /// <summary>The retained image's content hash from the slice's first in-span <c>![figure](figures/{hash}.{ext})</c>
+    /// reference line (#477/#478), or <c>null</c> when the slice carries none (retention off / pre-#477 content).</summary>
+    private static string? ExtractFigureContentHash(string markedSliceText)
+    {
+        foreach (var line in markedSliceText.Split('\n'))
+        {
+            var hash = ImageOcrMarkup.TryParseImageReferenceHash(line);
+            if (hash is not null)
+            {
+                return hash;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Builds the figure sub-document's <see cref="FileOrigin"/> (#478) by resolving the segment's
+    /// <see cref="DocumentSegment.FigureContentHash"/> against the source's retained-figure manifest (#477) — the
+    /// manifest is authoritative (its own stored blob key / content type / size; the key is never rebuilt from
+    /// parsed input), and the blob is <b>shared</b> with the source (never copied). Returns <c>null</c> — leaving
+    /// today's no-FileOrigin behavior — for a Text segment, a retention-off figure, a manifest miss, or a source
+    /// missing its uploader snapshot.
+    /// </summary>
+    private FileOrigin? BuildFigureFileOrigin(PendingSegment segment, DetectionContext context)
+    {
+        if (segment.FigureContentHash is null)
+        {
+            return null;
+        }
+
+        var entry = context.FigureManifest?.FirstOrDefault(
+            f => string.Equals(f.ContentHash, segment.FigureContentHash, StringComparison.Ordinal));
+        if (entry is null)
+        {
+            Logger.LogInformation(
+                "Figure segment {SegmentId} of source {SourceId} references image {Hash}, but the source has no "
+                + "matching retained-figure manifest entry (retention off or archive failed); spawning without FileOrigin.",
+                segment.SegmentId, context.SourceDocumentId, segment.FigureContentHash);
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(context.SourceUploadedByUserName))
+        {
+            Logger.LogWarning(
+                "Source {SourceId} has no uploader snapshot; spawning figure segment {SegmentId} without FileOrigin.",
+                context.SourceDocumentId, segment.SegmentId);
+            return null;
+        }
+
+        var extension = FigureReference.Extension(entry.ContentType);
+        var originalFileName = segment.PageNumber is { } page && page > 0
+            ? $"figure-p{page}.{extension}"
+            : $"figure.{extension}";
+
+        return new FileOrigin(
+            entry.BlobName,
+            context.SourceUploadedByUserName!,
+            entry.ContentType,
+            entry.ContentHash,
+            entry.SizeBytes,
+            originalFileName);
+    }
+
     private static bool IsSchemaDeserializationError(Exception ex)
         => ex is JsonException || ex.GetBaseException() is JsonException;
 
-    /// <summary>Per-source detection context loaded once up front: the source id + tenant, the Document.Markdown to detect over (with inline figure markers, #381), the container flag, whether a prior split exists, and the parent context for the LLM.</summary>
+    /// <summary>Per-source detection context loaded once up front: the source id + tenant, the Document.Markdown to
+    /// detect over (with inline figure markers, #381), the container flag, whether a prior split exists, the parent
+    /// context for the LLM, and — for the #478 figure FileOrigin — the source's retained-figure manifest (#477) plus
+    /// its uploader snapshot.</summary>
     protected sealed record DetectionContext(
         Guid SourceDocumentId,
         Guid? TenantId,
         string Markdown,
         bool IsContainer,
         bool AlreadySegmented,
-        SubDocumentDetectionContext Detection);
+        SubDocumentDetectionContext Detection,
+        IReadOnlyList<FigureManifestEntry>? FigureManifest = null,
+        string? SourceUploadedByUserName = null);
 
-    /// <summary>A standalone span prepared for persistence: its content key, clean slice text, kind, and figure page anchor.</summary>
-    private sealed record PreparedSegment(string Key, string CleanText, DocumentSegmentKind Kind, int? PageNumber);
+    /// <summary>A standalone span prepared for persistence: its content key, clean slice text, kind, figure page
+    /// anchor, and the retained image's content hash (#478; null for Text / retention off).</summary>
+    private sealed record PreparedSegment(
+        string Key, string CleanText, DocumentSegmentKind Kind, int? PageNumber, string? FigureContentHash);
 
     /// <summary>Detached snapshot of one still-Pending segment, carried across the per-segment external + UoW phases.
     /// Carries no slice text: the spawn path keys off <see cref="SegmentKey"/>, and the derived document's Markdown
-    /// is seeded by <c>DocumentParseBackgroundJob</c> reading the segment's <c>SliceText</c> column fresh from the DB.</summary>
-    protected sealed record PendingSegment(Guid SegmentId, string SegmentKey, int Ordinal);
+    /// is seeded by <c>DocumentParseBackgroundJob</c> reading the segment's <c>SliceText</c> column fresh from the DB.
+    /// <see cref="FigureContentHash"/> + <see cref="PageNumber"/> feed the #478 figure FileOrigin resolution.</summary>
+    protected sealed record PendingSegment(
+        Guid SegmentId, string SegmentKey, int Ordinal, string? FigureContentHash = null, int? PageNumber = null);
 }
 
 public class DocumentSegmentationJobArgs

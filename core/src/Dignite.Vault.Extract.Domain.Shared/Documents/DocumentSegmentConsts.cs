@@ -10,7 +10,14 @@ public static class DocumentSegmentConsts
 {
     /// <summary>
     /// Length of <see cref="DocumentSegment.SegmentKey"/>: the SHA-256 (lowercase hex) of the slice text,
-    /// which equals the spawned derived document's <c>FileOrigin.ContentHash</c> / <c>OriginConstituentKey</c>.
+    /// which equals the spawned derived document's <c>OriginConstituentKey</c>.
     /// </summary>
     public static int MaxSegmentKeyLength { get; set; } = 64;
+
+    /// <summary>
+    /// Length of <see cref="DocumentSegment.FigureContentHash"/> (#478): the SHA-256 (lowercase hex) of the
+    /// retained figure's <b>image bytes</b> — distinct from <see cref="DocumentSegment.SegmentKey"/> (the hash of
+    /// the transcription <b>text</b>).
+    /// </summary>
+    public static int MaxFigureContentHashLength { get; set; } = 64;
 }

@@ -398,7 +398,10 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
 
         await _documentRepository.HardDeleteAsync(id);
 
-        if (document.FileOrigin is not null)
+        // #478: the FileOrigin reclaim is reference-aware — a figure sub-document's FileOrigin SHARES its source's
+        // extraction-figures blob (never copied), so a borrowed blob is deleted only by whichever referencing side
+        // is permanently deleted last. A per-document upload blob (GUID key) is unshared and reclaims as always.
+        if (document.FileOrigin is not null && await ShouldReclaimFileOriginBlobAsync(document))
         {
             try
             {
@@ -432,11 +435,22 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // #477: reclaim retained figure blobs by their manifest keys. ABP's IBlobContainer has no list-by-prefix, so
         // (like the native-payload reclaim above) delete by stable key from ExtractionMetadata.Figures — never a
         // prefix sweep. Best-effort: a failure is logged but does not block the permanent-delete flow.
+        // #478: skip entries a figure sub-document's FileOrigin still references (the blob is SHARED, never copied) —
+        // the sub-document outlives its source, and its own permanent delete reclaims the blob once this owner row is
+        // gone (ShouldReclaimFileOriginBlobAsync's borrowed branch). Soft-deleted sub-documents count (restorable).
         var figureManifest = document.ExtractionMetadata?.Figures;
         if (figureManifest is { Count: > 0 })
         {
             foreach (var figure in figureManifest)
             {
+                if (await _documentRepository.AnyWithFileOriginBlobNameAsync(figure.BlobName, excludeDocumentId: id))
+                {
+                    Logger.LogDebug(
+                        "Skipping retained figure blob {BlobName} of document {DocumentId}: still referenced by a sub-document's FileOrigin.",
+                        figure.BlobName, id);
+                    continue;
+                }
+
                 try
                 {
                     await _blobContainer.DeleteAsync(figure.BlobName);
@@ -458,6 +472,58 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
                 TenantId = document.TenantId,
                 EventTime = Clock.Now
             });
+    }
+
+    /// <summary>
+    /// Whether this document's <c>FileOrigin</c> blob may be reclaimed on permanent delete (#478). A per-document
+    /// upload blob (GUID key) is unshared — always reclaim. A blob under another document's
+    /// <c>extraction-figures/{ownerId}/…</c> prefix is a <b>borrowed</b> shared figure image (never copied): while
+    /// the owner row exists (including soft-deleted — restorable), the owner's own manifest reclaim governs it, so
+    /// skip; once the owner is hard-deleted (its reclaim skipped this blob because this document still referenced
+    /// it), the last borrower to be permanently deleted reclaims it — unless a sibling still references it.
+    /// Net: deleted exactly once, by whichever referencing side dies last; no leak in either order.
+    /// </summary>
+    protected virtual async Task<bool> ShouldReclaimFileOriginBlobAsync(Document document)
+    {
+        var blobName = document.FileOrigin!.BlobName;
+        var ownerId = TryParseFigureBlobOwner(blobName);
+        if (ownerId is null || ownerId == document.Id)
+        {
+            return true;
+        }
+
+        using (DataFilter.Disable<ISoftDelete>())
+        {
+            if (await _documentRepository.FindAsync(ownerId.Value, includeDetails: false) is not null)
+            {
+                Logger.LogDebug(
+                    "Skipping borrowed figure blob {BlobName}: its owner document {OwnerId} still exists and governs it.",
+                    blobName, ownerId);
+                return false;
+            }
+        }
+
+        // Owner gone — reclaim unless a sibling sub-document still references the same shared blob.
+        return !await _documentRepository.AnyWithFileOriginBlobNameAsync(blobName, excludeDocumentId: document.Id);
+    }
+
+    /// <summary>Parses the owning document id out of a retained-figure blob key
+    /// (<c>extraction-figures/{documentId}/{hash}</c>, #477), or <c>null</c> for any other key shape.</summary>
+    private static Guid? TryParseFigureBlobOwner(string blobName)
+    {
+        if (!blobName.StartsWith(DocumentConsts.FigureBlobNamePrefix, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var rest = blobName.AsSpan(DocumentConsts.FigureBlobNamePrefix.Length);
+        var slash = rest.IndexOf('/');
+        if (slash <= 0)
+        {
+            return null;
+        }
+
+        return Guid.TryParse(rest[..slash], out var ownerId) ? ownerId : null;
     }
 
     [Authorize(VaultExtractPermissions.Documents.Restore)]

@@ -216,6 +216,31 @@ public static class ImageOcrMarkup
     }
 
     /// <summary>
+    /// Parses the retained-figure <b>content hash</b> out of a <c>![…](figures/{hash}.{ext})</c> reference line
+    /// (#478): the segmentation pass correlates a figure span to its retained blob with it (the reference is the
+    /// span's first body line, so the figure's own slice carries it). Returns <c>null</c> for any non-reference
+    /// line, or when the target carries no hash. The hash is everything between <c>](figures/</c> and the
+    /// extension dot (the <see cref="FigureReference"/> format: a lowercase hex hash contains no dots).
+    /// </summary>
+    public static string? TryParseImageReferenceHash(string? line)
+    {
+        if (!IsImageReferenceLine(line))
+        {
+            return null;
+        }
+
+        var trimmed = line!.Trim();
+        var start = trimmed.IndexOf(ImageReferenceTarget, StringComparison.Ordinal) + ImageReferenceTarget.Length;
+        var end = start;
+        while (end < trimmed.Length && trimmed[end] != '.' && trimmed[end] != ')')
+        {
+            end++;
+        }
+
+        return end > start ? trimmed[start..end] : null;
+    }
+
+    /// <summary>
     /// Parses the 1-based page from a page-anchored open marker line (<c>*[Image OCR p:3]*</c>), or <c>null</c>
     /// for a bare open line / any non-open line.
     /// </summary>

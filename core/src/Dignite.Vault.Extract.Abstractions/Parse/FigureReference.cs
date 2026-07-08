@@ -22,8 +22,9 @@ public static class FigureReference
         => "figures/" + contentHash + "." + Extension(contentType);
 
     /// <summary>Maps an image MIME type to a file extension. Any <c>image/*</c> subtype passes through
-    /// (<c>jpeg</c> → <c>jpg</c>); a missing / non-image type falls back to <c>img</c>.</summary>
-    private static string Extension(string? contentType)
+    /// (<c>jpeg</c> → <c>jpg</c>); a missing / non-image type falls back to <c>img</c>. Public because the
+    /// spawn path (#478) reuses it to synthesize a figure sub-document's <c>OriginalFileName</c>.</summary>
+    public static string Extension(string? contentType)
     {
         if (string.IsNullOrEmpty(contentType) ||
             !contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
