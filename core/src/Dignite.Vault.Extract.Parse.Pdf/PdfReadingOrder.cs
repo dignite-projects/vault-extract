@@ -44,8 +44,11 @@ namespace Dignite.Vault.Extract.Parse.Pdf;
 /// </summary>
 internal static class PdfReadingOrder
 {
-    /// <summary>An embedded image with its page placement, source page number, and the OCR transcription of its content.</summary>
-    public readonly record struct Figure(PdfRectangle Bounds, string Transcription, int? PageNumber = null);
+    /// <summary>An embedded image with its page placement, source page number, the OCR transcription of its content,
+    /// and — when figure retention is on (#477) — the <c>figures/{hash}</c> reference to inline inside its span
+    /// (<c>null</c> when retention is off, leaving the span byte-identical to before).</summary>
+    public readonly record struct Figure(
+        PdfRectangle Bounds, string Transcription, int? PageNumber = null, string? ImageReference = null);
 
     /// <summary>
     /// A reconstructed visual line of the text layer. <see cref="MaxFontSize"/> (largest glyph point size) and
@@ -455,7 +458,8 @@ internal static class PdfReadingOrder
         for (var fi = 0; fi < figures.Count; fi++)
         {
             figureCaptions.TryGetValue(fi, out var caption);
-            items.Add(Item.ForFigure(figures[fi].Bounds, figures[fi].Transcription, caption, figures[fi].PageNumber));
+            items.Add(Item.ForFigure(
+                figures[fi].Bounds, figures[fi].Transcription, caption, figures[fi].PageNumber, figures[fi].ImageReference));
         }
 
         if (items.Count == 0)
@@ -509,8 +513,9 @@ internal static class PdfReadingOrder
                 // annotate the bracketed text as OCR for any consumer, and the pipeline reads them to recognize the
                 // figure span (the classification embedded-document signal + the unified sub-document detection pass).
                 // The caption is a digital-text-layer line bound to this figure, so escape it; item.Text is the OCR
-                // transcription (already Markdown) and is emitted verbatim inside the markers.
-                var figureMarkup = ImageOcrMarkup.Wrap(item.Text, item.PageNumber);
+                // transcription (already Markdown) and is emitted verbatim inside the markers. #477: when the source
+                // image was retained, item.ImageReference (figures/{hash}) is inlined as the span's first body line.
+                var figureMarkup = ImageOcrMarkup.Wrap(item.Text, item.PageNumber, item.ImageReference);
                 blocks.Add(item.Caption is { Length: > 0 } caption
                     ? MarkdownText.EscapeBlockText(caption) + "\n\n" + figureMarkup
                     : figureMarkup);
@@ -1592,12 +1597,14 @@ internal static class PdfReadingOrder
 
     private static double Sq(double v) => v * v;
 
-    private readonly record struct Item(PdfRectangle Bounds, string Text, bool IsFigure, string? Caption, int? PageNumber, int HeadingLevel)
+    private readonly record struct Item(
+        PdfRectangle Bounds, string Text, bool IsFigure, string? Caption, int? PageNumber, int HeadingLevel,
+        string? ImageReference = null)
     {
         public static Item ForText(PdfRectangle bounds, string text, int headingLevel = 0)
             => new(bounds, text, false, null, null, headingLevel);
 
-        public static Item ForFigure(PdfRectangle bounds, string text, string? caption, int? pageNumber)
-            => new(bounds, text, true, caption, pageNumber, 0);
+        public static Item ForFigure(PdfRectangle bounds, string text, string? caption, int? pageNumber, string? imageReference)
+            => new(bounds, text, true, caption, pageNumber, 0, imageReference);
     }
 }

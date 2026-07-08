@@ -53,16 +53,27 @@ public class DocumentParseMetadata : ValueObject
     /// <summary>Short diagnostic when incomplete; <c>null</c> when complete.</summary>
     public string? IncompleteReason { get; }
 
+    /// <summary>
+    /// Retained-figure blob manifest (#477): one entry per persisted embedded-figure <b>source image</b>, or
+    /// <c>null</c> when figure retention was off / no figures were retained. Its only purpose is manifest-driven
+    /// blob reclaim on permanent delete (ABP's <c>IBlobContainer</c> has no list-by-prefix, so — like
+    /// <see cref="NativePayloadManifest"/> — reclaim deletes by stable key, never by prefix sweep). Raw bytes stay
+    /// in blob storage; this stores only the entries. Historical records / retention-off runs default to <c>null</c>.
+    /// </summary>
+    public IReadOnlyList<FigureManifestEntry>? Figures { get; }
+
     public DocumentParseMetadata(
         string? providerName,
         NativePayloadManifest? nativePayloadManifest,
         bool isComplete = true,
-        string? incompleteReason = null)
+        string? incompleteReason = null,
+        IReadOnlyList<FigureManifestEntry>? figures = null)
     {
         ProviderName = providerName;
         NativePayloadManifest = nativePayloadManifest;
         IsComplete = isComplete;
         IncompleteReason = incompleteReason;
+        Figures = figures;
     }
 
     protected override IEnumerable<object> GetAtomicValues()
@@ -79,6 +90,26 @@ public class DocumentParseMetadata : ValueObject
         // when manifest is null and would not participate in equality.
         yield return IsComplete;
         yield return IncompleteReason ?? string.Empty;
+
+        // #477 figures manifest — flattened BEFORE the native-manifest yield break below, so the atomics
+        // participate in equality even when NativePayloadManifest is null (the common case: the PDF figure path
+        // archives no native payload). A NULL sentinel distinguishes "no figures" from an empty list.
+        if (Figures is null)
+        {
+            yield return "\0null-figures";
+        }
+        else
+        {
+            yield return "\0figures";
+            yield return Figures.Count;
+            foreach (var figure in Figures)
+            {
+                yield return figure.BlobName;
+                yield return figure.ContentHash;
+                yield return figure.ContentType;
+                yield return figure.SizeBytes;
+            }
+        }
 
         if (NativePayloadManifest is null)
         {

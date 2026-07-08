@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -136,6 +137,11 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
 
             var languageHints = ResolveLanguageHints(context);
 
+            // #477: when figure retention is on, collect each retained figure's source image (the bytes just sent to
+            // OCR); the Application layer persists them and reclaims them by manifest. Null when off → the provider
+            // behaves exactly as before: no figures/{hash} reference in the Markdown, TextExtractionResult.Figures null.
+            var retainedFigures = context.RetainFigureImages ? new List<ExtractedFigure>() : null;
+
             // #383: detect running headers / footers + page numbers (content that repeats in the top/bottom
             // edge band across pages) once over all pages, so it does not pollute the Markdown body. Position
             // only selects candidates; a line is dropped only when its digit-normalized text repeats across
@@ -258,11 +264,24 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
                     {
                         // Inline output (#301): woven into the page Markdown at the reading position, bracketed by
                         // *[Image OCR p:N]*…*[End OCR]* provenance markers (#371/#381) carrying the page anchor. The
-                        // figure span — its transcription + page — travels entirely in Document.Markdown (the markers
-                        // stay in the egress); the unified sub-document detection pass routes it from there, so no
-                        // separate out-of-band figure list / candidate crop is produced (the #306
-                        // TextExtractionResult.Figures channel is retired).
-                        figures.Add(new PdfReadingOrder.Figure(image.BoundingBox, transcription, pageContent.Page.Number));
+                        // figure span — its transcription + page — travels in Document.Markdown (the markers stay in
+                        // the egress); the unified sub-document detection pass routes it from there.
+                        //
+                        // #477: when figure retention is on, also surface the source image out-of-band on
+                        // TextExtractionResult.Figures (the exact bytes just OCR'd — the provider persists nothing
+                        // itself) and inline a figures/{hash} reference as the span's first body line, so the
+                        // Application layer can blob-store the image and reclaim it by manifest.
+                        string? imageReference = null;
+                        if (retainedFigures is not null)
+                        {
+                            var figureHash = Sha256Hex(payload.Value.Bytes);
+                            imageReference = FigureReference(figureHash, payload.Value.ContentType);
+                            retainedFigures.Add(new ExtractedFigure(
+                                figureHash, payload.Value.Bytes, payload.Value.ContentType, pageContent.Page.Number));
+                        }
+
+                        figures.Add(new PdfReadingOrder.Figure(
+                            image.BoundingBox, transcription, pageContent.Page.Number, imageReference));
                     }
                 }
 
@@ -334,9 +353,41 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
                 // PdfPig text layer + per-image OCR has no single aggregated spatial payload to archive
                 // this round (#210). Left null deliberately.
                 NativePayload = null,
-                FigureOcrCount = figureOcrCount
+                FigureOcrCount = figureOcrCount,
+                // #477: retained figure source images (null when retention is off), for the Application layer to
+                // blob-store; the figures/{hash} references were already inlined into the Markdown above.
+                Figures = retainedFigures
             };
         }
+    }
+
+    /// <summary>SHA-256 (lowercase hex) of the image bytes — the retained figure's content hash / dedup key (#477),
+    /// matching the <c>figures/{hash}</c> Markdown reference and the Application-layer blob key.</summary>
+    private static string Sha256Hex(byte[] bytes)
+        => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+
+    /// <summary>The document-relative Markdown reference for a retained figure (<c>figures/{hash}.{ext}</c>, #477).</summary>
+    private static string FigureReference(string contentHash, string contentType)
+        => "figures/" + contentHash + "." + ExtensionForContentType(contentType);
+
+    /// <summary>Maps an image MIME type to a file extension for the retained-figure reference — cosmetic, since the
+    /// egress resolves the blob by hash. Any <c>image/*</c> subtype passes through (<c>jpeg</c> → <c>jpg</c>);
+    /// a missing / non-image type falls back to <c>img</c>.</summary>
+    private static string ExtensionForContentType(string? contentType)
+    {
+        if (string.IsNullOrEmpty(contentType) ||
+            !contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+        {
+            return "img";
+        }
+
+        var subtype = contentType["image/".Length..].Trim().ToLowerInvariant();
+        return subtype switch
+        {
+            "" => "img",
+            "jpeg" => "jpg",
+            _ => subtype
+        };
     }
 
     /// <summary>Whether an embedded image is below the <see cref="PdfExtractorOptions.MinImagePixels"/> threshold (decorative).</summary>

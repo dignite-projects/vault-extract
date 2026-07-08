@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Dignite.Vault.Extract.Abstractions.Parse;
 
 public class TextExtractionResult
@@ -45,4 +47,14 @@ public class TextExtractionResult
     /// figure OCR ran.
     /// </summary>
     public int FigureOcrCount { get; set; }
+
+    /// <summary>
+    /// Retained embedded-figure <b>source images</b> (#477), surfaced out-of-band so the Application layer can
+    /// persist each as a blob (<c>extraction-figures/{documentId}/{ContentHash}</c>) while the Markdown carries a
+    /// <c>figures/{hash}</c> reference the provider inlined at the figure's reading position. <c>null</c> unless
+    /// figure retention was requested (<see cref="TextExtractionContext.RetainFigureImages"/>); providers with no
+    /// spatial model (plain text → Markdown) leave it <c>null</c>. The bytes never enter <see cref="Markdown"/> or
+    /// the DB — only the reference does; this is the #210-shaped named/typed/nullable signal, not a text payload.
+    /// </summary>
+    public IReadOnlyList<ExtractedFigure>? Figures { get; set; }
 }

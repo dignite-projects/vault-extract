@@ -121,9 +121,11 @@ public class DocumentParseBackgroundJob
                 var ctx = new TextExtractionContext
                 {
                     ContentType = workItem.ContentType!,
-                    FileExtension = Path.GetExtension(workItem.OriginalFileName ?? string.Empty)
+                    FileExtension = Path.GetExtension(workItem.OriginalFileName ?? string.Empty),
                     // No language hints set: OCR language is provider-specific (#441). VisionLlm / Azure DI
                     // auto-detect; PaddleOcr falls back to its own PaddleOcr:Languages config.
+                    // #477: host-deployment-layer toggle (default off) — surface + persist retained figure images.
+                    RetainFigureImages = _behaviorOptions.RetainFigureImages
                 };
 
                 result = await _textExtractor.ExtractAsync(blobStream, ctx, _cancellationTokenProvider.Token);
@@ -257,8 +259,67 @@ public class DocumentParseBackgroundJob
         TextExtractionResult result)
     {
         var manifest = await TryArchiveNativePayloadAsync(documentId, result.NativePayload);
+        var figures = await TryArchiveFiguresAsync(documentId, result.Figures);
         return new DocumentParseMetadata(
-            result.ProviderName, manifest, result.IsComplete, result.IncompleteReason);
+            result.ProviderName, manifest, result.IsComplete, result.IncompleteReason, figures);
+    }
+
+    /// <summary>
+    /// Persists each retained embedded-figure source image (#477) to blob storage under the stable key
+    /// <c>extraction-figures/{documentId}/{contentHash}</c> (content-hash keyed → <b>idempotent</b>, identical
+    /// images collapse to one blob) and returns a <see cref="FigureManifestEntry"/> per persisted image, or
+    /// <c>null</c> when retention was off / nothing was retained. The manifest is the reclaim source on permanent
+    /// delete (ABP's <c>IBlobContainer</c> has no list-by-prefix). Mirrors the native-payload archive discipline:
+    /// <b>fail open</b> — a blob write failing logs a warning and skips that entry (the <c>figures/{hash}</c>
+    /// reference already inlined into the Markdown is left dangling for that one image), and text extraction still
+    /// completes; an auxiliary artifact must never break the main Markdown pipeline.
+    /// </summary>
+    protected virtual async Task<IReadOnlyList<FigureManifestEntry>?> TryArchiveFiguresAsync(
+        Guid documentId,
+        IReadOnlyList<ExtractedFigure>? figures)
+    {
+        if (figures is null || figures.Count == 0)
+        {
+            return null;
+        }
+
+        var entries = new List<FigureManifestEntry>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var figure in figures)
+        {
+            if (figure.Content is not { Length: > 0 } content
+                || string.IsNullOrWhiteSpace(figure.ContentHash)
+                || string.IsNullOrWhiteSpace(figure.ContentType))
+            {
+                continue;
+            }
+
+            // Dedup by content hash: an identical image on several pages is one blob + one manifest entry (its
+            // figures/{hash} reference may appear multiple times in the Markdown — all resolve to the same blob).
+            if (!seen.Add(figure.ContentHash))
+            {
+                continue;
+            }
+
+            var blobName = $"extraction-figures/{documentId}/{figure.ContentHash}";
+            try
+            {
+                using var stream = new MemoryStream(content, writable: false);
+                await _blobContainer.SaveAsync(blobName, stream, overrideExisting: true);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex,
+                    "Failed to persist retained figure blob {BlobName} for document {DocumentId}; "
+                    + "continuing without it (text extraction still succeeds).",
+                    blobName, documentId);
+                continue;
+            }
+
+            entries.Add(new FigureManifestEntry(blobName, figure.ContentHash, figure.ContentType, content.LongLength));
+        }
+
+        return entries.Count > 0 ? entries : null;
     }
 
     private async Task<NativePayloadManifest?> TryArchiveNativePayloadAsync(Guid documentId, NativePayload? payload)
