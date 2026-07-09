@@ -8,6 +8,15 @@ namespace Dignite.Vault.Extract.Documents;
 
 public interface IDocumentRepository : IRepository<Document, Guid>
 {
+    /// <summary>
+    /// Finds a <b>non-derived</b> document by exact <c>FileOrigin.BlobName</c> (#485, mirroring
+    /// <see cref="FindByContentHashAsync"/>'s #481 scoping fix). Since #481 a text-slice sub-document SHARES its
+    /// parent's whole upload blob (never a copy), so an unscoped lookup could nondeterministically resolve to a
+    /// child row instead of the parent that owns the blob as its own identity. Scoped to
+    /// <c>OriginDocumentId == null</c>. Does not traverse soft delete (unlike <see cref="FindByContentHashAsync"/>
+    /// / <see cref="AnyWithFileOriginBlobNameAsync"/>): only an active, non-recycle-bin document's own blob name
+    /// resolves.
+    /// </summary>
     Task<Document?> FindByBlobNameAsync(
         string blobName,
         CancellationToken cancellationToken = default);
@@ -46,6 +55,31 @@ public interface IDocumentRepository : IRepository<Document, Guid>
     Task<bool> AnyWithFileOriginBlobNameAsync(
         string blobName,
         Guid? excludeDocumentId = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether another LIVE document already shares the derived-document identity
+    /// <c>(OriginDocumentId, OriginConstituentKey)</c> — the #485 restore-time fail-close used by
+    /// <c>DocumentAppService.RestoreAsync</c>, replacing the fail-close the #481-dropped #391 filtered-unique index
+    /// used to give for free (a retracted, soft-deleted child and a later re-spawned successor may now freely
+    /// share the same <c>OriginConstituentKey</c> per #481, but restoring the retracted one back to life while a
+    /// live successor already occupies that identity would create a duplicate). Existence-only (SQL <c>EXISTS</c>,
+    /// no row materialization).
+    /// <para>
+    /// Filters <c>OriginDocumentId == originDocumentId &amp;&amp; OriginConstituentKey == originConstituentKey
+    /// &amp;&amp; Id != excludeDocumentId &amp;&amp; !IsDeleted</c>. Unlike <see cref="AnyWithFileOriginBlobNameAsync"/>
+    /// this deliberately does <b>not</b> disable the <c>ISoftDelete</c> filter itself — soft-deleted siblings must
+    /// NOT count here — but the caller (<c>RestoreAsync</c>) runs inside its own
+    /// <c>DataFilter.Disable&lt;ISoftDelete&gt;()</c> scope to load the row being restored, so that ambient
+    /// disabled state also reaches this call; the explicit <c>!IsDeleted</c> predicate re-excludes soft-deleted
+    /// rows regardless of the ambient filter state. <c>IMultiTenant</c> still applies by ambient state (a source
+    /// and its derived documents share a tenant).
+    /// </para>
+    /// </summary>
+    Task<bool> AnyLiveDerivedDuplicateAsync(
+        Guid originDocumentId,
+        string originConstituentKey,
+        Guid excludeDocumentId,
         CancellationToken cancellationToken = default);
 
     /// <summary>

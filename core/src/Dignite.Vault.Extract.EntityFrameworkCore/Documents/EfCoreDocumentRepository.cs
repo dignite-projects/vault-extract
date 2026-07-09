@@ -31,9 +31,12 @@ public class EfCoreDocumentRepository
         CancellationToken cancellationToken = default)
     {
         var dbSet = await GetDbSetAsync();
+        // #485: scoped to non-derived rows (OriginDocumentId == null), mirroring FindByContentHashAsync's #481
+        // fix — a text-slice sub-document now shares its parent's whole BlobName (never a copy), so an unscoped
+        // lookup could nondeterministically resolve to a child row instead of the parent that owns the blob.
         return await dbSet
             .FirstOrDefaultAsync(
-                d => d.FileOrigin.BlobName == blobName,
+                d => d.FileOrigin.BlobName == blobName && d.OriginDocumentId == null,
                 GetCancellationToken(cancellationToken));
     }
 
@@ -71,6 +74,26 @@ public class EfCoreDocumentRepository
                     && (excludeDocumentId == null || d.Id != excludeDocumentId),
                 GetCancellationToken(cancellationToken));
         }
+    }
+
+    public virtual async Task<bool> AnyLiveDerivedDuplicateAsync(
+        Guid originDocumentId,
+        string originConstituentKey,
+        Guid excludeDocumentId,
+        CancellationToken cancellationToken = default)
+    {
+        // #485: the caller (DocumentAppService.RestoreAsync) runs inside DataFilter.Disable<ISoftDelete>() to load
+        // the soft-deleted row being restored, so that ambient state reaches this query too -- unlike
+        // AnyWithFileOriginBlobNameAsync above, a soft-deleted sibling must NOT count as a live duplicate here, so
+        // filter explicitly on d.IsDeleted rather than relying on the (here, disabled) global ISoftDelete filter.
+        // IMultiTenant still applies by ambient state.
+        var dbSet = await GetDbSetAsync();
+        return await dbSet.AnyAsync(
+            d => d.OriginDocumentId == originDocumentId
+                && d.OriginConstituentKey == originConstituentKey
+                && d.Id != excludeDocumentId
+                && !d.IsDeleted,
+            GetCancellationToken(cancellationToken));
     }
 
     public virtual async Task<List<DuplicateCandidateModel>> FindDuplicateCandidatesAsync(

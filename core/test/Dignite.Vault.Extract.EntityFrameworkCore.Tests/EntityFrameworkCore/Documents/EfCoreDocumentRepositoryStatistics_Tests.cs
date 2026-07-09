@@ -175,21 +175,13 @@ public class EfCoreDocumentRepositoryStatistics_Tests : VaultExtractEntityFramew
             parent.TransitionLifecycle(DocumentLifecycleStatus.Ready);
             await _documentRepository.InsertAsync(parent, autoSave: true);
 
-            // Shares the parent's FileOrigin wholesale, including FileSize (#481). Built as an equal-valued (not
-            // same-reference) FileOrigin: EF's owned-entity change tracker does not allow attaching the SAME tracked
-            // FileOrigin CLR instance to two Document rows within one DbContext (its shadow key includes the
-            // owner's Id) — in production this is a non-issue because the parent is loaded in an earlier,
-            // already-disposed UoW/DbContext before the derived document's own UoW begins.
+            // Shares the parent's FileOrigin wholesale, including FileSize (#481). CloneFileOrigin (#485) builds an
+            // equal-valued (not same-reference) copy -- see its XML doc for why a same-reference FileOrigin instance
+            // cannot be attached to two Document rows within one DbContext.
             var child = Document.CreateDerived(
                 _guidGenerator.Create(),
                 _currentTenant.Id,
-                new FileOrigin(
-                    blobName: parent.FileOrigin.BlobName,
-                    uploadedByUserName: parent.FileOrigin.UploadedByUserName,
-                    contentType: parent.FileOrigin.ContentType,
-                    contentHash: parent.FileOrigin.ContentHash,
-                    fileSize: parent.FileOrigin.FileSize,
-                    originalFileName: parent.FileOrigin.OriginalFileName),
+                CloneFileOrigin(parent.FileOrigin),
                 originDocumentId: parent.Id,
                 originConstituentKey: "slice-1");
             child.TransitionLifecycle(DocumentLifecycleStatus.Ready);

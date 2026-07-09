@@ -128,21 +128,33 @@ public class DerivedDocumentSpawner : ITransientDependency
 
             await markSpawned(candidate, derivedDocumentId);
 
+            // #485: a derived document only ever SHARES its source's blob (#481) -- it contributes no independent
+            // storage of its own -- so the upload event reports 0 / null here (restoring the pre-#481 semantics),
+            // NOT fileOrigin.OriginalFileName/FileSize/ContentType. Otherwise a downstream consumer accumulating
+            // storage/quota over DocumentUploadedEto.FileSize would N×-count the same bytes once per sub-document,
+            // contradicting IDocumentRepository.GetStatisticsAsync's own exclusion of derived rows
+            // (OriginDocumentId != null) from its byte sum. fileOrigin itself is still required just above for
+            // Document.CreateDerived -- only these ETO fields are affected.
             await _distributedEventBus.PublishAsync(
                 new DocumentUploadedEto
                 {
                     DocumentId = derived.Id,
                     TenantId = derived.TenantId,
                     EventTime = _clock.Now,
-                    FileName = fileOrigin.OriginalFileName,
-                    FileSize = fileOrigin.FileSize,
-                    ContentType = fileOrigin.ContentType
+                    FileName = null,
+                    FileSize = 0,
+                    ContentType = null
                 });
 
             // Run the derived document through the full normal pipeline. Its text-extraction job seeds Markdown from
             // the constituent (figure transcription / segment slice) instead of re-extracting it.
             await _pipelineJobScheduler.QueueAsync(derived, VaultExtractPipelines.Parse);
 
+            // #485: this insert + the DocumentUploadedEto publish above roll back TOGETHER for a concurrent loser
+            // (see the isTransactional: true note above) only because ABP's transactional outbox is enabled for
+            // this DbContext -- the event write is just another row in the same DB transaction as the Document
+            // insert. That guarantee breaks if a future change publishes DocumentUploadedEto outside the outbox
+            // (e.g. a direct message-bus send) for this or any other path sharing this UoW.
             await uow.CompleteAsync();
             return derivedDocumentId;
         }
