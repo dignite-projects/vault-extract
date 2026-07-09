@@ -4,6 +4,7 @@ using Dignite.Vault.Extract.Host.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Volo.Abp.EntityFrameworkCore;
 
@@ -12,9 +13,11 @@ using Volo.Abp.EntityFrameworkCore;
 namespace Dignite.Vault.Extract.Host.Migrations
 {
     [DbContext(typeof(VaultExtractHostDbContext))]
-    partial class VaultExtractHostDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260709144043_V487_DropDormantSegmentFigureColumns")]
+    partial class V487_DropDormantSegmentFigureColumns
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

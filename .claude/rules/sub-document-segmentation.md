@@ -66,12 +66,13 @@ default — the #364-class missed-branch bug, hardened in #379), not a license t
 | `SourceDocumentId`, `SegmentKey`, `Kind`, `Status`, `RoutedDocumentId`, `Ordinal` | **contract** | the idempotency + retraction lifecycle |
 | `RoutedDocumentId` | **keep explicit** | reconstructable from `(OriginDocumentId, OriginConstituentKey)`, but the explicit pointer is the ledger's purpose (idempotency + retraction clarity); reconstructing the join is more complex, not less |
 | `SliceText` | **transient one-way seed** | duplicated by `Document.Markdown` after parse; bounded duplication is accepted; **do not add a parse→segment writeback to clear it** (couples parse job to the ledger for a low-value saving) |
-| `PageNumber` | **retained provenance** | deliberate out-of-band anchor (Markdown-first "named, strongly-typed, nullable extension field" rule); write-only by design, not dead weight |
-| `FigureContentHash` | **spawn-input (resumable)** | #477/#478: SHA-256 of the retained figure's **image bytes** (≠ `SegmentKey`, the transcription-**text** hash), parsed at detection from the in-span `figures/{hash}` reference; read once at spawn to resolve the source's `FigureManifest` and point the child `FileOrigin` at the **shared** blob. `null` only for a `Text` slice — since #481 a `Figure` span with no resolvable reference is a **retention-off** case (routing requires `RetainFigureImages` ON) and is not persisted as a row at detection at all; a manifest miss discovered later at spawn time deletes the row instead of spawning a child with no blob. Every spawned child therefore carries a real, required `FileOrigin`: `Figure` → the shared retained blob, `Text` → the parent's own shared upload blob |
+
+_Removed by #487: `PageNumber` and `FigureContentHash`. Both were **figure-only**, and since #487 deleted the figure-image retention chain (Phase A) figure spans are **detected-but-skipped** — they no longer route to sub-documents — so neither column was ever written again. Dropped from the entity (+ EF config + `DocumentSegmentConsts.MaxFigureContentHashLength`) with the `V487_DropDormantSegmentFigureColumns` migration._
 
 Watch for accreted residue: a fast-iterated subsystem leaves write-only fields / never-assigned enum values / dead
 projections. #390 removed three (`DocumentSegmentStatus.NotADocument`, `DetectionContext.UploadedByUserName`,
-`PendingSegment.SliceText`). Re-run a dead-code sweep when adding the next iteration.
+`PendingSegment.SliceText`); #487 removed two more (`PageNumber`, `FigureContentHash`). Re-run a dead-code sweep when
+adding the next iteration.
 
 ## Cross-entity invariant (two coupled state machines)
 
