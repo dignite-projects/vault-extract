@@ -30,20 +30,20 @@ namespace Dignite.Vault.Extract.Documents.Pipelines.Segmentation;
 /// (which retains the inline <c>*[Image OCR]*…*[End OCR]*</c> figure provenance markers, #381) and spawns each
 /// standalone span as a derived <see cref="Document"/> seeded from its (stripped, clean) slice.
 /// <para>
-/// <b>One identity model, one spawn sink.</b> Every span — text or figure — is keyed by the SHA-256 of its clean
-/// slice text and spawned through the shared <see cref="DerivedDocumentSpawner"/> as a text-only sub-document; a
-/// figure span carries only a page recovery anchor (no crop). That content-hash identity is mirrored onto the
-/// derived <see cref="Document"/> as <c>OriginConstituentKey</c> (#481: passive provenance there, Option A — no
-/// longer DB-enforced on <see cref="Document"/>), so an inlined-then-also-sliced figure instead collapses on the
-/// <b>ledger's own</b> unique <c>(SourceDocumentId, SegmentKey)</c> index before a second <see cref="Document"/> is
-/// ever spawned — the cross-path duplication of #356 / #359 is structurally impossible (no cross-path dedup code).
+/// <b>One identity model, one spawn sink.</b> Every standalone TEXT span is keyed by the SHA-256 of its clean slice
+/// text and spawned through the shared <see cref="DerivedDocumentSpawner"/>. That content-hash identity is
+/// mirrored onto the derived <see cref="Document"/> as <c>OriginConstituentKey</c> (#481: passive provenance
+/// there, Option A — no longer DB-enforced on <see cref="Document"/>). <b>A figure span is never routed</b> since
+/// #487 Phase A removed the figure image storage/retention chain (#477/#478) — its transcription stays inline in
+/// the parent's Markdown only; <see cref="DocumentSegmentKind.Figure"/> remains a valid, exhaustively-handled
+/// value only for a legacy row persisted before that deploy.
 /// </para>
 /// <para>
-/// <b>Container vs embedded-document mode.</b> A container's spans become sub-documents of any kind and the split
-/// must yield ≥2 (else <see cref="DocumentReviewReasons.SegmentationIncomplete"/>); a concrete-typed parent keeps
-/// its own content and only its embedded <see cref="DocumentSegmentKind.Figure"/> spans are routed (the parent
-/// still extracts normally, so a failed/empty route is a clean no-op, never a review flag). The
-/// <see cref="DocumentSegmentKind"/> recorded per row drives the #364 retraction filter.
+/// <b>Container vs embedded-document mode.</b> A container's TEXT spans become sub-documents and the split must
+/// yield ≥2 (else <see cref="DocumentReviewReasons.SegmentationIncomplete"/>); a concrete-typed parent's own
+/// embedded figure spans are never routed (Phase A), so the embedded-document mode currently persists nothing —
+/// the parent simply extracts normally with the figure transcription inline, a clean no-op, never a review flag.
+/// The <see cref="DocumentSegmentKind"/> recorded per row drives the #364 retraction filter.
 /// </para>
 /// <para>
 /// <b>Two phases, both resumable + idempotent</b> (unchanged from #346). Phase A runs the one-shot LLM detection
@@ -216,13 +216,9 @@ public class DocumentSegmentationJob
             source.IsContainer,
             alreadySegmented,
             detection,
-            // #478: the source's retained-figure manifest (#477), carried so the spawn phase can point a figure
-            // sub-document's FileOrigin at the SHARED retained blob without re-loading the source.
-            source.ExtractionMetadata?.Figures,
-            // #481: FileOrigin is required on every Document now, so the parent's whole snapshot travels here
-            // (no more optional uploader-only projection) — a Text-kind spawn shares it wholesale (the slice's
-            // source file IS the parent bundle file); a Figure-kind spawn takes only its UploadedByUserName (the
-            // retained-figure manifest entry supplies the rest of that child's FileOrigin).
+            // #481: FileOrigin is required on every Document now, so the parent's whole snapshot travels here (no
+            // more optional uploader-only projection) — a Text-kind spawn shares it wholesale (the slice's source
+            // file IS the parent bundle file).
             source.FileOrigin);
     }
 
@@ -281,57 +277,27 @@ public class DocumentSegmentationJob
             return;
         }
 
-        // Build a row for each STANDALONE span only (the parent's own content / covers / element-of-parent figures
-        // are never persisted): kind from the marked slice's sentinel, clean text + key from the stripped slice, and
-        // the figure page recovery anchor. In an embedded-document source only Figure spans route; in a container any
-        // kind does.
+        // Build a row for each STANDALONE TEXT span only (the parent's own content / covers / figure spans are never
+        // persisted, #487 Phase A): clean text + key from the stripped slice. Only a container's spans route; an
+        // embedded-document source has nothing left to route now that figure spans are always skipped.
         var prepared = new List<PreparedSegment>();
         foreach (var slice in markedSlices)
         {
-            // #371 hardening (own /code-review): a span's kind is a STRUCTURAL property of its opening boundary, not
-            // of whether a sentinel appears somewhere in its body. A genuine text constituent that embeds an inline
-            // figure block (#301 inlines the transcription into the body) must stay Kind=Text — otherwise it would be
-            // mislabeled Figure and survive the container→type retraction (which keeps Kind==Figure), a #364-class
-            // leak. For the clean child seed: a Figure span yields ONLY its figure body (ExtractBodies — drops any
-            // surrounding parent text the LLM folded in by omitting a separate parent-body boundary, #373); a Text
-            // span keeps its prose and strips only the inline figure sentinels. Either way the child carries no sentinels.
-            var isFigure = slice.IsFigure;
-            var cleanText = isFigure ? ImageOcrMarkup.ExtractBodies(slice.Text) : ImageOcrMarkup.Strip(slice.Text);
+            // #487 Phase A: the figure image storage/retention chain (#477/#478) was removed — a figure span is no
+            // longer routed anywhere. Skip it before any of the (now removed) manifest / content-hash resolution;
+            // its transcription stays inline in the parent's Markdown only.
+            if (slice.IsFigure)
+            {
+                continue;
+            }
+
+            var cleanText = ImageOcrMarkup.Strip(slice.Text);
             if (string.IsNullOrWhiteSpace(cleanText))
             {
                 continue; // a slice that was only sentinels
             }
 
-            var spawn = slice.IsSubDocument && (context.IsContainer || isFigure);
-            if (!spawn)
-            {
-                continue;
-            }
-
-            // #478: the retained image's content hash from the in-span figures/{hash} reference (#477); parsed
-            // from the RAW slice (the clean seed above deliberately drops the reference line). Null for a Text span.
-            var figureContentHash = isFigure ? ExtractFigureContentHash(slice.Text) : null;
-
-            // #481 retention coupling (b), TIGHTENED by #485: a Figure span is SKIPPED outright (no segment row
-            // persisted at all) unless it BOTH carries an in-span figures/{hash} reference AND that hash resolves
-            // against the source's retained-figure manifest right here, at detection. The pre-#485 gate only
-            // checked for a non-null hash, parsed from the raw slice regardless of manifest state — so a figure
-            // whose archive write FAILED (retention ON, blob write error / over size cap) still parsed a non-null
-            // hash, passed detection, counted toward the >=2 real-bundle floor below, and was discovered
-            // unresolvable only later at spawn time (BuildFigureFileOrigin's manifest miss), where the segment was
-            // silently deleted (DeleteUnresolvableFigureSegmentAsync) — a container could end up Ready with fewer
-            // than 2 (or 0) surviving sub-documents and NO SegmentationIncomplete flag, silently losing the
-            // figure's transcription from egress (container Ready is suppressed, #346). Resolving the manifest
-            // HERE makes an archive-failed figure behave exactly like retention-off, so the existing floor + flag
-            // below correctly catch the degraded container instead of spawning it short. FileOrigin is required on
-            // every Document either way, so there is still no blob for the child's FileOrigin to point at. The
-            // transcription stays inline in the parent's Markdown — no data loss, just no spawned sub-document.
-            // Text spans are unaffected. Ordinal continuity is not a contract (only per-source uniqueness, see the
-            // (SourceDocumentId, Ordinal) index below), so skipping a slice mid-loop is safe.
-            var figureResolvesInManifest = figureContentHash is not null
-                && context.FigureManifest?.Any(
-                    f => string.Equals(f.ContentHash, figureContentHash, StringComparison.Ordinal)) == true;
-            if (isFigure && !figureResolvesInManifest)
+            if (!slice.IsSubDocument || !context.IsContainer)
             {
                 continue;
             }
@@ -339,9 +305,7 @@ public class DocumentSegmentationJob
             prepared.Add(new PreparedSegment(
                 ContentHasher.Sha256Hex(Encoding.UTF8.GetBytes(cleanText)),
                 cleanText,
-                isFigure ? DocumentSegmentKind.Figure : DocumentSegmentKind.Text,
-                isFigure ? ExtractFirstPage(slice.Text) : null,
-                figureContentHash));
+                DocumentSegmentKind.Text));
         }
 
         // Byte-identical detection among the spawnable slices: same content -> same key -> the unique
@@ -441,9 +405,7 @@ public class DocumentSegmentationJob
                     p.CleanText,
                     ordinal++,
                     p.Kind,
-                    DocumentSegmentStatus.Pending,
-                    p.PageNumber,
-                    p.FigureContentHash));
+                    DocumentSegmentStatus.Pending));
             }
 
             // #377: mark the document segmented in the SAME transaction as the rows — the precise resume gate, so a
@@ -586,21 +548,11 @@ public class DocumentSegmentationJob
     }
 
     /// <summary>
-    /// #481: deletes a Figure-kind segment row whose #478 content hash could not be resolved against the source's
-    /// retained-figure manifest at spawn time — figure routing REQUIRES a real shared blob (the #477
-    /// <c>RetainFigureImages</c> toggle), so there is nothing left to spawn.
-    /// <para>
-    /// #485: the PRIMARY gate now lives at <b>detection</b> (<see cref="DetectAndPersistAsync"/> already skips
-    /// persisting a Figure segment row whose hash does not resolve against the manifest there), so a container's
-    /// ">=2 real bundle" floor and <see cref="DocumentReviewReasons.SegmentationIncomplete"/> flag correctly react
-    /// to a degraded figure up front instead of a Ready container silently losing it later. This spawn-time path
-    /// is now only a defensive backstop for the rare CROSS-RUN case: the manifest resolved when a prior execution's
-    /// Phase A persisted the row, but has since drifted by the time THIS execution's <see cref="LoadAsync"/>
-    /// re-reads <see cref="Document.ExtractionMetadata"/> fresh (e.g. a re-extraction rewrote it) — within one
-    /// execution, Phase A and Phase B share the same loaded <see cref="DetectionContext.FigureManifest"/>, so this
-    /// cannot happen there. Should rarely fire in practice.
-    /// </para>
-    /// Reloads + re-checks
+    /// Deletes a Figure-kind segment row that cannot be spawned — since #487 Phase A removed the figure image
+    /// storage/retention chain (#477/#478), <see cref="BuildFigureFileOrigin"/> always returns <c>null</c>, so this
+    /// fires for any Figure-kind row this method reaches. Fresh detection never persists one anymore (see the
+    /// figure-span skip in <see cref="DetectAndPersistAsync"/>); this is reachable only for a legacy Figure-kind row
+    /// already Pending from before this deploy. Reloads + re-checks
     /// <see cref="DocumentSegmentStatus.Pending"/> inside its own short UoW first (a concurrent worker may already
     /// have spawned or deleted it between <see cref="LoadPendingSegmentsAsync"/>'s snapshot and here). The parent
     /// keeps the transcription inline in its own Markdown either way — this is a routing no-op, not a fault, so it
@@ -753,84 +705,24 @@ public class DocumentSegmentationJob
         return source is { IsContainer: true } ? source : null;
     }
 
-    private static int? ExtractFirstPage(string markedSliceText)
-    {
-        foreach (var line in markedSliceText.Split('\n'))
-        {
-            if (ImageOcrMarkup.IsOpenLine(line))
-            {
-                return ImageOcrMarkup.TryParsePage(line);
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>The retained image's content hash from the slice's first in-span <c>![figure](figures/{hash}.{ext})</c>
-    /// reference line (#477/#478), or <c>null</c> when the slice carries none (retention off / pre-#477 content).</summary>
-    private static string? ExtractFigureContentHash(string markedSliceText)
-    {
-        foreach (var line in markedSliceText.Split('\n'))
-        {
-            var hash = ImageOcrMarkup.TryParseImageReferenceHash(line);
-            if (hash is not null)
-            {
-                return hash;
-            }
-        }
-
-        return null;
-    }
-
     /// <summary>
-    /// Resolves the figure sub-document's <see cref="FileOrigin"/> (#478) from the segment's
-    /// <see cref="DocumentSegment.FigureContentHash"/> against the source's retained-figure manifest (#477) — the
-    /// manifest is authoritative (its own stored blob key / content type / size; the key is never rebuilt from
-    /// parsed input), and the blob is <b>shared</b> with the source (never copied). Returns <c>null</c> on a
-    /// manifest miss — since #485 the PRIMARY gate for this (retention off at parse time, or an archive write
-    /// failure) is at <b>detection</b> (<see cref="DetectAndPersistAsync"/> no longer persists a Figure segment row
-    /// unless it already resolves against the manifest there), so reaching this method with an unresolvable hash
-    /// should only happen in the rare CROSS-RUN case where the manifest drifted between that detection pass and
-    /// this spawn (e.g. a re-extraction rewrote <see cref="Document.ExtractionMetadata"/> after Phase A persisted
-    /// the row but before this later execution's Phase B ran); a null <see cref="PendingSegment.FigureContentHash"/>
-    /// is handled the same defensive way. The caller (<see cref="SpawnDerivedDocumentAsync"/>) deletes the segment
-    /// row instead of spawning with a fabricated FileOrigin, since #481 requires a real shared blob for figure
-    /// routing.
+    /// Resolves a Figure-kind segment's <see cref="FileOrigin"/> — always <c>null</c> since #487 Phase A removed
+    /// the figure image storage/retention chain (#477/#478): there is no more retained-figure manifest for any
+    /// hash to resolve against. The caller (<see cref="SpawnDerivedDocumentAsync"/>) treats a null result exactly
+    /// as before: it deletes the unresolvable segment via <see cref="DeleteUnresolvableFigureSegmentAsync"/>
+    /// instead of spawning with a fabricated FileOrigin. This path is reachable only for a legacy Figure-kind row
+    /// already Pending from before this deploy — fresh detection never persists one (see the figure-span skip in
+    /// <see cref="DetectAndPersistAsync"/>).
     /// </summary>
-    private FileOrigin? BuildFigureFileOrigin(PendingSegment segment, DetectionContext context)
-    {
-        var entry = segment.FigureContentHash is null
-            ? null
-            : context.FigureManifest?.FirstOrDefault(
-                f => string.Equals(f.ContentHash, segment.FigureContentHash, StringComparison.Ordinal));
-        if (entry is null)
-        {
-            return null;
-        }
-
-        var extension = FigureReference.Extension(entry.ContentType);
-        var originalFileName = segment.PageNumber is { } page && page > 0
-            ? $"figure-p{page}.{extension}"
-            : $"figure.{extension}";
-
-        return new FileOrigin(
-            entry.BlobName,
-            context.SourceFileOrigin.UploadedByUserName,
-            entry.ContentType,
-            entry.ContentHash,
-            entry.SizeBytes,
-            originalFileName);
-    }
+    private FileOrigin? BuildFigureFileOrigin(PendingSegment segment, DetectionContext context) => null;
 
     private static bool IsSchemaDeserializationError(Exception ex)
         => ex is JsonException || ex.GetBaseException() is JsonException;
 
     /// <summary>Per-source detection context loaded once up front: the source id + tenant, the Document.Markdown to
     /// detect over (with inline figure markers, #381), the container flag, whether a prior split exists, the parent
-    /// context for the LLM, the source's retained-figure manifest (#477, for the #478 figure FileOrigin), and —
-    /// since #481 (FileOrigin is required on every Document) — the source's own whole <see cref="FileOrigin"/>
-    /// snapshot: a Text-kind spawn shares it wholesale, a Figure-kind spawn takes only its
-    /// <see cref="FileOrigin.UploadedByUserName"/> (the manifest entry supplies the rest).</summary>
+    /// context for the LLM, and — since #481 (FileOrigin is required on every Document) — the source's own whole
+    /// <see cref="FileOrigin"/> snapshot, which a Text-kind spawn shares wholesale.</summary>
     protected sealed record DetectionContext(
         Guid SourceDocumentId,
         Guid? TenantId,
@@ -838,13 +730,12 @@ public class DocumentSegmentationJob
         bool IsContainer,
         bool AlreadySegmented,
         SubDocumentDetectionContext Detection,
-        IReadOnlyList<FigureManifestEntry>? FigureManifest,
         FileOrigin SourceFileOrigin);
 
-    /// <summary>A standalone span prepared for persistence: its content key, clean slice text, kind, figure page
-    /// anchor, and the retained image's content hash (#478; null for Text / retention off).</summary>
-    private sealed record PreparedSegment(
-        string Key, string CleanText, DocumentSegmentKind Kind, int? PageNumber, string? FigureContentHash);
+    /// <summary>A standalone span prepared for persistence: its content key, clean slice text, and kind. Since #487
+    /// Phase A a figure span is skipped before this record is ever built, so <see cref="Kind"/> is always
+    /// <see cref="DocumentSegmentKind.Text"/> here.</summary>
+    private sealed record PreparedSegment(string Key, string CleanText, DocumentSegmentKind Kind);
 
     /// <summary>Detached snapshot of one still-Pending segment, carried across the per-segment external + UoW phases.
     /// Carries no slice text: the spawn path keys off <see cref="SegmentKey"/>, and the derived document's Markdown

@@ -46,38 +46,16 @@ public static class ImageOcrMarkup
     public const string CloseMarker = "*[End OCR]*";
 
     /// <summary>
-    /// Opens a #477 retained-figure image-reference line, inlined as the figure span's <b>first body line</b>
-    /// (right after the open marker) when the source image is retained; the full line is
-    /// <c>![figure](figures/{hash}.{ext})</c>. The bare marker format is unchanged (MarkItDown parity, #381).
-    /// </summary>
-    private const string ImageReferenceOpen = "![figure](";
-
-    /// <summary>The document-relative target that identifies a #477 figure image-reference line
-    /// (<c>](figures/…)</c>) — matched inside the line so it stays stable across the alt text.</summary>
-    private const string ImageReferenceTarget = "](figures/";
-
-    /// <summary>
     /// Wraps a figure's OCR <paramref name="transcription"/> in the open/close markers, each on its own line,
     /// with an optional 1-based <paramref name="pageNumber"/> anchor on the open line. A non-positive / null page
     /// produces the bare open marker.
-    /// <para>
-    /// When <paramref name="imageReference"/> is supplied (#477 figure retention on), a
-    /// <c>![figure]({imageReference})</c> line is inlined as the <b>first body line</b> (immediately after the
-    /// open marker) so the retained image travels <b>inside</b> the figure span — the sub-document segmentation
-    /// pass (#478) correlates a figure to its blob from there, and segmentation cuts <i>at</i> the marker line so
-    /// a reference placed above it would fall into the previous slice. Null / empty leaves the bare span
-    /// (byte-identical to before #477).
-    /// </para>
     /// </summary>
-    public static string Wrap(string? transcription, int? pageNumber, string? imageReference = null)
+    public static string Wrap(string? transcription, int? pageNumber)
     {
         var open = pageNumber is { } p && p > 0
             ? OpenPagePrefix + p.ToString(CultureInfo.InvariantCulture) + PageSuffix
             : OpenMarker;
-        var body = string.IsNullOrEmpty(imageReference)
-            ? (transcription ?? string.Empty)
-            : ImageReferenceOpen + imageReference + ")\n" + (transcription ?? string.Empty);
-        return open + "\n" + body + "\n" + CloseMarker;
+        return open + "\n" + (transcription ?? string.Empty) + "\n" + CloseMarker;
     }
 
     /// <summary>
@@ -123,7 +101,7 @@ public static class ImageOcrMarkup
             return markdown ?? string.Empty;
         }
 
-        return string.Join("\n", markdown.Split('\n').Where(line => !IsSentinelLine(line) && !IsImageReferenceLine(line)));
+        return string.Join("\n", markdown.Split('\n').Where(line => !IsSentinelLine(line)));
     }
 
     /// <summary>
@@ -159,14 +137,6 @@ public static class ImageOcrMarkup
 
             if (inside)
             {
-                // #477: a retained-figure image reference is provenance, not transcription — the spawned figure
-                // sub-document's seed is the transcription (nothing more, #373), so drop the reference line here.
-                // It survives in the container's Document.Markdown egress; only the child seed excludes it.
-                if (IsImageReferenceLine(line))
-                {
-                    continue;
-                }
-
                 if (sb.Length > 0)
                 {
                     sb.Append('\n');
@@ -194,51 +164,6 @@ public static class ImageOcrMarkup
     /// <summary>Whether the (trimmed) line is the figure close marker.</summary>
     public static bool IsCloseLine(string? line)
         => line is not null && line.Trim() == CloseMarker;
-
-    /// <summary>
-    /// Whether the (trimmed) line is a #477 retained-figure image reference (<c>![…](figures/…)</c>) — the
-    /// provenance image link inlined as the figure span's first body line. Recognized by its <c>](figures/</c>
-    /// document-relative target (stable across the alt text), so <see cref="Strip"/> / <see cref="ExtractBodies"/>
-    /// drop it when deriving a sub-document's clean seed; it stays in the container's <c>Document.Markdown</c>
-    /// egress (only the child-seed utilities exclude it).
-    /// </summary>
-    public static bool IsImageReferenceLine(string? line)
-    {
-        if (line is null)
-        {
-            return false;
-        }
-
-        var trimmed = line.Trim();
-        return trimmed.StartsWith("![", StringComparison.Ordinal)
-            && trimmed.EndsWith(")", StringComparison.Ordinal)
-            && trimmed.IndexOf(ImageReferenceTarget, StringComparison.Ordinal) >= 0;
-    }
-
-    /// <summary>
-    /// Parses the retained-figure <b>content hash</b> out of a <c>![…](figures/{hash}.{ext})</c> reference line
-    /// (#478): the segmentation pass correlates a figure span to its retained blob with it (the reference is the
-    /// span's first body line, so the figure's own slice carries it). Returns <c>null</c> for any non-reference
-    /// line, or when the target carries no hash. The hash is everything between <c>](figures/</c> and the
-    /// extension dot (the <see cref="FigureReference"/> format: a lowercase hex hash contains no dots).
-    /// </summary>
-    public static string? TryParseImageReferenceHash(string? line)
-    {
-        if (!IsImageReferenceLine(line))
-        {
-            return null;
-        }
-
-        var trimmed = line!.Trim();
-        var start = trimmed.IndexOf(ImageReferenceTarget, StringComparison.Ordinal) + ImageReferenceTarget.Length;
-        var end = start;
-        while (end < trimmed.Length && trimmed[end] != '.' && trimmed[end] != ')')
-        {
-            end++;
-        }
-
-        return end > start ? trimmed[start..end] : null;
-    }
 
     /// <summary>
     /// Parses the 1-based page from a page-anchored open marker line (<c>*[Image OCR p:3]*</c>), or <c>null</c>

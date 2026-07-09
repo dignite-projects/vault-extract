@@ -87,15 +87,4 @@ public class VaultExtractBehaviorOptions
     /// windows); hosts may raise it for bigger bundles or lower it to cap spend.
     /// </summary>
     public int MaxSegmentationMarkdownLength { get; set; } = 200_000;
-
-    /// <summary>
-    /// Host-deployment-layer toggle (default <c>false</c>) for retaining embedded-figure <b>source images</b> (#477).
-    /// When on, image-bearing text-extraction providers surface each figure's bytes on
-    /// <c>TextExtractionResult.Figures</c> and inline a <c>figures/{hash}</c> reference into the Markdown; the parse
-    /// job persists each image to blob storage (<c>extraction-figures/{documentId}/{hash}</c>) and records a manifest
-    /// on <c>Document.ExtractionMetadata</c> for reclaim on permanent delete. Off = today's behaviour (image OCR'd to
-    /// text, bytes discarded, no reference). Kept off by default: images are heavy, and some deployments must not
-    /// retain source imagery (e.g. PII in scanned IDs) — retention is an explicit host opt-in, never customer-facing.
-    /// </summary>
-    public bool RetainFigureImages { get; set; }
 }

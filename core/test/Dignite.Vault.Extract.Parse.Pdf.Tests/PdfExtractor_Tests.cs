@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Dignite.Vault.Extract.Abstractions.Parse;
@@ -53,8 +52,8 @@ public class PdfExtractor_Tests
         return lines;
     }
 
-    private static TextExtractionContext PdfContext(bool retainFigures = false)
-        => new() { ContentType = "application/pdf", FileExtension = ".pdf", RetainFigureImages = retainFigures };
+    private static TextExtractionContext PdfContext()
+        => new() { ContentType = "application/pdf", FileExtension = ".pdf" };
 
     private void StubOcr(string markdown, bool isComplete = true, string? reason = null)
         => _ocr.RecognizeAsync(Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>())
@@ -777,63 +776,5 @@ public class PdfExtractor_Tests
         result.Markdown.ShouldContain(
             longLine + " " + longLine + " " + longLine + " and that concludes the recital.");
         result.Markdown.ShouldNotContain("\n\n");
-    }
-
-    [Fact]
-    public async Task Retention_off_inlines_no_figure_reference_and_surfaces_no_Figures()
-    {
-        // #477 default (off): the transcription is inlined exactly as before — no figures/ reference in the
-        // Markdown and no out-of-band Figures. The byte-identical-to-pre-#477 regression guard.
-        StubOcr("INVOICE");
-
-        var png = TinyPng.CreateSolid(48, 48);
-        var pdf = PdfFixtures.Build(
-            texts: new[] { ("Body text", 700.0) },
-            images: new[] { (png, new PdfRectangle(50, 400, 200, 550)) });
-
-        var result = await CreateExtractor().ExtractAsync(new MemoryStream(pdf), PdfContext());
-
-        result.Markdown.ShouldContain("INVOICE");
-        result.Markdown.ShouldNotContain("figures/");
-        result.Figures.ShouldBeNull();
-    }
-
-    [Fact]
-    public async Task Retention_on_surfaces_the_source_image_and_inlines_the_reference_inside_the_span()
-    {
-        // #477 on: the figure's source bytes are surfaced out-of-band on TextExtractionResult.Figures (the exact
-        // OCR input) and a figures/{hash} reference is inlined INSIDE the figure span as its first body line.
-        StubOcr("INVOICE");
-
-        var png = TinyPng.CreateSolid(48, 48);
-        var pdf = PdfFixtures.Build(
-            texts: new[] { ("Body text", 700.0) },
-            images: new[] { (png, new PdfRectangle(50, 400, 200, 550)) });
-
-        var result = await CreateExtractor().ExtractAsync(
-            new MemoryStream(pdf), PdfContext(retainFigures: true));
-
-        // Out-of-band: exactly one retained figure, its content type, its page anchor, and a hash that matches
-        // its bytes (the invariant the Markdown reference and the persisted blob both key on).
-        result.Figures.ShouldNotBeNull();
-        result.Figures!.Count.ShouldBe(1);
-        var figure = result.Figures[0];
-        figure.Content.Length.ShouldBeGreaterThan(0);
-        figure.ContentType.ShouldStartWith("image/");
-        figure.PageNumber.ShouldBe(1);
-        figure.ContentHash.ShouldBe(Convert.ToHexString(SHA256.HashData(figure.Content)).ToLowerInvariant());
-
-        // In-band: the reference is the figure span's FIRST body line — after the open marker, before the
-        // transcription, all inside the *[Image OCR p:1]* … *[End OCR]* span.
-        var reference = $"![figure](figures/{figure.ContentHash}.";
-        result.Markdown.ShouldContain(reference);
-        var open = result.Markdown.IndexOf(ImageOcrMarkup.OpenPagePrefix + "1]*", StringComparison.Ordinal);
-        var referenceIndex = result.Markdown.IndexOf(reference, StringComparison.Ordinal);
-        var transcription = result.Markdown.IndexOf("INVOICE", StringComparison.Ordinal);
-        var close = result.Markdown.IndexOf(ImageOcrMarkup.CloseMarker, StringComparison.Ordinal);
-        open.ShouldBeGreaterThanOrEqualTo(0);
-        referenceIndex.ShouldBeGreaterThan(open);
-        transcription.ShouldBeGreaterThan(referenceIndex);
-        close.ShouldBeGreaterThan(transcription);
     }
 }

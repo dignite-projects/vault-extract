@@ -369,7 +369,6 @@
     "Extract:DocumentInRecycleBin": "该文件已在回收站中 ({FileName})。",
     "Extract:DocumentFileTooLarge": "文件 '{FileName}' 超过了允许的最大大小 {MaxBytes} 字节。",
     "Extract:DocumentUnsupportedFileType": "文件 '{FileName}' 的类型 ('{ContentType}') 不受支持。请上传支持的图片、PDF、CSV/TSV、DOCX、PPTX、TXT 或 XLSX 文件。",
-    "Extract:DocumentFigureNotFound": "未在该文档中找到请求的图片 '{FileName}'。",
     "Extract:DocumentNoSourceBlob": "该文档没有可供下载的源文件。",
     "Extract:DocumentRestoreConflict": "无法恢复文档 '{DocumentId}'：已存在另一份共享同一来源片段的在用子文档。为避免产生重复，已拒绝本次恢复。",
     "Extract:UnknownPipelineCode": "流水线 '{PipelineCode}' 不支持重试。",

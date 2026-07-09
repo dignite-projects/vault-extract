@@ -136,11 +136,6 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
 
             var languageHints = ResolveLanguageHints(context);
 
-            // #477: when figure retention is on, collect each retained figure's source image (the bytes just sent to
-            // OCR); the Application layer persists them and reclaims them by manifest. Null when off → the provider
-            // behaves exactly as before: no figures/{hash} reference in the Markdown, TextExtractionResult.Figures null.
-            var retainedFigures = context.RetainFigureImages ? new List<ExtractedFigure>() : null;
-
             // #383: detect running headers / footers + page numbers (content that repeats in the top/bottom
             // edge band across pages) once over all pages, so it does not pollute the Markdown body. Position
             // only selects candidates; a line is dropped only when its digit-normalized text repeats across
@@ -265,22 +260,8 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
                         // *[Image OCR p:N]*…*[End OCR]* provenance markers (#371/#381) carrying the page anchor. The
                         // figure span — its transcription + page — travels in Document.Markdown (the markers stay in
                         // the egress); the unified sub-document detection pass routes it from there.
-                        //
-                        // #477: when figure retention is on, also surface the source image out-of-band on
-                        // TextExtractionResult.Figures (the exact bytes just OCR'd — the provider persists nothing
-                        // itself) and inline a figures/{hash} reference as the span's first body line, so the
-                        // Application layer can blob-store the image and reclaim it by manifest.
-                        string? imageReference = null;
-                        if (retainedFigures is not null)
-                        {
-                            var figureHash = FigureReference.Sha256Hex(payload.Value.Bytes);
-                            imageReference = FigureReference.Build(figureHash, payload.Value.ContentType);
-                            retainedFigures.Add(new ExtractedFigure(
-                                figureHash, payload.Value.Bytes, payload.Value.ContentType, pageContent.Page.Number));
-                        }
-
                         figures.Add(new PdfReadingOrder.Figure(
-                            image.BoundingBox, transcription, pageContent.Page.Number, imageReference));
+                            image.BoundingBox, transcription, pageContent.Page.Number));
                     }
                 }
 
@@ -342,9 +323,9 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
                 // false even when embedded figures were transcribed via IOcrProvider: the document is a
                 // digital extraction; figure OCR is auxiliary. The binary field therefore cannot express
                 // the new "digital + figure OCR" state introduced in #301 — a dedicated figure-OCR signal
-                // (e.g. UsedFigureOcr) is deferred to the TextExtractionResult contract-evolution round
-                // (with the out-of-band Figures signal, #306). Do NOT flip this to true: that would
-                // misreport a digital document as a physical scan to "scan vs digital" consumers.
+                // (e.g. UsedFigureOcr) is deferred to the TextExtractionResult contract-evolution round.
+                // Do NOT flip this to true: that would misreport a digital document as a physical scan to
+                // "scan vs digital" consumers.
                 UsedOcr = false,
                 ProviderName = ProviderIdentifier,
                 IsComplete = complete,
@@ -352,10 +333,7 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
                 // PdfPig text layer + per-image OCR has no single aggregated spatial payload to archive
                 // this round (#210). Left null deliberately.
                 NativePayload = null,
-                FigureOcrCount = figureOcrCount,
-                // #477: retained figure source images (null when retention is off), for the Application layer to
-                // blob-store; the figures/{hash} references were already inlined into the Markdown above.
-                Figures = retainedFigures
+                FigureOcrCount = figureOcrCount
             };
         }
     }

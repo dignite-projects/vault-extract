@@ -100,16 +100,6 @@ public static class DocumentConsts
     public static long MaxNativePayloadArchiveBytes { get; set; } = 16L * 1024 * 1024;
 
     /// <summary>
-    /// Blob key prefix of retained embedded-figure images (#477): a figure blob lives at
-    /// <c>extraction-figures/{documentId}/{contentHash}</c>, so the key itself names its <b>owning</b> document.
-    /// The #478 reclaim rules key on this structure: a <c>FileOrigin</c> pointing under another document's prefix
-    /// is a <b>borrowed</b> shared blob (a figure sub-document sharing its source's image — never copied), deleted
-    /// only by whichever referencing side is permanently deleted last. A <c>const</c> (not host-mutable): it is a
-    /// persisted storage-key format, changing it would orphan existing blobs.
-    /// </summary>
-    public const string FigureBlobNamePrefix = "extraction-figures/";
-
-    /// <summary>
     /// Hard per-call result limit for programmatic / LLM-triggered retrieval, such as MCP search tools.
     /// Fail-closed safety gate: prevents prompt injection from inducing broad queries that explode LLM context or create cost attacks.
     /// Compile-time <c>const</c>: the safety boundary cannot be enlarged by runtime configuration.
