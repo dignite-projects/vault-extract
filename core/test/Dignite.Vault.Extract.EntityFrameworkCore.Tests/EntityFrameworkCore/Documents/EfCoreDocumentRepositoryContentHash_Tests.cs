@@ -41,21 +41,13 @@ public class EfCoreDocumentRepositoryContentHash_Tests : VaultExtractEntityFrame
                     originalFileName: "bundle.pdf"));
             await _documentRepository.InsertAsync(parent, autoSave: true);
 
-            // A text-slice child shares the parent's FileOrigin wholesale (#481), including ContentHash. Built as an
-            // equal-valued (not same-reference) FileOrigin: EF's owned-entity change tracker does not allow
-            // attaching the SAME tracked FileOrigin CLR instance to two Document rows within one DbContext (its
-            // shadow key includes the owner's Id) — in production this is a non-issue because the parent is loaded
-            // in an earlier, already-disposed UoW/DbContext before the derived document's own UoW begins.
+            // A text-slice child shares the parent's FileOrigin wholesale (#481), including ContentHash. CloneFileOrigin
+            // (#485) builds an equal-valued (not same-reference) copy -- see its XML doc for why a same-reference
+            // FileOrigin instance cannot be attached to two Document rows within one DbContext.
             var child = Document.CreateDerived(
                 Guid.NewGuid(),
                 tenantId: null,
-                fileOrigin: new FileOrigin(
-                    blobName: parent.FileOrigin.BlobName,
-                    uploadedByUserName: parent.FileOrigin.UploadedByUserName,
-                    contentType: parent.FileOrigin.ContentType,
-                    contentHash: parent.FileOrigin.ContentHash,
-                    fileSize: parent.FileOrigin.FileSize,
-                    originalFileName: parent.FileOrigin.OriginalFileName),
+                fileOrigin: CloneFileOrigin(parent.FileOrigin),
                 originDocumentId: parentId,
                 originConstituentKey: "slice-1");
             await _documentRepository.InsertAsync(child, autoSave: true);

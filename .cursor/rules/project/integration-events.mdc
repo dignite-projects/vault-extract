@@ -31,6 +31,8 @@ globs:
 
 **Payload design**: event payloads are uniformly thin (ID + key metadata); downstream pulls detailed data back via REST/MCP.
 
+> **Derived sub-documents report no independent upload descriptors** (#481/#485): a derived document (`OriginDocumentId` set) shares its source's blob — a figure sub-document the shared `extraction-figures/{ownerId}/{hash}` blob, a text-slice sub-document the parent's upload blob — so it contributes **no independent storage**. Its `DocumentUploadedEto` therefore carries `FileName = null`, `FileSize = 0`, `ContentType = null` (a consumer wanting the child's descriptors pulls them by `DocumentId` via REST/MCP). This mirrors `GetStatisticsAsync`, which excludes derived rows from the byte sum, so a consumer accumulating `DocumentUploadedEto.FileSize` for storage/quota does not N×-count the shared bytes. Normal (non-derived) uploads carry real descriptors as before.
+
 ## Ready gate (classification confidence + manual review)
 
 - **Design intent**: only a document whose type is confirmed is a trustworthy signal downstream — documents the classifier is unsure about are not auto-released

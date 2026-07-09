@@ -116,6 +116,33 @@ public class DocumentSegmentationJob_Tests : VaultExtractTestBase<DocumentSegmen
     }
 
     [Fact]
+    public async Task Spawned_Derived_Document_Reports_Zero_Size_Upload_Event()
+    {
+        // #485 (A2): a derived document only ever SHARES its source's blob (#481) -- it contributes no
+        // independent storage of its own -- so DocumentUploadedEto must report FileSize 0 / FileName null /
+        // ContentType null, even though the spawned Document's own FileOrigin is still the parent's whole
+        // (non-null, non-zero) snapshot. Otherwise a downstream consumer accumulating storage/quota over
+        // DocumentUploadedEto.FileSize would N×-count the same bytes once per sub-document, contradicting
+        // IDocumentRepository.GetStatisticsAsync's own exclusion of derived rows from the byte sum.
+        var containerId = await ArrangeContainerAsync("Invoice A first\nInvoice B second");
+        StubSplit(("Invoice A", true), ("Invoice B", true));
+
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
+
+        await _eventBus.Received(2).PublishAsync(Arg.Is<DocumentUploadedEto>(
+            e => e.FileSize == 0 && e.FileName == null && e.ContentType == null));
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var parent = await _documentRepository.GetAsync(containerId);
+            var derived = await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId);
+            // The derived Document's own FileOrigin (persisted state, distinct from the upload EVENT above) is
+            // still the parent's whole shared snapshot, non-zero.
+            derived.ShouldAllBe(d => d.FileOrigin.FileSize == parent.FileOrigin.FileSize && d.FileOrigin.FileSize > 0);
+        });
+    }
+
+    [Fact]
     public async Task Embedded_Figure_Span_Without_A_Retained_Reference_Spawns_Nothing()
     {
         // #481: figure sub-document routing now REQUIRES the #477 RetainFigureImages toggle (a real shared blob to
@@ -222,6 +249,51 @@ public class DocumentSegmentationJob_Tests : VaultExtractTestBase<DocumentSegmen
             var parent = await _documentRepository.GetAsync(docId);
             parent.IsContainer.ShouldBeFalse();
             parent.ReviewReasons.ShouldBe(DocumentReviewReasons.None);
+        });
+
+        await _eventBus.DidNotReceive().PublishAsync(Arg.Any<DocumentUploadedEto>());
+    }
+
+    [Fact]
+    public async Task Figure_Span_With_No_Manifest_Match_Is_Skipped_At_Detection_In_A_Container()
+    {
+        // #485 (A1 fix): before this fix, the #481 skip condition at DETECTION time only checked
+        // "isFigure && figureContentHash is null" -- a Figure span whose in-span figures/{hash} reference has a
+        // hash with NO matching FigureManifest entry (e.g. the archive write failed between extraction and this
+        // detection pass) still parsed a non-null hash, so it passed detection, counted toward the container's
+        // >=2 real-bundle floor, and was discovered unresolvable only later at SPAWN time (BuildFigureFileOrigin's
+        // manifest miss), where DeleteUnresolvableFigureSegmentAsync silently deleted the row -- a container could
+        // then end up Ready with fewer than 2 (here: 1, then 0) surviving sub-documents and NO
+        // SegmentationIncomplete flag, silently losing the figure's transcription from egress entirely (container
+        // Ready is suppressed, #346). After the fix, a Figure span must ALSO resolve against
+        // context.FigureManifest at DETECTION -- so it is skipped there instead, exactly like retention-off, and
+        // the pre-existing <2 floor correctly flags the container up front instead of spawning it degraded.
+        // Contrast Figure_Sub_Document_Gets_Its_FileOrigin_From_The_Shared_Retained_Blob (kept green), where the
+        // manifest DOES match and the figure spawns normally.
+        // LANDMINE: this test class caps MaxSegmentationMarkdownLength=130 -- keep the hash short.
+        var missingHash = "zz9";
+        var marked = $"Invoice A\n{ImageOcrMarkup.Wrap("INV B", 1, $"figures/{missingHash}.png")}";
+        var containerId = await ArrangeContainerAsync(
+            markdown: "Invoice A\nINV B", asContainer: true, markedMarkdown: marked,
+            // The manifest EXISTS but carries a DIFFERENT hash -- the in-span reference does not resolve.
+            extractionMetadata: new DocumentParseMetadata(
+                "PdfPig", null,
+                figures: new[] { new FigureManifestEntry("extraction-figures/x/other1", "other1", "image/png", 1024) }));
+
+        StubSplit(("Invoice A", true), (ImageOcrMarkup.OpenPagePrefix + "1]*", true));
+
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            // The figure span never becomes a row (skipped at detection, like retention-off); the lone surviving
+            // text slice alone is not a 2-constituent bundle either, so the WHOLE batch is rejected -- same
+            // "nothing persisted" behavior as Fewer_Than_Two_Document_Slices_Flags_Container.
+            (await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId)).ShouldBeEmpty();
+            (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).ShouldBeEmpty();
+
+            var container = await _documentRepository.GetAsync(containerId);
+            container.ReviewReasons.ShouldBe(DocumentReviewReasons.SegmentationIncomplete);
         });
 
         await _eventBus.DidNotReceive().PublishAsync(Arg.Any<DocumentUploadedEto>());

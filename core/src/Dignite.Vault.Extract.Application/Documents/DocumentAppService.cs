@@ -317,6 +317,13 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // Only fetch the blob stream: scalar fields + owned FileOrigin are loaded with the entity, and no child collection is needed.
         var document = await _documentRepository.GetAsync(id, includeDetails: false);
 
+        // #485: FileOrigin is required on every Document going forward (#481), but a legacy pre-#481 derived row
+        // (persisted before that migration's backfill ran) is still reachable during the documented binaries-first
+        // deploy window. Fail with a clean, mapped exception instead of an NRE/500 on FileOrigin.BlobName below.
+        if (document.FileOrigin is null)
+            throw new BusinessException(VaultExtractErrorCodes.Document.NoSourceBlob)
+                .WithData("DocumentId", id);
+
         var stream = await _blobContainer.GetAsync(document.FileOrigin.BlobName);
 
         return new RemoteStreamContent(
@@ -391,6 +398,10 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // ShouldReclaimFileOriginBlobAsync applies the identical check there — while the parent (or a sibling slice)
         // is still alive, AnyWithFileOriginBlobNameAsync(exclude self) is true and this delete skips reclaim;
         // whichever referencing side is permanently deleted last reclaims it.
+        // #485: the `is not null` guard is kept (null-safe, not dead) for the SAME legacy reason B1 re-added the
+        // GetBlobAsync guard — a pre-#481 derived row with a null FileOrigin is reachable in the binaries-first
+        // deploy window; here it simply means "no blob to reclaim", so skip reclaim rather than NRE inside
+        // ShouldReclaimFileOriginBlobAsync (which dereferences FileOrigin.BlobName).
         if (document.FileOrigin is not null && await ShouldReclaimFileOriginBlobAsync(document))
         {
             try
@@ -475,6 +486,18 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// skip; once the owner is hard-deleted (its reclaim skipped this blob because this document still referenced
     /// it), the last borrower to be permanently deleted reclaims it — unless a sibling still references it.
     /// Net: deleted exactly once, by whichever referencing side dies last; no leak in either order.
+    /// <para>
+    /// #485 known limitation (documented, no behavior change): this "whoever dies last reclaims it" logic is
+    /// itself check-then-act, so two <b>concurrent</b> <see cref="PermanentDeleteAsync"/> calls on rows that share
+    /// one blob (now routine post-#481: every parent + its text-slice children share the parent's upload blob) can
+    /// each run <see cref="IDocumentRepository.AnyWithFileOriginBlobNameAsync"/> before the other's
+    /// <see cref="IDocumentRepository.HardDeleteAsync"/> commits — under RCSI (or an equivalent read-committed
+    /// isolation level) both sides can observe the other row as "still present" and both skip reclaim, orphaning
+    /// the blob (accepted-rare-race posture, the same trade-off as the #221 content-hash upload race); under a
+    /// stricter locking read-committed level the two deletes may instead serialize/block on each other rather than
+    /// race. A stronger single-owner reclaim (e.g. electing exactly one referencing row to own cleanup) is a
+    /// possible follow-up, not implemented here.
+    /// </para>
     /// </summary>
     protected virtual async Task<bool> ShouldReclaimFileOriginBlobAsync(Document document)
     {
@@ -527,6 +550,24 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         return Guid.TryParse(rest[..slash], out var ownerId) ? ownerId : null;
     }
 
+    /// <summary>
+    /// Restores a soft-deleted document from the recycle bin (#194).
+    /// <para>
+    /// #485 fail-close: when the document being restored is a DERIVED sub-document (both
+    /// <see cref="Document.OriginDocumentId"/> and <see cref="Document.OriginConstituentKey"/> set), restoring it
+    /// is rejected with <see cref="VaultExtractErrorCodes.Document.RestoreConflict"/> if another LIVE document
+    /// already occupies the same <c>(OriginDocumentId, OriginConstituentKey)</c> identity. #481 dropped the
+    /// DB-level filtered-unique index that used to make this scenario impossible for free (before that, a
+    /// container→type retraction (#349/#364) soft-deletes a stale child, and a later re-split — e.g. a
+    /// type→container→type round trip — can legitimately spawn a fresh successor sharing the same content-hash
+    /// key; restoring the old, retracted child back to life while its successor is live would silently create a
+    /// duplicate). This is the application-layer replacement for that fail-close.
+    /// </para>
+    /// This whole method runs inside <see cref="DataFilter.Disable{TFilter}"/>(<see cref="ISoftDelete"/>) to load
+    /// the soft-deleted row itself, so that ambient disabled filter is ALSO in effect for the duplicate check
+    /// below — <see cref="IDocumentRepository.AnyLiveDerivedDuplicateAsync"/> therefore explicitly re-excludes
+    /// soft-deleted siblings itself rather than relying on the (here, disabled) global filter.
+    /// </summary>
     [Authorize(VaultExtractPermissions.Documents.Restore)]
     public virtual async Task RestoreAsync(Guid id)
     {
@@ -536,6 +577,17 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
             if (!document.IsDeleted)
             {
                 return;
+            }
+
+            if (document.OriginDocumentId.HasValue && !string.IsNullOrEmpty(document.OriginConstituentKey))
+            {
+                var hasLiveDuplicate = await _documentRepository.AnyLiveDerivedDuplicateAsync(
+                    document.OriginDocumentId.Value, document.OriginConstituentKey, document.Id);
+                if (hasLiveDuplicate)
+                {
+                    throw new BusinessException(VaultExtractErrorCodes.Document.RestoreConflict)
+                        .WithData("DocumentId", id);
+                }
             }
 
             document.IsDeleted = false;
@@ -578,7 +630,10 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         if (document.IsDeleted)
         {
             throw new BusinessException(VaultExtractErrorCodes.Document.InRecycleBin)
-                .WithData("FileName", document.FileOrigin.BlobName);
+                // #485: null-safe -- a legacy pre-#481 derived row can still carry a null FileOrigin during the
+                // documented deploy window; avoid an NRE while building this diagnostic (and CS8604, since
+                // .WithData's value parameter is non-nullable).
+                .WithData("FileName", document.FileOrigin?.BlobName ?? string.Empty);
         }
 
         var latestRun = await _pipelineRunManager.EnsureRetryableAsync(id, input.PipelineCode);
@@ -608,7 +663,10 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         if (document.IsDeleted)
         {
             throw new BusinessException(VaultExtractErrorCodes.Document.InRecycleBin)
-                .WithData("FileName", document.FileOrigin.BlobName);
+                // #485: null-safe -- a legacy pre-#481 derived row can still carry a null FileOrigin during the
+                // documented deploy window; avoid an NRE while building this diagnostic (and CS8604, since
+                // .WithData's value parameter is non-nullable).
+                .WithData("FileName", document.FileOrigin?.BlobName ?? string.Empty);
         }
 
         // Automatic classification input is Document.Markdown. If text extraction has not produced text yet, reclassification cannot run.
@@ -642,7 +700,10 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         if (document.IsDeleted)
         {
             throw new BusinessException(VaultExtractErrorCodes.Document.InRecycleBin)
-                .WithData("FileName", document.FileOrigin.BlobName);
+                // #485: null-safe -- a legacy pre-#481 derived row can still carry a null FileOrigin during the
+                // documented deploy window; avoid an NRE while building this diagnostic (and CS8604, since
+                // .WithData's value parameter is non-nullable).
+                .WithData("FileName", document.FileOrigin?.BlobName ?? string.Empty);
         }
 
         // Field extraction hangs off DocumentType; unclassified documents have nothing to extract against.

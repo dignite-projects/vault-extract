@@ -28,6 +28,14 @@ public static class VaultExtractErrorCodes
         // #477: a figures/{hash} egress request whose hash is not in the document's retained-figure manifest
         // (retention was off when it was processed, or a stale / invalid reference).
         public const string FigureNotFound = "Extract:DocumentFigureNotFound";
+        // #485 (B1): re-added after #481 removed it assuming FileOrigin can never be null. Same string as before
+        // #481 (nothing consumed it in the interim, so this is not a wire break) — a legacy pre-#481 derived row
+        // can still carry a null FileOrigin during the documented binaries-first deploy window.
+        public const string NoSourceBlob = "Extract:DocumentNoSourceBlob";
+        // #485 (A3): restoring a derived document is rejected when another LIVE document already occupies the
+        // same (OriginDocumentId, OriginConstituentKey) identity — the application-layer fail-close that replaces
+        // the fail-close the #481-dropped #391 filtered-unique index used to give for free at restore time.
+        public const string RestoreConflict = "Extract:DocumentRestoreConflict";
     }
 
     public static class DocumentType
