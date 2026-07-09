@@ -141,9 +141,7 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
             var state = new PptxExtractionState
             {
                 ImageBudget = _options.MaxImagesPerFile,
-                LanguageHints = ResolveLanguageHints(context),
-                // #477: host-deployment-layer toggle (default off) — surface + persist retained figure images.
-                RetainFigureImages = context.RetainFigureImages
+                LanguageHints = ResolveLanguageHints(context)
             };
 
             var slideMarkdowns = new List<string>(slideIds.Count);
@@ -217,10 +215,7 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
                 IsComplete = complete,
                 IncompleteReason = incompleteReason,
                 // PPTX text + per-image OCR has no single aggregated spatial payload to archive (#210).
-                NativePayload = null,
-                // #477: retained figure source images (null when retention is off / none retained), for the
-                // Application layer to blob-store; the figures/{hash} references are already in the Markdown above.
-                Figures = state.RetainedFigures.Count > 0 ? state.RetainedFigures : null
+                NativePayload = null
             };
         }
     }
@@ -729,8 +724,8 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
         public int Sequence;
 
         /// <summary>1-based ordinal of the slide currently being walked — the figure marker's page anchor
-        /// (<c>*[Image OCR p:{slide}]*</c>) and the retained figure's <c>ExtractedFigure.PageNumber</c> (#480).
-        /// Slides are page-like (fixed-layout), so a slide ordinal is a valid provenance anchor.</summary>
+        /// (<c>*[Image OCR p:{slide}]*</c>, #480). Slides are page-like (fixed-layout), so a slide ordinal is a
+        /// valid provenance anchor.</summary>
         public int CurrentSlideNumber;
     }
 }

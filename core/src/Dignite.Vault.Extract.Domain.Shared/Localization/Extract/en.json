@@ -369,7 +369,6 @@
     "Extract:DocumentInRecycleBin": "This file already exists in the recycle bin ({FileName}).",
     "Extract:DocumentFileTooLarge": "File '{FileName}' exceeds the maximum allowed size of {MaxBytes} bytes.",
     "Extract:DocumentUnsupportedFileType": "File '{FileName}' has an unsupported type ('{ContentType}'). Please upload a supported image, PDF, CSV/TSV, DOCX, PPTX, TXT, or XLSX file.",
-    "Extract:DocumentFigureNotFound": "The requested figure '{FileName}' was not found for this document.",
     "Extract:DocumentNoSourceBlob": "This document has no source file available for download.",
     "Extract:DocumentRestoreConflict": "Cannot restore document '{DocumentId}': a live sub-document with the same source constituent already exists. The restore is rejected to avoid a duplicate.",
     "Extract:UnknownPipelineCode": "Pipeline '{PipelineCode}' is not retryable.",

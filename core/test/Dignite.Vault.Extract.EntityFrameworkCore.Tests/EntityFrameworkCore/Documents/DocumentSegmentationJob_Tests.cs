@@ -143,16 +143,14 @@ public class DocumentSegmentationJob_Tests : VaultExtractTestBase<DocumentSegmen
     }
 
     [Fact]
-    public async Task Embedded_Figure_Span_Without_A_Retained_Reference_Spawns_Nothing()
+    public async Task Embedded_Figure_Span_In_A_Concrete_Document_Spawns_Nothing()
     {
-        // #481: figure sub-document routing now REQUIRES the #477 RetainFigureImages toggle (a real shared blob to
-        // point FileOrigin at, which is required on every Document now). A single concrete-typed document (NOT a
-        // container) whose Document.Markdown carries an inlined, marker-bracketed image-invoice transcription with
-        // NO in-span figures/{hash} reference (retention was off at parse time) is SKIPPED at detection: no segment
-        // row is persisted at all, and nothing spawns. The transcription stays inline in the parent's Markdown; the
-        // parent keeps its own type and is never flagged (it extracts normally — a failed figure route is not the
-        // parent's problem). Contrast Figure_Sub_Document_Gets_Its_FileOrigin_From_The_Shared_Retained_Blob below,
-        // which supplies the reference and a matching manifest and DOES spawn.
+        // #487 Phase A: the figure image storage/retention chain (#477/#478) was removed — a figure span is never
+        // routed anywhere anymore, unconditionally. A single concrete-typed document (NOT a container) whose
+        // Document.Markdown carries an inlined, marker-bracketed image-invoice transcription is SKIPPED at
+        // detection: no segment row is persisted at all, and nothing spawns. The transcription stays inline in the
+        // parent's Markdown; the parent keeps its own type and is never flagged (it extracts normally — a figure
+        // never routing is not the parent's problem).
         var invoiceText = "INVOICE No 42 Total 100";
         var marked = $"Contract body\n{ImageOcrMarkup.Wrap(invoiceText, 1)}";
         var docId = await ArrangeContainerAsync(
@@ -175,175 +173,6 @@ public class DocumentSegmentationJob_Tests : VaultExtractTestBase<DocumentSegmen
         });
 
         await _eventBus.DidNotReceive().PublishAsync(Arg.Any<DocumentUploadedEto>());
-    }
-
-    [Fact]
-    public async Task Figure_Sub_Document_Gets_Its_FileOrigin_From_The_Shared_Retained_Blob()
-    {
-        // #478 (revisits #393): the figure span carries the #477 in-span figures/{hash} reference, and the source's
-        // retained-figure manifest has a matching entry. The spawned sub-document's FileOrigin must point at the
-        // SHARED blob (the manifest's own key — never a copy), with metadata from the manifest + the source's
-        // uploader snapshot, while the child seed (SliceText) stays pure transcription (reference line dropped).
-        var invoiceText = "INVOICE No 42 Total 100";
-        var imageHash = "abc123"; // short fake hash: parse + manifest match are length-agnostic (cap-friendly)
-        var sharedBlob = $"{DocumentConsts.FigureBlobNamePrefix}{Guid.NewGuid():D}/{imageHash}";
-        var marked = $"Contract body\n{ImageOcrMarkup.Wrap(invoiceText, 1, $"figures/{imageHash}.png")}";
-
-        var docId = await ArrangeContainerAsync(
-            markdown: "Contract body", asContainer: false, markedMarkdown: marked,
-            extractionMetadata: new DocumentParseMetadata(
-                "PdfPig", null,
-                figures: new[] { new FigureManifestEntry(sharedBlob, imageHash, "image/png", 2048) }));
-
-        StubSplit(("Contract body", false), (ImageOcrMarkup.OpenPagePrefix + "1]*", true));
-
-        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = docId });
-
-        await WithUnitOfWorkAsync(async () =>
-        {
-            var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == docId);
-            segments.Count.ShouldBe(1);
-            segments[0].Kind.ShouldBe(DocumentSegmentKind.Figure);
-            // The ledger carries the image hash (resumable spawn input); the seed stays transcription-only.
-            segments[0].FigureContentHash.ShouldBe(imageHash);
-            segments[0].SliceText.ShouldBe(invoiceText);
-
-            var derived = await _documentRepository.GetListAsync(d => d.OriginDocumentId == docId);
-            derived.Count.ShouldBe(1);
-            var fileOrigin = derived[0].FileOrigin;
-            fileOrigin.ShouldNotBeNull();
-            fileOrigin!.BlobName.ShouldBe(sharedBlob);          // the SHARED blob — no copy was written
-            fileOrigin.ContentType.ShouldBe("image/png");
-            fileOrigin.ContentHash.ShouldBe(imageHash);
-            fileOrigin.FileSize.ShouldBe(2048);
-            fileOrigin.OriginalFileName.ShouldBe("figure-p1.png");
-            fileOrigin.UploadedByUserName.ShouldBe("test-user"); // the source's uploader snapshot
-        });
-    }
-
-    [Fact]
-    public async Task Figure_Spawn_Without_A_Manifest_Match_Deletes_The_Segment_And_Spawns_Nothing()
-    {
-        // #481: the reference IS present in the span (so Phase A persists the segment row — it has a content hash),
-        // but at SPAWN time the source has no matching retained-figure manifest entry (#477 retention was off /
-        // archive failed between detection and spawn). Figure routing REQUIRES a real shared blob, so there is
-        // nothing to build a FileOrigin from; the unresolvable row is deleted outright instead of spawning with a
-        // fabricated/null FileOrigin — the transcription remains inline in the parent's Markdown, and the parent
-        // (a concrete, non-container document) is unaffected.
-        var invoiceText = "INVOICE No 42 Total 100";
-        var imageHash = "abc123";
-        var marked = $"Contract body\n{ImageOcrMarkup.Wrap(invoiceText, 1, $"figures/{imageHash}.png")}";
-
-        var docId = await ArrangeContainerAsync(
-            markdown: "Contract body", asContainer: false, markedMarkdown: marked);
-
-        StubSplit(("Contract body", false), (ImageOcrMarkup.OpenPagePrefix + "1]*", true));
-
-        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = docId });
-
-        await WithUnitOfWorkAsync(async () =>
-        {
-            (await _segmentRepository.GetListAsync(s => s.SourceDocumentId == docId)).ShouldBeEmpty();
-            (await _documentRepository.GetListAsync(d => d.OriginDocumentId == docId)).ShouldBeEmpty();
-
-            var parent = await _documentRepository.GetAsync(docId);
-            parent.IsContainer.ShouldBeFalse();
-            parent.ReviewReasons.ShouldBe(DocumentReviewReasons.None);
-        });
-
-        await _eventBus.DidNotReceive().PublishAsync(Arg.Any<DocumentUploadedEto>());
-    }
-
-    [Fact]
-    public async Task Figure_Span_With_No_Manifest_Match_Is_Skipped_At_Detection_In_A_Container()
-    {
-        // #485 (A1 fix): before this fix, the #481 skip condition at DETECTION time only checked
-        // "isFigure && figureContentHash is null" -- a Figure span whose in-span figures/{hash} reference has a
-        // hash with NO matching FigureManifest entry (e.g. the archive write failed between extraction and this
-        // detection pass) still parsed a non-null hash, so it passed detection, counted toward the container's
-        // >=2 real-bundle floor, and was discovered unresolvable only later at SPAWN time (BuildFigureFileOrigin's
-        // manifest miss), where DeleteUnresolvableFigureSegmentAsync silently deleted the row -- a container could
-        // then end up Ready with fewer than 2 (here: 1, then 0) surviving sub-documents and NO
-        // SegmentationIncomplete flag, silently losing the figure's transcription from egress entirely (container
-        // Ready is suppressed, #346). After the fix, a Figure span must ALSO resolve against
-        // context.FigureManifest at DETECTION -- so it is skipped there instead, exactly like retention-off, and
-        // the pre-existing <2 floor correctly flags the container up front instead of spawning it degraded.
-        // Contrast Figure_Sub_Document_Gets_Its_FileOrigin_From_The_Shared_Retained_Blob (kept green), where the
-        // manifest DOES match and the figure spawns normally.
-        // LANDMINE: this test class caps MaxSegmentationMarkdownLength=130 -- keep the hash short.
-        var missingHash = "zz9";
-        var marked = $"Invoice A\n{ImageOcrMarkup.Wrap("INV B", 1, $"figures/{missingHash}.png")}";
-        var containerId = await ArrangeContainerAsync(
-            markdown: "Invoice A\nINV B", asContainer: true, markedMarkdown: marked,
-            // The manifest EXISTS but carries a DIFFERENT hash -- the in-span reference does not resolve.
-            extractionMetadata: new DocumentParseMetadata(
-                "PdfPig", null,
-                figures: new[] { new FigureManifestEntry("extraction-figures/x/other1", "other1", "image/png", 1024) }));
-
-        StubSplit(("Invoice A", true), (ImageOcrMarkup.OpenPagePrefix + "1]*", true));
-
-        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
-
-        await WithUnitOfWorkAsync(async () =>
-        {
-            // The figure span never becomes a row (skipped at detection, like retention-off); the lone surviving
-            // text slice alone is not a 2-constituent bundle either, so the WHOLE batch is rejected -- same
-            // "nothing persisted" behavior as Fewer_Than_Two_Document_Slices_Flags_Container.
-            (await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId)).ShouldBeEmpty();
-            (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).ShouldBeEmpty();
-
-            var container = await _documentRepository.GetAsync(containerId);
-            container.ReviewReasons.ShouldBe(DocumentReviewReasons.SegmentationIncomplete);
-        });
-
-        await _eventBus.DidNotReceive().PublishAsync(Arg.Any<DocumentUploadedEto>());
-    }
-
-    [Fact]
-    public async Task Inlined_Figure_Span_In_A_Container_Spawns_Exactly_One_Invoice_Sub_Document()
-    {
-        // #356/#359 REGRESSION: a born-digital container whose Document.Markdown carries an inlined, marker-bracketed
-        // image-invoice transcription (#301) between two real text documents, and the LLM returns that figure span
-        // standalone alongside the two text documents. Under the unified pass (#371) figure and text spans share one
-        // identity (SHA-256 of the clean span text) and one spawn sink, so the inlined invoice can spawn at most ONCE:
-        // there is no longer a second DocumentFigure path that would double-spawn it. Assert EXACTLY ONE invoice
-        // sub-document, recorded as Kind.Figure, plus the two genuine Kind.Text documents.
-        // #481: the figure span must carry a resolvable in-span figures/{hash} reference + a matching manifest entry,
-        // or it is skipped instead of spawned (see Embedded_Figure_Span_Without_A_Retained_Reference_Spawns_Nothing).
-        var invoiceText = "INVOICE No 42 Total 100";
-        var imageHash = "inv001";
-        var marked = $"Service A-B\n{ImageOcrMarkup.Wrap(invoiceText, 1, $"figures/{imageHash}.png")}\nLease X-Y";
-        var containerId = await ArrangeContainerAsync(
-            markdown: "Service A-B\nLease X-Y", asContainer: true, markedMarkdown: marked,
-            extractionMetadata: new DocumentParseMetadata(
-                "PdfPig", null,
-                figures: new[] { new FigureManifestEntry($"extraction-figures/x/{imageHash}", imageHash, "image/png", 2048) }));
-
-        StubSplit(
-            ("Service A-B", true),
-            (ImageOcrMarkup.OpenPagePrefix + "1]*", true),
-            ("Lease X-Y", true));
-
-        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
-
-        await WithUnitOfWorkAsync(async () =>
-        {
-            var invoiceKey = ContentHasher.Sha256Hex(Encoding.UTF8.GetBytes(invoiceText));
-
-            var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId);
-            // Three spawned spans: two text documents + exactly one figure invoice (no cross-path duplicate).
-            segments.Count.ShouldBe(3);
-            segments.ShouldAllBe(s => s.Status == DocumentSegmentStatus.Spawned);
-            segments.Count(s => s.SegmentKey == invoiceKey).ShouldBe(1);
-            segments.Single(s => s.SegmentKey == invoiceKey).Kind.ShouldBe(DocumentSegmentKind.Figure);
-            segments.Count(s => s.Kind == DocumentSegmentKind.Text).ShouldBe(2);
-
-            var derived = await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId);
-            derived.Count.ShouldBe(3);
-            derived.Count(d => d.OriginConstituentKey == invoiceKey).ShouldBe(1);
-        });
-
-        await _eventBus.Received(3).PublishAsync(Arg.Any<DocumentUploadedEto>());
     }
 
     [Fact]
@@ -379,42 +208,6 @@ public class DocumentSegmentationJob_Tests : VaultExtractTestBase<DocumentSegmen
             contractASeg.SliceText.ShouldContain("FIG seal stamp");
             contractASeg.SliceText.ShouldNotContain(ImageOcrMarkup.OpenPagePrefix); // sentinels stripped from the child seed
             contractASeg.SliceText.ShouldNotContain(ImageOcrMarkup.CloseMarker);
-        });
-    }
-
-    [Fact]
-    public async Task Embedded_Figure_Span_Carrying_Folded_Parent_Preamble_Spawns_Only_The_Figure_Body()
-    {
-        // #373 (own /code-review): in embedded-document mode (a concrete-typed parent that embeds a standalone
-        // figure), if the LLM returns ONLY the figure boundary and omits the preceding parent-body span,
-        // MarkdownSlicer folds the parent preamble into that first (figure) slice. The figure sub-document must still
-        // be JUST the figure body (ExtractBodies) — the folded parent text is excluded, so the child is the
-        // transcription, not the parent's prose.
-        // #481: needs a resolvable in-span figures/{hash} reference + a matching manifest entry to spawn at all; the
-        // reference line itself is still excluded from SliceText by ExtractBodies (asserted below).
-        var imageHash = "inv007";
-        var marked = $"Parent contract body text\n{ImageOcrMarkup.Wrap("INVOICE No 7 Total 50", 2, $"figures/{imageHash}.png")}";
-        var sourceId = await ArrangeContainerAsync(
-            markdown: "Parent contract body text", asContainer: false, markedMarkdown: marked,
-            extractionMetadata: new DocumentParseMetadata(
-                "PdfPig", null,
-                figures: new[] { new FigureManifestEntry($"extraction-figures/x/{imageHash}", imageHash, "image/png", 2048) }));
-
-        // The LLM omits the parent-body span and returns only the figure boundary (its *[Image OCR]* line).
-        StubSplit((ImageOcrMarkup.OpenPagePrefix + "2]*", true));
-
-        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = sourceId });
-
-        await WithUnitOfWorkAsync(async () =>
-        {
-            var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == sourceId);
-            segments.Count.ShouldBe(1);
-            var fig = segments.Single();
-            fig.Kind.ShouldBe(DocumentSegmentKind.Figure);
-            fig.PageNumber.ShouldBe(2);
-            // ONLY the figure body — no folded parent preamble, no sentinels.
-            fig.SliceText.ShouldBe("INVOICE No 7 Total 50");
-            fig.SliceText.ShouldNotContain("Parent contract body text");
         });
     }
 
@@ -512,56 +305,6 @@ public class DocumentSegmentationJob_Tests : VaultExtractTestBase<DocumentSegmen
             container.ReviewReasons.ShouldBe(DocumentReviewReasons.None);
             container.IsSegmented.ShouldBeTrue();
         });
-    }
-
-    [Fact]
-    public async Task Figure_Only_Container_Does_Not_Re_Run_The_Llm_On_Re_Enqueue()
-    {
-        // #377 edge 2: a figure-only container (a real ≥2-figure bundle, zero Text) is split successfully, setting the
-        // IsSegmented marker. A re-enqueue (e.g. a re-classification that KEEPS it a container) must NOT re-run the
-        // LLM — the old Kind-based resume (keyed on a Text row) re-ran forever for a figure-only container, and a
-        // divergent re-split could append spurious figure rows. The precise marker stops the re-run.
-        // #481: each figure needs its own resolvable in-span figures/{hash} reference + matching manifest entry.
-        // LANDMINE (this test class caps MaxSegmentationMarkdownLength=130): keep hash + transcription SHORT —
-        // two full figure blocks with references do not fit under the cap otherwise.
-        var hashA = "a1";
-        var hashB = "b2";
-        var marked = $"{ImageOcrMarkup.Wrap("INV A", 1, $"figures/{hashA}.png")}"
-            + $"\n{ImageOcrMarkup.Wrap("INV B", 2, $"figures/{hashB}.png")}";
-        var containerId = await ArrangeContainerAsync(
-            markdown: "scan bundle", asContainer: true, markedMarkdown: marked,
-            extractionMetadata: new DocumentParseMetadata(
-                "PdfPig", null,
-                figures: new[]
-                {
-                    new FigureManifestEntry($"extraction-figures/x/{hashA}", hashA, "image/png", 2048),
-                    new FigureManifestEntry($"extraction-figures/x/{hashB}", hashB, "image/png", 2048)
-                }));
-
-        StubSplit(
-            (ImageOcrMarkup.OpenPagePrefix + "1]*", true),
-            (ImageOcrMarkup.OpenPagePrefix + "2]*", true));
-
-        // First run: splits the two figures, persists them, sets IsSegmented.
-        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
-
-        await WithUnitOfWorkAsync(async () =>
-        {
-            var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId);
-            segments.Count.ShouldBe(2);
-            segments.ShouldAllBe(s => s.Kind == DocumentSegmentKind.Figure);
-            (await _documentRepository.GetAsync(containerId)).IsSegmented.ShouldBeTrue();
-        });
-
-        _workflow.ClearReceivedCalls();
-
-        // Re-enqueue (still a container): the marker is set, so Phase A must NOT re-run the LLM and nothing is appended.
-        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
-
-        await _workflow.DidNotReceive().RunAsync(
-            Arg.Any<string>(), Arg.Any<SubDocumentDetectionContext>(), Arg.Any<CancellationToken>());
-        await WithUnitOfWorkAsync(async () =>
-            (await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId)).Count.ShouldBe(2));
     }
 
     [Fact]
@@ -919,8 +662,7 @@ public class DocumentSegmentationJob_Tests : VaultExtractTestBase<DocumentSegmen
     }
 
     private async Task<Guid> ArrangeContainerAsync(
-        string markdown, bool asContainer = true, string? markedMarkdown = null,
-        DocumentParseMetadata? extractionMetadata = null)
+        string markdown, bool asContainer = true, string? markedMarkdown = null)
     {
         var containerId = _guidGenerator.Create();
         await WithUnitOfWorkAsync(async () =>
@@ -935,13 +677,6 @@ public class DocumentSegmentationJob_Tests : VaultExtractTestBase<DocumentSegmen
                     contentHash: $"{Guid.NewGuid():N}{Guid.NewGuid():N}"[..64],
                     fileSize: 2048,
                     originalFileName: "bundle.pdf"));
-
-            // #478: a figure test supplies the source's retained-figure manifest (#477) so the spawn can resolve a
-            // figure segment's FigureContentHash against it. Internal setter, visible via InternalsVisibleTo.
-            if (extractionMetadata is not null)
-            {
-                doc.SetExtractionMetadata(extractionMetadata);
-            }
 
             // #381: the unified pass reads Document.Markdown, which now carries the inline *[Image OCR]*…*[End OCR]*
             // figure markers (no separate marked artifact). A figure test supplies that marked content via

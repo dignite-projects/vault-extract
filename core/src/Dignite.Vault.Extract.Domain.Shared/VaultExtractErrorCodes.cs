@@ -25,9 +25,6 @@ public static class VaultExtractErrorCodes
         // not in whitelist).
         public const string FileTooLarge = "Extract:DocumentFileTooLarge";
         public const string UnsupportedFileType = "Extract:DocumentUnsupportedFileType";
-        // #477: a figures/{hash} egress request whose hash is not in the document's retained-figure manifest
-        // (retention was off when it was processed, or a stale / invalid reference).
-        public const string FigureNotFound = "Extract:DocumentFigureNotFound";
         // #485 (B1): re-added after #481 removed it assuming FileOrigin can never be null. Same string as before
         // #481 (nothing consumed it in the interim, so this is not a wire break) — a legacy pre-#481 derived row
         // can still carry a null FileOrigin during the documented binaries-first deploy window.

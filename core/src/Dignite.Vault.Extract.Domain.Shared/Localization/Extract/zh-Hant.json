@@ -369,7 +369,6 @@
     "Extract:DocumentInRecycleBin": "此檔案已在回收筒中（{FileName}）。",
     "Extract:DocumentFileTooLarge": "檔案 '{FileName}' 超過了允許的大小上限 {MaxBytes} 位元組。",
     "Extract:DocumentUnsupportedFileType": "檔案 '{FileName}' 的類型（'{ContentType}'）不受支援。請上傳支援的圖片、PDF、CSV/TSV、DOCX、PPTX、TXT 或 XLSX 檔案。",
-    "Extract:DocumentFigureNotFound": "未在此文件中找到請求的圖片 '{FileName}'。",
     "Extract:DocumentNoSourceBlob": "此文件沒有可供下載的來源檔案。",
     "Extract:DocumentRestoreConflict": "無法還原文件 '{DocumentId}'：已存在另一份共享同一來源片段的在用子文件。為避免產生重複，已拒絕本次還原。",
     "Extract:UnknownPipelineCode": "管線 '{PipelineCode}' 不支援重試。",

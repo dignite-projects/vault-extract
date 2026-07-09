@@ -71,14 +71,11 @@ public class ContainerLifecycleRoundTrip_Tests
     private readonly IGuidGenerator _guidGenerator;
     private readonly IUnitOfWorkManager _unitOfWorkManager;
 
-    // A born-digital container Markdown carrying two text constituents with an inline figure (#301/#381) between them.
-    private const string FigureText = "INVOICE No 42 Total 100";
-    // #481: figure routing now requires a resolvable #477/#478 retained-blob reference (an unresolvable figure span
-    // no longer spawns), so the fixture carries the in-span figures/{hash} reference and ArrangeContainerAsync below
-    // seeds a matching retained-figure manifest entry, exactly like the #478 spawn test in DocumentSegmentationJob_Tests.
-    private const string FigureImageHash = "fig123"; // short fake hash: parse + manifest match are length-agnostic
-    private static readonly string ContainerMarkdown =
-        $"Service A-B\n{ImageOcrMarkup.Wrap(FigureText, 1, $"figures/{FigureImageHash}.png")}\nLease X-Y";
+    // A born-digital container Markdown carrying two text constituents (#301/#381 round-trip fixture). #487 Phase A
+    // removed the figure image storage/retention chain (#477/#478), so this fixture is plain text only — a figure
+    // span between the two constituents would never spawn a sub-document anymore (see DocumentSegmentationJob_Tests'
+    // Embedded_Figure_Span_In_A_Concrete_Document_Spawns_Nothing).
+    private const string ContainerMarkdown = "Service A-B\nLease X-Y";
 
     public ContainerLifecycleRoundTrip_Tests()
     {
@@ -93,26 +90,27 @@ public class ContainerLifecycleRoundTrip_Tests
     }
 
     [Fact]
-    public async Task Real_Split_Then_Real_Reclassify_Retracts_Text_Keeps_Figure_And_Clears_IsSegmented()
+    public async Task Real_Split_Then_Real_Reclassify_Retracts_All_Text_Children_And_Clears_IsSegmented()
     {
-        // Leg 1 — the REAL segmentation job produces the post-split state (2 Text children + 1 Figure child),
-        // instead of the hand-seeded state the existing retraction test uses.
+        // Leg 1 — the REAL segmentation job produces the post-split state (2 Text children), instead of the
+        // hand-seeded state the existing retraction test uses.
         var containerId = await ArrangeContainerAsync();
-        StubSplit(("Service A-B", true), (ImageOcrMarkup.OpenPagePrefix + "1]*", true), ("Lease X-Y", true));
+        StubSplit(("Service A-B", true), ("Lease X-Y", true));
         await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
 
-        var figureKey = ContentHasher.Sha256Hex(Encoding.UTF8.GetBytes(FigureText));
         await WithUnitOfWorkAsync(async () =>
         {
-            (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).Count.ShouldBe(3);
+            (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).Count.ShouldBe(2);
             var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId);
-            segments.Count.ShouldBe(3);
-            segments.Count(s => s.Kind == DocumentSegmentKind.Figure).ShouldBe(1);
+            segments.Count.ShouldBe(2);
+            segments.ShouldAllBe(s => s.Kind == DocumentSegmentKind.Text);
             (await _documentRepository.GetAsync(containerId)).IsSegmented.ShouldBeTrue();
         });
 
         // Leg 2 — the REAL reclassify app service drives container → concrete; the marker-cleared handler retracts
-        // only the Text children and keeps the Figure child, and SetContainerFlag clears IsSegmented.
+        // every Text child (a plain-text container has no Figure-kind constituent left to survive, contrast
+        // ContainerReclassifyRetraction_Tests which pre-seeds a surviving Figure child by hand), and SetContainerFlag
+        // clears IsSegmented.
         var typeId = await SeedDocumentTypeAsync("invoice.general");
         await _appService.ReclassifyAsync(containerId, new ReclassifyDocumentInput { DocumentTypeId = typeId });
 
@@ -123,17 +121,12 @@ public class ContainerLifecycleRoundTrip_Tests
             doc.IsSegmented.ShouldBeFalse(); // cleared on the container→concrete transition (#378/#379)
             doc.DocumentTypeId.ShouldBe(typeId);
 
-            // Only the figure child survives; the figure segment row is intact and re-split-ready (Spawned, pointing
-            // at its surviving child) — this is the exact state the existing #372/#377 tests fabricate by hand.
+            // Both Text children are retracted (soft-deleted) and their segment rows removed outright.
             var survivors = await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId);
-            survivors.Count.ShouldBe(1);
+            survivors.ShouldBeEmpty();
 
             var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId);
-            segments.Count.ShouldBe(1);
-            segments[0].Kind.ShouldBe(DocumentSegmentKind.Figure);
-            segments[0].SegmentKey.ShouldBe(figureKey);
-            segments[0].Status.ShouldBe(DocumentSegmentStatus.Spawned);
-            segments[0].RoutedDocumentId.ShouldBe(survivors[0].Id);
+            segments.ShouldBeEmpty();
         });
     }
 
@@ -150,7 +143,7 @@ public class ContainerLifecycleRoundTrip_Tests
         // unique index instead — so this collision class can no longer recur on Document at all; this test still
         // guards the re-spawn round trip.
         var containerId = await ArrangeContainerAsync();
-        StubSplit(("Service A-B", true), (ImageOcrMarkup.OpenPagePrefix + "1]*", true), ("Lease X-Y", true));
+        StubSplit(("Service A-B", true), ("Lease X-Y", true));
         await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
 
         var typeId = await SeedDocumentTypeAsync("invoice.general");
@@ -169,13 +162,12 @@ public class ContainerLifecycleRoundTrip_Tests
 
         // Phase A re-runs (the marker no longer short-circuits it): assert the LLM split is invoked on re-enqueue.
         _workflow.ClearReceivedCalls();
-        StubSplit(("Service A-B", true), (ImageOcrMarkup.OpenPagePrefix + "1]*", true), ("Lease X-Y", true));
+        StubSplit(("Service A-B", true), ("Lease X-Y", true));
         await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
 
         await _workflow.Received().RunAsync(
             Arg.Any<string>(), Arg.Any<SubDocumentDetectionContext>(), Arg.Any<CancellationToken>());
 
-        var figureKey = ContentHasher.Sha256Hex(Encoding.UTF8.GetBytes(FigureText));
         await WithUnitOfWorkAsync(async () =>
         {
             var doc = await _documentRepository.GetAsync(containerId);
@@ -183,17 +175,16 @@ public class ContainerLifecycleRoundTrip_Tests
             doc.IsSegmented.ShouldBeTrue();                                    // the re-split completed
             doc.ReviewReasons.ShouldBe(DocumentReviewReasons.None);           // no SegmentationIncomplete collision flag
 
-            // The surviving figure is idempotently kept (never duplicated) and the two text constituents are re-split,
-            // all reaching Spawned — no unique-index collision with the soft-deleted originals (#391).
+            // Both text constituents are re-split and re-spawned, all reaching Spawned — no unique-index collision
+            // with the soft-deleted originals (#391).
             var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId);
-            segments.Count.ShouldBe(3);
+            segments.Count.ShouldBe(2);
             segments.ShouldAllBe(s => s.Status == DocumentSegmentStatus.Spawned);
-            segments.Count(s => s.SegmentKey == figureKey).ShouldBe(1);
-            segments.Count(s => s.Kind == DocumentSegmentKind.Text).ShouldBe(2);
+            segments.ShouldAllBe(s => s.Kind == DocumentSegmentKind.Text);
 
-            // Three LIVE derived children (the figure that survived + two freshly re-spawned text children); the two
-            // originally-retracted text children remain only as soft-deleted archives, excluded by the ISoftDelete filter.
-            (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).Count.ShouldBe(3);
+            // Two LIVE derived children (freshly re-spawned); the two originally-retracted text children remain
+            // only as soft-deleted archives, excluded by the ISoftDelete filter.
+            (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).Count.ShouldBe(2);
         });
     }
 
@@ -212,18 +203,6 @@ public class ContainerLifecycleRoundTrip_Tests
                     contentHash: $"{Guid.NewGuid():N}{Guid.NewGuid():N}"[..64],
                     fileSize: 2048,
                     originalFileName: "bundle.pdf"));
-
-            // #481: the figure span's in-span figures/{FigureImageHash} reference (see ContainerMarkdown above)
-            // must resolve against a retained-figure manifest entry, or the figure segment is now deleted instead
-            // of spawned. Mirrors the #478 spawn test in DocumentSegmentationJob_Tests.
-            doc.SetExtractionMetadata(new DocumentParseMetadata(
-                "PdfPig", null,
-                figures: new[]
-                {
-                    new FigureManifestEntry(
-                        $"{DocumentConsts.FigureBlobNamePrefix}{containerId:N}/{FigureImageHash}",
-                        FigureImageHash, "image/png", 2048)
-                }));
 
             typeof(Document)
                 .GetProperty(nameof(Document.Markdown))!

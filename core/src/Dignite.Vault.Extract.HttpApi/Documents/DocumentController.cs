@@ -43,12 +43,6 @@ public class DocumentController : VaultExtractController, IDocumentAppService
         return _documentAppService.GetBlobAsync(id);
     }
 
-    [HttpGet("{id}/figures/{fileName}")]
-    public virtual Task<IRemoteStreamContent> GetFigureAsync(Guid id, string fileName)
-    {
-        return _documentAppService.GetFigureAsync(id, fileName);
-    }
-
     [HttpDelete("{id}")]
     public virtual Task DeleteAsync(Guid id)
     {

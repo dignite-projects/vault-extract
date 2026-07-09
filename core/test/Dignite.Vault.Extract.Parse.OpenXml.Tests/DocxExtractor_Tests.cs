@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Dignite.Vault.Extract.Abstractions.Parse;
@@ -31,12 +30,11 @@ public class DocxExtractor_Tests
                 MaxImageBytesPerImage = maxImageBytes
             }));
 
-    private static TextExtractionContext DocxContext(bool retainFigures = false)
+    private static TextExtractionContext DocxContext()
         => new()
         {
             ContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            FileExtension = ".docx",
-            RetainFigureImages = retainFigures
+            FileExtension = ".docx"
         };
 
     private void StubOcr(string markdown, bool isComplete = true, string? reason = null)
@@ -247,63 +245,6 @@ public class DocxExtractor_Tests
             Arg.Any<Stream>(),
             Arg.Is<OcrOptions>(o => o.ContentType.StartsWith("image/", StringComparison.Ordinal)),
             Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Retention_off_inlines_no_figure_reference_and_surfaces_no_Figures()
-    {
-        // #477 default (off): the transcription is inlined exactly as before — no figures/ reference, no Figures.
-        StubOcr("FIGURE");
-
-        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
-            .Paragraph("Body text")
-            .Image(Png(alt: null)));
-
-        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
-
-        result.Markdown.ShouldContain("FIGURE");
-        result.Markdown.ShouldNotContain("figures/");
-        result.Figures.ShouldBeNull();
-    }
-
-    [Fact]
-    public async Task Retention_on_surfaces_the_source_image_and_inlines_the_reference_in_span()
-    {
-        // #477 on: the figure's source bytes are surfaced out-of-band on TextExtractionResult.Figures. #480: the
-        // figures/{hash} reference is inlined as the figure span's FIRST body line (INSIDE the *[Image OCR]*
-        // markers), matching the PDF path, so segmentation (#478) correlates it to the blob; the native alt-text
-        // caption is block-escaped BEFORE the open marker.
-        StubOcr("FIGURE");
-
-        var docx = DocxFixtures.Build(new DocxFixtures.DocSpec()
-            .Paragraph("Body text")
-            .Image(Png(alt: "Chart 1")));
-
-        var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext(retainFigures: true));
-
-        // Out-of-band: one retained figure, its content type, its native alt-text, and a hash matching the bytes.
-        // DOCX is a flow document, so there is no page anchor.
-        result.Figures.ShouldNotBeNull();
-        result.Figures!.Count.ShouldBe(1);
-        var figure = result.Figures[0];
-        figure.Content.Length.ShouldBeGreaterThan(0);
-        figure.ContentType.ShouldStartWith("image/");
-        figure.PageNumber.ShouldBeNull();
-        figure.AltText.ShouldBe("Chart 1");
-        figure.ContentHash.ShouldBe(Convert.ToHexString(SHA256.HashData(figure.Content)).ToLowerInvariant());
-
-        // In-band order: caption (before the open marker) < open marker < reference (first body line) <
-        // transcription < close marker — byte-compatible with the PDF path.
-        var caption = result.Markdown.IndexOf("Chart 1", StringComparison.Ordinal);
-        var open = result.Markdown.IndexOf("*[Image OCR]*", StringComparison.Ordinal);
-        var reference = result.Markdown.IndexOf($"![figure](figures/{figure.ContentHash}.", StringComparison.Ordinal);
-        var transcription = result.Markdown.IndexOf("FIGURE", StringComparison.Ordinal);
-        var close = result.Markdown.IndexOf("*[End OCR]*", StringComparison.Ordinal);
-        caption.ShouldBeGreaterThanOrEqualTo(0);
-        open.ShouldBeGreaterThan(caption);
-        reference.ShouldBeGreaterThan(open);
-        transcription.ShouldBeGreaterThan(reference);
-        close.ShouldBeGreaterThan(transcription);
     }
 
     [Fact]

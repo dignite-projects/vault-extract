@@ -374,121 +374,9 @@ public class DocumentAppService_Delete_Tests
         }
     }
 
-    [Fact]
-    public async Task GetFigureAsync_Serves_The_Retained_Figure_Blob_By_Manifest_Hash()
-    {
-        // #477: the endpoint resolves the request hash against the retained-figure manifest and serves the blob by
-        // the manifest's OWN stored key + content type (never a key built from the request).
-        var doc = CreateDocument();
-        const string hash = "abc123";
-        var blobName = $"extraction-figures/{doc.Id}/{hash}";
-        SetExtractionMetadata(doc, new DocumentParseMetadata(
-            "PdfPig", null, figures: new[] { new FigureManifestEntry(blobName, hash, "image/png", 2048) }));
-
-        _documentRepository.GetAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(doc);
-        _blobContainer.GetAsync(blobName, Arg.Any<CancellationToken>())
-            .Returns(new MemoryStream(new byte[] { 1, 2, 3 }));
-
-        var result = await _appService.GetFigureAsync(doc.Id, $"{hash}.png");
-
-        result.ContentType.ShouldBe("image/png");
-        await _blobContainer.Received(1).GetAsync(blobName, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task GetFigureAsync_Throws_FigureNotFound_For_An_Unknown_Hash_Without_Touching_Blob_Storage()
-    {
-        // Security: a hash not in the manifest never reaches blob storage (no arbitrary / traversal fetch).
-        var doc = CreateDocument();
-        SetExtractionMetadata(doc, new DocumentParseMetadata(
-            "PdfPig", null,
-            figures: new[] { new FigureManifestEntry($"extraction-figures/{doc.Id}/known", "known", "image/png", 10) }));
-
-        _documentRepository.GetAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(doc);
-
-        var ex = await Should.ThrowAsync<BusinessException>(
-            () => _appService.GetFigureAsync(doc.Id, "unknown.png"));
-        ex.Code.ShouldBe(VaultExtractErrorCodes.Document.FigureNotFound);
-        await _blobContainer.DidNotReceive().GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task PermanentDeleteAsync_Skips_A_Manifest_Figure_Blob_Still_Referenced_By_A_SubDocument()
-    {
-        // #478 owner side: the source's manifest reclaim must NOT delete a figure blob a sub-document's FileOrigin
-        // still shares — the sub-document outlives its source; its own permanent delete reclaims the blob later.
-        var doc = CreateDocument();
-        var sharedBlob = $"extraction-figures/{doc.Id}/imghash";
-        SetExtractionMetadata(doc, new DocumentParseMetadata(
-            "PdfPig", null, figures: new[] { new FigureManifestEntry(sharedBlob, "imghash", "image/png", 10) }));
-
-        _documentRepository.GetAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(doc);
-        _documentRepository
-            .AnyWithFileOriginBlobNameAsync(sharedBlob, doc.Id, Arg.Any<CancellationToken>())
-            .Returns(true); // a live (or restorable) sub-document still references it
-
-        await _appService.PermanentDeleteAsync(doc.Id);
-
-        await _blobContainer.DidNotReceive().DeleteAsync(sharedBlob, Arg.Any<CancellationToken>());
-        // The document's own (unshared, GUID-keyed) upload blob is still reclaimed as always.
-        await _blobContainer.Received(1).DeleteAsync(doc.FileOrigin!.BlobName, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task PermanentDeleteAsync_Reclaims_A_Manifest_Figure_Blob_Nothing_References()
-    {
-        var doc = CreateDocument();
-        var figureBlob = $"extraction-figures/{doc.Id}/imghash";
-        SetExtractionMetadata(doc, new DocumentParseMetadata(
-            "PdfPig", null, figures: new[] { new FigureManifestEntry(figureBlob, "imghash", "image/png", 10) }));
-
-        _documentRepository.GetAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(doc);
-        // AnyWithFileOriginBlobNameAsync substitute default = false: no reference remains.
-
-        await _appService.PermanentDeleteAsync(doc.Id);
-
-        await _blobContainer.Received(1).DeleteAsync(figureBlob, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task PermanentDeleteAsync_Keeps_A_Borrowed_Figure_Blob_While_Its_Owner_Exists()
-    {
-        // #478 borrower side: a figure sub-document's FileOrigin SHARES its source's extraction-figures blob.
-        // While the owner row exists (even soft-deleted — restorable), the owner's manifest reclaim governs the
-        // blob, so the sub-document's own permanent delete must not touch it.
-        var ownerId = Guid.NewGuid();
-        var borrowedBlob = $"extraction-figures/{ownerId}/imghash";
-        var subDoc = CreateDocumentWithFileOrigin(borrowedBlob);
-
-        _documentRepository.GetAsync(subDoc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(subDoc);
-        _documentRepository.FindAsync(ownerId, Arg.Any<bool>(), Arg.Any<CancellationToken>())
-            .Returns(CreateDocument()); // the owner still exists
-
-        await _appService.PermanentDeleteAsync(subDoc.Id);
-
-        await _blobContainer.DidNotReceive().DeleteAsync(borrowedBlob, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task PermanentDeleteAsync_Reclaims_A_Borrowed_Figure_Blob_Once_The_Owner_Is_Gone()
-    {
-        // The last referencing side reclaims: owner hard-deleted (its manifest reclaim skipped the blob because
-        // this sub-document still referenced it), no sibling references it → this delete reclaims the blob.
-        var ownerId = Guid.NewGuid();
-        var borrowedBlob = $"extraction-figures/{ownerId}/imghash";
-        var subDoc = CreateDocumentWithFileOrigin(borrowedBlob);
-
-        _documentRepository.GetAsync(subDoc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(subDoc);
-        // FindAsync default = null (owner gone); AnyWithFileOriginBlobNameAsync default = false (no sibling).
-
-        await _appService.PermanentDeleteAsync(subDoc.Id);
-
-        await _blobContainer.Received(1).DeleteAsync(borrowedBlob, Arg.Any<CancellationToken>());
-    }
-
-    // #481: a text-slice child's FileOrigin now SHARES its parent's upload (non-figure-prefix) blob, generalizing
-    // the #478 reference-aware reclaim from figure blobs to upload blobs too. This matrix mirrors the four figure
-    // tests above for that shared-upload-blob case.
+    // #481: a text-slice child's FileOrigin now SHARES its parent's upload blob, so
+    // ShouldReclaimFileOriginBlobAsync's reclaim-only-when-unreferenced check applies to that shared blob too
+    // (#487 Phase A removed the figure-blob-specific borrow branch this generic check used to sit alongside).
 
     [Fact]
     public async Task PermanentDeleteAsync_Skips_A_Shared_Upload_Blob_Still_Referenced_By_The_Parent()
@@ -553,14 +441,6 @@ public class DocumentAppService_Delete_Tests
                 fileSize: 10,
                 originalFileName: "figure-p1.png"));
     }
-
-    // Document.SetExtractionMetadata is internal and InternalsVisibleTo covers only EntityFrameworkCore.Tests, so
-    // set it via reflection here rather than broaden internal visibility for a test convenience.
-    private static void SetExtractionMetadata(Document document, DocumentParseMetadata metadata)
-        => typeof(Document)
-            .GetMethod("SetExtractionMetadata",
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
-            .Invoke(document, new object?[] { metadata });
 
     private static Document CreateDocument()
     {
