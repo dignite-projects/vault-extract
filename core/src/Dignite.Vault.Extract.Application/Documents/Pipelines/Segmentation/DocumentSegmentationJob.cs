@@ -32,9 +32,11 @@ namespace Dignite.Vault.Extract.Documents.Pipelines.Segmentation;
 /// <para>
 /// <b>One identity model, one spawn sink.</b> Every span — text or figure — is keyed by the SHA-256 of its clean
 /// slice text and spawned through the shared <see cref="DerivedDocumentSpawner"/> as a text-only sub-document; a
-/// figure span carries only a page recovery anchor (no crop). Because figure and text spans now share the
-/// <c>(OriginDocumentId, OriginConstituentKey)</c> identity, an inlined-then-also-sliced figure collapses on the
-/// unique index — the cross-path duplication of #356 / #359 is structurally impossible (no cross-path dedup code).
+/// figure span carries only a page recovery anchor (no crop). That content-hash identity is mirrored onto the
+/// derived <see cref="Document"/> as <c>OriginConstituentKey</c> (#481: passive provenance there, Option A — no
+/// longer DB-enforced on <see cref="Document"/>), so an inlined-then-also-sliced figure instead collapses on the
+/// <b>ledger's own</b> unique <c>(SourceDocumentId, SegmentKey)</c> index before a second <see cref="Document"/> is
+/// ever spawned — the cross-path duplication of #356 / #359 is structurally impossible (no cross-path dedup code).
 /// </para>
 /// <para>
 /// <b>Container vs embedded-document mode.</b> A container's spans become sub-documents of any kind and the split
@@ -193,10 +195,14 @@ public class DocumentSegmentationJob
             source.IsContainer,
             alreadySegmented,
             detection,
-            // #478: the source's retained-figure manifest (#477) + uploader snapshot, carried so the spawn phase can
-            // point a figure sub-document's FileOrigin at the SHARED retained blob without re-loading the source.
+            // #478: the source's retained-figure manifest (#477), carried so the spawn phase can point a figure
+            // sub-document's FileOrigin at the SHARED retained blob without re-loading the source.
             source.ExtractionMetadata?.Figures,
-            source.FileOrigin?.UploadedByUserName);
+            // #481: FileOrigin is required on every Document now, so the parent's whole snapshot travels here
+            // (no more optional uploader-only projection) — a Text-kind spawn shares it wholesale (the slice's
+            // source file IS the parent bundle file); a Figure-kind spawn takes only its UploadedByUserName (the
+            // retained-figure manifest entry supplies the rest of that child's FileOrigin).
+            source.FileOrigin);
     }
 
     /// <summary>
@@ -281,15 +287,28 @@ public class DocumentSegmentationJob
                 continue;
             }
 
+            // #478: the retained image's content hash from the in-span figures/{hash} reference (#477); parsed
+            // from the RAW slice (the clean seed above deliberately drops the reference line). Null for a Text span.
+            var figureContentHash = isFigure ? ExtractFigureContentHash(slice.Text) : null;
+
+            // #481 retention coupling (b): a Figure span with no in-span figures/{hash} reference means retention
+            // was OFF at parse time (the #477 RetainFigureImages toggle) — there is no blob for the child's
+            // FileOrigin to point at, and FileOrigin is required on every Document now, so this span is SKIPPED
+            // outright: no segment row is persisted at all (not even with a null hash). The transcription stays
+            // inline in the parent's Markdown — no data loss, just no spawned sub-document. Text spans are
+            // unaffected. Ordinal continuity is not a contract (only per-source uniqueness, see the
+            // (SourceDocumentId, Ordinal) index below), so skipping a slice mid-loop is safe.
+            if (isFigure && figureContentHash is null)
+            {
+                continue;
+            }
+
             prepared.Add(new PreparedSegment(
                 ContentHasher.Sha256Hex(Encoding.UTF8.GetBytes(cleanText)),
                 cleanText,
                 isFigure ? DocumentSegmentKind.Figure : DocumentSegmentKind.Text,
                 isFigure ? ExtractFirstPage(slice.Text) : null,
-                // #478: the retained image's content hash from the in-span figures/{hash} reference (#477); parsed
-                // from the RAW slice (the clean seed above deliberately drops the reference line). Null when
-                // retention was off — the spawn then leaves FileOrigin null, exactly the pre-#478 behavior.
-                isFigure ? ExtractFigureContentHash(slice.Text) : null));
+                figureContentHash));
         }
 
         // Byte-identical detection among the spawnable slices: same content -> same key -> the unique
@@ -430,7 +449,7 @@ public class DocumentSegmentationJob
 
         var snapshot = pending
             .OrderBy(s => s.Ordinal)
-            .Select(s => new PendingSegment(s.Id, s.SegmentKey, s.Ordinal, s.FigureContentHash, s.PageNumber))
+            .Select(s => new PendingSegment(s.Id, s.SegmentKey, s.Ordinal, s.Kind, s.FigureContentHash, s.PageNumber))
             .ToList();
 
         await uow.CompleteAsync();
@@ -457,12 +476,44 @@ public class DocumentSegmentationJob
     private async Task SpawnDerivedDocumentAsync(
         PendingSegment segment, DetectionContext context, CancellationToken cancellationToken)
     {
-        // #478 (revisits #393): a Figure-kind segment whose retained image survives in the source's #477 manifest
-        // spawns with a FileOrigin pointing at the SHARED extraction-figures blob (no copy — the image is never
-        // stored twice); reclaim is reference-aware on both sides (DocumentAppService.PermanentDeleteAsync). A Text
-        // segment / retention-off figure keeps FileOrigin null. Markdown is still seeded from segment.SliceText by
-        // DocumentParseBackgroundJob (seed precedence) — the blob is provenance, never re-extracted (no drift).
-        var fileOrigin = BuildFigureFileOrigin(segment, context);
+        // #481: FileOrigin is required on every Document now, so every spawn needs a real, resolvable blob —
+        // routing is no longer allowed to fall back to null. A Figure-kind segment resolves the SHARED
+        // extraction-figures blob from the source's #477/#478 retained-figure manifest (no copy — the image is
+        // never stored twice); reclaim stays reference-aware on both sides (DocumentAppService.PermanentDeleteAsync).
+        // A Text-kind segment shares the parent's own upload blob wholesale (the slice's source file IS the bundle
+        // file). Either way Markdown is still seeded from segment.SliceText by DocumentParseBackgroundJob (seed
+        // precedence) — the blob is provenance/download only, never re-extracted (no drift).
+        FileOrigin fileOrigin;
+        switch (segment.Kind)
+        {
+            case DocumentSegmentKind.Figure:
+                {
+                    var resolved = BuildFigureFileOrigin(segment, context);
+                    if (resolved is null)
+                    {
+                        // #481 retention coupling (b): the manifest lookup missed (retention was off at parse time, or the
+                        // archive write failed, between detection and spawn) — there is no blob to route this child's
+                        // FileOrigin at. Delete the unresolvable row instead of spawning with a fabricated/null FileOrigin;
+                        // the transcription remains inline in the parent's Markdown.
+                        await DeleteUnresolvableFigureSegmentAsync(segment, context);
+                        return;
+                    }
+
+                    fileOrigin = resolved;
+                    break;
+                }
+
+            case DocumentSegmentKind.Text:
+                fileOrigin = context.SourceFileOrigin;
+                break;
+
+            default:
+                // Exhaustive on purpose (the #379 backstop pattern, mirroring IsContainerIndependent): a future third
+                // Kind must declare its FileOrigin provenance here — an else-fallthrough would silently share the
+                // parent's upload blob, the #364-class missed-branch bug this subsystem hardens against.
+                throw new InvalidOperationException(
+                    $"Unhandled DocumentSegmentKind '{segment.Kind}' at FileOrigin resolution.");
+        }
 
         // Shared complete-phase UoW (#358): insert the derived document, mark this segment Spawned, publish
         // DocumentUploadedEto, and queue text extraction — atomically. The reload guard is kind-aware (#371).
@@ -487,6 +538,35 @@ public class DocumentSegmentationJob
                 await _segmentRepository.UpdateAsync(entity);
             },
             cancellationToken);
+    }
+
+    /// <summary>
+    /// #481: deletes a Figure-kind segment row whose #478 content hash could not be resolved against the source's
+    /// retained-figure manifest at spawn time — figure routing REQUIRES a real shared blob (the #477
+    /// <c>RetainFigureImages</c> toggle), so there is nothing left to spawn. Reloads + re-checks
+    /// <see cref="DocumentSegmentStatus.Pending"/> inside its own short UoW first (a concurrent worker may already
+    /// have spawned or deleted it between <see cref="LoadPendingSegmentsAsync"/>'s snapshot and here). The parent
+    /// keeps the transcription inline in its own Markdown either way — this is a routing no-op, not a fault, so it
+    /// is not added to the caller's failure list and never flags the source for review.
+    /// </summary>
+    private async Task DeleteUnresolvableFigureSegmentAsync(PendingSegment segment, DetectionContext context)
+    {
+        Logger.LogWarning(
+            "Figure segment {SegmentId} of source {SourceId}: figure span not routed: retained blob unresolvable "
+            + "(retention off at parse time or archive failed); content remains inline in the parent.",
+            segment.SegmentId, context.SourceDocumentId);
+
+        using (_currentTenant.Change(context.TenantId))
+        using (var uow = _unitOfWorkManager.Begin(requiresNew: true))
+        {
+            var entity = await _segmentRepository.FindAsync(segment.SegmentId);
+            if (entity is { Status: DocumentSegmentStatus.Pending })
+            {
+                await _segmentRepository.DeleteAsync(entity);
+            }
+
+            await uow.CompleteAsync();
+        }
     }
 
     /// <summary>
@@ -646,36 +726,24 @@ public class DocumentSegmentationJob
     }
 
     /// <summary>
-    /// Builds the figure sub-document's <see cref="FileOrigin"/> (#478) by resolving the segment's
+    /// Resolves the figure sub-document's <see cref="FileOrigin"/> (#478) from the segment's
     /// <see cref="DocumentSegment.FigureContentHash"/> against the source's retained-figure manifest (#477) — the
     /// manifest is authoritative (its own stored blob key / content type / size; the key is never rebuilt from
-    /// parsed input), and the blob is <b>shared</b> with the source (never copied). Returns <c>null</c> — leaving
-    /// today's no-FileOrigin behavior — for a Text segment, a retention-off figure, a manifest miss, or a source
-    /// missing its uploader snapshot.
+    /// parsed input), and the blob is <b>shared</b> with the source (never copied). Returns <c>null</c> on a
+    /// manifest miss (retention was off at parse time, or the archive write failed, between detection and spawn;
+    /// a null <see cref="PendingSegment.FigureContentHash"/> should not reach here since #481 skips persisting a
+    /// hash-less Figure segment at detection, but is handled the same defensive way) — the caller
+    /// (<see cref="SpawnDerivedDocumentAsync"/>) deletes the segment row instead of spawning with a fabricated
+    /// FileOrigin, since #481 requires a real shared blob for figure routing.
     /// </summary>
     private FileOrigin? BuildFigureFileOrigin(PendingSegment segment, DetectionContext context)
     {
-        if (segment.FigureContentHash is null)
-        {
-            return null;
-        }
-
-        var entry = context.FigureManifest?.FirstOrDefault(
-            f => string.Equals(f.ContentHash, segment.FigureContentHash, StringComparison.Ordinal));
+        var entry = segment.FigureContentHash is null
+            ? null
+            : context.FigureManifest?.FirstOrDefault(
+                f => string.Equals(f.ContentHash, segment.FigureContentHash, StringComparison.Ordinal));
         if (entry is null)
         {
-            Logger.LogInformation(
-                "Figure segment {SegmentId} of source {SourceId} references image {Hash}, but the source has no "
-                + "matching retained-figure manifest entry (retention off or archive failed); spawning without FileOrigin.",
-                segment.SegmentId, context.SourceDocumentId, segment.FigureContentHash);
-            return null;
-        }
-
-        if (string.IsNullOrWhiteSpace(context.SourceUploadedByUserName))
-        {
-            Logger.LogWarning(
-                "Source {SourceId} has no uploader snapshot; spawning figure segment {SegmentId} without FileOrigin.",
-                context.SourceDocumentId, segment.SegmentId);
             return null;
         }
 
@@ -686,7 +754,7 @@ public class DocumentSegmentationJob
 
         return new FileOrigin(
             entry.BlobName,
-            context.SourceUploadedByUserName!,
+            context.SourceFileOrigin.UploadedByUserName,
             entry.ContentType,
             entry.ContentHash,
             entry.SizeBytes,
@@ -698,8 +766,10 @@ public class DocumentSegmentationJob
 
     /// <summary>Per-source detection context loaded once up front: the source id + tenant, the Document.Markdown to
     /// detect over (with inline figure markers, #381), the container flag, whether a prior split exists, the parent
-    /// context for the LLM, and — for the #478 figure FileOrigin — the source's retained-figure manifest (#477) plus
-    /// its uploader snapshot.</summary>
+    /// context for the LLM, the source's retained-figure manifest (#477, for the #478 figure FileOrigin), and —
+    /// since #481 (FileOrigin is required on every Document) — the source's own whole <see cref="FileOrigin"/>
+    /// snapshot: a Text-kind spawn shares it wholesale, a Figure-kind spawn takes only its
+    /// <see cref="FileOrigin.UploadedByUserName"/> (the manifest entry supplies the rest).</summary>
     protected sealed record DetectionContext(
         Guid SourceDocumentId,
         Guid? TenantId,
@@ -707,8 +777,8 @@ public class DocumentSegmentationJob
         bool IsContainer,
         bool AlreadySegmented,
         SubDocumentDetectionContext Detection,
-        IReadOnlyList<FigureManifestEntry>? FigureManifest = null,
-        string? SourceUploadedByUserName = null);
+        IReadOnlyList<FigureManifestEntry>? FigureManifest,
+        FileOrigin SourceFileOrigin);
 
     /// <summary>A standalone span prepared for persistence: its content key, clean slice text, kind, figure page
     /// anchor, and the retained image's content hash (#478; null for Text / retention off).</summary>
@@ -718,9 +788,11 @@ public class DocumentSegmentationJob
     /// <summary>Detached snapshot of one still-Pending segment, carried across the per-segment external + UoW phases.
     /// Carries no slice text: the spawn path keys off <see cref="SegmentKey"/>, and the derived document's Markdown
     /// is seeded by <c>DocumentParseBackgroundJob</c> reading the segment's <c>SliceText</c> column fresh from the DB.
-    /// <see cref="FigureContentHash"/> + <see cref="PageNumber"/> feed the #478 figure FileOrigin resolution.</summary>
+    /// <see cref="Kind"/> decides the #481 FileOrigin source (shared parent blob for Text, resolved retained blob
+    /// for Figure); <see cref="FigureContentHash"/> + <see cref="PageNumber"/> feed that #478 figure resolution.</summary>
     protected sealed record PendingSegment(
-        Guid SegmentId, string SegmentKey, int Ordinal, string? FigureContentHash = null, int? PageNumber = null);
+        Guid SegmentId, string SegmentKey, int Ordinal, DocumentSegmentKind Kind,
+        string? FigureContentHash = null, int? PageNumber = null);
 }
 
 public class DocumentSegmentationJobArgs

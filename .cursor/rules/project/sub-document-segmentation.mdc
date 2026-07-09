@@ -36,7 +36,10 @@ Therefore `DocumentSegment` is a **durable internal ledger**, **not** a transien
 
 The fields mirrored between the two representations are intentional copies made at spawn time:
 `DocumentSegment.SegmentKey → Document.OriginConstituentKey`, `SourceDocumentId → OriginDocumentId`,
-`SliceText → Document.Markdown` (one-way seed), `TenantId → TenantId`.
+`SliceText → Document.Markdown` (one-way seed), `TenantId → TenantId`. `Document.FileOrigin` is required at spawn
+too (#481) but is not a segment-field copy: a `Figure` child's `FileOrigin` resolves from the source's
+`FigureManifest` (the shared `extraction-figures/{sourceId}/{hash}` blob, #477/#478); a `Text` child's `FileOrigin`
+is the parent's own shared upload blob, copied wholesale.
 
 ## 🚦 RED LINE: the subsystem assumes exactly two Kinds {Text, Figure}
 
@@ -59,6 +62,7 @@ default — the #364-class missed-branch bug, hardened in #379), not a license t
 | `RoutedDocumentId` | **keep explicit** | reconstructable from `(OriginDocumentId, OriginConstituentKey)`, but the explicit pointer is the ledger's purpose (idempotency + retraction clarity); reconstructing the join is more complex, not less |
 | `SliceText` | **transient one-way seed** | duplicated by `Document.Markdown` after parse; bounded duplication is accepted; **do not add a parse→segment writeback to clear it** (couples parse job to the ledger for a low-value saving) |
 | `PageNumber` | **retained provenance** | deliberate out-of-band anchor (Markdown-first "named, strongly-typed, nullable extension field" rule); write-only by design, not dead weight |
+| `FigureContentHash` | **spawn-input (resumable)** | #477/#478: SHA-256 of the retained figure's **image bytes** (≠ `SegmentKey`, the transcription-**text** hash), parsed at detection from the in-span `figures/{hash}` reference; read once at spawn to resolve the source's `FigureManifest` and point the child `FileOrigin` at the **shared** blob. `null` only for a `Text` slice — since #481 a `Figure` span with no resolvable reference is a **retention-off** case (routing requires `RetainFigureImages` ON) and is not persisted as a row at detection at all; a manifest miss discovered later at spawn time deletes the row instead of spawning a child with no blob. Every spawned child therefore carries a real, required `FileOrigin`: `Figure` → the shared retained blob, `Text` → the parent's own shared upload blob |
 
 Watch for accreted residue: a fast-iterated subsystem leaves write-only fields / never-assigned enum values / dead
 projections. #390 removed three (`DocumentSegmentStatus.NotADocument`, `DetectionContext.UploadedByUserName`,

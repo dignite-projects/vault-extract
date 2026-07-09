@@ -31,7 +31,7 @@
       {{ '::Document:PreviewUnavailable' | abpLocalization }}
     </div>
   } @else if (!hasSourceFile()) {
-    <!-- Sub-document (#306/#346): no source blob, so no file to show. Neutral notice, not an error. -->
+    <!-- Null-safety branch (#481: FileOrigin required; only pre-migration legacy rows lack one). Neutral notice, not an error. -->
     <div class="card shadow-sm">
       <div class="card-body text-center py-5 text-muted">
         <i class="fas fa-file-circle-xmark fa-3x mb-3 d-block"></i>

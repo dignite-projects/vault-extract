@@ -92,21 +92,24 @@ public static class VaultExtractDbContextModelCreatingExtensions
                 .HasForeignKey(f => f.DocumentId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // FileOrigin is optional: user-uploaded documents always have one; derived sub-documents spawned from
-            // segment SliceText carry no source blob and store null. All owned columns are nullable in the DB so that
-            // sub-document rows can write null for the whole owned entity.
+            // FileOrigin is required on every document (#481): an uploaded document points at its own upload blob;
+            // a derived sub-document shares a REAL blob (either the #477/#478 retained figure blob or the parent's
+            // upload blob) rather than carrying no blob at all. The pre-#481 "owned columns nullable so sub-document
+            // rows can write null for the whole owned entity" rationale is gone — every owned column below is
+            // required except OriginalFileName, which stays independently optional (FileOrigin's own constructor
+            // treats it as an optional display hint, unrelated to the #481 required-ness of the owner navigation).
             b.OwnsOne(x => x.FileOrigin, fo =>
             {
-                fo.Property(x => x.BlobName).HasMaxLength(FileOriginConsts.MaxBlobNameLength);
-                fo.Property(x => x.UploadedByUserName).HasMaxLength(FileOriginConsts.MaxUploadedByUserNameLength);
+                fo.Property(x => x.BlobName).IsRequired().HasMaxLength(FileOriginConsts.MaxBlobNameLength);
+                fo.Property(x => x.UploadedByUserName).IsRequired().HasMaxLength(FileOriginConsts.MaxUploadedByUserNameLength);
                 fo.Property(x => x.OriginalFileName).HasMaxLength(FileOriginConsts.MaxOriginalFileNameLength);
-                fo.Property(x => x.ContentType).HasMaxLength(FileOriginConsts.MaxContentTypeLength);
-                fo.Property(x => x.ContentHash).HasMaxLength(FileOriginConsts.MaxContentHashLength);
+                fo.Property(x => x.ContentType).IsRequired().HasMaxLength(FileOriginConsts.MaxContentTypeLength);
+                fo.Property(x => x.ContentHash).IsRequired().HasMaxLength(FileOriginConsts.MaxContentHashLength);
 
                 fo.HasIndex(x => x.BlobName);
                 fo.HasIndex(x => x.ContentHash);
             });
-            b.Navigation(x => x.FileOrigin).IsRequired(false);
+            b.Navigation(x => x.FileOrigin).IsRequired();
 
             // The DocumentPipelineRun FK + CASCADE are declared explicitly in the child-side configuration block (#216).
 
@@ -134,24 +137,19 @@ public static class VaultExtractDbContextModelCreatingExtensions
             b.HasIndex(x => new { x.TenantId, x.DocumentTypeId });
             b.HasIndex(x => x.CreationTime);
 
-            // #306 / #346 Scenario B back-reference: derived documents only. A filtered UNIQUE index on
-            // (OriginDocumentId, OriginConstituentKey) makes sub-document routing idempotent (one derived document
-            // per source constituent — figure or Markdown slice; re-routing / retry never duplicate-spawn) and also
-            // serves "list a source's derived documents" (OriginDocumentId is the leading column). Filtered to
-            // non-null so normally-uploaded documents (both columns null) are exempt. The HasFilter clause is
-            // SQL-Server-specific; the SQL-Server-only filtered-index portability limitation is intentionally
-            // accepted for v0.2.0. No FK on OriginDocumentId: it is a soft provenance pointer, not a constraint,
-            // so the derived document outlives the source (the source may be hard-deleted while derived ones remain).
-            // #391: the filter also excludes soft-deleted rows (IsDeleted = 0). A retracted (soft-deleted)
-            // sub-document is a recoverable archive (#349 DocumentDeletedEto), not a live constituent — leaving it in
-            // the index made a container→concrete→container round trip collide on re-spawn (Document.Markdown is
-            // immutable, so the re-split reuses the same OriginConstituentKey) and the job retried forever. Excluding
-            // IsDeleted keeps the slot free for the fresh child; concurrent double-spawn idempotency is preserved
-            // (two LIVE rows with the same key still collide). The new index covers a strict subset of the old one's
-            // rows, so the recreate is safe on populated tables.
-            b.HasIndex(x => new { x.OriginDocumentId, x.OriginConstituentKey })
-                .IsUnique()
-                .HasFilter("[OriginDocumentId] IS NOT NULL AND [IsDeleted] = 0");
+            // #306 / #346 Scenario B back-reference (#481: no longer a uniqueness constraint here). OriginDocumentId
+            // is PASSIVE provenance (Option A) — this plain, non-unique, non-filtered index serves only the #354
+            // "list a source's derived documents" read (OriginDocumentId is the leading and only column; it is also
+            // portable across every DB provider, unlike the retired SQL-Server-only HasFilter). Spawn idempotency no
+            // longer lives on this table: it is now the DocumentSegment ledger's unique (SourceDocumentId,
+            // SegmentKey) index plus the segment row's Status transition + optimistic concurrency (see
+            // DerivedDocumentSpawner) that makes a sequential retry abort cleanly and a concurrent double-spawn lose
+            // on the ConcurrencyStamp at commit. This also dissolves the #391 soft-delete-filtered-unique-index
+            // complication: a retracted (soft-deleted) child and its re-spawned successor may now freely share the
+            // same OriginConstituentKey, since nothing on Document enforces uniqueness over that pair any more. No FK
+            // on OriginDocumentId: it is a soft provenance pointer, not a constraint, so the derived document
+            // outlives the source (the source may be hard-deleted while derived ones remain).
+            b.HasIndex(x => x.OriginDocumentId);
 
             // #411: duplicate-detection fingerprint (SHA-256 hex of this type's normalized unique-key field values).
             // DuplicateAllowed (the operator's "not a duplicate" override) is a plain bool, auto-mapped by convention.

@@ -90,7 +90,7 @@ public class ContainerReclassifyRetraction_Tests
             container.DocumentTypeId.ShouldBe(typeId);
 
             // (a) The sub-documents are soft-deleted (no longer visible under the ambient ISoftDelete filter).
-            (await _documentRepository.GetListByOriginAsync(containerId)).ShouldBeEmpty();
+            (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).ShouldBeEmpty();
 
             // (c) The container's segment rows are gone.
             (await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId)).ShouldBeEmpty();
@@ -135,7 +135,7 @@ public class ContainerReclassifyRetraction_Tests
         await WithUnitOfWorkAsync(async () =>
         {
             // Only the figure-kind child survives under the OriginDocumentId; the two text children are gone.
-            var survivors = await _documentRepository.GetListByOriginAsync(containerId);
+            var survivors = await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId);
             survivors.Count.ShouldBe(1);
             survivors[0].Id.ShouldBe(figureChildId);
 

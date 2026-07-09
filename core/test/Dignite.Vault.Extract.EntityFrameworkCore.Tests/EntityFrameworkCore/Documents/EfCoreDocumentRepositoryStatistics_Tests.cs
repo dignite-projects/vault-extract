@@ -162,6 +162,47 @@ public class EfCoreDocumentRepositoryStatistics_Tests : VaultExtractEntityFramew
         stats.TotalStorageBytes.ShouldBe(100); // container bytes excluded
     }
 
+    [Fact]
+    public async Task GetStatistics_Excludes_Derived_Documents_From_The_Storage_Sum_But_Still_Counts_Them()
+    {
+        // #481: a derived sub-document SHARES its parent's FileOrigin/FileSize (a text-slice child shares the
+        // whole bundle's size; a figure child shares the retained image's size) rather than owning distinct bytes,
+        // so summing it too would multiply the same storage by however many children exist. Document counts are
+        // unaffected -- a derived document is still a real document and counts normally in its lifecycle bucket.
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var parent = NewDocument(1000);
+            parent.TransitionLifecycle(DocumentLifecycleStatus.Ready);
+            await _documentRepository.InsertAsync(parent, autoSave: true);
+
+            // Shares the parent's FileOrigin wholesale, including FileSize (#481). Built as an equal-valued (not
+            // same-reference) FileOrigin: EF's owned-entity change tracker does not allow attaching the SAME tracked
+            // FileOrigin CLR instance to two Document rows within one DbContext (its shadow key includes the
+            // owner's Id) — in production this is a non-issue because the parent is loaded in an earlier,
+            // already-disposed UoW/DbContext before the derived document's own UoW begins.
+            var child = Document.CreateDerived(
+                _guidGenerator.Create(),
+                _currentTenant.Id,
+                new FileOrigin(
+                    blobName: parent.FileOrigin.BlobName,
+                    uploadedByUserName: parent.FileOrigin.UploadedByUserName,
+                    contentType: parent.FileOrigin.ContentType,
+                    contentHash: parent.FileOrigin.ContentHash,
+                    fileSize: parent.FileOrigin.FileSize,
+                    originalFileName: parent.FileOrigin.OriginalFileName),
+                originDocumentId: parent.Id,
+                originConstituentKey: "slice-1");
+            child.TransitionLifecycle(DocumentLifecycleStatus.Ready);
+            await _documentRepository.InsertAsync(child, autoSave: true);
+        });
+
+        var stats = await WithUnitOfWorkAsync(() => _documentRepository.GetStatisticsAsync());
+
+        stats.TotalCount.ShouldBe(2);           // both the parent and the derived child count as real documents
+        stats.ReadyCount.ShouldBe(2);
+        stats.TotalStorageBytes.ShouldBe(1000);  // the child's shared FileSize is NOT summed a second time
+    }
+
     // ─── helpers ───────────────────────────────────────────────────────────
 
     private async Task SeedDocAsync(

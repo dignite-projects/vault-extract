@@ -74,7 +74,7 @@ Fields are organized into two kinds: **system common fields** (auto-produced by 
 
 > Full system-field table, text-extraction provenance (#210), and mechanism-B implementation form (`FieldDefinition` / `DocumentExtractedField` / unique index / composite key): see `.claude/rules/field-architecture.md` (auto-loaded when editing Document / field code).
 
-> Sub-document segmentation (a **container** document → derived sub-documents): the two-representation model (`DocumentSegment` ledger + derived `Document`), the two-`Kind` red line, and the field lifecycle contract — see `.claude/rules/sub-document-segmentation.md` (decision record #390, auto-loaded when editing Segmentation / `DerivedDocumentSpawner` / `ContainerMarker*` / `DocumentSegment*` code). Relevant to egress too: a container is suppressed from `DocumentReadyEto` (#346); only its sub-documents fire it, each carrying `OriginDocumentId`.
+> Sub-document segmentation (a **container** document → derived sub-documents): the two-representation model (`DocumentSegment` ledger + derived `Document`), the two-`Kind` red line, and the field lifecycle contract — see `.claude/rules/sub-document-segmentation.md` (decision record #390, auto-loaded when editing Segmentation / `DerivedDocumentSpawner` / `ContainerMarker*` / `DocumentSegment*` code). Relevant to egress too: a container is suppressed from `DocumentReadyEto` (#346); only its sub-documents fire it, each carrying `OriginDocumentId`. Since #481 every sub-document also carries a required `FileOrigin` (a figure → the shared #477/#478 retained blob; a text slice → the parent's shared upload blob).
 
 ## Egress contracts
 

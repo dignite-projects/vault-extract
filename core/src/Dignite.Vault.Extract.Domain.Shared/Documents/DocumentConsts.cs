@@ -64,9 +64,18 @@ public static class DocumentConsts
 
     /// <summary>
     /// Length of <see cref="Document.OriginConstituentKey"/> (#306 / #346): the SHA-256 (lowercase hex) of the
-    /// source constituent — the figure's bytes (image path) or the Markdown slice (born-digital path) — which
-    /// equals the derived document's <c>FileOrigin.ContentHash</c>. Matches
-    /// <see cref="FileOriginConsts.MaxContentHashLength"/>.
+    /// clean source constituent — the figure transcription text or the Markdown slice (born-digital path) — which
+    /// equals the spawning <c>DocumentSegment.SegmentKey</c>. Passive provenance only (#481: no longer DB-enforced
+    /// by a unique index on <see cref="Document"/> — that idempotency guard now lives entirely on the
+    /// <c>DocumentSegment</c> ledger's own unique <c>(SourceDocumentId, SegmentKey)</c> index). Its remaining
+    /// consumers are provenance reads (listing a source's derived documents by
+    /// <see cref="Document.OriginDocumentId"/>) and the parse-phase seed lookup (<c>DocumentParseBackgroundJob</c>
+    /// resolves the seeding <c>DocumentSegment</c> row by <c>(SourceDocumentId, SegmentKey)</c> using this value to
+    /// recover <c>SliceText</c>). No longer guaranteed to equal the derived document's <c>FileOrigin.ContentHash</c>
+    /// (#481: a derived document's <c>FileOrigin</c> is now shared from elsewhere — the parent's own upload, or the
+    /// source's retained-figure blob — rather than derived from this constituent's own hash). Length matches
+    /// <see cref="FileOriginConsts.MaxContentHashLength"/> only because both are SHA-256 hex, not because of any
+    /// remaining equality.
     /// </summary>
     public static int MaxOriginConstituentKeyLength { get; set; } = 64;
 
