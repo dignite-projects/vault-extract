@@ -68,30 +68,6 @@ public class DocumentSegment : CreationAuditedAggregateRoot<Guid>, IMultiTenant
     public virtual DocumentSegmentKind Kind { get; private set; }
 
     /// <summary>
-    /// 1-based source page of a <see cref="DocumentSegmentKind.Figure"/> span (#371): a lightweight provenance anchor
-    /// parsed from the <c>*[Image OCR p:N]*</c> marker (the crop itself is not persisted, per Markdown-first). It
-    /// records <b>where</b> the figure came from; <b>no code re-parses the source to recover the image</b> — the
-    /// anchor only keeps that possible out-of-band should a future need arise. <c>null</c> for a
-    /// <see cref="DocumentSegmentKind.Text"/> span or a page-less source. Provenance only — never identity (#210).
-    /// </summary>
-    public virtual int? PageNumber { get; private set; }
-
-    /// <summary>
-    /// SHA-256 (lowercase hex) of the retained figure's <b>image bytes</b> (#477/#478), parsed from the in-span
-    /// <c>![figure](figures/{hash}.{ext})</c> reference of a <see cref="DocumentSegmentKind.Figure"/> slice at
-    /// detection time. <c>null</c> for a <see cref="DocumentSegmentKind.Text"/> slice; a
-    /// <see cref="DocumentSegmentKind.Figure"/> span carrying no reference (retention was off at parse time) is no
-    /// longer persisted as a row at all (#481 retention coupling) — so on any row that DOES exist, Figure implies
-    /// this is non-null. Persisted so the spawn phase is resumable: at spawn it resolves the source document's
-    /// retained-figure manifest by this hash and points the derived document's required <c>FileOrigin</c> at the
-    /// <b>shared</b> blob (<c>extraction-figures/{sourceId}/{hash}</c> — the image is never stored twice); a
-    /// manifest miss at spawn time deletes the row instead (#481) rather than spawning with a fabricated
-    /// FileOrigin. Distinct from <see cref="SegmentKey"/> (the hash of the transcription <b>text</b>, the
-    /// idempotency identity).
-    /// </summary>
-    public virtual string? FigureContentHash { get; private set; }
-
-    /// <summary>
     /// The derived <see cref="Document"/> spawned from this slice, or <c>null</c> when not (yet) spawned /
     /// classified as a non-document segment.
     /// </summary>
@@ -119,9 +95,7 @@ public class DocumentSegment : CreationAuditedAggregateRoot<Guid>, IMultiTenant
         string sliceText,
         int ordinal,
         DocumentSegmentKind kind,
-        DocumentSegmentStatus status = DocumentSegmentStatus.Pending,
-        int? pageNumber = null,
-        string? figureContentHash = null)
+        DocumentSegmentStatus status = DocumentSegmentStatus.Pending)
         : base(id)
     {
         TenantId = tenantId;
@@ -131,9 +105,6 @@ public class DocumentSegment : CreationAuditedAggregateRoot<Guid>, IMultiTenant
         Ordinal = ordinal;
         Kind = kind;
         Status = status;
-        PageNumber = pageNumber;
-        FigureContentHash = Check.Length(
-            figureContentHash, nameof(figureContentHash), DocumentSegmentConsts.MaxFigureContentHashLength);
     }
 
     /// <summary>

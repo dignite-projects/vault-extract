@@ -260,7 +260,7 @@ public class ContainerReclassifyRetraction_Tests
             var segment = new DocumentSegment(
                 figureSegmentId, tenantId: null, sourceDocumentId: containerId,
                 segmentKey: figureKey, sliceText: "INVOICE No 42 Total 100",
-                ordinal: 99, kind: DocumentSegmentKind.Figure, pageNumber: 1);
+                ordinal: 99, kind: DocumentSegmentKind.Figure);
             segment.MarkSpawned(figureChildId);
             await _segmentRepository.InsertAsync(segment, autoSave: true);
         });

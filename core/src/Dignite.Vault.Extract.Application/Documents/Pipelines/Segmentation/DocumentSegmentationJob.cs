@@ -419,7 +419,7 @@ public class DocumentSegmentationJob
 
         var snapshot = pending
             .OrderBy(s => s.Ordinal)
-            .Select(s => new PendingSegment(s.Id, s.SegmentKey, s.Kind, s.FigureContentHash, s.PageNumber))
+            .Select(s => new PendingSegment(s.Id, s.SegmentKey, s.Kind))
             .ToList();
 
         await uow.CompleteAsync();
@@ -623,14 +623,12 @@ public class DocumentSegmentationJob
     /// Carries no slice text: the spawn path keys off <see cref="SegmentKey"/>, and the derived document's Markdown
     /// is seeded by <c>DocumentParseBackgroundJob</c> reading the segment's <c>SliceText</c> column fresh from the DB.
     /// Every spawn carries a null FileOrigin regardless of <see cref="Kind"/> — a derived sub-document has no file
-    /// of its own. <see cref="FigureContentHash"/> + <see cref="PageNumber"/> are retained provenance for a legacy
-    /// Figure-kind row.
+    /// of its own.
     /// #485: dropped the write-only <c>Ordinal</c> field (projected in <see cref="LoadPendingSegmentsAsync"/> but
     /// never read back off this record) — the reading-order sort there uses the source entity's own
     /// <c>Ordinal</c> column before the projection, so carrying a copy onto this snapshot served no purpose.</summary>
     protected sealed record PendingSegment(
-        Guid SegmentId, string SegmentKey, DocumentSegmentKind Kind,
-        string? FigureContentHash = null, int? PageNumber = null);
+        Guid SegmentId, string SegmentKey, DocumentSegmentKind Kind);
 }
 
 public class DocumentSegmentationJobArgs

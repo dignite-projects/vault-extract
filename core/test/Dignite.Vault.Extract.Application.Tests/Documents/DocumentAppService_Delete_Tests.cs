@@ -67,7 +67,7 @@ public class DocumentAppService_Delete_Tests
 
         await _appService.DeleteAsync(doc.Id);
 
-        await _blobContainer.DidNotReceive().DeleteAsync(doc.FileOrigin.BlobName, Arg.Any<CancellationToken>());
+        await _blobContainer.DidNotReceive().DeleteAsync(doc.FileOrigin!.BlobName, Arg.Any<CancellationToken>());
         await _documentRepository.Received(1).DeleteAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>());
     }
 
@@ -170,7 +170,7 @@ public class DocumentAppService_Delete_Tests
     {
         var existing = CreateDocumentWithContent([1, 2, 3]);
         _documentRepository.FindByContentHashAsync(
-                existing.FileOrigin.ContentHash,
+                existing.FileOrigin!.ContentHash,
                 Arg.Any<CancellationToken>())
             .Returns(existing);
 
@@ -188,7 +188,7 @@ public class DocumentAppService_Delete_Tests
         var existing = CreateDocumentWithContent([1, 2, 3]);
         existing.IsDeleted = true;
         _documentRepository.FindByContentHashAsync(
-                existing.FileOrigin.ContentHash,
+                existing.FileOrigin!.ContentHash,
                 Arg.Any<CancellationToken>())
             .Returns(existing);
 
@@ -384,7 +384,7 @@ public class DocumentAppService_Delete_Tests
 
         await _appService.PermanentDeleteAsync(doc.Id);
 
-        await _blobContainer.Received(1).DeleteAsync(doc.FileOrigin.BlobName, Arg.Any<CancellationToken>());
+        await _blobContainer.Received(1).DeleteAsync(doc.FileOrigin!.BlobName, Arg.Any<CancellationToken>());
     }
 
     private static Document CreateDocument()

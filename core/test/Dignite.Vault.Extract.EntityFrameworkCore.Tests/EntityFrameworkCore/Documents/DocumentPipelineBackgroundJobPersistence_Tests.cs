@@ -397,12 +397,12 @@ public class DocumentPipelineBackgroundJobPersistence_Tests
             // The source document the segment belongs to (the segment FK requires it to exist).
             await _documentRepository.InsertAsync(CreateDocument(sourceId), autoSave: true);
 
-            // The source segment whose slice text the derived document seeds from. Figure-kind: the span was an
-            // embedded image whose transcription seeds the spawned sub-document; PageNumber is a recovery anchor.
+            // The source segment whose slice text the derived document seeds from (the seed path is kind-agnostic;
+            // Figure kind is used here purely as a fixture — figure spans no longer route to sub-documents).
             await _segmentRepository.InsertAsync(new DocumentSegment(
                 _guidGenerator.Create(), tenantId: null, sourceDocumentId: sourceId,
                 segmentKey: segmentKey, sliceText: seed, ordinal: 0,
-                kind: DocumentSegmentKind.Figure, pageNumber: 2), autoSave: true);
+                kind: DocumentSegmentKind.Figure), autoSave: true);
 
             // A derived sub-document carries NO file of its own (FileOrigin null): the markdown-slice split does not
             // give children a source file. So the parse job MUST seed Markdown from the segment slice and never touch
@@ -427,11 +427,10 @@ public class DocumentPipelineBackgroundJobPersistence_Tests
             derived.Markdown.ShouldBe(seed); // seeded from the segment slice, no OCR
             derived.FileOrigin.ShouldBeNull(); // a split sub-document has no source file of its own
 
-            // Kind / PageNumber round-trip through the DB on the source segment row.
+            // Kind round-trips through the DB on the source segment row.
             var segment = (await _segmentRepository.GetListAsync(s => s.SourceDocumentId == sourceId))
                 .ShouldHaveSingleItem();
             segment.Kind.ShouldBe(DocumentSegmentKind.Figure);
-            segment.PageNumber.ShouldBe(2);
             segment.SegmentKey.ShouldBe(segmentKey);
         });
 
