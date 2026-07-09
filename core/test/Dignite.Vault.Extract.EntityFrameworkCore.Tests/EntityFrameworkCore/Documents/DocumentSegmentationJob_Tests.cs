@@ -94,14 +94,12 @@ public class DocumentSegmentationJob_Tests : VaultExtractTestBase<DocumentSegmen
             // Born-digital text constituents -> Kind.Text (drives the #364 retraction filter).
             segments.ShouldAllBe(s => s.Kind == DocumentSegmentKind.Text);
 
-            var parent = await _documentRepository.GetAsync(containerId);
             var derived = await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId);
             derived.Count.ShouldBe(2);
-            // #481: each derived sub-document SHARES the parent's upload blob (never a copy) -- its Markdown is
-            // still seeded from the segment's SliceText, never re-extracted from that blob -- and its identity is
-            // still the OriginConstituentKey (= the segment key / slice hash).
-            derived.ShouldAllBe(d => d.FileOrigin.BlobName == parent.FileOrigin.BlobName);
-            derived.ShouldAllBe(d => d.FileOrigin.ContentHash == parent.FileOrigin.ContentHash);
+            // A derived sub-document carries no file of its own -- its Markdown is seeded from the segment's
+            // SliceText, never extracted from a blob -- and its identity is the OriginConstituentKey (= the
+            // segment key / slice hash).
+            derived.ShouldAllBe(d => d.FileOrigin == null);
             foreach (var d in derived)
             {
                 d.OriginConstituentKey.ShouldNotBeNull();
@@ -118,12 +116,9 @@ public class DocumentSegmentationJob_Tests : VaultExtractTestBase<DocumentSegmen
     [Fact]
     public async Task Spawned_Derived_Document_Reports_Zero_Size_Upload_Event()
     {
-        // #485 (A2): a derived document only ever SHARES its source's blob (#481) -- it contributes no
-        // independent storage of its own -- so DocumentUploadedEto must report FileSize 0 / FileName null /
-        // ContentType null, even though the spawned Document's own FileOrigin is still the parent's whole
-        // (non-null, non-zero) snapshot. Otherwise a downstream consumer accumulating storage/quota over
-        // DocumentUploadedEto.FileSize would N×-count the same bytes once per sub-document, contradicting
-        // IDocumentRepository.GetStatisticsAsync's own exclusion of derived rows from the byte sum.
+        // A derived sub-document carries no file of its own (FileOrigin null) -- it contributes no independent
+        // storage of its own -- so DocumentUploadedEto must report FileSize 0 / FileName null / ContentType null,
+        // matching the spawned Document's own null FileOrigin.
         var containerId = await ArrangeContainerAsync("Invoice A first\nInvoice B second");
         StubSplit(("Invoice A", true), ("Invoice B", true));
 
@@ -134,11 +129,10 @@ public class DocumentSegmentationJob_Tests : VaultExtractTestBase<DocumentSegmen
 
         await WithUnitOfWorkAsync(async () =>
         {
-            var parent = await _documentRepository.GetAsync(containerId);
             var derived = await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId);
             // The derived Document's own FileOrigin (persisted state, distinct from the upload EVENT above) is
-            // still the parent's whole shared snapshot, non-zero.
-            derived.ShouldAllBe(d => d.FileOrigin.FileSize == parent.FileOrigin.FileSize && d.FileOrigin.FileSize > 0);
+            // null too -- there is no shared/borrowed blob anymore.
+            derived.ShouldAllBe(d => d.FileOrigin == null);
         });
     }
 

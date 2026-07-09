@@ -9,52 +9,24 @@ namespace Dignite.Vault.Extract.Documents;
 public interface IDocumentRepository : IRepository<Document, Guid>
 {
     /// <summary>
-    /// Finds a <b>non-derived</b> document by exact <c>FileOrigin.BlobName</c> (#485, mirroring
-    /// <see cref="FindByContentHashAsync"/>'s #481 scoping fix). Since #481 a text-slice sub-document SHARES its
-    /// parent's whole upload blob (never a copy), so an unscoped lookup could nondeterministically resolve to a
-    /// child row instead of the parent that owns the blob as its own identity. Scoped to
-    /// <c>OriginDocumentId == null</c>. Does not traverse soft delete (unlike <see cref="FindByContentHashAsync"/>
-    /// / <see cref="AnyWithFileOriginBlobNameAsync"/>): only an active, non-recycle-bin document's own blob name
-    /// resolves.
+    /// Finds a <b>non-derived</b> document by exact <c>FileOrigin.BlobName</c>. Scoped to
+    /// <c>OriginDocumentId == null</c>. Does not traverse soft delete (unlike <see cref="FindByContentHashAsync"/>):
+    /// only an active, non-recycle-bin document's own blob name resolves.
     /// </summary>
     Task<Document?> FindByBlobNameAsync(
         string blobName,
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Finds a <b>non-derived</b> document by exact upload <c>FileOrigin.ContentHash</c> — the #221 upload-time
-    /// dedup check (<c>DocumentAppService.UploadAsync</c>). #481: scoped to <c>OriginDocumentId == null</c> — a
-    /// derived sub-document shares its parent's blob/hash (a text-slice child shares the whole bundle's hash; a
-    /// figure child shares the retained image's hash), so an unscoped check would nondeterministically report a
-    /// child row as "the duplicate". A re-uploaded bundle is still caught via its parent (non-derived) row;
-    /// deliberately re-uploading a standalone image that also happens to exist as a figure child is treated as a
-    /// legitimate new document — cross-artifact business-level duplicate detection is #411's fingerprint concern,
-    /// not this upload-time check.
+    /// Finds a document by exact upload <c>FileOrigin.ContentHash</c> — the #221 upload-time dedup check
+    /// (<c>DocumentAppService.UploadAsync</c>).
     /// <para>
-    /// Traverses soft-delete (the implementation disables <c>ISoftDelete</c>, like the sibling shared-blob checks on
-    /// this repository): a re-upload matching a recycle-bin document's hash must still surface as
-    /// <c>Document.InRecycleBin</c>, not silently be accepted as new.
+    /// Traverses soft-delete (the implementation disables <c>ISoftDelete</c>): a re-upload matching a recycle-bin
+    /// document's hash must still surface as <c>Document.InRecycleBin</c>, not silently be accepted as new.
     /// </para>
     /// </summary>
     Task<Document?> FindByContentHashAsync(
         string contentHash,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Whether any document other than <paramref name="excludeDocumentId"/> has a <c>FileOrigin.BlobName</c> equal to
-    /// <paramref name="blobName"/> — the #478 shared-blob reference check used by
-    /// <c>DocumentAppService.PermanentDeleteAsync</c> before reclaiming a blob a figure sub-document may share with
-    /// its source. Existence-only (SQL <c>EXISTS</c>, no row materialization).
-    /// <para>
-    /// The implementation disables the <c>ISoftDelete</c> filter itself (like <see cref="FindByContentHashAsync"/>):
-    /// a recycle-bin document is restorable, so it still counts as a live reference; a hard-deleted row no longer
-    /// exists and correctly does not. <c>IMultiTenant</c> still applies by ambient state (source and sub-documents
-    /// share a tenant).
-    /// </para>
-    /// </summary>
-    Task<bool> AnyWithFileOriginBlobNameAsync(
-        string blobName,
-        Guid? excludeDocumentId = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -67,8 +39,8 @@ public interface IDocumentRepository : IRepository<Document, Guid>
     /// no row materialization).
     /// <para>
     /// Filters <c>OriginDocumentId == originDocumentId &amp;&amp; OriginConstituentKey == originConstituentKey
-    /// &amp;&amp; Id != excludeDocumentId &amp;&amp; !IsDeleted</c>. Unlike <see cref="AnyWithFileOriginBlobNameAsync"/>
-    /// this deliberately does <b>not</b> disable the <c>ISoftDelete</c> filter itself — soft-deleted siblings must
+    /// &amp;&amp; Id != excludeDocumentId &amp;&amp; !IsDeleted</c>. This deliberately does <b>not</b> disable the
+    /// <c>ISoftDelete</c> filter itself — soft-deleted siblings must
     /// NOT count here — but the caller (<c>RestoreAsync</c>) runs inside its own
     /// <c>DataFilter.Disable&lt;ISoftDelete&gt;()</c> scope to load the row being restored, so that ambient
     /// disabled state also reaches this call; the explicit <c>!IsDeleted</c> predicate re-excludes soft-deleted
@@ -212,12 +184,10 @@ public interface IDocumentRepository : IRepository<Document, Guid>
     /// it overlaps the lifecycle buckets and is not part of the <c>TotalCount</c> partition.
     /// </para>
     /// <para>
-    /// #481: the storage sum additionally excludes every derived sub-document (<c>OriginDocumentId != null</c>), on
-    /// top of the existing #346 container exclusion — a derived document shares its parent's
-    /// <c>FileOrigin.FileSize</c> (a text-slice child shares the whole bundle's size; a figure child shares the
-    /// retained image's size) rather than owning distinct bytes, so summing it too would multiply the same storage
-    /// by however many children exist. Document counts are unaffected: a derived sub-document is still a real
-    /// document and counts normally in its lifecycle bucket.
+    /// The storage sum also excludes every derived sub-document (<c>OriginDocumentId != null</c>), on top of the
+    /// existing #346 container exclusion — a derived document has no <c>FileOrigin</c> of its own (<c>null</c>), so
+    /// it contributes nothing to physical storage. Document counts are unaffected: a derived sub-document is still
+    /// a real document and counts normally in its lifecycle bucket.
     /// </para>
     /// </summary>
     Task<DocumentStatisticsModel> GetStatisticsAsync(CancellationToken cancellationToken = default);

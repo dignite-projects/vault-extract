@@ -71,11 +71,10 @@ public static class DocumentConsts
     /// consumers are provenance reads (listing a source's derived documents by
     /// <see cref="Document.OriginDocumentId"/>) and the parse-phase seed lookup (<c>DocumentParseBackgroundJob</c>
     /// resolves the seeding <c>DocumentSegment</c> row by <c>(SourceDocumentId, SegmentKey)</c> using this value to
-    /// recover <c>SliceText</c>). No longer guaranteed to equal the derived document's <c>FileOrigin.ContentHash</c>
-    /// (#481: a derived document's <c>FileOrigin</c> is now shared from elsewhere — the parent's own upload, or the
-    /// source's retained-figure blob — rather than derived from this constituent's own hash). Length matches
-    /// <see cref="FileOriginConsts.MaxContentHashLength"/> only because both are SHA-256 hex, not because of any
-    /// remaining equality.
+    /// recover <c>SliceText</c>). A derived document has <b>no <c>FileOrigin</c></b> at all — it is nullable again
+    /// (#487 reverted #481's required-<c>FileOrigin</c>: a markdown-slice sub-document carries no source file), so
+    /// there is no <c>FileOrigin.ContentHash</c> to compare against. Length matches
+    /// <see cref="FileOriginConsts.MaxContentHashLength"/> only because both are SHA-256 hex.
     /// </summary>
     public static int MaxOriginConstituentKeyLength { get; set; } = 64;
 

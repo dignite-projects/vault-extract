@@ -31,12 +31,11 @@ public class EfCoreDocumentRepository
         CancellationToken cancellationToken = default)
     {
         var dbSet = await GetDbSetAsync();
-        // #485: scoped to non-derived rows (OriginDocumentId == null), mirroring FindByContentHashAsync's #481
-        // fix — a text-slice sub-document now shares its parent's whole BlobName (never a copy), so an unscoped
-        // lookup could nondeterministically resolve to a child row instead of the parent that owns the blob.
+        // Scoped to non-derived rows (OriginDocumentId == null): a derived sub-document has no FileOrigin (null),
+        // so it can never match by BlobName anyway, but the explicit scoping keeps intent clear.
         return await dbSet
             .FirstOrDefaultAsync(
-                d => d.FileOrigin.BlobName == blobName && d.OriginDocumentId == null,
+                d => d.FileOrigin != null && d.FileOrigin.BlobName == blobName && d.OriginDocumentId == null,
                 GetCancellationToken(cancellationToken));
     }
 
@@ -47,32 +46,10 @@ public class EfCoreDocumentRepository
         using (DataFilter.Disable<ISoftDelete>())
         {
             var dbSet = await GetDbSetAsync();
-            // #481: scoped to non-derived rows (OriginDocumentId == null) — a derived sub-document shares its
-            // parent's ContentHash, so an unscoped check could nondeterministically report a child as "the
-            // duplicate" instead of the parent. See the XML doc on IDocumentRepository.FindByContentHashAsync.
             return await dbSet
                 .FirstOrDefaultAsync(
-                    d => d.FileOrigin.ContentHash == contentHash && d.OriginDocumentId == null,
+                    d => d.FileOrigin != null && d.FileOrigin.ContentHash == contentHash,
                     GetCancellationToken(cancellationToken));
-        }
-    }
-
-    public virtual async Task<bool> AnyWithFileOriginBlobNameAsync(
-        string blobName,
-        Guid? excludeDocumentId = null,
-        CancellationToken cancellationToken = default)
-    {
-        // #478 shared-blob reference check: soft-deleted documents are restorable, so they still count as live
-        // references (the same ISoftDelete-disable stance as FindByContentHashAsync above). excludeDocumentId keeps
-        // the document being permanently deleted from counting as its own reference — its hard delete may not be
-        // flushed yet within the ambient UoW.
-        using (DataFilter.Disable<ISoftDelete>())
-        {
-            var dbSet = await GetDbSetAsync();
-            return await dbSet.AnyAsync(
-                d => d.FileOrigin.BlobName == blobName
-                    && (excludeDocumentId == null || d.Id != excludeDocumentId),
-                GetCancellationToken(cancellationToken));
         }
     }
 
@@ -83,10 +60,9 @@ public class EfCoreDocumentRepository
         CancellationToken cancellationToken = default)
     {
         // #485: the caller (DocumentAppService.RestoreAsync) runs inside DataFilter.Disable<ISoftDelete>() to load
-        // the soft-deleted row being restored, so that ambient state reaches this query too -- unlike
-        // AnyWithFileOriginBlobNameAsync above, a soft-deleted sibling must NOT count as a live duplicate here, so
-        // filter explicitly on d.IsDeleted rather than relying on the (here, disabled) global ISoftDelete filter.
-        // IMultiTenant still applies by ambient state.
+        // the soft-deleted row being restored, so that ambient state reaches this query too -- a soft-deleted
+        // sibling must NOT count as a live duplicate here, so filter explicitly on d.IsDeleted rather than relying
+        // on the (here, disabled) global ISoftDelete filter. IMultiTenant still applies by ambient state.
         var dbSet = await GetDbSetAsync();
         return await dbSet.AnyAsync(
             d => d.OriginDocumentId == originDocumentId
@@ -119,7 +95,7 @@ public class EfCoreDocumentRepository
             {
                 Id = d.Id,
                 Title = d.Title,
-                FileName = d.FileOrigin.OriginalFileName,
+                FileName = d.FileOrigin != null ? d.FileOrigin.OriginalFileName : null,
                 CreationTime = d.CreationTime
             })
             .Take(maxResults)
@@ -263,13 +239,13 @@ public class EfCoreDocumentRepository
                 // sub-documents do not double-count. But a segmentation-incomplete container DOES need operator
                 // attention, so it is INCLUDED in NeedsReview below — the review-queue list (DocumentAppService.ApplyFilter)
                 // counts it too, so the dashboard count and the queue never drift (#333).
-                // #481: the byte sum ALSO excludes every derived sub-document (OriginDocumentId != null) — a derived
-                // document shares its parent's FileOrigin.FileSize (a text-slice child shares the whole bundle's
-                // size; a figure child shares the retained image's size) instead of owning distinct bytes, so
-                // summing it too would multiply the same storage by however many children exist. Document COUNTS
-                // are unaffected by this exclusion — a derived sub-document is still a real document.
+                // The byte sum ALSO excludes every derived sub-document (OriginDocumentId != null) — a derived
+                // document has no FileOrigin of its own (null), so it owns no distinct bytes to sum. Document
+                // COUNTS are unaffected by this exclusion — a derived sub-document is still a real document.
+                // FileOrigin is optional (owned reference navigation): the `d.FileOrigin == null` guard covers a
+                // non-derived non-container row defensively, even though a normal upload always has one.
                 Count = g.Sum(d => d.IsContainer ? 0L : 1L),
-                Bytes = g.Sum(d => d.IsContainer || d.OriginDocumentId != null ? 0L : d.FileOrigin.FileSize),
+                Bytes = g.Sum(d => d.IsContainer || d.OriginDocumentId != null || d.FileOrigin == null ? 0L : d.FileOrigin.FileSize),
                 NeedsReview = g.Sum(d =>
                     d.ReviewReasons != DocumentReviewReasons.None
                     && d.ReviewDisposition != DocumentReviewDisposition.Rejected

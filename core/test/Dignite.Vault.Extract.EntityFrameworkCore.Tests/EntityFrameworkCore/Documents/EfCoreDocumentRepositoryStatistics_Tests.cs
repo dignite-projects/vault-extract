@@ -165,23 +165,23 @@ public class EfCoreDocumentRepositoryStatistics_Tests : VaultExtractEntityFramew
     [Fact]
     public async Task GetStatistics_Excludes_Derived_Documents_From_The_Storage_Sum_But_Still_Counts_Them()
     {
-        // #481: a derived sub-document SHARES its parent's FileOrigin/FileSize (a text-slice child shares the
-        // whole bundle's size; a figure child shares the retained image's size) rather than owning distinct bytes,
-        // so summing it too would multiply the same storage by however many children exist. Document counts are
-        // unaffected -- a derived document is still a real document and counts normally in its lifecycle bucket.
+        // A derived sub-document is excluded from the storage sum by OriginDocumentId != null, defensively, even
+        // in the unusual case where it carries a non-null FileOrigin (normally it carries none at all). Document
+        // counts are unaffected -- a derived document is still a real document and counts normally in its lifecycle
+        // bucket.
         await WithUnitOfWorkAsync(async () =>
         {
             var parent = NewDocument(1000);
             parent.TransitionLifecycle(DocumentLifecycleStatus.Ready);
             await _documentRepository.InsertAsync(parent, autoSave: true);
 
-            // Shares the parent's FileOrigin wholesale, including FileSize (#481). CloneFileOrigin (#485) builds an
-            // equal-valued (not same-reference) copy -- see its XML doc for why a same-reference FileOrigin instance
-            // cannot be attached to two Document rows within one DbContext.
+            // CloneFileOrigin builds an equal-valued (not same-reference) copy of the parent's FileOrigin -- see its
+            // XML doc for why a same-reference FileOrigin instance cannot be attached to two Document rows within
+            // one DbContext. parent.FileOrigin is never null here (constructed by NewDocument just above).
             var child = Document.CreateDerived(
                 _guidGenerator.Create(),
                 _currentTenant.Id,
-                CloneFileOrigin(parent.FileOrigin),
+                CloneFileOrigin(parent.FileOrigin!),
                 originDocumentId: parent.Id,
                 originConstituentKey: "slice-1");
             child.TransitionLifecycle(DocumentLifecycleStatus.Ready);

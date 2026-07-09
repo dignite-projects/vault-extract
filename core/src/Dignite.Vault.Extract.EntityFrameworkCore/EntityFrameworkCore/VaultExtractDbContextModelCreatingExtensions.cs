@@ -92,24 +92,22 @@ public static class VaultExtractDbContextModelCreatingExtensions
                 .HasForeignKey(f => f.DocumentId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // FileOrigin is required on every document (#481): an uploaded document points at its own upload blob;
-            // a derived sub-document shares a REAL blob (either the #477/#478 retained figure blob or the parent's
-            // upload blob) rather than carrying no blob at all. The pre-#481 "owned columns nullable so sub-document
-            // rows can write null for the whole owned entity" rationale is gone — every owned column below is
-            // required except OriginalFileName, which stays independently optional (FileOrigin's own constructor
-            // treats it as an optional display hint, unrelated to the #481 required-ness of the owner navigation).
+            // FileOrigin is optional: user-uploaded documents always have one (their own upload blob); derived
+            // sub-documents spawned from a container carry none (they seed Markdown from the segment slice and have
+            // no file of their own to parse or download). Owned columns are nullable so a sub-document row can write
+            // null for the whole owned entity.
             b.OwnsOne(x => x.FileOrigin, fo =>
             {
-                fo.Property(x => x.BlobName).IsRequired().HasMaxLength(FileOriginConsts.MaxBlobNameLength);
-                fo.Property(x => x.UploadedByUserName).IsRequired().HasMaxLength(FileOriginConsts.MaxUploadedByUserNameLength);
+                fo.Property(x => x.BlobName).HasMaxLength(FileOriginConsts.MaxBlobNameLength);
+                fo.Property(x => x.UploadedByUserName).HasMaxLength(FileOriginConsts.MaxUploadedByUserNameLength);
                 fo.Property(x => x.OriginalFileName).HasMaxLength(FileOriginConsts.MaxOriginalFileNameLength);
-                fo.Property(x => x.ContentType).IsRequired().HasMaxLength(FileOriginConsts.MaxContentTypeLength);
-                fo.Property(x => x.ContentHash).IsRequired().HasMaxLength(FileOriginConsts.MaxContentHashLength);
+                fo.Property(x => x.ContentType).HasMaxLength(FileOriginConsts.MaxContentTypeLength);
+                fo.Property(x => x.ContentHash).HasMaxLength(FileOriginConsts.MaxContentHashLength);
 
                 fo.HasIndex(x => x.BlobName);
                 fo.HasIndex(x => x.ContentHash);
             });
-            b.Navigation(x => x.FileOrigin).IsRequired();
+            b.Navigation(x => x.FileOrigin).IsRequired(false);
 
             // The DocumentPipelineRun FK + CASCADE are declared explicitly in the child-side configuration block (#216).
 
