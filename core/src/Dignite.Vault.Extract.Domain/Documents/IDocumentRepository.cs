@@ -12,6 +12,21 @@ public interface IDocumentRepository : IRepository<Document, Guid>
         string blobName,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Finds a <b>non-derived</b> document by exact upload <c>FileOrigin.ContentHash</c> — the #221 upload-time
+    /// dedup check (<c>DocumentAppService.UploadAsync</c>). #481: scoped to <c>OriginDocumentId == null</c> — a
+    /// derived sub-document shares its parent's blob/hash (a text-slice child shares the whole bundle's hash; a
+    /// figure child shares the retained image's hash), so an unscoped check would nondeterministically report a
+    /// child row as "the duplicate". A re-uploaded bundle is still caught via its parent (non-derived) row;
+    /// deliberately re-uploading a standalone image that also happens to exist as a figure child is treated as a
+    /// legitimate new document — cross-artifact business-level duplicate detection is #411's fingerprint concern,
+    /// not this upload-time check.
+    /// <para>
+    /// Traverses soft-delete (the implementation disables <c>ISoftDelete</c>, like the sibling shared-blob checks on
+    /// this repository): a re-upload matching a recycle-bin document's hash must still surface as
+    /// <c>Document.InRecycleBin</c>, not silently be accepted as new.
+    /// </para>
+    /// </summary>
     Task<Document?> FindByContentHashAsync(
         string contentHash,
         CancellationToken cancellationToken = default);
@@ -57,37 +72,6 @@ public interface IDocumentRepository : IRepository<Document, Guid>
         CancellationToken cancellationToken = default);
 
     Task HardDeleteAsync(Guid id, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Lists the derived sub-documents spawned from <paramref name="originDocumentId"/> (#306 / #346 Scenario B):
-    /// every <see cref="Document"/> whose <see cref="Document.OriginDocumentId"/> equals it. Served by the composite
-    /// unique index <c>(OriginDocumentId, OriginConstituentKey)</c> whose leading column is <c>OriginDocumentId</c>,
-    /// so no extra index is needed.
-    /// <para>
-    /// Used by the #349 container-retraction handler (<c>ContainerMarkerClearedEventHandler</c>): when a container is
-    /// reclassified to a concrete type, its previously-spawned sub-documents must be soft-deleted so they stop
-    /// double-counting downstream. Scalar fields + owned <c>FileOrigin</c> suffice (no child collection), so this does
-    /// not eager-load details. <c>IMultiTenant</c> + <c>ISoftDelete</c> global filters apply automatically by ambient
-    /// state, keeping the result within the container's own layer and excluding already-deleted sub-documents.
-    /// </para>
-    /// </summary>
-    Task<List<Document>> GetListByOriginAsync(
-        Guid originDocumentId,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Whether <paramref name="originDocumentId"/> still has any <b>live</b> derived sub-document (#306 / #346):
-    /// a non-soft-deleted <see cref="Document"/> whose <see cref="Document.OriginDocumentId"/> equals it. Existence-only
-    /// variant of <see cref="GetListByOriginAsync"/> (compiles to SQL <c>EXISTS</c>, no row materialization), used as the
-    /// <c>DocumentAppService.DeleteAsync</c> guard: a source must not be sent to the recycle bin while its constituents
-    /// are still live, otherwise their provenance back-reference would dangle. Served by the leading column of the
-    /// composite unique index <c>(OriginDocumentId, OriginConstituentKey)</c>. <c>IMultiTenant</c> + <c>ISoftDelete</c>
-    /// global filters apply automatically by ambient state, so already-deleted sub-documents do not count and the check
-    /// stays within the source's own layer.
-    /// </summary>
-    Task<bool> AnyByOriginAsync(
-        Guid originDocumentId,
-        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Finds a Document by Id and eager-loads <b>only</b> the <see cref="Document.ExtractedFieldValues"/> child collection.
@@ -192,6 +176,14 @@ public interface IDocumentRepository : IRepository<Document, Guid>
     /// Needs-review uses the canonical review-queue predicate
     /// (<c>ReviewReasons != None &amp;&amp; ReviewDisposition != Rejected</c>, shared with <c>DocumentAppService.ApplyFilter</c>);
     /// it overlaps the lifecycle buckets and is not part of the <c>TotalCount</c> partition.
+    /// </para>
+    /// <para>
+    /// #481: the storage sum additionally excludes every derived sub-document (<c>OriginDocumentId != null</c>), on
+    /// top of the existing #346 container exclusion — a derived document shares its parent's
+    /// <c>FileOrigin.FileSize</c> (a text-slice child shares the whole bundle's size; a figure child shares the
+    /// retained image's size) rather than owning distinct bytes, so summing it too would multiply the same storage
+    /// by however many children exist. Document counts are unaffected: a derived sub-document is still a real
+    /// document and counts normally in its lifecycle bucket.
     /// </para>
     /// </summary>
     Task<DocumentStatisticsModel> GetStatisticsAsync(CancellationToken cancellationToken = default);

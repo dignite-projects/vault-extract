@@ -5,7 +5,6 @@ using Dignite.Vault.Extract.Documents;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Shouldly;
-using Volo.Abp;
 using Volo.Abp.BackgroundJobs;
 using Volo.Abp.BlobStoring;
 using Volo.Abp.EventBus.Distributed;
@@ -16,12 +15,12 @@ using Xunit;
 namespace Dignite.Vault.Extract.EntityFrameworkCore.Documents;
 
 [DependsOn(typeof(VaultExtractEntityFrameworkCoreTestModule))]
-public class DocumentDeleteGuardTestModule : AbpModule
+public class DocumentParentDeleteTestModule : AbpModule
 {
     public override void ConfigureServices(ServiceConfigurationContext context)
     {
         // DeleteAsync publishes a DocumentDeletedEto and the wider app-service graph touches these out-of-process
-        // collaborators; substitute them so the test exercises the real DB + the real AnyByOriginAsync guard query.
+        // collaborators; substitute them so the test exercises the real DB.
         context.Services.AddSingleton(Substitute.For<IBackgroundJobManager>());
         context.Services.AddSingleton(Substitute.For<IBlobContainer<VaultExtractDocumentContainer>>());
         context.Services.AddSingleton(Substitute.For<IDistributedEventBus>());
@@ -29,21 +28,23 @@ public class DocumentDeleteGuardTestModule : AbpModule
 }
 
 /// <summary>
-/// Integration tests for the <c>DocumentAppService.DeleteAsync</c> sub-document guard: a source document must not be
-/// sent to the recycle bin while it still has <b>live</b> derived sub-documents (<see cref="Document.OriginDocumentId"/>),
-/// otherwise their provenance back-reference would dangle and their detail page could no longer resolve the now-gone
-/// source. Runs against the real SQLite DB so the <c>AnyByOriginAsync</c> EXISTS query and the ambient
-/// <c>ISoftDelete</c> filter interaction are actually exercised (the AppService unit tests only mock the repository).
+/// Integration tests for <c>DocumentAppService.DeleteAsync</c> against a source document that still has derived
+/// sub-documents (#481, formerly <c>DocumentDeleteGuard_Tests</c>): the guard that used to block this soft-delete
+/// is removed entirely — children now own a real <see cref="Document.FileOrigin"/> and a fully independent
+/// lifecycle, so deleting a parent never cascades to them, and a dangling <see cref="Document.OriginDocumentId"/>
+/// provenance pointer left on a soft-deleted source is accepted (downstream consumes provenance at Ready time).
+/// Runs against the real SQLite DB so the source's soft-delete and the children's untouched liveness are actually
+/// exercised (the AppService unit tests only mock the repository).
 /// </summary>
-public class DocumentDeleteGuard_Tests
-    : VaultExtractTestBase<DocumentDeleteGuardTestModule>
+public class DocumentParentDelete_Tests
+    : VaultExtractTestBase<DocumentParentDeleteTestModule>
 {
     private readonly IDocumentAppService _appService;
     private readonly IDocumentRepository _documentRepository;
     private readonly IDistributedEventBus _eventBus;
     private readonly IGuidGenerator _guidGenerator;
 
-    public DocumentDeleteGuard_Tests()
+    public DocumentParentDelete_Tests()
     {
         _appService = GetRequiredService<IDocumentAppService>();
         _documentRepository = GetRequiredService<IDocumentRepository>();
@@ -52,50 +53,40 @@ public class DocumentDeleteGuard_Tests
     }
 
     [Fact]
-    public async Task DeleteAsync_Is_Blocked_While_The_Source_Has_Live_SubDocuments()
-    {
-        var (sourceId, _) = await ArrangeSourceWithChildrenAsync(childCount: 2);
-
-        var exception = await Should.ThrowAsync<BusinessException>(async () =>
-            await _appService.DeleteAsync(sourceId));
-        exception.Code.ShouldBe(VaultExtractErrorCodes.Document.HasSubDocuments);
-
-        // Fail closed: the source is still live (not sent to the recycle bin).
-        await WithUnitOfWorkAsync(async () =>
-            (await _documentRepository.GetAsync(sourceId)).IsDeleted.ShouldBeFalse());
-
-        // No DocumentDeletedEto fired for the blocked delete.
-        await _eventBus.DidNotReceive().PublishAsync(Arg.Any<DocumentDeletedEto>());
-    }
-
-    [Fact]
-    public async Task DeleteAsync_Succeeds_Once_The_SubDocuments_Are_Removed()
+    public async Task DeleteAsync_Succeeds_While_The_Source_Still_Has_Live_SubDocuments()
     {
         var (sourceId, childIds) = await ArrangeSourceWithChildrenAsync(childCount: 2);
 
-        // Remove (soft-delete) the children first — the operator-driven path the guard nudges toward. Once they are in
-        // the recycle bin the ambient ISoftDelete filter excludes them, so AnyByOriginAsync no longer sees live children.
+        // No guard trips — the delete just succeeds.
+        await _appService.DeleteAsync(sourceId);
+
         await WithUnitOfWorkAsync(async () =>
         {
+            // The source itself is soft-deleted (invisible under the ambient ISoftDelete filter).
+            (await _documentRepository.FindAsync(sourceId)).ShouldBeNull();
+
+            // Deleting the parent never cascades (#481): each child remains fully live, and its OriginDocumentId
+            // provenance pointer still resolves to the (now soft-deleted) source id — a dangling-but-accepted
+            // pointer, not a broken one.
             foreach (var childId in childIds)
             {
-                await _documentRepository.DeleteAsync(childId, autoSave: true);
+                var child = await _documentRepository.GetAsync(childId);
+                child.IsDeleted.ShouldBeFalse();
+                child.OriginDocumentId.ShouldBe(sourceId);
             }
         });
 
-        await _appService.DeleteAsync(sourceId);
-
-        // The source is now soft-deleted (invisible under the default filter) and exactly one DocumentDeletedEto fired.
-        await WithUnitOfWorkAsync(async () =>
-            (await _documentRepository.FindAsync(sourceId)).ShouldBeNull());
+        // Exactly one DocumentDeletedEto fired, for the source only — no cascade publish to children either.
         await _eventBus.Received(1).PublishAsync(
             Arg.Is<DocumentDeletedEto>(e => e.DocumentId == sourceId));
     }
 
     /// <summary>
     /// Seeds one source document plus <paramref name="childCount"/> derived sub-documents
-    /// (<see cref="Document.CreateDerived"/>, <c>OriginDocumentId</c> == source). Sub-documents carry no source blob,
-    /// mirroring the segmentation spawn. Returns the source id and the child ids.
+    /// (<see cref="Document.CreateDerived"/>, <c>OriginDocumentId</c> == source). FileOrigin is required on every
+    /// document (#481); this guard test only cares about the OriginDocumentId back-reference, so the child's
+    /// FileOrigin is a fake stand-in, not the real #481 shared-parent-blob value <c>DerivedDocumentSpawner</c>
+    /// produces. Returns the source id and the child ids.
     /// </summary>
     private async Task<(Guid SourceId, Guid[] ChildIds)> ArrangeSourceWithChildrenAsync(int childCount)
     {
@@ -123,7 +114,13 @@ public class DocumentDeleteGuard_Tests
                 var derived = Document.CreateDerived(
                     childId,
                     tenantId: null,
-                    fileOrigin: null,
+                    fileOrigin: new FileOrigin(
+                        blobName: $"blobs/{sourceId:N}.pdf",
+                        uploadedByUserName: "test-user",
+                        contentType: "application/pdf",
+                        contentHash: $"{Guid.NewGuid():N}{Guid.NewGuid():N}"[..64],
+                        fileSize: 2048,
+                        originalFileName: "bundle.pdf"),
                     originDocumentId: sourceId,
                     originConstituentKey: $"constituent-{i}");
                 await _documentRepository.InsertAsync(derived, autoSave: true);

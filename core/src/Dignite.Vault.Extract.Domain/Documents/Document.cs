@@ -17,8 +17,14 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     // Multi-tenancy
     public virtual Guid? TenantId { get; private set; }
 
-    /// <summary>File origin information (immutable). Null for derived sub-documents that carry no source blob (figure spans seeded from segment SliceText).</summary>
-    public virtual FileOrigin? FileOrigin { get; private set; }
+    /// <summary>
+    /// File origin information (immutable), required on every document (#481): an uploaded document points at its
+    /// own upload blob; a figure sub-document points at the shared <c>extraction-figures/{ownerId}/{hash}</c>
+    /// retained blob (#478); a text-slice sub-document points at its parent's upload blob, shared rather than
+    /// copied. The blob is provenance/download only — Markdown is always seeded from the segment slice, never
+    /// re-extracted from it.
+    /// </summary>
+    public virtual FileOrigin FileOrigin { get; private set; } = default!;
 
     /// <summary>
     /// Owning cabinet (manual organization dimension, #194). Nullable; null means "uncategorized".
@@ -191,12 +197,12 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     public Document(
         Guid id,
         Guid? tenantId,
-        FileOrigin? fileOrigin,
+        FileOrigin fileOrigin,
         Guid? cabinetId = null)
         : base(id)
     {
         TenantId = tenantId;
-        FileOrigin = fileOrigin;
+        FileOrigin = Check.NotNull(fileOrigin, nameof(fileOrigin));
         CabinetId = cabinetId;
         LifecycleStatus = DocumentLifecycleStatus.Uploaded;
     }
@@ -206,13 +212,15 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// (#306 / #346, Scenario B): an embedded figure (image path) or a Markdown slice (born-digital path). It is a
     /// normal peer <see cref="Document"/> that runs the full pipeline + egress; the only difference is the
     /// back-reference (<see cref="OriginDocumentId"/> / <see cref="OriginConstituentKey"/>).
-    /// <paramref name="fileOrigin"/> is <c>null</c> for figure sub-documents (no source blob; Markdown is seeded
-    /// from the segment SliceText instead of re-extracting a blob).
+    /// <paramref name="fileOrigin"/> is required (#481) on every derived document too: a figure sub-document
+    /// points at the shared #478 retained-figure blob, and a text-slice sub-document points at its parent's
+    /// shared upload blob — never a copy. Markdown is still seeded from the segment SliceText (seed precedence),
+    /// so the blob is provenance/download only, never re-extracted.
     /// </summary>
     public static Document CreateDerived(
         Guid id,
         Guid? tenantId,
-        FileOrigin? fileOrigin,
+        FileOrigin fileOrigin,
         Guid originDocumentId,
         string originConstituentKey)
     {
@@ -391,7 +399,7 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         SetReviewReason(DocumentReviewReasons.DuplicateSuspected, present: false);
     }
 
-        // High-confidence path: classification is decided -> clear UnresolvedClassification and reset disposition to NotReviewed.
+    // High-confidence path: classification is decided -> clear UnresolvedClassification and reset disposition to NotReviewed.
     internal void ApplyAutomaticClassificationResult(
         Guid documentTypeId,
         double classificationConfidence)

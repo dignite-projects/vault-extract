@@ -30,6 +30,11 @@ public class DocumentStatisticsDto
     /// </summary>
     public long NeedsReviewCount { get; set; }
 
-    /// <summary>Total original uploaded size in bytes (sum of <c>FileOrigin.FileSize</c>). Not archive / native-payload size.</summary>
+    /// <summary>
+    /// Total original uploaded size in bytes (sum of <c>FileOrigin.FileSize</c> across non-derived documents only —
+    /// #481: a derived sub-document shares its parent's FileOrigin/size rather than owning distinct bytes, so it is
+    /// excluded here to avoid multiplying the same storage by however many children exist). Not archive /
+    /// native-payload size.
+    /// </summary>
     public long TotalStorageBytes { get; set; }
 }

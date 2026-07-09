@@ -45,9 +45,9 @@ export class DocumentFilePreviewComponent implements OnInit {
   readonly contentType = computed(() => this.document()?.fileOrigin?.contentType ?? '');
   readonly isImage = computed(() => isImageContentType(this.contentType()));
   readonly isPdf = computed(() => isPdfContentType(this.contentType()));
-  // Sub-documents (#306/#346) carry no FileOrigin — there is no original file to fetch. Gate the blob fetch
-  // and the viewer on this so the page never calls GetBlobAsync for a blob-less document
-  // (Extract:DocumentNoSourceBlob); the template shows a neutral notice instead.
+  // #481: every document carries a required FileOrigin (a text-slice sub-document shares the parent's bundle
+  // file; a figure sub-document its retained image), so the preview now works for sub-documents too. This
+  // gate survives as null-safety for pre-migration legacy rows; the template shows a neutral notice then.
   readonly hasSourceFile = computed(() => !!this.document()?.fileOrigin);
 
   ngOnInit(): void {
@@ -67,7 +67,7 @@ export class DocumentFilePreviewComponent implements OnInit {
         next: doc => {
           this.document.set(doc);
           this.isLoading.set(false);
-          // A sub-document has no source blob; skip the fetch (would throw Extract:DocumentNoSourceBlob).
+          // Null-safety (#481: FileOrigin required; only pre-migration legacy rows can lack one): skip the fetch.
           if (doc.fileOrigin) {
             this.fileBlob.ensureLoaded(this.documentId);
           }

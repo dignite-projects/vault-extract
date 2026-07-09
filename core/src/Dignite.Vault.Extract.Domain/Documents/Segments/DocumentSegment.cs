@@ -21,8 +21,9 @@ namespace Dignite.Vault.Extract.Documents.Segments;
 /// <para>
 /// <b>The slice text lives on the row</b> (<see cref="SliceText"/>): it seeds the spawned derived document's
 /// Markdown directly (no re-extraction, so the exact slice is preserved — the #346 "never regenerate slice text"
-/// decision). The derived sub-document carries <b>no <c>FileOrigin</c></b> (it has no source blob of its own; its
-/// text originates from this row, not from re-extracting a file), so this row is the only durable home of the slice.
+/// decision). Since #481 the derived sub-document DOES carry a real, required <c>FileOrigin</c> — a shared blob
+/// (the #477/#478 retained figure blob, or the parent's own upload blob for a text slice) — but that blob is
+/// provenance/download only: it is never re-extracted, so this row remains the only durable home of the slice text.
 /// <see cref="SegmentKey"/> is the SHA-256 of the slice text and doubles as the derived document's
 /// <c>OriginConstituentKey</c>, giving idempotent routing (unique <c>(SourceDocumentId, SegmentKey)</c>);
 /// <see cref="Ordinal"/> is reading-order provenance only. A container's status is sticky (#346), so within one mode
@@ -47,10 +48,11 @@ public class DocumentSegment : CreationAuditedAggregateRoot<Guid>, IMultiTenant
 
     /// <summary>
     /// The Markdown slice text. Working state on this aggregate: it seeds the derived document's Markdown directly
-    /// (skipping re-extraction so the exact slice is preserved) — the derived sub-document has no <c>FileOrigin</c>
-    /// blob, so this row is where its text originates. It is <b>not</b> a channel text egress, so it does not conflict
-    /// with Markdown-first (which governs the <see cref="Document"/> aggregate's text payload). Stored as
-    /// nvarchar(max), not indexed.
+    /// (skipping re-extraction so the exact slice is preserved) — even though the derived sub-document carries a
+    /// real, required <c>FileOrigin</c> (#481: a shared blob, never its own copy), that blob is provenance/download
+    /// only, so this row is still where the child's text originates. It is <b>not</b> a channel text egress, so it
+    /// does not conflict with Markdown-first (which governs the <see cref="Document"/> aggregate's text payload).
+    /// Stored as nvarchar(max), not indexed.
     /// </summary>
     public virtual string SliceText { get; private set; } = default!;
 
@@ -77,11 +79,15 @@ public class DocumentSegment : CreationAuditedAggregateRoot<Guid>, IMultiTenant
     /// <summary>
     /// SHA-256 (lowercase hex) of the retained figure's <b>image bytes</b> (#477/#478), parsed from the in-span
     /// <c>![figure](figures/{hash}.{ext})</c> reference of a <see cref="DocumentSegmentKind.Figure"/> slice at
-    /// detection time; <c>null</c> for a <see cref="DocumentSegmentKind.Text"/> slice or when retention was off.
-    /// Persisted so the spawn phase is resumable: at spawn it resolves the source document's retained-figure
-    /// manifest by this hash and points the derived document's <c>FileOrigin</c> at the <b>shared</b> blob
-    /// (<c>extraction-figures/{sourceId}/{hash}</c> — the image is never stored twice). Distinct from
-    /// <see cref="SegmentKey"/> (the hash of the transcription <b>text</b>, the idempotency identity).
+    /// detection time. <c>null</c> for a <see cref="DocumentSegmentKind.Text"/> slice; a
+    /// <see cref="DocumentSegmentKind.Figure"/> span carrying no reference (retention was off at parse time) is no
+    /// longer persisted as a row at all (#481 retention coupling) — so on any row that DOES exist, Figure implies
+    /// this is non-null. Persisted so the spawn phase is resumable: at spawn it resolves the source document's
+    /// retained-figure manifest by this hash and points the derived document's required <c>FileOrigin</c> at the
+    /// <b>shared</b> blob (<c>extraction-figures/{sourceId}/{hash}</c> — the image is never stored twice); a
+    /// manifest miss at spawn time deletes the row instead (#481) rather than spawning with a fabricated
+    /// FileOrigin. Distinct from <see cref="SegmentKey"/> (the hash of the transcription <b>text</b>, the
+    /// idempotency identity).
     /// </summary>
     public virtual string? FigureContentHash { get; private set; }
 
@@ -133,8 +139,11 @@ public class DocumentSegment : CreationAuditedAggregateRoot<Guid>, IMultiTenant
     /// <summary>
     /// Records that the job spawned a derived <see cref="Document"/> from this slice (#346): links the derived
     /// document and moves <see cref="Status"/> to <see cref="DocumentSegmentStatus.Spawned"/>. Idempotent
-    /// re-routing is guarded upstream by the unique <c>(OriginDocumentId, OriginConstituentKey)</c> index on
-    /// the derived document.
+    /// re-routing is <b>no longer guarded by a Document-side unique index</b> (#481 removed it); this row's
+    /// <see cref="Status"/> transition, backed by this aggregate's optimistic-concurrency <c>ConcurrencyStamp</c>,
+    /// is now the sole idempotency guard — a sequential retry sees <see cref="DocumentSegmentStatus.Spawned"/> and
+    /// aborts before calling this method again, and a concurrent double-spawn's loser trips the concurrency check
+    /// when persisting this call's write (see <c>DerivedDocumentSpawner</c>).
     /// </summary>
     public void MarkSpawned(Guid routedDocumentId)
     {

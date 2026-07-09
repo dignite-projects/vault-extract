@@ -16,7 +16,9 @@ public class DuplicateCandidateModel
     /// <summary>Display title (derived from Markdown); may be null for historical / not-yet-titled documents.</summary>
     public string? Title { get; set; }
 
-    /// <summary>Original uploaded file name (from <c>FileOrigin</c>); null for derived sub-documents with no source blob.</summary>
+    /// <summary>Original uploaded file name (from <c>FileOrigin.OriginalFileName</c>). <c>FileOrigin</c> itself is
+    /// required on every document (#481, including derived sub-documents); this is null only when
+    /// <c>OriginalFileName</c> — independently optional on <c>FileOrigin</c> — was not supplied.</summary>
     public string? FileName { get; set; }
 
     public DateTime CreationTime { get; set; }

@@ -317,9 +317,6 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // Only fetch the blob stream: scalar fields + owned FileOrigin are loaded with the entity, and no child collection is needed.
         var document = await _documentRepository.GetAsync(id, includeDetails: false);
 
-        if (document.FileOrigin is null)
-            throw new BusinessException(VaultExtractErrorCodes.Document.NoSourceBlob);
-
         var stream = await _blobContainer.GetAsync(document.FileOrigin.BlobName);
 
         return new RemoteStreamContent(
@@ -360,20 +357,9 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     {
         var document = await _documentRepository.GetAsync(id);
 
-        // A source document must not enter the recycle bin while it still has live derived sub-documents (#306 / #346):
-        // soft-deleting it would strand its constituents — their OriginDocumentId provenance back-reference would dangle
-        // and their detail page could no longer resolve the now-gone source. Block the delete and let the operator remove
-        // its sub-documents first (the list's "view sub-documents" filter surfaces them by OriginDocumentId). Children
-        // already in the recycle bin do not count (the ambient ISoftDelete filter excludes them), so a source whose
-        // sub-documents are all already deleted can still be deleted. This guard is intentionally NOT a cascade: deleting
-        // the parent never auto-deletes children (they are independent peers that outlive the source, see
-        // Document.CreateDerived), unlike the #349 container→type reclassify retraction.
-        if (await _documentRepository.AnyByOriginAsync(id))
-        {
-            throw new BusinessException(VaultExtractErrorCodes.Document.HasSubDocuments)
-                .WithData("DocumentId", id);
-        }
-
+        // #481: children own a real FileOrigin and a fully independent lifecycle; a dangling OriginDocumentId
+        // provenance pointer on a deleted source is accepted (downstream consumes provenance at Ready time).
+        // Deleting a parent never cascades to children.
         await _documentRepository.DeleteAsync(id);
 
         // Notify downstream consumers: the Document entered the trash bin, so derived data should move to a recoverable archived state.
@@ -400,7 +386,11 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
 
         // #478: the FileOrigin reclaim is reference-aware — a figure sub-document's FileOrigin SHARES its source's
         // extraction-figures blob (never copied), so a borrowed blob is deleted only by whichever referencing side
-        // is permanently deleted last. A per-document upload blob (GUID key) is unshared and reclaims as always.
+        // is permanently deleted last. #481 generalizes the same reference-aware treatment to per-document upload
+        // blobs: a text-slice child now shares its PARENT's upload blob too (never copied), so
+        // ShouldReclaimFileOriginBlobAsync applies the identical check there — while the parent (or a sibling slice)
+        // is still alive, AnyWithFileOriginBlobNameAsync(exclude self) is true and this delete skips reclaim;
+        // whichever referencing side is permanently deleted last reclaims it.
         if (document.FileOrigin is not null && await ShouldReclaimFileOriginBlobAsync(document))
         {
             try
@@ -475,8 +465,11 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     }
 
     /// <summary>
-    /// Whether this document's <c>FileOrigin</c> blob may be reclaimed on permanent delete (#478). A per-document
-    /// upload blob (GUID key) is unshared — always reclaim. A blob under another document's
+    /// Whether this document's <c>FileOrigin</c> blob may be reclaimed on permanent delete (#478, generalized by
+    /// #481 to shared upload blobs). A non-figure-prefix (upload) blob is <b>no longer assumed unshared</b>: a
+    /// text-slice child now shares its PARENT's upload blob (never a copy), so reclaim only when no other row —
+    /// parent or sibling slice, soft-deleted included (still restorable) — still references the same blob name;
+    /// whoever is permanently deleted last reclaims it. A blob under another document's
     /// <c>extraction-figures/{ownerId}/…</c> prefix is a <b>borrowed</b> shared figure image (never copied): while
     /// the owner row exists (including soft-deleted — restorable), the owner's own manifest reclaim governs it, so
     /// skip; once the owner is hard-deleted (its reclaim skipped this blob because this document still referenced
@@ -485,9 +478,17 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// </summary>
     protected virtual async Task<bool> ShouldReclaimFileOriginBlobAsync(Document document)
     {
-        var blobName = document.FileOrigin!.BlobName;
+        var blobName = document.FileOrigin.BlobName;
         var ownerId = TryParseFigureBlobOwner(blobName);
-        if (ownerId is null || ownerId == document.Id)
+        if (ownerId is null)
+        {
+            // #481: a non-figure-prefix (upload) blob is no longer always unshared — a text-slice child now points
+            // at its PARENT's upload blob (shared, never copied), so an unconditional reclaim here would delete the
+            // parent's still-live original file out from under it. Reclaim only when no other row references it.
+            return !await _documentRepository.AnyWithFileOriginBlobNameAsync(blobName, excludeDocumentId: document.Id);
+        }
+
+        if (ownerId == document.Id)
         {
             return true;
         }
@@ -577,7 +578,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         if (document.IsDeleted)
         {
             throw new BusinessException(VaultExtractErrorCodes.Document.InRecycleBin)
-                .WithData("FileName", document.FileOrigin?.BlobName);
+                .WithData("FileName", document.FileOrigin.BlobName);
         }
 
         var latestRun = await _pipelineRunManager.EnsureRetryableAsync(id, input.PipelineCode);
@@ -607,7 +608,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         if (document.IsDeleted)
         {
             throw new BusinessException(VaultExtractErrorCodes.Document.InRecycleBin)
-                .WithData("FileName", document.FileOrigin?.BlobName);
+                .WithData("FileName", document.FileOrigin.BlobName);
         }
 
         // Automatic classification input is Document.Markdown. If text extraction has not produced text yet, reclassification cannot run.
@@ -641,7 +642,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         if (document.IsDeleted)
         {
             throw new BusinessException(VaultExtractErrorCodes.Document.InRecycleBin)
-                .WithData("FileName", document.FileOrigin?.BlobName);
+                .WithData("FileName", document.FileOrigin.BlobName);
         }
 
         // Field extraction hangs off DocumentType; unclassified documents have nothing to extract against.

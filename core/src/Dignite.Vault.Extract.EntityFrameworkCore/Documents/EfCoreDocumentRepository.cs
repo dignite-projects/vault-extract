@@ -33,7 +33,7 @@ public class EfCoreDocumentRepository
         var dbSet = await GetDbSetAsync();
         return await dbSet
             .FirstOrDefaultAsync(
-                d => d.FileOrigin != null && d.FileOrigin.BlobName == blobName,
+                d => d.FileOrigin.BlobName == blobName,
                 GetCancellationToken(cancellationToken));
     }
 
@@ -44,9 +44,12 @@ public class EfCoreDocumentRepository
         using (DataFilter.Disable<ISoftDelete>())
         {
             var dbSet = await GetDbSetAsync();
+            // #481: scoped to non-derived rows (OriginDocumentId == null) — a derived sub-document shares its
+            // parent's ContentHash, so an unscoped check could nondeterministically report a child as "the
+            // duplicate" instead of the parent. See the XML doc on IDocumentRepository.FindByContentHashAsync.
             return await dbSet
                 .FirstOrDefaultAsync(
-                    d => d.FileOrigin != null && d.FileOrigin.ContentHash == contentHash,
+                    d => d.FileOrigin.ContentHash == contentHash && d.OriginDocumentId == null,
                     GetCancellationToken(cancellationToken));
         }
     }
@@ -64,8 +67,7 @@ public class EfCoreDocumentRepository
         {
             var dbSet = await GetDbSetAsync();
             return await dbSet.AnyAsync(
-                d => d.FileOrigin != null
-                    && d.FileOrigin.BlobName == blobName
+                d => d.FileOrigin.BlobName == blobName
                     && (excludeDocumentId == null || d.Id != excludeDocumentId),
                 GetCancellationToken(cancellationToken));
         }
@@ -94,39 +96,11 @@ public class EfCoreDocumentRepository
             {
                 Id = d.Id,
                 Title = d.Title,
-                FileName = d.FileOrigin != null ? d.FileOrigin.OriginalFileName : null,
+                FileName = d.FileOrigin.OriginalFileName,
                 CreationTime = d.CreationTime
             })
             .Take(maxResults)
             .ToListAsync(GetCancellationToken(cancellationToken));
-    }
-
-    public virtual async Task<List<Document>> GetListByOriginAsync(
-        Guid originDocumentId,
-        CancellationToken cancellationToken = default)
-    {
-        // #349: list a source's derived sub-documents. The composite unique index (OriginDocumentId, OriginConstituentKey)
-        // has OriginDocumentId as its leading column, so this filter is index-served (no new index needed). IMultiTenant
-        // + ISoftDelete global filters apply automatically by ambient state — only the container's own layer, no
-        // already-deleted sub-documents. Scalar fields + owned FileOrigin suffice for the soft-delete + ETO publication.
-        var dbSet = await GetDbSetAsync();
-        return await dbSet
-            .Where(d => d.OriginDocumentId == originDocumentId)
-            .ToListAsync(GetCancellationToken(cancellationToken));
-    }
-
-    public virtual async Task<bool> AnyByOriginAsync(
-        Guid originDocumentId,
-        CancellationToken cancellationToken = default)
-    {
-        // Existence-only guard for DeleteAsync: does this source still have any LIVE derived sub-document? The default
-        // IMultiTenant + ISoftDelete global filters apply, so already-soft-deleted children do not count (a source whose
-        // sub-documents are all already in the recycle bin can still be deleted) and the check stays within the source's
-        // layer. Index-served by the leading OriginDocumentId column of the (OriginDocumentId, OriginConstituentKey) unique index.
-        var dbSet = await GetDbSetAsync();
-        return await dbSet.AnyAsync(
-            d => d.OriginDocumentId == originDocumentId,
-            GetCancellationToken(cancellationToken));
     }
 
     public override async Task<IQueryable<Document>> WithDetailsAsync()
@@ -266,8 +240,13 @@ public class EfCoreDocumentRepository
                 // sub-documents do not double-count. But a segmentation-incomplete container DOES need operator
                 // attention, so it is INCLUDED in NeedsReview below — the review-queue list (DocumentAppService.ApplyFilter)
                 // counts it too, so the dashboard count and the queue never drift (#333).
+                // #481: the byte sum ALSO excludes every derived sub-document (OriginDocumentId != null) — a derived
+                // document shares its parent's FileOrigin.FileSize (a text-slice child shares the whole bundle's
+                // size; a figure child shares the retained image's size) instead of owning distinct bytes, so
+                // summing it too would multiply the same storage by however many children exist. Document COUNTS
+                // are unaffected by this exclusion — a derived sub-document is still a real document.
                 Count = g.Sum(d => d.IsContainer ? 0L : 1L),
-                Bytes = g.Sum(d => d.IsContainer ? 0L : (d.FileOrigin != null ? d.FileOrigin.FileSize : 0L)),
+                Bytes = g.Sum(d => d.IsContainer || d.OriginDocumentId != null ? 0L : d.FileOrigin.FileSize),
                 NeedsReview = g.Sum(d =>
                     d.ReviewReasons != DocumentReviewReasons.None
                     && d.ReviewDisposition != DocumentReviewDisposition.Rejected

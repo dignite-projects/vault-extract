@@ -25,14 +25,9 @@ public static class VaultExtractErrorCodes
         // not in whitelist).
         public const string FileTooLarge = "Extract:DocumentFileTooLarge";
         public const string UnsupportedFileType = "Extract:DocumentUnsupportedFileType";
-        // Derived sub-documents spawned from segment SliceText have no source blob; download is unavailable.
-        public const string NoSourceBlob = "Extract:DocumentNoSourceBlob";
         // #477: a figures/{hash} egress request whose hash is not in the document's retained-figure manifest
         // (retention was off when it was processed, or a stale / invalid reference).
         public const string FigureNotFound = "Extract:DocumentFigureNotFound";
-        // A document still has live (non-deleted) derived sub-documents (#306 / #346): deleting it would strand them
-        // with a dangling OriginDocumentId provenance back-reference, so the soft-delete is blocked until they are removed.
-        public const string HasSubDocuments = "Extract:DocumentHasSubDocuments";
     }
 
     public static class DocumentType

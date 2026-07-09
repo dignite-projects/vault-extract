@@ -25,11 +25,15 @@ namespace Dignite.Vault.Extract.Documents.Pipelines;
 /// tenant). This sink touches no blob storage, so blob lifecycle (write + any cleanup) stays entirely with the caller.
 /// </para>
 /// <para>
-/// <b>Idempotent + self-healing.</b> The derived insert is <c>autoSave: true</c>, so a concurrent double-spawn trips
-/// the unique <c>(OriginDocumentId, OriginConstituentKey)</c> index right here and the exception propagates to the
-/// caller's per-item isolation (the job is retried; on retry the candidate is terminal and skipped). When
-/// <paramref name="reloadClaimable"/> reports the candidate is no longer claimable (a concurrent run already routed it,
-/// or it was removed / reverted), the spawn is aborted cleanly — nothing is inserted and <c>null</c> is returned.
+/// <b>Idempotent + self-healing (#481: no longer backed by a Document-side unique index).</b> Idempotency now lives
+/// entirely on the candidate ledger (<c>DocumentSegment</c>'s unique <c>(SourceDocumentId, SegmentKey)</c> index +
+/// its <c>Status</c> transition): (a) a <b>sequential</b> retry — <paramref name="reloadClaimable"/> reloads the
+/// candidate fresh inside this UoW and sees it already marked spawned, so it aborts cleanly, nothing is inserted,
+/// and <c>null</c> is returned; (b) a <b>concurrent</b> double-spawn — both racers pass the reload (neither has
+/// committed yet), both insert a derived <see cref="Document"/>, but the loser's <paramref name="markSpawned"/>
+/// write trips the candidate row's optimistic-concurrency <c>ConcurrencyStamp</c> at commit, and because this UoW is
+/// transactional (see the <c>isTransactional: true</c> note below) the loser's Document insert AND its outbox
+/// <see cref="DocumentUploadedEto"/> roll back together — no orphan Document, no duplicate event.
 /// </para>
 /// <para>
 /// <b>UoW discipline</b> (background-jobs.md): the caller's blob IO and any gate/LLM work run outside any UoW; only
@@ -81,21 +85,29 @@ public class DerivedDocumentSpawner : ITransientDependency
     /// <param name="sourceDocumentId">The source document the constituent belongs to (the derived doc's <c>OriginDocumentId</c>).</param>
     /// <param name="tenantId">The source/derived tenant; the UoW and the delegates run under this tenant.</param>
     /// <param name="constituentKey">The content-derived key (the derived doc's <c>OriginConstituentKey</c>): SHA-256 of the clean slice text.</param>
-    /// <param name="fileOrigin">The derived document's file origin, or <c>null</c> for sub-documents with no source blob (figure spans seeded from segment SliceText).</param>
+    /// <param name="fileOrigin">
+    /// The derived document's file origin (#481: required on every document, including derived ones) — a figure
+    /// sub-document's shared #478 retained blob, or a text-slice sub-document's shared parent upload blob.
+    /// </param>
     /// <param name="reloadClaimable">Reloads the candidate inside the UoW; returns it when still claimable, or <c>null</c> to abort.</param>
     /// <param name="markSpawned">Marks the (reloaded) candidate spawned with the derived document id and persists it.</param>
     public virtual async Task<Guid?> SpawnAsync<TCandidate>(
         Guid sourceDocumentId,
         Guid? tenantId,
         string constituentKey,
-        FileOrigin? fileOrigin,
+        FileOrigin fileOrigin,
         Func<Task<TCandidate?>> reloadClaimable,
         Func<TCandidate, Guid, Task> markSpawned,
         CancellationToken cancellationToken = default)
         where TCandidate : class
     {
+        // #481: isTransactional: true is mandatory, not cosmetic. Without it, a losing concurrent racer's autoSaved
+        // Document insert below would durably commit even though its markSpawned UPDATE then fails the
+        // ConcurrencyStamp check — leaving an orphan Document plus a duplicate outbox DocumentUploadedEto with no
+        // corresponding ledger row. A real DB transaction makes the whole short UoW atomic, so the loser's insert +
+        // outbox entry roll back together with its failed markSpawned write.
         using (_currentTenant.Change(tenantId))
-        using (var uow = _unitOfWorkManager.Begin(requiresNew: true))
+        using (var uow = _unitOfWorkManager.Begin(requiresNew: true, isTransactional: true))
         {
             var candidate = await reloadClaimable();
             if (candidate is null)
@@ -108,8 +120,10 @@ public class DerivedDocumentSpawner : ITransientDependency
             var derived = Document.CreateDerived(
                 derivedDocumentId, tenantId, fileOrigin, sourceDocumentId, constituentKey);
 
-            // autoSave so a concurrent double-spawn trips the unique (OriginDocumentId, OriginConstituentKey) index
-            // right here; the exception propagates to the caller's per-item isolation and the job is retried.
+            // autoSave is still harmless (not a correctness lever) — the enclosing transaction is what governs
+            // atomicity now that there is no unique (OriginDocumentId, OriginConstituentKey) index on Document to
+            // trip (#481). A concurrent double-spawn is instead caught by markSpawned's ConcurrencyStamp check below
+            // and rolled back by the transaction.
             await _documentRepository.InsertAsync(derived, autoSave: true);
 
             await markSpawned(candidate, derivedDocumentId);
@@ -120,9 +134,9 @@ public class DerivedDocumentSpawner : ITransientDependency
                     DocumentId = derived.Id,
                     TenantId = derived.TenantId,
                     EventTime = _clock.Now,
-                    FileName = fileOrigin?.OriginalFileName,
-                    FileSize = fileOrigin?.FileSize ?? 0,
-                    ContentType = fileOrigin?.ContentType
+                    FileName = fileOrigin.OriginalFileName,
+                    FileSize = fileOrigin.FileSize,
+                    ContentType = fileOrigin.ContentType
                 });
 
             // Run the derived document through the full normal pipeline. Its text-extraction job seeds Markdown from

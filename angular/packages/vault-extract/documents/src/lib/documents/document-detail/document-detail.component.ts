@@ -304,11 +304,10 @@ export class DocumentDetailComponent implements OnInit {
     isPdfContentType(this.document()?.fileOrigin?.contentType)
   );
 
-  // Sub-documents (#306/#346) are spawned with no FileOrigin — their Markdown is seeded from the source
-  // segment slice, so there is no original file to preview or download. Gate every source-file affordance
-  // (Original File tab, footer, Download) on this so the UI never calls GetBlobAsync for a blob-less
-  // document, which fails with Extract:DocumentNoSourceBlob (and re-fires on every reload after rerecognize
-  // / Refresh while the file tab is active).
+  // #481: every document carries a required FileOrigin (a text-slice sub-document shares the parent's bundle
+  // file; a figure sub-document its retained image), so source-file affordances now show for sub-documents
+  // too — deliberate provenance UX. This gate survives as null-safety only: the DTO field is nullable and
+  // pre-migration legacy rows may lack a FileOrigin.
   hasSourceFile = computed(() => !!this.document()?.fileOrigin);
 
   // Intermediate computed for Markdown source (#274 review): when document() changes but markdown does
@@ -679,9 +678,9 @@ export class DocumentDetailComponent implements OnInit {
   // service prevents duplicate requests and revokes on component destroy.
   // Fixes imageError getting stuck and Refresh being ineffective.
   private ensureFilePreview(): void {
-    // A blob-less sub-document has no original file: never call getBlob for it (would throw
-    // Extract:DocumentNoSourceBlob). The Original File tab is hidden for it, but loadDocument still reaches
-    // here when the tab was active, so guard at the source — this is the path that re-fired on every reload.
+    // Null-safety guard (#481: FileOrigin is required, so this is only reachable for pre-migration legacy
+    // rows / a missing DTO field): skip the blob fetch when there is no FileOrigin. loadDocument still
+    // reaches here when the file tab was active, so guard at the source — this path re-fired on every reload.
     if (!this.hasSourceFile()) return;
     this.fileBlob.resetError();
     this.fileBlob.ensureLoaded(this.documentId);

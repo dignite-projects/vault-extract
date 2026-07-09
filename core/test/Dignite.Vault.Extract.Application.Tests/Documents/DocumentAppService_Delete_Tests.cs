@@ -88,40 +88,34 @@ public class DocumentAppService_Delete_Tests
     }
 
     [Fact]
-    public async Task DeleteAsync_Throws_HasSubDocuments_When_Document_Still_Has_Live_SubDocuments()
+    public async Task DeleteAsync_Succeeds_Even_When_Document_Still_Has_Live_SubDocuments()
     {
-        // A container (or any source document) must not be sent to the recycle bin while it still has live derived
-        // sub-documents, otherwise their OriginDocumentId provenance back-reference would dangle and their detail page
-        // would fail to resolve the now-gone source.
+        // #481: the former guard (block soft-delete of a source while it still has live derived sub-documents) is
+        // removed. Children now own a real FileOrigin and a fully independent lifecycle; a dangling OriginDocumentId
+        // provenance pointer on a deleted source is accepted (downstream consumes provenance at Ready time).
+        // Deleting a parent never cascades to children: exactly one DocumentDeletedEto fires, for the parent only.
         var doc = CreateDocument();
         _documentRepository.GetAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(doc);
-        _documentRepository.AnyByOriginAsync(doc.Id, Arg.Any<CancellationToken>())
-            .Returns(true);
 
-        var exception = await Should.ThrowAsync<BusinessException>(async () =>
-        {
-            await _appService.DeleteAsync(doc.Id);
-        });
+        await _appService.DeleteAsync(doc.Id);
 
-        exception.Code.ShouldBe(VaultExtractErrorCodes.Document.HasSubDocuments);
-
-        // Fail closed: neither the soft-delete nor the DocumentDeletedEto fire when the guard trips.
-        await _documentRepository.DidNotReceive().DeleteAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>());
-        await _distributedEventBus.DidNotReceive().PublishAsync(
-            Arg.Any<DocumentDeletedEto>(), Arg.Any<bool>());
+        await _documentRepository.Received(1).DeleteAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        await _distributedEventBus.Received(1).PublishAsync(
+            Arg.Is<DocumentDeletedEto>(e => e.DocumentId == doc.Id),
+            Arg.Any<bool>());
     }
 
     [Fact]
     public async Task DeleteAsync_Succeeds_When_SubDocuments_Are_All_Already_Deleted()
     {
-        // Children already in the recycle bin do not count (the ambient ISoftDelete filter excludes them, so
-        // AnyByOriginAsync returns false): a source whose sub-documents are all already deleted can still be deleted.
+        // A source whose sub-documents are all already deleted (or that never had any) is always deletable — the
+        // plain success path, now indistinguishable at this mocked-repository layer from the "still has live
+        // children" case above since #481 removed the guard entirely (the real DB-level distinction between live vs.
+        // already-deleted children lives in DocumentParentDelete_Tests).
         var doc = CreateDocument();
         _documentRepository.GetAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(doc);
-        _documentRepository.AnyByOriginAsync(doc.Id, Arg.Any<CancellationToken>())
-            .Returns(false);
 
         await _appService.DeleteAsync(doc.Id);
 
@@ -490,6 +484,60 @@ public class DocumentAppService_Delete_Tests
         await _appService.PermanentDeleteAsync(subDoc.Id);
 
         await _blobContainer.Received(1).DeleteAsync(borrowedBlob, Arg.Any<CancellationToken>());
+    }
+
+    // #481: a text-slice child's FileOrigin now SHARES its parent's upload (non-figure-prefix) blob, generalizing
+    // the #478 reference-aware reclaim from figure blobs to upload blobs too. This matrix mirrors the four figure
+    // tests above for that shared-upload-blob case.
+
+    [Fact]
+    public async Task PermanentDeleteAsync_Skips_A_Shared_Upload_Blob_Still_Referenced_By_The_Parent()
+    {
+        // (a) permanently deleting a text-slice CHILD while the parent (or a sibling slice) is still alive must NOT
+        // delete the shared upload blob.
+        var sharedBlob = $"blobs/{Guid.NewGuid():N}.pdf";
+        var child = CreateDocumentWithFileOrigin(sharedBlob);
+
+        _documentRepository.GetAsync(child.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(child);
+        _documentRepository
+            .AnyWithFileOriginBlobNameAsync(sharedBlob, child.Id, Arg.Any<CancellationToken>())
+            .Returns(true); // the parent (or a sibling slice) still references it
+
+        await _appService.PermanentDeleteAsync(child.Id);
+
+        await _blobContainer.DidNotReceive().DeleteAsync(sharedBlob, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PermanentDeleteAsync_Skips_A_Shared_Upload_Blob_While_A_Text_Slice_Child_Still_Lives()
+    {
+        // (b) the symmetric case: permanently deleting the PARENT while a text-slice child still references its
+        // upload blob must also skip reclaim (skip is logged, not thrown) — whoever dies last reclaims.
+        var doc = CreateDocument();
+
+        _documentRepository.GetAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(doc);
+        _documentRepository
+            .AnyWithFileOriginBlobNameAsync(doc.FileOrigin.BlobName, doc.Id, Arg.Any<CancellationToken>())
+            .Returns(true); // a live text-slice child still references the parent's upload blob
+
+        await _appService.PermanentDeleteAsync(doc.Id);
+
+        await _blobContainer.DidNotReceive().DeleteAsync(doc.FileOrigin.BlobName, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PermanentDeleteAsync_Reclaims_A_Shared_Upload_Blob_Once_No_Side_References_It()
+    {
+        // (c) the last referencing side (parent or child, whichever is permanently deleted last) reclaims the
+        // shared upload blob exactly once.
+        var doc = CreateDocument();
+
+        _documentRepository.GetAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(doc);
+        // AnyWithFileOriginBlobNameAsync substitute default = false: no other row references it.
+
+        await _appService.PermanentDeleteAsync(doc.Id);
+
+        await _blobContainer.Received(1).DeleteAsync(doc.FileOrigin.BlobName, Arg.Any<CancellationToken>());
     }
 
     private static Document CreateDocumentWithFileOrigin(string blobName)

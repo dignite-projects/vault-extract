@@ -197,8 +197,10 @@
                   <i class="fas fa-code me-1"></i>{{ '::Document:Tab:Source' | abpLocalization }}
                 </button>
               </li>
-              <!-- Sub-documents have no source blob (#306/#346); hide the Original File tab so the UI never
-                   calls GetBlobAsync for them (Extract:DocumentNoSourceBlob). -->
+              <!-- #481: every document carries a required FileOrigin now (a text-slice sub-document shares the
+                   parent's bundle file; a figure sub-document its retained image), so this tab shows for
+                   sub-documents too — deliberate provenance UX. The gate remains as null-safety only (nullable
+                   DTO field; pre-migration legacy rows). -->
               @if (hasSourceFile()) {
                 <li class="nav-item">
                   <button class="nav-link" [class.active]="activeTab() === 'file'"
@@ -266,9 +268,9 @@
               }
             }
           </div>
-          <!-- Source-file footer (name / type / download): only for documents that actually have a source
-               blob. A sub-document (#306/#346) has none, so hiding this avoids an empty footer and a Download
-               button that would fail with Extract:DocumentNoSourceBlob. -->
+          <!-- Source-file footer (name / type / download). #481: sub-documents carry a real FileOrigin too
+               (text slice → the parent's bundle file; figure → its retained image), so the footer shows for
+               them as well; the gate remains as null-safety only. -->
           @if (hasSourceFile()) {
             <div class="card-footer text-muted small d-flex align-items-center gap-2">
               <i class="fas fa-file"></i>
