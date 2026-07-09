@@ -374,72 +374,17 @@ public class DocumentAppService_Delete_Tests
         }
     }
 
-    // #481: a text-slice child's FileOrigin now SHARES its parent's upload blob, so
-    // ShouldReclaimFileOriginBlobAsync's reclaim-only-when-unreferenced check applies to that shared blob too
-    // (#487 Phase A removed the figure-blob-specific borrow branch this generic check used to sit alongside).
-
     [Fact]
-    public async Task PermanentDeleteAsync_Skips_A_Shared_Upload_Blob_Still_Referenced_By_The_Parent()
+    public async Task PermanentDeleteAsync_Deletes_The_Documents_Own_Blob()
     {
-        // (a) permanently deleting a text-slice CHILD while the parent (or a sibling slice) is still alive must NOT
-        // delete the shared upload blob.
-        var sharedBlob = $"blobs/{Guid.NewGuid():N}.pdf";
-        var child = CreateDocumentWithFileOrigin(sharedBlob);
-
-        _documentRepository.GetAsync(child.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(child);
-        _documentRepository
-            .AnyWithFileOriginBlobNameAsync(sharedBlob, child.Id, Arg.Any<CancellationToken>())
-            .Returns(true); // the parent (or a sibling slice) still references it
-
-        await _appService.PermanentDeleteAsync(child.Id);
-
-        await _blobContainer.DidNotReceive().DeleteAsync(sharedBlob, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task PermanentDeleteAsync_Skips_A_Shared_Upload_Blob_While_A_Text_Slice_Child_Still_Lives()
-    {
-        // (b) the symmetric case: permanently deleting the PARENT while a text-slice child still references its
-        // upload blob must also skip reclaim (skip is logged, not thrown) — whoever dies last reclaims.
+        // A document owns its own upload blob; permanent delete reclaims it unconditionally (no sharing exists).
         var doc = CreateDocument();
 
         _documentRepository.GetAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(doc);
-        _documentRepository
-            .AnyWithFileOriginBlobNameAsync(doc.FileOrigin.BlobName, doc.Id, Arg.Any<CancellationToken>())
-            .Returns(true); // a live text-slice child still references the parent's upload blob
-
-        await _appService.PermanentDeleteAsync(doc.Id);
-
-        await _blobContainer.DidNotReceive().DeleteAsync(doc.FileOrigin.BlobName, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task PermanentDeleteAsync_Reclaims_A_Shared_Upload_Blob_Once_No_Side_References_It()
-    {
-        // (c) the last referencing side (parent or child, whichever is permanently deleted last) reclaims the
-        // shared upload blob exactly once.
-        var doc = CreateDocument();
-
-        _documentRepository.GetAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(doc);
-        // AnyWithFileOriginBlobNameAsync substitute default = false: no other row references it.
 
         await _appService.PermanentDeleteAsync(doc.Id);
 
         await _blobContainer.Received(1).DeleteAsync(doc.FileOrigin.BlobName, Arg.Any<CancellationToken>());
-    }
-
-    private static Document CreateDocumentWithFileOrigin(string blobName)
-    {
-        return new Document(
-            Guid.NewGuid(),
-            Guid.NewGuid(),
-            new FileOrigin(
-                blobName: blobName,
-                uploadedByUserName: "test-user",
-                contentType: "image/png",
-                contentHash: "imghash",
-                fileSize: 10,
-                originalFileName: "figure-p1.png"));
     }
 
     private static Document CreateDocument()

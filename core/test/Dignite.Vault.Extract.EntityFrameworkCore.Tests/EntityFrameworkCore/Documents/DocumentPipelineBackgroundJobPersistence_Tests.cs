@@ -404,11 +404,13 @@ public class DocumentPipelineBackgroundJobPersistence_Tests
                 segmentKey: segmentKey, sliceText: seed, ordinal: 0,
                 kind: DocumentSegmentKind.Figure, pageNumber: 2), autoSave: true);
 
+            // A derived sub-document carries NO file of its own (FileOrigin null): the markdown-slice split does not
+            // give children a source file. So the parse job MUST seed Markdown from the segment slice and never touch
+            // a blob — passing null here exercises the real production shape and locks the null-FileOrigin parse path
+            // (a non-null FileOrigin would mask a regression where BeginRunAsync dereferences FileOrigin.BlobName).
             var derived = Document.CreateDerived(
                 derivedId, tenantId: null,
-                fileOrigin: new FileOrigin(
-                    blobName: $"blobs/{derivedId:N}.png", uploadedByUserName: "test-user",
-                    contentType: "image/png", contentHash: segmentKey, fileSize: 4, originalFileName: "figure.png"),
+                fileOrigin: null,
                 originDocumentId: sourceId, originConstituentKey: segmentKey);
             await _documentRepository.InsertAsync(derived, autoSave: true);
 
@@ -423,6 +425,7 @@ public class DocumentPipelineBackgroundJobPersistence_Tests
         {
             var derived = await _documentRepository.GetAsync(derivedId, includeDetails: false);
             derived.Markdown.ShouldBe(seed); // seeded from the segment slice, no OCR
+            derived.FileOrigin.ShouldBeNull(); // a split sub-document has no source file of its own
 
             // Kind / PageNumber round-trip through the DB on the source segment row.
             var segment = (await _segmentRepository.GetListAsync(s => s.SourceDocumentId == sourceId))

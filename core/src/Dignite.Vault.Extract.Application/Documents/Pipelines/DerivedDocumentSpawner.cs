@@ -86,8 +86,8 @@ public class DerivedDocumentSpawner : ITransientDependency
     /// <param name="tenantId">The source/derived tenant; the UoW and the delegates run under this tenant.</param>
     /// <param name="constituentKey">The content-derived key (the derived doc's <c>OriginConstituentKey</c>): SHA-256 of the clean slice text.</param>
     /// <param name="fileOrigin">
-    /// The derived document's file origin (#481: required on every document, including derived ones) — a figure
-    /// sub-document's shared #478 retained blob, or a text-slice sub-document's shared parent upload blob.
+    /// The derived document's file origin — always <c>null</c>: a derived sub-document has no file of its own to
+    /// parse or download.
     /// </param>
     /// <param name="reloadClaimable">Reloads the candidate inside the UoW; returns it when still claimable, or <c>null</c> to abort.</param>
     /// <param name="markSpawned">Marks the (reloaded) candidate spawned with the derived document id and persists it.</param>
@@ -95,7 +95,7 @@ public class DerivedDocumentSpawner : ITransientDependency
         Guid sourceDocumentId,
         Guid? tenantId,
         string constituentKey,
-        FileOrigin fileOrigin,
+        FileOrigin? fileOrigin,
         Func<Task<TCandidate?>> reloadClaimable,
         Func<TCandidate, Guid, Task> markSpawned,
         CancellationToken cancellationToken = default)
@@ -128,22 +128,15 @@ public class DerivedDocumentSpawner : ITransientDependency
 
             await markSpawned(candidate, derivedDocumentId);
 
-            // #485: a derived document only ever SHARES its source's blob (#481) -- it contributes no independent
-            // storage of its own -- so the upload event reports 0 / null here (restoring the pre-#481 semantics),
-            // NOT fileOrigin.OriginalFileName/FileSize/ContentType. Otherwise a downstream consumer accumulating
-            // storage/quota over DocumentUploadedEto.FileSize would N×-count the same bytes once per sub-document,
-            // contradicting IDocumentRepository.GetStatisticsAsync's own exclusion of derived rows
-            // (OriginDocumentId != null) from its byte sum. fileOrigin itself is still required just above for
-            // Document.CreateDerived -- only these ETO fields are affected.
             await _distributedEventBus.PublishAsync(
                 new DocumentUploadedEto
                 {
                     DocumentId = derived.Id,
                     TenantId = derived.TenantId,
                     EventTime = _clock.Now,
-                    FileName = null,
-                    FileSize = 0,
-                    ContentType = null
+                    FileName = fileOrigin?.OriginalFileName,
+                    FileSize = fileOrigin?.FileSize ?? 0,
+                    ContentType = fileOrigin?.ContentType
                 });
 
             // Run the derived document through the full normal pipeline. Its text-extraction job seeds Markdown from

@@ -106,24 +106,10 @@ public class DocumentParseBackgroundJob
                     IsComplete = true
                 };
             }
-            else if (workItem.IsDerived)
-            {
-                // #481: FileOrigin is required on every Document now, including a derived sub-document — but a
-                // text-slice child's FileOrigin points at the PARENT's SHARED upload blob, never its own. If the
-                // seed lookup in BeginRunAsync found no SliceText (the source DocumentSegment row is missing, or its
-                // SliceText is empty — a real data inconsistency, not "this document legitimately has no blob"),
-                // falling through to blob extraction below would silently re-extract the WHOLE parent bundle into
-                // this child instead of the exact detected slice (content drift). Fail the run loud instead: the old
-                // guard (workItem.BlobName is null, below) can no longer catch this case now that every document —
-                // derived or not — always has a FileOrigin / BlobName.
-                throw new InvalidOperationException(
-                    $"Derived document {args.DocumentId} has no seed Markdown from its source segment "
-                    + $"(run {workItem.RunId}); refusing to re-extract the shared parent blob.");
-            }
             else
             {
-                // Backstop kept for defense-in-depth (#481: should no longer be reachable since FileOrigin, and
-                // therefore BlobName, is required on every Document — including derived ones, guarded above).
+                // Sub-documents derived from segment SliceText always have SeedMarkdown set; a null BlobName here
+                // indicates a configuration or data inconsistency — fail fast rather than NPE on GetAsync.
                 if (workItem.BlobName is null)
                     throw new InvalidOperationException(
                         $"Document has no source blob and no seed Markdown (run {workItem.RunId}).");
@@ -179,10 +165,8 @@ public class DocumentParseBackgroundJob
         // re-extracting it (#371): the unified detection pass persisted that constituent as a DocumentSegment keyed
         // by the shared OriginConstituentKey (SHA-256 of the clean span). A figure-kind segment's SliceText is the
         // figure's transcription, a text-kind segment's is the constituent text — either way the exact (clean) slice,
-        // so there is no content drift. Loaded inside this UoW; null (the slice is missing/empty) now FAILS the run
-        // in ExecuteAsync instead of falling back to blob extraction (#481: a derived document's FileOrigin points at
-        // its PARENT's shared blob, so re-extracting it here would silently reprocess the whole bundle — see
-        // ParseWorkItem.IsDerived).
+        // so there is no content drift. Loaded inside this UoW; null (not derived, or the slice is missing/empty)
+        // falls back to the normal extraction path in ExecuteAsync.
         string? seedMarkdown = null;
         string? seedProviderName = null;
         if (document.OriginDocumentId.HasValue && !string.IsNullOrEmpty(document.OriginConstituentKey))
@@ -200,10 +184,9 @@ public class DocumentParseBackgroundJob
 
         return new ParseWorkItem(
             run.Id,
-            document.OriginDocumentId.HasValue,
-            document.FileOrigin.BlobName,
-            document.FileOrigin.ContentType,
-            document.FileOrigin.OriginalFileName,
+            document.FileOrigin?.BlobName,
+            document.FileOrigin?.ContentType,
+            document.FileOrigin?.OriginalFileName,
             seedMarkdown,
             seedProviderName);
     }
@@ -383,17 +366,8 @@ public class DocumentParseBackgroundJob
             : trimmed[..DocumentConsts.MaxTitleLength];
     }
 
-    /// <summary>
-    /// Begin-phase snapshot. <see cref="IsDerived"/> (#481, <c>Document.OriginDocumentId.HasValue</c>) marks a
-    /// sub-document whose <see cref="BlobName"/>/<see cref="ContentType"/> point at its PARENT's shared upload
-    /// blob, never its own — so when <see cref="SeedMarkdown"/> is null, <c>ExecuteAsync</c> must fail fast instead
-    /// of falling through to blob extraction (which would silently re-extract the whole parent bundle into this
-    /// child). <see cref="BlobName"/> is otherwise never null (<c>FileOrigin</c> is required on every Document,
-    /// #481); it stays nullable only as a defense-in-depth backstop for <c>ExecuteAsync</c>'s null check.
-    /// </summary>
     private sealed record ParseWorkItem(
         Guid RunId,
-        bool IsDerived,
         string? BlobName,
         string? ContentType,
         string? OriginalFileName,

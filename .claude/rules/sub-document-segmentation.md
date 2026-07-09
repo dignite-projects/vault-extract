@@ -36,10 +36,15 @@ Therefore `DocumentSegment` is a **durable internal ledger**, **not** a transien
 
 The fields mirrored between the two representations are intentional copies made at spawn time:
 `DocumentSegment.SegmentKey → Document.OriginConstituentKey`, `SourceDocumentId → OriginDocumentId`,
-`SliceText → Document.Markdown` (one-way seed), `TenantId → TenantId`. `Document.FileOrigin` is required at spawn
-too (#481) but is not a segment-field copy: a `Figure` child's `FileOrigin` resolves from the source's
-`FigureManifest` (the shared `extraction-figures/{sourceId}/{hash}` blob, #477/#478); a `Text` child's `FileOrigin`
-is the parent's own shared upload blob, copied wholesale.
+`SliceText → Document.Markdown` (one-way seed), `TenantId → TenantId`. A derived sub-document carries **no
+`FileOrigin` of its own** — `Document.FileOrigin` is nullable again and a spawned sub-document is created with
+`fileOrigin: null`. The markdown-slice split does not give children a source file: **#487 decided against
+physically splitting the source** (the cost of a per-child faithful file was not worth it), which reverted #481's
+required-`FileOrigin` back to the pre-#481 nullable design, and Phase A of #487 deleted the #477/#478 figure-image
+retention chain so figures now stay **inline** in the parent Markdown (no retained blob, no `FigureManifest`). To
+reach a sub-document's source, a consumer follows `OriginDocumentId` to the parent and downloads the parent's blob
+(a frontend concern). The parse job seeds a derived document's Markdown from its `SliceText` and **never touches a
+blob** (its `FileOrigin?.BlobName` is null) — see `Text_Extraction_Seeds_Derived_Document_From_Segment_Slice`.
 
 ## 🚦 RED LINE: the subsystem assumes exactly two Kinds {Text, Figure}
 

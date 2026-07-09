@@ -365,18 +365,9 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
 
         await _documentRepository.HardDeleteAsync(id);
 
-        // #478: the FileOrigin reclaim is reference-aware — a figure sub-document's FileOrigin SHARES its source's
-        // extraction-figures blob (never copied), so a borrowed blob is deleted only by whichever referencing side
-        // is permanently deleted last. #481 generalizes the same reference-aware treatment to per-document upload
-        // blobs: a text-slice child now shares its PARENT's upload blob too (never copied), so
-        // ShouldReclaimFileOriginBlobAsync applies the identical check there — while the parent (or a sibling slice)
-        // is still alive, AnyWithFileOriginBlobNameAsync(exclude self) is true and this delete skips reclaim;
-        // whichever referencing side is permanently deleted last reclaims it.
-        // #485: the `is not null` guard is kept (null-safe, not dead) for the SAME legacy reason B1 re-added the
-        // GetBlobAsync guard — a pre-#481 derived row with a null FileOrigin is reachable in the binaries-first
-        // deploy window; here it simply means "no blob to reclaim", so skip reclaim rather than NRE inside
-        // ShouldReclaimFileOriginBlobAsync (which dereferences FileOrigin.BlobName).
-        if (document.FileOrigin is not null && await ShouldReclaimFileOriginBlobAsync(document))
+        // A document owns its own upload blob; a derived sub-document has no FileOrigin (null), so there is
+        // nothing to reclaim for it.
+        if (document.FileOrigin is not null)
         {
             try
             {
@@ -415,36 +406,6 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
                 TenantId = document.TenantId,
                 EventTime = Clock.Now
             });
-    }
-
-    /// <summary>
-    /// Whether this document's <c>FileOrigin</c> blob may be reclaimed on permanent delete (#481). A blob is
-    /// <b>no longer assumed unshared</b>: a text-slice child now shares its PARENT's upload blob (never a copy),
-    /// so reclaim only when no other row — parent or sibling slice, soft-deleted included (still restorable) —
-    /// still references the same blob name; whoever is permanently deleted last reclaims it.
-    /// <para>
-    /// #487 Phase A removed the figure image storage/retention chain (#477/#478), so the borrowed-figure-blob
-    /// branch this method used to have (a blob under another document's <c>extraction-figures/{ownerId}/…</c>
-    /// prefix) is gone too — every remaining shared blob is a text-slice parent-upload blob, covered by the
-    /// generic check below.
-    /// </para>
-    /// <para>
-    /// #485 known limitation (documented, no behavior change): this "whoever dies last reclaims it" logic is
-    /// itself check-then-act, so two <b>concurrent</b> <see cref="PermanentDeleteAsync"/> calls on rows that share
-    /// one blob (routine post-#481: every parent + its text-slice children share the parent's upload blob) can
-    /// each run <see cref="IDocumentRepository.AnyWithFileOriginBlobNameAsync"/> before the other's
-    /// <see cref="IDocumentRepository.HardDeleteAsync"/> commits — under RCSI (or an equivalent read-committed
-    /// isolation level) both sides can observe the other row as "still present" and both skip reclaim, orphaning
-    /// the blob (accepted-rare-race posture, the same trade-off as the #221 content-hash upload race); under a
-    /// stricter locking read-committed level the two deletes may instead serialize/block on each other rather than
-    /// race. A stronger single-owner reclaim (e.g. electing exactly one referencing row to own cleanup) is a
-    /// possible follow-up, not implemented here.
-    /// </para>
-    /// </summary>
-    protected virtual async Task<bool> ShouldReclaimFileOriginBlobAsync(Document document)
-    {
-        var blobName = document.FileOrigin.BlobName;
-        return !await _documentRepository.AnyWithFileOriginBlobNameAsync(blobName, excludeDocumentId: document.Id);
     }
 
     /// <summary>
