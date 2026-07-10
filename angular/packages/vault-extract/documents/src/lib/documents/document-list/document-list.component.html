@@ -30,9 +30,11 @@
           }
         </button>
       }
-      <!-- #496: download the current view. Disabled until a single document type is selected — a download
-           config is type-bound, so without a type there is no config to run and no honest "current view"
-           to export. Scope is the active filter set (abp-extensible-table has no row selection). -->
+      <!-- #496 / #499: download the current view as every field the type defines. Disabled until a single
+           document type is selected — extracted fields are type-scoped, so without a type there are no
+           columns and no honest "current view" to export. The only choice left is the file format; #499
+           deleted the saved column projections. Scope is the active filter set (abp-extensible-table has no
+           row selection). -->
       @if (canExport) {
         <div ngbDropdown class="d-inline-block">
           <button
@@ -49,21 +51,13 @@
             {{ '::Document:Export' | abpLocalization }}
           </button>
           <div ngbDropdownMenu class="dropdown-menu-end">
-            @if (exportConfigs().length > 0) {
-              <h6 class="dropdown-header">{{ '::Document:Export:CurrentView' | abpLocalization }}</h6>
-              @for (config of exportConfigs(); track config.id) {
-                <button type="button" ngbDropdownItem (click)="exportCurrentView(config)">
-                  {{ config.name }}
-                  <span class="text-muted small ms-1">
-                    {{ config.format === ExportFormat.Xlsx ? 'XLSX' : 'CSV' }}
-                  </span>
-                </button>
-              }
-            } @else {
-              <span class="dropdown-item-text text-muted small">
-                {{ '::Document:Export:NoConfig' | abpLocalization }}
-              </span>
-            }
+            <h6 class="dropdown-header">{{ '::Document:Export:CurrentView' | abpLocalization }}</h6>
+            <button type="button" ngbDropdownItem (click)="exportCurrentView(ExportFormat.Csv)">
+              {{ '::ExportFormat:Csv' | abpLocalization }}
+            </button>
+            <button type="button" ngbDropdownItem (click)="exportCurrentView(ExportFormat.Xlsx)">
+              {{ '::ExportFormat:Xlsx' | abpLocalization }}
+            </button>
           </div>
         </div>
       }

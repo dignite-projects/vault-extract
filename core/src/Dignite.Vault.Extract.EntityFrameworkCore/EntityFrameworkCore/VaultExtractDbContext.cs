@@ -13,7 +13,6 @@ public class VaultExtractDbContext : AbpDbContext<VaultExtractDbContext>, IVault
     public DbSet<DocumentSegment> DocumentSegments { get; set; }
     public DbSet<DocumentType> DocumentTypes { get; set; }
     public DbSet<FieldDefinition> FieldDefinitions { get; set; }
-    public DbSet<ExportTemplate> ExportTemplates { get; set; }
     public DbSet<Cabinet> Cabinets { get; set; }
 
     public VaultExtractDbContext(DbContextOptions<VaultExtractDbContext> options)

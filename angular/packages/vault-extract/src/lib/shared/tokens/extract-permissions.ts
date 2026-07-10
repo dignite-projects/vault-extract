@@ -17,12 +17,6 @@ export const EXTRACT_PERMISSIONS = {
       FieldExtraction: 'VaultExtract.Documents.Reprocessing.FieldExtraction',
       Reclassification: 'VaultExtract.Documents.Reprocessing.Reclassification',
     },
-    Templates: {
-      Default: 'VaultExtract.Documents.Templates',
-      Create: 'VaultExtract.Documents.Templates.Create',
-      Update: 'VaultExtract.Documents.Templates.Update',
-      Delete: 'VaultExtract.Documents.Templates.Delete',
-    },
   },
   Cabinets: {
     Default: 'VaultExtract.Cabinets',

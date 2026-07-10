@@ -12,9 +12,29 @@
  * is to tell the operator to narrow the filter rather than silently hand them a truncated file.
  */
 
-/** `<config name>.csv` / `.xlsx` — the single place both download surfaces name the exported file. */
-export function exportFileName(templateName: string, isXlsx: boolean): string {
-  return templateName + (isXlsx ? '.xlsx' : '.csv');
+/**
+ * `{typeCode}-{yyyyMMdd-HHmmss}.{csv|xlsx}` (#499) — the same rule `DocumentExportAppService` applies to the
+ * `Content-Disposition` it sends. The name is recomputed here rather than read off that header because the
+ * host does not list `Content-Disposition` in `Access-Control-Expose-Headers` (`.AllowAnyHeader()` governs
+ * request headers, not response-header exposure), so a cross-origin SPA cannot see it.
+ *
+ * The two stamps are NOT the same instant: the host pins `AbpClockOptions.Kind = Utc`, while this uses the
+ * browser's local time, so a JST operator's file is named nine hours ahead of the server's — a different date
+ * either side of local midnight. Nothing depends on them agreeing (the SPA's `<a download>` always wins, and
+ * the server's name only ever reaches direct REST/MCP consumers), but do not mistake the difference for
+ * request latency. The single-source-of-truth fix is one `WithExposedHeaders("Content-Disposition")` on the
+ * host, after which this function can go away.
+ *
+ * `typeCode` is constrained to `[A-Za-z0-9_-.]` by `DocumentTypeConsts.TypeCodePattern`, so it needs no
+ * escaping; `displayName` would (it is CJK).
+ */
+export function exportFileName(typeCode: string, isXlsx: boolean, now: Date): string {
+  const p = (n: number, width = 2) => String(n).padStart(width, '0');
+  const stamp =
+    `${p(now.getFullYear(), 4)}${p(now.getMonth() + 1)}${p(now.getDate())}` +
+    `-${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
+
+  return `${typeCode}-${stamp}${isXlsx ? '.xlsx' : '.csv'}`;
 }
 
 /** Trigger a browser download for a freshly fetched blob. */

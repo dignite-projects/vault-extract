@@ -22,7 +22,7 @@ namespace Dignite.Vault.Extract.EntityFrameworkCore.Documents;
 /// <item>the same key is allowed across layers (Host <c>TenantId = null</c> vs a tenant GUID);</item>
 /// <item>a duplicate within a single layer is rejected with the entity's namespaced error code;</item>
 /// <item>the <c>delete -&gt; recreate -&gt; restore</c> semantics are preserved per entity (soft-delete-aware
-/// for DocumentType / FieldDefinition; active-only for the recycle-bin-less Cabinet / ExportTemplate).</item>
+/// for DocumentType / FieldDefinition; active-only for the recycle-bin-less Cabinet).</item>
 /// </list>
 /// </summary>
 public class LayeredUniqueness_Tests : VaultExtractEntityFrameworkCoreTestBase
@@ -30,7 +30,6 @@ public class LayeredUniqueness_Tests : VaultExtractEntityFrameworkCoreTestBase
     private readonly IDocumentTypeAppService _documentTypeAppService;
     private readonly IFieldDefinitionAppService _fieldDefinitionAppService;
     private readonly ICabinetAppService _cabinetAppService;
-    private readonly IExportTemplateAppService _exportTemplateAppService;
     private readonly ICurrentTenant _currentTenant;
 
     private static readonly Guid TenantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
@@ -40,7 +39,6 @@ public class LayeredUniqueness_Tests : VaultExtractEntityFrameworkCoreTestBase
         _documentTypeAppService = GetRequiredService<IDocumentTypeAppService>();
         _fieldDefinitionAppService = GetRequiredService<IFieldDefinitionAppService>();
         _cabinetAppService = GetRequiredService<ICabinetAppService>();
-        _exportTemplateAppService = GetRequiredService<IExportTemplateAppService>();
         _currentTenant = GetRequiredService<ICurrentTenant>();
     }
 
@@ -217,64 +215,6 @@ public class LayeredUniqueness_Tests : VaultExtractEntityFrameworkCoreTestBase
         });
     }
 
-    // ─── ExportTemplate (active-only, no restore) ──────────────────────────────
-
-    [Fact]
-    public async Task ExportTemplate_Duplicate_Name_In_Same_Layer_Is_Rejected()
-    {
-        var (typeId, fieldId) = await WithUnitOfWorkAsync(async () =>
-        {
-            var t = await _documentTypeAppService.CreateAsync(NewType("contract"));
-            var f = await _fieldDefinitionAppService.CreateAsync(NewField(t.Id, "amount"));
-            return (t.Id, f.Id);
-        });
-
-        await WithUnitOfWorkAsync(() => _exportTemplateAppService.CreateAsync(NewTemplate("Monthly", typeId, fieldId)));
-
-        var ex = await Should.ThrowAsync<BusinessException>(() =>
-            WithUnitOfWorkAsync(() => _exportTemplateAppService.CreateAsync(NewTemplate("Monthly", typeId, fieldId))));
-        ex.Code.ShouldBe(VaultExtractErrorCodes.Export.TemplateNameAlreadyExists);
-    }
-
-    [Fact]
-    public async Task ExportTemplate_Same_Name_Is_Allowed_Across_Layers()
-    {
-        // Host template.
-        await WithUnitOfWorkAsync(async () =>
-        {
-            var t = await _documentTypeAppService.CreateAsync(NewType("contract"));
-            var f = await _fieldDefinitionAppService.CreateAsync(NewField(t.Id, "amount"));
-            await _exportTemplateAppService.CreateAsync(NewTemplate("Monthly", t.Id, f.Id));
-        });
-
-        // Same name in a tenant layer is a separate, legitimate row.
-        await WithUnitOfWorkAsync(async () =>
-        {
-            using (_currentTenant.Change(TenantId))
-            {
-                var t = await _documentTypeAppService.CreateAsync(NewType("contract"));
-                var f = await _fieldDefinitionAppService.CreateAsync(NewField(t.Id, "amount"));
-                var dto = await _exportTemplateAppService.CreateAsync(NewTemplate("Monthly", t.Id, f.Id));
-                dto.Name.ShouldBe("Monthly");
-            }
-        });
-
-        // Both templates persist and coexist, each visible only in its own layer (no leakage, exactly one per layer).
-        await WithUnitOfWorkAsync(async () =>
-        {
-            var hostTemplates = await _exportTemplateAppService.GetListAsync();
-            hostTemplates.Count(t => t.Name == "Monthly").ShouldBe(1);
-        });
-
-        await WithUnitOfWorkAsync(async () =>
-        {
-            using (_currentTenant.Change(TenantId))
-            {
-                var tenantTemplates = await _exportTemplateAppService.GetListAsync();
-                tenantTemplates.Count(t => t.Name == "Monthly").ShouldBe(1);
-            }
-        });
-    }
 
     // ─── helpers ───────────────────────────────────────────────────────────────
 
@@ -294,11 +234,4 @@ public class LayeredUniqueness_Tests : VaultExtractEntityFrameworkCoreTestBase
         DataType = FieldDataType.Text
     };
 
-    private static CreateExportTemplateDto NewTemplate(string name, Guid documentTypeId, Guid fieldDefinitionId) => new()
-    {
-        Name = name,
-        Format = ExportFormat.Csv,
-        DocumentTypeId = documentTypeId,
-        Columns = new List<ExportColumnInput> { new() { FieldDefinitionId = fieldDefinitionId, Order = 0 } }
-    };
 }

@@ -108,7 +108,7 @@ public class DocumentTypeAppService : VaultExtractAppService, IDocumentTypeAppSe
 
         // Rename unlock (#207): run the domain duplicate check only when TypeCode changes. Same-layer (TenantId, TypeCode)
         // is unique; soft-deleted records occupy the name too, avoiding restore conflicts.
-        // Internal associations (Document / FieldDefinition / ExportTemplate) already use this type's immutable Id, so rename does not cascade to those tables.
+        // Internal associations (Document / FieldDefinition) already use this type's immutable Id, so rename does not cascade to those tables.
         if (!string.Equals(input.TypeCode, entity.TypeCode, StringComparison.Ordinal))
         {
             await _documentTypeManager.CheckCodeAvailableAsync(input.TypeCode);

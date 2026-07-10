@@ -13,6 +13,5 @@ public interface IVaultExtractDbContext : IEfCoreDbContext
     DbSet<DocumentSegment> DocumentSegments { get; }
     DbSet<DocumentType> DocumentTypes { get; }
     DbSet<FieldDefinition> FieldDefinitions { get; }
-    DbSet<ExportTemplate> ExportTemplates { get; }
     DbSet<Cabinet> Cabinets { get; }
 }

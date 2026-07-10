@@ -6,7 +6,6 @@ export const EXTRACT_TABLES = {
   Documents: 'VaultExtract.Documents',
   DocumentRecycleBin: 'VaultExtract.DocumentRecycleBin',
   DocumentTypes: 'VaultExtract.DocumentTypes',
-  ExportTemplates: 'VaultExtract.ExportTemplates',
   FieldDefinitions: 'VaultExtract.FieldDefinitions',
 } as const;
 

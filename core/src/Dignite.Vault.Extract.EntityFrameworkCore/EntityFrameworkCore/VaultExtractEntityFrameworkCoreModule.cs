@@ -23,7 +23,6 @@ public class VaultExtractEntityFrameworkCoreModule : AbpModule
             options.AddRepository<DocumentType, EfCoreDocumentTypeRepository>();
             options.AddRepository<FieldDefinition, EfCoreFieldDefinitionRepository>();
             options.AddRepository<Cabinet, EfCoreCabinetRepository>();
-            options.AddRepository<ExportTemplate, EfCoreExportTemplateRepository>();
             // #216: PipelineRun was promoted to an independent aggregate root.
             options.AddRepository<DocumentPipelineRun, EfCoreDocumentPipelineRunRepository>();
         });

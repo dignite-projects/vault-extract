@@ -9,35 +9,36 @@ using Dignite.Vault.Extract.Documents;
 using Dignite.Vault.Extract.Documents.Exports;
 using Dignite.Vault.Extract.Documents.Fields;
 using Shouldly;
-using Volo.Abp.Content;
+using Volo.Abp;
 using Volo.Abp.MultiTenancy;
 using Xunit;
 
 namespace Dignite.Vault.Extract.EntityFrameworkCore.Documents.Exports;
 
 /// <summary>
-/// #496: real EF (SQLite) coverage that <see cref="ExportTemplateAppService.ExportAsync"/> honours the two
-/// filters the operator document list can express — the review queue (<c>HasReviewReasons</c>, #284 / #395) and
-/// sub-document provenance (<c>OriginDocumentId</c>, #354) — so "export current view" exports exactly the view
-/// rather than a broader set. Also pins the two ways that guarantee could silently rot: the review filter must
-/// run the canonical <c>DocumentReviewQueries.RequiresAttention</c> predicate (a rejected document has already
-/// been handled and must stay out), and the explicit <c>DocumentIds</c> branch must keep ignoring both filters.
+/// #499 (carried over from #414 / #496): real EF (SQLite) coverage that <see cref="DocumentExportAppService"/>
+/// narrows by exactly the filters the operator document list can express — extracted field values, the review
+/// queue (<c>HasReviewReasons</c>, #284 / #395), and sub-document provenance (<c>OriginDocumentId</c>, #354) — so
+/// "download current view" downloads the view rather than a broader set.
+/// <para>
+/// Two ways that guarantee could silently rot are pinned here: the review filter must run the canonical
+/// <c>DocumentReviewQueries.RequiresAttention</c> predicate (a rejected document has already been handled and must
+/// stay out), and an unknown field name must loud-fail rather than silently matching nothing.
+/// </para>
 /// </summary>
-public class ExportTemplateAppService_ViewFilter_Tests : VaultExtractEntityFrameworkCoreTestBase
+public class DocumentExportAppService_Filter_Tests : VaultExtractEntityFrameworkCoreTestBase
 {
     private const string TypeCode = "invoice.general";
 
-    private readonly IExportTemplateAppService _exportAppService;
-    private readonly IExportTemplateRepository _templateRepository;
+    private readonly IDocumentExportAppService _exportAppService;
     private readonly IDocumentRepository _documentRepository;
     private readonly IDocumentTypeRepository _documentTypeRepository;
     private readonly IFieldDefinitionRepository _fieldDefinitionRepository;
     private readonly ICurrentTenant _currentTenant;
 
-    public ExportTemplateAppService_ViewFilter_Tests()
+    public DocumentExportAppService_Filter_Tests()
     {
-        _exportAppService = GetRequiredService<IExportTemplateAppService>();
-        _templateRepository = GetRequiredService<IExportTemplateRepository>();
+        _exportAppService = GetRequiredService<IDocumentExportAppService>();
         _documentRepository = GetRequiredService<IDocumentRepository>();
         _documentTypeRepository = GetRequiredService<IDocumentTypeRepository>();
         _fieldDefinitionRepository = GetRequiredService<IFieldDefinitionRepository>();
@@ -45,24 +46,62 @@ public class ExportTemplateAppService_ViewFilter_Tests : VaultExtractEntityFrame
     }
 
     [Fact]
+    public async Task Export_without_filters_includes_every_document_of_the_type()
+    {
+        await WithUnitOfWorkAsync(async () =>
+        {
+            await SeedSchemaAsync();
+            await SeedDocumentAsync(100m);
+            await SeedDocumentAsync(200m);
+        });
+
+        var csv = await ExportCsvAsync(NewInput());
+
+        // Baseline: proves the filters below are what narrow the result.
+        csv.ShouldContain("100");
+        csv.ShouldContain("200");
+    }
+
+    [Fact]
+    public async Task Export_narrows_documents_by_field_filter()
+    {
+        await WithUnitOfWorkAsync(async () =>
+        {
+            await SeedSchemaAsync();
+            await SeedDocumentAsync(100m);
+            await SeedDocumentAsync(200m);
+        });
+
+        var csv = await ExportCsvAsync(NewInput(i =>
+            i.FieldFilters = new List<DocumentFieldFilter> { new() { Name = "amount", Value = "100" } }));
+
+        csv.ShouldContain("100");
+        csv.ShouldNotContain("200");
+    }
+
+    [Fact]
+    public async Task Export_with_an_unknown_field_loud_fails()
+    {
+        await WithUnitOfWorkAsync(SeedSchemaAsync);
+
+        var ex = await Should.ThrowAsync<BusinessException>(() => _exportAppService.ExportAsync(NewInput(i =>
+            i.FieldFilters = new List<DocumentFieldFilter> { new() { Name = "ghost", Value = "x" } })));
+
+        ex.Code.ShouldBe(VaultExtractErrorCodes.ExtractedField.Unknown);
+    }
+
+    [Fact]
     public async Task Export_narrows_to_documents_requiring_review()
     {
-        var templateId = Guid.NewGuid();
         await WithUnitOfWorkAsync(async () =>
         {
             await SeedSchemaAsync();
             await SeedDocumentAsync(100m, d => d.SetReviewReason(DocumentReviewReasons.MissingRequiredFields, true));
             await SeedDocumentAsync(200m);
-            await SeedTemplateAsync(templateId);
         });
 
-        var csv = await ExportCsvAsync(new ExportDocumentsInput
-        {
-            TemplateId = templateId,
-            HasReviewReasons = true,
-        });
+        var csv = await ExportCsvAsync(NewInput(i => i.HasReviewReasons = true));
 
-        // Only the document carrying an unresolved review reason is exported.
         csv.ShouldContain("100");
         csv.ShouldNotContain("200");
     }
@@ -70,7 +109,6 @@ public class ExportTemplateAppService_ViewFilter_Tests : VaultExtractEntityFrame
     [Fact]
     public async Task Export_review_filter_excludes_a_rejected_document()
     {
-        var templateId = Guid.NewGuid();
         await WithUnitOfWorkAsync(async () =>
         {
             await SeedSchemaAsync();
@@ -83,14 +121,9 @@ public class ExportTemplateAppService_ViewFilter_Tests : VaultExtractEntityFrame
                 d.SetReviewReason(DocumentReviewReasons.MissingRequiredFields, true);
                 d.RejectReview("not a real invoice");
             });
-            await SeedTemplateAsync(templateId);
         });
 
-        var csv = await ExportCsvAsync(new ExportDocumentsInput
-        {
-            TemplateId = templateId,
-            HasReviewReasons = true,
-        });
+        var csv = await ExportCsvAsync(NewInput(i => i.HasReviewReasons = true));
 
         csv.ShouldContain("100");
         csv.ShouldNotContain("200");
@@ -99,7 +132,6 @@ public class ExportTemplateAppService_ViewFilter_Tests : VaultExtractEntityFrame
     [Fact]
     public async Task Export_narrows_to_the_sub_documents_of_a_source()
     {
-        var templateId = Guid.NewGuid();
         var containerId = Guid.NewGuid();
         await WithUnitOfWorkAsync(async () =>
         {
@@ -109,16 +141,10 @@ public class ExportTemplateAppService_ViewFilter_Tests : VaultExtractEntityFrame
             await SeedDerivedDocumentAsync(300m, containerId, "seg-2");
             // An unrelated top-level document of the same type: must not ride along.
             await SeedDocumentAsync(400m);
-            await SeedTemplateAsync(templateId);
         });
 
-        var csv = await ExportCsvAsync(new ExportDocumentsInput
-        {
-            TemplateId = templateId,
-            OriginDocumentId = containerId,
-        });
+        var csv = await ExportCsvAsync(NewInput(i => i.OriginDocumentId = containerId));
 
-        // Exactly the container's children — not the container itself, not the unrelated document.
         csv.ShouldContain("200");
         csv.ShouldContain("300");
         csv.ShouldNotContain("100");
@@ -128,7 +154,6 @@ public class ExportTemplateAppService_ViewFilter_Tests : VaultExtractEntityFrame
     [Fact]
     public async Task Export_and_combines_the_review_filter_with_a_field_filter()
     {
-        var templateId = Guid.NewGuid();
         await WithUnitOfWorkAsync(async () =>
         {
             await SeedSchemaAsync();
@@ -137,15 +162,13 @@ public class ExportTemplateAppService_ViewFilter_Tests : VaultExtractEntityFrame
             await SeedDocumentAsync(200m, d => d.SetReviewReason(DocumentReviewReasons.MissingRequiredFields, true));
             // Matches the field filter, but needs no review.
             await SeedDocumentAsync(300m);
-            await SeedTemplateAsync(templateId);
         });
 
-        var csv = await ExportCsvAsync(new ExportDocumentsInput
+        var csv = await ExportCsvAsync(NewInput(i =>
         {
-            TemplateId = templateId,
-            HasReviewReasons = true,
-            FieldFilters = new List<DocumentFieldFilter> { new() { Name = "amount", Value = "100" } },
-        });
+            i.HasReviewReasons = true;
+            i.FieldFilters = new List<DocumentFieldFilter> { new() { Name = "amount", Value = "100" } };
+        }));
 
         // AND, not OR: only the row satisfying both survives.
         csv.ShouldContain("100");
@@ -153,31 +176,11 @@ public class ExportTemplateAppService_ViewFilter_Tests : VaultExtractEntityFrame
         csv.ShouldNotContain("300");
     }
 
-    [Fact]
-    public async Task Export_by_document_ids_ignores_the_view_filters()
+    private static ExportDocumentsInput NewInput(Action<ExportDocumentsInput>? configure = null)
     {
-        var templateId = Guid.NewGuid();
-        var pickedId = Guid.NewGuid();
-        await WithUnitOfWorkAsync(async () =>
-        {
-            await SeedSchemaAsync();
-            // Needs no review and has no origin, yet it is explicitly picked: the ID set wins, exactly as it
-            // already does for FieldFilters. This is the checked-export contract, not an accident.
-            await SeedDocumentAsync(100m, id: pickedId);
-            await SeedDocumentAsync(200m, d => d.SetReviewReason(DocumentReviewReasons.MissingRequiredFields, true));
-            await SeedTemplateAsync(templateId);
-        });
-
-        var csv = await ExportCsvAsync(new ExportDocumentsInput
-        {
-            TemplateId = templateId,
-            DocumentIds = new List<Guid> { pickedId },
-            HasReviewReasons = true,
-            OriginDocumentId = Guid.NewGuid(),
-        });
-
-        csv.ShouldContain("100");
-        csv.ShouldNotContain("200");
+        var input = new ExportDocumentsInput { DocumentTypeCode = TypeCode };
+        configure?.Invoke(input);
+        return input;
     }
 
     private async Task<string> ExportCsvAsync(ExportDocumentsInput input)
@@ -226,15 +229,6 @@ public class ExportTemplateAppService_ViewFilter_Tests : VaultExtractEntityFrame
         configure?.Invoke(doc);
 
         await _documentRepository.InsertAsync(doc, autoSave: true);
-    }
-
-    private async Task SeedTemplateAsync(Guid templateId)
-    {
-        await _templateRepository.InsertAsync(
-            new ExportTemplate(
-                templateId, _currentTenant.Id, "invoices", ExportFormat.Csv, TypeId,
-                new List<ExportColumn> { new(AmountFieldId, 0) }),
-            autoSave: true);
     }
 
     private static FileOrigin NewFileOrigin(Guid documentId) => new(

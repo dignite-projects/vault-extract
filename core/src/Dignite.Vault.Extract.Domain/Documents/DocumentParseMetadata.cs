@@ -6,8 +6,8 @@ namespace Dignite.Vault.Extract.Documents;
 /// <summary>
 /// <b>Provenance metadata</b> for document text extraction (persisted value object, #210).
 /// Serialized as a whole into the <c>Document.ExtractionMetadata</c> JSON column
-/// (<c>AbpJsonValueConverter</c> plus a handwritten <c>ValueComparer</c>, following the
-/// <c>ExportTemplate.Columns</c> pattern).
+/// (<c>AbpJsonValueConverter</c> plus a handwritten <c>ValueComparer</c>, the #206 cross-DB pattern for a
+/// JSON-like payload with no per-column query requirement).
 /// <para>
 /// The <c>Text</c> class-name prefix disambiguates field extraction from text extraction.
 /// </para>
@@ -18,8 +18,7 @@ namespace Dignite.Vault.Extract.Documents;
 /// </para>
 /// <para>
 /// Get-only properties plus a single parameterized constructor let System.Text.Json reuse this
-/// constructor during deserialization, with parameter names matching property names. This follows the
-/// same pattern as <c>ExportColumn</c>.
+/// constructor during deserialization, with parameter names matching property names.
 /// </para>
 /// </summary>
 public class DocumentParseMetadata : ValueObject
