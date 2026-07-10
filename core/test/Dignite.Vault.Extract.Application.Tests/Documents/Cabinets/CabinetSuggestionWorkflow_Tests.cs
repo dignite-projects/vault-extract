@@ -109,22 +109,7 @@ public class CabinetSuggestionWorkflow_Tests
         CabinetSuggestionWorkflow.ClampConfidence(0.42).ShouldBe(0.42);
     }
 
-    [Fact]
-    public void Truncate_Does_Not_Split_Surrogate_Pair()
-    {
-        // "A" + 😀 (surrogate pair) + "B"; maxChars=2 lands inside the surrogate pair, so the entire high
-        // surrogate is dropped and the result is "A".
-        var result = CabinetSuggestionWorkflow.TruncateAtCharBoundary("A\U0001F600B", 2);
-
-        result.ShouldBe("A");
-        char.IsHighSurrogate(result[^1]).ShouldBeFalse();
-    }
-
-    [Fact]
-    public void Truncate_Returns_Text_Unchanged_When_Within_Limit()
-    {
-        CabinetSuggestionWorkflow.TruncateAtCharBoundary("hello", 10).ShouldBe("hello");
-    }
+    // Boundary-cut behavior now lives on the shared helper; see TextTruncatorTests (#491).
 
     [Fact]
     public void FormatCandidates_Numbers_Are_One_Based()

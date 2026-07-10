@@ -313,9 +313,10 @@ public class DocumentParseBackgroundJob
     {
         try
         {
-            var truncated = markdown.Length > _behaviorOptions.MaxTitleGenerationMarkdownLength
-                ? markdown[.._behaviorOptions.MaxTitleGenerationMarkdownLength]
-                : markdown;
+            // A raw markdown[..N] slice can land between the halves of a surrogate pair and emit a lone surrogate
+            // into the prompt. Classification and cabinet suggestion always cut at a char boundary; title generation
+            // did not. Use the shared helper (#491).
+            var truncated = TextTruncator.AtCharBoundary(markdown, _behaviorOptions.MaxTitleGenerationMarkdownLength);
 
             // Title policy: follow document language, built into the prompt, and do not consume DefaultLanguage; hence no-arg call.
             var template = _promptProvider.GetTitleGenerationPrompt();
