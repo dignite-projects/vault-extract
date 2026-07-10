@@ -30,6 +30,43 @@
           }
         </button>
       }
+      <!-- #496: download the current view. Disabled until a single document type is selected — a download
+           config is type-bound, so without a type there is no config to run and no honest "current view"
+           to export. Scope is the active filter set (abp-extensible-table has no row selection). -->
+      @if (canExport) {
+        <div ngbDropdown class="d-inline-block">
+          <button
+            type="button"
+            class="btn btn-outline-primary"
+            ngbDropdownToggle
+            [disabled]="!typeFilter() || isExporting()"
+            title="{{
+              (typeFilter() ? '::Document:Export:CurrentView' : '::Document:Export:SelectTypeHint')
+                | abpLocalization
+            }}"
+          >
+            <i class="fas me-1" [class.fa-download]="!isExporting()" [class.fa-spinner]="isExporting()" [class.fa-spin]="isExporting()"></i>
+            {{ '::Document:Export' | abpLocalization }}
+          </button>
+          <div ngbDropdownMenu class="dropdown-menu-end">
+            @if (exportConfigs().length > 0) {
+              <h6 class="dropdown-header">{{ '::Document:Export:CurrentView' | abpLocalization }}</h6>
+              @for (config of exportConfigs(); track config.id) {
+                <button type="button" ngbDropdownItem (click)="exportCurrentView(config)">
+                  {{ config.name }}
+                  <span class="text-muted small ms-1">
+                    {{ config.format === ExportFormat.Xlsx ? 'XLSX' : 'CSV' }}
+                  </span>
+                </button>
+              }
+            } @else {
+              <span class="dropdown-item-text text-muted small">
+                {{ '::Document:Export:NoConfig' | abpLocalization }}
+              </span>
+            }
+          </div>
+        </div>
+      }
       @if (canUpload) {
         <button class="btn btn-primary" (click)="uploadNew()">
           <i class="fas fa-upload me-1"></i>
