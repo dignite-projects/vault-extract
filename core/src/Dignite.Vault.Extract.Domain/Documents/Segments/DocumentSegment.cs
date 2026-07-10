@@ -21,9 +21,9 @@ namespace Dignite.Vault.Extract.Documents.Segments;
 /// <para>
 /// <b>The slice text lives on the row</b> (<see cref="SliceText"/>): it seeds the spawned derived document's
 /// Markdown directly (no re-extraction, so the exact slice is preserved — the #346 "never regenerate slice text"
-/// decision). Since #481 the derived sub-document DOES carry a real, required <c>FileOrigin</c> — a shared blob
-/// (the #477/#478 retained figure blob, or the parent's own upload blob for a text slice) — but that blob is
-/// provenance/download only: it is never re-extracted, so this row remains the only durable home of the slice text.
+/// decision). The derived sub-document carries <b>no <c>FileOrigin</c> at all</b> (#487 reverted #481's required
+/// <c>FileOrigin</c> back to nullable; a consumer reaches the source by following <c>OriginDocumentId</c> to the
+/// parent's blob), so this row is the only durable home of the child's text.
 /// <see cref="SegmentKey"/> is the SHA-256 of the slice text and doubles as the derived document's
 /// <c>OriginConstituentKey</c>, giving idempotent routing (unique <c>(SourceDocumentId, SegmentKey)</c>);
 /// <see cref="Ordinal"/> is reading-order provenance only. A container's status is sticky (#346), so within one mode
@@ -48,11 +48,12 @@ public class DocumentSegment : CreationAuditedAggregateRoot<Guid>, IMultiTenant
 
     /// <summary>
     /// The Markdown slice text. Working state on this aggregate: it seeds the derived document's Markdown directly
-    /// (skipping re-extraction so the exact slice is preserved) — even though the derived sub-document carries a
-    /// real, required <c>FileOrigin</c> (#481: a shared blob, never its own copy), that blob is provenance/download
-    /// only, so this row is still where the child's text originates. It is <b>not</b> a channel text egress, so it
-    /// does not conflict with Markdown-first (which governs the <see cref="Document"/> aggregate's text payload).
-    /// Stored as nvarchar(max), not indexed.
+    /// (skipping re-extraction so the exact slice is preserved). The derived sub-document has no blob of its own
+    /// (#487), so this row is where the child's text originates. For a <see cref="DocumentSegmentKind.Figure"/> span
+    /// this is the figure transcription only (<c>ImageOcrMarkup.ExtractBodies</c>, #373); for a
+    /// <see cref="DocumentSegmentKind.Text"/> span it is the prose with inline figure markers stripped. It is
+    /// <b>not</b> a channel text egress, so it does not conflict with Markdown-first (which governs the
+    /// <see cref="Document"/> aggregate's text payload). Stored as nvarchar(max), not indexed.
     /// </summary>
     public virtual string SliceText { get; private set; } = default!;
 
@@ -61,11 +62,11 @@ public class DocumentSegment : CreationAuditedAggregateRoot<Guid>, IMultiTenant
 
     /// <summary>
     /// Which kind of source span this segment was carved from by the unified detection pass (#371): a born-digital
-    /// text constituent (<see cref="DocumentSegmentKind.Text"/>) or — on legacy rows persisted before #487 retired
-    /// figure routing — an embedded-figure OCR span (<see cref="DocumentSegmentKind.Figure"/>). Drives retraction
-    /// (#364): a container→type reclassify retracts <see cref="DocumentSegmentKind.Text"/> children but keeps
-    /// <see cref="DocumentSegmentKind.Figure"/> ones. See <see cref="DocumentSegmentKind"/> for the legacy-row
-    /// retention rules.
+    /// text constituent (<see cref="DocumentSegmentKind.Text"/>) or an embedded-figure OCR span that is itself a
+    /// standalone document (<see cref="DocumentSegmentKind.Figure"/>, restored by #494). Drives both the spawn gate
+    /// (a Text span routes only while its source is still a container; a Figure span routes regardless) and
+    /// retraction (#364): a container→type reclassify retracts <see cref="DocumentSegmentKind.Text"/> children but
+    /// keeps <see cref="DocumentSegmentKind.Figure"/> ones.
     /// </summary>
     public virtual DocumentSegmentKind Kind { get; private set; }
 

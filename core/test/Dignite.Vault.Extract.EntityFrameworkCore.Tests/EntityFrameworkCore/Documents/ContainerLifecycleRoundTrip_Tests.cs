@@ -71,10 +71,9 @@ public class ContainerLifecycleRoundTrip_Tests
     private readonly IGuidGenerator _guidGenerator;
     private readonly IUnitOfWorkManager _unitOfWorkManager;
 
-    // A born-digital container Markdown carrying two text constituents (#301/#381 round-trip fixture). #487 Phase A
-    // removed the figure image storage/retention chain (#477/#478), so this fixture is plain text only — a figure
-    // span between the two constituents would never spawn a sub-document anymore (see DocumentSegmentationJob_Tests'
-    // Embedded_Figure_Span_In_A_Concrete_Document_Spawns_Nothing).
+    // A born-digital container Markdown carrying two text constituents (#301/#381 round-trip fixture). Kept plain
+    // text on purpose: this suite exercises the container→type→container lifecycle, and figure-span routing has its
+    // own coverage in DocumentSegmentationJob_Tests (Embedded_Figure_Span_In_A_Concrete_Document_Spawns_A_Figure_Sub_Document).
     private const string ContainerMarkdown = "Service A-B\nLease X-Y";
 
     public ContainerLifecycleRoundTrip_Tests()
