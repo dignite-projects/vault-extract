@@ -621,7 +621,10 @@ export class DocumentListComponent implements OnInit {
     this.isExporting.set(true);
 
     this.exportTemplateService
-      .export(toExportDocumentsInput(template.id!, this.buildFilter()))
+      // skipHandleError: ABP's global handler assumes a JSON error body and throws
+      // "Cannot read properties of undefined (reading 'details')" on this responseType:'blob' request
+      // before it can show anything. Opt out and own the error below.
+      .export(toExportDocumentsInput(template.id!, this.buildFilter()), { skipHandleError: true })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: blob => {

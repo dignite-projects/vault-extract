@@ -422,13 +422,19 @@ export class ExportTemplateListComponent implements OnInit {
     this.filteringTemplate.set(null);
 
     this.service
-      .export({
-        templateId: template.id!,
-        lifecycleStatus: f.lifecycleStatus ?? undefined,
-        cabinetId: f.cabinetId ?? undefined,
-        creationTimeMin: f.creationTimeMin ?? undefined,
-        creationTimeMax: f.creationTimeMax ?? undefined,
-      })
+      .export(
+        {
+          templateId: template.id!,
+          lifecycleStatus: f.lifecycleStatus ?? undefined,
+          cabinetId: f.cabinetId ?? undefined,
+          creationTimeMin: f.creationTimeMin ?? undefined,
+          creationTimeMax: f.creationTimeMax ?? undefined,
+        },
+        // skipHandleError: ABP's global handler assumes a JSON error body and throws
+        // "Cannot read properties of undefined (reading 'details')" on this responseType:'blob' request
+        // before it can show anything. Opt out and own the error below.
+        { skipHandleError: true },
+      )
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: blob => {
