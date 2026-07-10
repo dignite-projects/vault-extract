@@ -70,6 +70,54 @@ public class DocumentResources_Tests : VaultExtractTestBase<DocumentResourcesTes
     }
 
     /// <summary>
+    /// #491: the resource body is capped for the same reason the search tool caps its row count — one read must not
+    /// exhaust the client's context window. The cut is announced in the metadata header (system-controlled values, so
+    /// outside the PromptBoundary), and the <c>&lt;document&gt;</c> wrapper survives it.
+    /// </summary>
+    [Fact]
+    public async Task Oversized_body_is_clipped_and_the_header_announces_it()
+    {
+        var docId = Guid.NewGuid();
+        var body = new string('x', VaultExtractMcpConsts.MaxDocumentMarkdownChars + 500);
+        _documentAppService.GetAsync(docId).Returns(new DocumentDto
+        {
+            Id = docId,
+            LifecycleStatus = DocumentLifecycleStatus.Ready,
+            CreationTime = new DateTime(2024, 1, 1),
+            Markdown = body
+        });
+
+        var result = await DocumentResources.ReadAsync(docId.ToString(), _documentAppService);
+
+        var text = ((TextResourceContents)result).Text!;
+        var header = ExtractMetadataHeader(text);
+        header.ShouldContain("markdownTruncated: true");
+        header.ShouldContain($"markdownTotalChars: {body.Length}");
+        text.ShouldEndWith("</document>");
+        text.ShouldNotContain(new string('x', VaultExtractMcpConsts.MaxDocumentMarkdownChars + 1));
+    }
+
+    /// <summary>#491: a body under the cap must not gain header noise — the truncation lines appear only on a real cut.</summary>
+    [Fact]
+    public async Task Body_under_the_cap_adds_no_truncation_header()
+    {
+        var docId = Guid.NewGuid();
+        _documentAppService.GetAsync(docId).Returns(new DocumentDto
+        {
+            Id = docId,
+            LifecycleStatus = DocumentLifecycleStatus.Ready,
+            CreationTime = new DateTime(2024, 1, 1),
+            Markdown = "# Short body"
+        });
+
+        var result = await DocumentResources.ReadAsync(docId.ToString(), _documentAppService);
+
+        var header = ExtractMetadataHeader(((TextResourceContents)result).Text!);
+        header.ShouldNotContain("markdownTruncated");
+        header.ShouldNotContain("markdownTotalChars");
+    }
+
+    /// <summary>
     /// Returns the lines between the metadata header markers (<c>&lt;!-- extract document metadata</c> and the
     /// closing <c>--&gt;</c>) so assertions target header lines only, decoupled from prose wording elsewhere
     /// in the payload (matches <see cref="DocumentResources"/> <c>BuildPayload</c>).

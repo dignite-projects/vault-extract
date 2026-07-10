@@ -82,7 +82,7 @@ Three live egress channels: **REST API** (HTTP, generic programmatic access) / *
 
 **Multi-stage events** (thin payloads — ID + key metadata, downstream pulls details back): `DocumentUploadedEto` → `OCRCompletedEto` → `DocumentClassifiedEto` → `FieldsExtractedEto` → `DocumentReadyEto`; plus lifecycle events `DocumentDeletedEto` / `DocumentRestoredEto` / `DocumentPermanentlyDeletedEto` (orthogonal to the pipeline).
 
-**Ready gate**: **only `DocumentReadyEto` is gated** — a document must obtain a confirmed type (classification confidence ≥ that type's `ConfidenceThreshold`, or manual confirmation) before it fires; documents that fail are still stored, early-stage events still fire, and they enter the operator review queue. Primary downstream consumers subscribe to `DocumentReadyEto` by default.
+**Ready gate**: **only `DocumentReadyEto` is gated** — it fires once the document carries **no blocking review reason** (`ReviewReasonPolicy.Blocking`, the single declaration point): a confirmed type (classification confidence ≥ that type's `ConfidenceThreshold`, or manual confirmation), no suspected duplicate (#411), and field extraction not declined for an oversized body (#491). Documents that fail are still stored, early-stage events still fire, and they enter the operator review queue. Primary downstream consumers subscribe to `DocumentReadyEto` by default.
 
 **Delivery semantics**: ABP transactional outbox → **at-least-once, events are never lost**; dedup / replacement is the downstream's responsibility via `EventTime` idempotency; the channel layer maintains no event state table and does no in-flight replacement.
 
@@ -115,6 +115,7 @@ Apply to built-in LLM classification, unified field extraction (mechanism B), ti
 - **PromptBoundary**: user-derived free text (title / partyName / summary / document content, etc.) must be wrapped by `PromptBoundary.WrapField(...)` before entering an LLM prompt or LLM-facing output
 - **Description / Instructions are compile-time constants**: any LLM-facing description / instructions must be compile-time constants or pure static literals; **forbidden** to concatenate user-controlled strings at runtime
 - **Multi-tenancy isolation**: rely on ABP's `IMultiTenant` global filter (do not hand-write `CurrentTenant.Id` predicates); **the only discipline — never `Disable<IMultiTenant>()` / `IgnoreQueryFilters()` to pierce it on an LLM-triggered path**
+- **Bounded payloads** (#491): every text crossing an LLM boundary — into a prompt, or out on an LLM-facing egress — must have a ceiling. `Take(N)` bounds a result set's **rows**, never one payload's **bytes**. Where truncating the tail would silently corrupt the result (field extraction / segmentation: the thing being looked for can sit anywhere), the ceiling **gates** the call — skip it, raise a review signal, reach a terminal state, and **never rethrow into the background-job retry loop**. Where it would not (classification / title / cabinet suggestion / MCP document body), truncate via `TextTruncator.AtCharBoundary` (a raw `text[..n]` slice can split a surrogate pair) and **announce the cut**. Prompt ceilings are host configuration (`VaultExtractBehaviorOptions`); egress ceilings are compile-time `const` (`VaultExtractMcpConsts`) so the safety boundary cannot be widened at runtime
 
 ## Working rules
 

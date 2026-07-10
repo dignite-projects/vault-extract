@@ -7521,14 +7521,16 @@
         "UnresolvedClassification",
         "MissingRequiredFields",
         "SegmentationIncomplete",
-        "DuplicateSuspected"
+        "DuplicateSuspected",
+        "FieldExtractionIncomplete"
       ],
       "enumValues": [
         0,
         1,
         2,
         4,
-        8
+        8,
+        16
       ],
       "genericArguments": null,
       "properties": null

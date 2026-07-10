@@ -14,7 +14,9 @@ public static class ReviewReasonPolicy
 {
     /// <summary>Reasons that block Ready. Any one of them makes the document unavailable to downstream consumers.</summary>
     public const DocumentReviewReasons Blocking =
-        DocumentReviewReasons.UnresolvedClassification | DocumentReviewReasons.DuplicateSuspected;
+        DocumentReviewReasons.UnresolvedClassification |
+        DocumentReviewReasons.DuplicateSuspected |
+        DocumentReviewReasons.FieldExtractionIncomplete;
 
     /// <summary>Whether any blocking reason is present; this is the Ready gate criterion.</summary>
     public static bool HasBlocking(DocumentReviewReasons reasons) => (reasons & Blocking) != DocumentReviewReasons.None;

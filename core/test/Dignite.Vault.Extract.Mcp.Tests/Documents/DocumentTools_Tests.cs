@@ -38,6 +38,52 @@ public class DocumentTools_Tests : VaultExtractTestBase<DocumentToolsTestModule>
         _documentAppService = GetRequiredService<IDocumentAppService>();
     }
 
+    /// <summary>
+    /// #491: Take(N) bounds a result set's row count but not one row's payload, so an uncapped body would let a single
+    /// get_document consume the client's whole context window. The body is clipped and the clipping is announced — an
+    /// LLM must never mistake a prefix for the whole document.
+    /// </summary>
+    [Fact]
+    public async Task Oversized_markdown_is_clipped_and_the_truncation_is_announced()
+    {
+        var docId = Guid.NewGuid();
+        var body = new string('x', VaultExtractMcpConsts.MaxDocumentMarkdownChars + 500);
+        _documentAppService.GetAsync(docId).Returns(new DocumentDto
+        {
+            Id = docId,
+            LifecycleStatus = DocumentLifecycleStatus.Ready,
+            CreationTime = new DateTime(2024, 1, 1),
+            Markdown = body
+        });
+
+        var result = await DocumentTools.GetAsync(docId.ToString(), _documentAppService);
+
+        result.MarkdownTruncated.ShouldBeTrue();
+        result.MarkdownTotalChars.ShouldBe(body.Length);
+        // Truncation happens before WrapDocument, so the boundary tags always survive the cut.
+        result.Markdown.ShouldBe(PromptBoundary.WrapDocument(
+            new string('x', VaultExtractMcpConsts.MaxDocumentMarkdownChars)));
+    }
+
+    /// <summary>#491: the common case stays untouched — a body under the cap reports no truncation.</summary>
+    [Fact]
+    public async Task Body_under_the_cap_reports_no_truncation()
+    {
+        var docId = Guid.NewGuid();
+        _documentAppService.GetAsync(docId).Returns(new DocumentDto
+        {
+            Id = docId,
+            LifecycleStatus = DocumentLifecycleStatus.Ready,
+            CreationTime = new DateTime(2024, 1, 1),
+            Markdown = "# Short body"
+        });
+
+        var result = await DocumentTools.GetAsync(docId.ToString(), _documentAppService);
+
+        result.MarkdownTruncated.ShouldBeFalse();
+        result.MarkdownTotalChars.ShouldBe("# Short body".Length);
+    }
+
     [Fact]
     public async Task Returns_document_with_wrapped_title_and_markdown()
     {

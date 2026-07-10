@@ -241,9 +241,13 @@ export class DocumentDetailComponent implements OnInit {
   // #412: required fields are missing AND the operator may act — drives the "Complete fields" CTA. The reason
   // is non-blocking and clears itself once the values are filled in the fields card below, so the banner
   // offers a jump-and-edit shortcut rather than a confirm/approve button.
+  // #491: FieldExtractionIncomplete (the document was too long to extract automatically) takes the same CTA —
+  // manual entry is likewise its only remedy. Unlike MissingRequiredFields this one is blocking, so filling the
+  // fields is what releases the document to Ready.
   needsFieldCompletion = computed(() =>
     this.canEditFields &&
-    (((this.document()?.reviewReasons ?? DocumentReviewReasons.None) & DocumentReviewReasons.MissingRequiredFields)
+    (((this.document()?.reviewReasons ?? DocumentReviewReasons.None) &
+      (DocumentReviewReasons.MissingRequiredFields | DocumentReviewReasons.FieldExtractionIncomplete))
       !== DocumentReviewReasons.None),
   );
 
@@ -968,6 +972,8 @@ export class DocumentDetailComponent implements OnInit {
         return '::Document:ReviewReason:SegmentationIncomplete';
       case DocumentReviewReasons.DuplicateSuspected:
         return '::Document:ReviewReason:DuplicateSuspected';
+      case DocumentReviewReasons.FieldExtractionIncomplete:
+        return '::Document:ReviewReason:FieldExtractionIncomplete';
       default:
         return '::Document:NeedsReview';
     }
@@ -986,6 +992,8 @@ export class DocumentDetailComponent implements OnInit {
         return '::Document:Review:Hint:SegmentationIncomplete';
       case DocumentReviewReasons.DuplicateSuspected:
         return '::Document:Review:Hint:DuplicateSuspected';
+      case DocumentReviewReasons.FieldExtractionIncomplete:
+        return '::Document:Review:Hint:FieldExtractionIncomplete';
       default:
         return '::Document:NeedsReview';
     }

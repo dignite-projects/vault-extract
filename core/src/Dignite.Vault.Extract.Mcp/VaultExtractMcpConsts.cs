@@ -20,4 +20,18 @@ public static class VaultExtractMcpConsts
     /// LLM more exist via <c>truncated</c> + <c>totalCount</c>.
     /// </summary>
     public const int MaxDocumentTypeResults = 100;
+
+    /// <summary>
+    /// Hard cap on the number of Markdown characters of a single document body handed to an MCP client
+    /// (<c>get_document</c> tool and the <c>vault-extract://documents/{id}</c> resource). The existing
+    /// <c>Take(N)</c> discipline bounds the <b>row count</b> of a result set but says nothing about the
+    /// <b>payload size of one row</b>, so a single read of a large document could consume the client's
+    /// entire context window — the exact harm .claude/rules/llm-call-anti-patterns.md counterexample B
+    /// point 3 exists to prevent (#491). 200k characters is roughly 50-70k tokens: large enough that
+    /// ordinary documents are never truncated, small enough to leave a modern client room to reason.
+    /// Truncation happens at a UTF-16 char boundary and is always announced to the LLM — the tool via
+    /// <c>markdownTruncated</c> + <c>markdownTotalChars</c>, the resource via its metadata header — so a
+    /// silently clipped body can never be mistaken for a complete one.
+    /// </summary>
+    public const int MaxDocumentMarkdownChars = 200_000;
 }

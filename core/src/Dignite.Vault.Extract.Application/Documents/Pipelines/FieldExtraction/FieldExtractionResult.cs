@@ -14,12 +14,22 @@ public enum FieldExtractionOutcome
     Cleared,
 
     /// <summary>Normal extraction; writes the full field-value group and publishes <c>FieldsExtractedEto</c>.</summary>
-    Extracted
+    Extracted,
+
+    /// <summary>
+    /// The Markdown exceeded <c>VaultExtractBehaviorOptions.MaxFieldExtractionMarkdownLength</c> (#491), so no LLM call
+    /// was made. Sets the blocking <c>DocumentReviewReasons.FieldExtractionIncomplete</c> signal, publishes nothing, and
+    /// leaves any previously extracted values untouched. This is a <b>terminal, successful</b> run of the stage: the
+    /// caller completes the pipeline run rather than throwing, so the job never re-enters the job-store retry loop with
+    /// the same oversized body.
+    /// </summary>
+    Declined
 }
 
 public readonly record struct FieldExtractionResult(FieldExtractionOutcome Outcome, int FieldCount)
 {
     public static readonly FieldExtractionResult Skipped = new(FieldExtractionOutcome.Skipped, 0);
     public static readonly FieldExtractionResult Cleared = new(FieldExtractionOutcome.Cleared, 0);
+    public static readonly FieldExtractionResult Declined = new(FieldExtractionOutcome.Declined, 0);
     public static FieldExtractionResult Extracted(int fieldCount) => new(FieldExtractionOutcome.Extracted, fieldCount);
 }

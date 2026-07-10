@@ -741,6 +741,9 @@ export class DocumentListComponent implements OnInit {
     if ((reasons & DocumentReviewReasons.MissingRequiredFields) !== DocumentReviewReasons.None) {
       return '::Document:ReviewReason:MissingRequiredFields';
     }
+    if ((reasons & DocumentReviewReasons.FieldExtractionIncomplete) !== DocumentReviewReasons.None) {
+      return '::Document:ReviewReason:FieldExtractionIncomplete';
+    }
     if ((reasons & DocumentReviewReasons.SegmentationIncomplete) !== DocumentReviewReasons.None) {
       return '::Document:ReviewReason:SegmentationIncomplete';
     }

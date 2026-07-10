@@ -442,6 +442,9 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         ClassificationConfidence = 0;
         SetReviewReason(DocumentReviewReasons.UnresolvedClassification, present: true);
         SetReviewReason(DocumentReviewReasons.MissingRequiredFields, present: false);
+        // #491: no type -> no field definitions -> no extraction call to decline; a stale FieldExtractionIncomplete would
+        // otherwise pin a second blocking reason onto a document whose only real problem is the unresolved type.
+        SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: false);
         // #411: no type -> no fields -> no fingerprint basis; clear duplicate-detection state alongside the fields.
         ResetDuplicateDetectionState();
         ReviewDisposition = DocumentReviewDisposition.NotReviewed;
@@ -489,6 +492,9 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         SetReviewReason(DocumentReviewReasons.UnresolvedClassification, present: false);
         SetReviewReason(DocumentReviewReasons.MissingRequiredFields, present: false);
         SetReviewReason(DocumentReviewReasons.SegmentationIncomplete, present: false);
+        // #491: a container runs no type-bound field extraction at all, so it can never be "extraction incomplete";
+        // leaving the bit set would block a correctly-detected container from deriving to Ready.
+        SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: false);
         // #411: a container holds no single type's fields, so it has no duplicate fingerprint.
         ResetDuplicateDetectionState();
         ReviewDisposition = DocumentReviewDisposition.NotReviewed;
