@@ -82,11 +82,8 @@ public static class VaultExtractErrorCodes
 
     public static class Export
     {
-        public const string InvalidTemplateName = "Extract:InvalidExportTemplateName";
-        public const string TemplateNameAlreadyExists = "Extract:ExportTemplateNameAlreadyExists";
-        public const string TemplateRequiresColumn = "Extract:ExportTemplateRequiresColumn";
-        public const string TemplateTooManyColumns = "Extract:ExportTemplateTooManyColumns";
-        public const string TemplateDuplicateField = "Extract:ExportTemplateDuplicateField";
+        // The five Extract:ExportTemplate* codes died with the template layer (#499). The wire value below is
+        // frozen and unchanged.
         public const string DocumentLimitExceeded = "Extract:ExportDocumentLimitExceeded";
     }
 

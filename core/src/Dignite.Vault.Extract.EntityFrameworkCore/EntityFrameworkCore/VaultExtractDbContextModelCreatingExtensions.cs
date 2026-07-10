@@ -13,35 +13,21 @@ namespace Dignite.Vault.Extract.EntityFrameworkCore;
 
 public static class VaultExtractDbContextModelCreatingExtensions
 {
-    // ExportTemplate.Columns is an ordered definition array that is read and written as a whole, with no per-column query requirement.
-    // Use ABP's AbpJsonValueConverter<T> to serialize it into a large text column as a whole, without binding to provider-specific native JSON
-    // (SQL Server maps to nvarchar(max); other providers choose their own mapping). ExportColumn is a get-only value object, and
-    // System.Text.Json deserializes it through its single parameterized constructor, matching constructor parameter names to property names.
-    // SetColumns guarantees >= 1 column and whole-set replacement only, so the persisted value is always a non-empty JSON array;
-    // the converter does not need null / empty-string fallback. Contrast with DocumentExtractedField: field values with query requirements
-    // become first-class children (Issue #206), while JSON-like payloads without query requirements stay as strings and do not bind to native JSON.
-    // This is the principle established by the Issue #206 cross-DB cleanup.
-    private static readonly ValueConverter<IReadOnlyList<ExportColumn>, string> ExportColumnsConverter =
-        new AbpJsonValueConverter<IReadOnlyList<ExportColumn>>();
-
-    // ValueComparer is still hand-written: ABP does not provide a generic JSON comparer, and EF Core needs a comparer
-    // to snapshot changes for collection properties converted through ValueConverter. Otherwise it falls back to reference equality and triggers model validation warnings.
-    private static readonly ValueComparer<IReadOnlyList<ExportColumn>> ExportColumnsComparer =
-        new(
-            (a, b) => JsonSerializer.Serialize(a, (JsonSerializerOptions?)null) == JsonSerializer.Serialize(b, (JsonSerializerOptions?)null),
-            v => v == null ? 0 : JsonSerializer.Serialize(v, (JsonSerializerOptions?)null).GetHashCode(),
-            v => JsonSerializer.Deserialize<List<ExportColumn>>(JsonSerializer.Serialize(v, (JsonSerializerOptions?)null), (JsonSerializerOptions?)null) ?? new List<ExportColumn>());
-
     // Document.ExtractionMetadata (#210): a single typed value object (provider name + nullable archived manifest).
-    // It is read and written as a whole with no per-column query requirement. Like ExportTemplate.Columns, it uses
-    // AbpJsonValueConverter to serialize into a large text column (SQL Server -> nvarchar(max); other providers choose their own mapping),
-    // without binding to provider-specific native JSON (#206 cross-DB principle). Nullable: not extracted / historical records are null.
+    // It is read and written as a whole with no per-column query requirement, so it uses ABP's AbpJsonValueConverter<T>
+    // to serialize into a large text column (SQL Server -> nvarchar(max); other providers choose their own mapping),
+    // without binding to provider-specific native JSON. Contrast with DocumentExtractedField: field values with query
+    // requirements become first-class children (Issue #206), while JSON-like payloads without query requirements stay as
+    // strings and do not bind to native JSON — the principle established by the Issue #206 cross-DB cleanup.
+    // Nullable: not extracted / historical records are null.
     // EF stores DB null and does not call the converter when the property is null; it serializes only non-null values. The get-only value object
     // is deserialized by System.Text.Json through its single parameterized constructor, matching constructor parameter names to property names.
     private static readonly ValueConverter<DocumentParseMetadata?, string> ExtractionMetadataConverter =
         new AbpJsonValueConverter<DocumentParseMetadata?>();
 
-    // Hand-written like ExportColumnsComparer and null-safe, because EF may snapshot / compare null values.
+    // Hand-written because ABP does not provide a generic JSON comparer, and EF Core needs one to snapshot changes for
+    // properties converted through a ValueConverter (otherwise it falls back to reference equality and triggers model
+    // validation warnings). Null-safe, because EF may snapshot / compare null values.
     // The converter / comparer generic argument uses nullable DocumentParseMetadata? to match the nullable property;
     // otherwise HasConversion triggers CS8620 nullability mismatch warnings.
     private static readonly ValueComparer<DocumentParseMetadata?> ExtractionMetadataComparer =
@@ -293,7 +279,7 @@ public static class VaultExtractDbContextModelCreatingExtensions
             // "unique index treats NULL as equal" semantics for Host rows (TenantId IS NULL) plus a HasFilter("IsDeleted = 0")
             // literal — neither portable across providers (PostgreSQL defaults to NULLS DISTINCT, which would silently drop the
             // Host-layer guarantee). Dropping it makes the schema cross-DB by construction; the accepted tradeoff is a TOCTOU
-            // race on these low-frequency admin-config entities. The same applies to FieldDefinition / ExportTemplate / Cabinet below.
+            // race on these low-frequency admin-config entities. The same applies to FieldDefinition / Cabinet below.
         });
 
         builder.Entity<FieldDefinition>(b =>
@@ -319,32 +305,6 @@ public static class VaultExtractDbContextModelCreatingExtensions
 
             // Non-unique index: supports listing fields by (tenant layer, type), including trash-bin paths (DataFilter.Disable<ISoftDelete>).
             b.HasIndex(x => new { x.TenantId, x.DocumentTypeId });
-        });
-
-        builder.Entity<ExportTemplate>(b =>
-        {
-            b.ToTable(VaultExtractDbProperties.DbTablePrefix + "ExportTemplates", VaultExtractDbProperties.DbSchema);
-            b.ConfigureByConvention();
-
-            b.Property(x => x.Name).IsRequired().HasMaxLength(ExportTemplateConsts.MaxNameLength);
-            b.Property(x => x.Format).IsRequired();
-
-            // Columns are serialized as a whole into a large text column, with no per-column query requirement and no provider-specific native JSON binding.
-            // The EF Core provider chooses the column type (SQL Server -> nvarchar(max)). See the ExportColumnsConverter comment at the top of this file.
-            b.Property(x => x.Columns)
-                .HasConversion(ExportColumnsConverter, ExportColumnsComparer);
-
-            // Internal association to the constrained document type (#207): FK -> DocumentType.Id. Required because after convergence to ExtractedField-only columns,
-            // templates are necessarily type-bound. OnDelete Restrict: soft delete does not trigger it; hard-deleting a referenced type is rejected by the DB.
-            // FieldDefinitionId inside Columns lives in serialized JSON and cannot have an FK. Field existence is validated by AppService on save,
-            // and soft-deleted fields are resolved by read paths through joins as "archived fields".
-            b.HasOne<DocumentType>()
-                .WithMany()
-                .HasForeignKey(x => x.DocumentTypeId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            // Layer-scoped uniqueness on (TenantId, Name) is enforced by ExportTemplateManager in the application/domain
-            // layer (#304), not by a DB index — see the DocumentType block above for the cross-DB rationale.
         });
 
         builder.Entity<Cabinet>(b =>

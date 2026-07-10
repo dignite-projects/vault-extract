@@ -116,7 +116,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         }
 
         // DTO validation already guarantees DocumentTypeCode is non-empty when FieldFilters exist; documentTypeId was resolved above and is non-null, otherwise we already threw or returned.
-        // Shared with ExportTemplateAppService.ExportAsync (#414) so the unknown-field loud-fail stays single-sourced.
+        // Shared with DocumentExportAppService.ExportAsync so the unknown-field loud-fail stays single-sourced.
         return await DocumentFieldQueryResolver.ResolveAsync(
             _fieldDefinitionRepository, input.FieldFilters, documentTypeId!.Value, input.DocumentTypeCode!);
     }

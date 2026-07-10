@@ -15,7 +15,7 @@ namespace Dignite.Vault.Extract.Documents;
 /// An unknown field name loud-fails with <see cref="VaultExtractErrorCodes.ExtractedField.Unknown"/> (a
 /// correctable signal) instead of silently returning no rows. Shared by
 /// <c>DocumentAppService.GetListAsync</c> (operator list + MCP search) and
-/// <c>ExportTemplateAppService.ExportAsync</c> (#414 data-download by field value), so this security-relevant
+/// <c>DocumentExportAppService.ExportAsync</c> (data download by field value), so this security-relevant
 /// loud-fail resolution stays single-sourced and cannot drift between the list and export egress paths.
 /// </para>
 /// </summary>

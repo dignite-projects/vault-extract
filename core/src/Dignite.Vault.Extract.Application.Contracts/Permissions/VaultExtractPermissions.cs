@@ -37,13 +37,6 @@ public class VaultExtractPermissions
             public const string Reclassification = Default + ".Reclassification";
         }
 
-        public static class Templates
-        {
-            public const string Default = Documents.Default + ".Templates";
-            public const string Create = Default + ".Create";
-            public const string Update = Default + ".Update";
-            public const string Delete = Default + ".Delete";
-        }
     }
 
     // Cabinets (#194): human organization dimension, sibling permission group to Documents.

@@ -25,11 +25,6 @@ public class VaultExtractPermissionDefinitionProvider : PermissionDefinitionProv
         reprocessing.AddChild(VaultExtractPermissions.Documents.Reprocessing.FieldExtraction, L("Permission:Documents.Reprocessing.FieldExtraction"));
         reprocessing.AddChild(VaultExtractPermissions.Documents.Reprocessing.Reclassification, L("Permission:Documents.Reprocessing.Reclassification"));
 
-        var templates = documents.AddChild(VaultExtractPermissions.Documents.Templates.Default, L("Permission:Documents.Templates"));
-        templates.AddChild(VaultExtractPermissions.Documents.Templates.Create, L("Permission:Documents.Templates.Create"));
-        templates.AddChild(VaultExtractPermissions.Documents.Templates.Update, L("Permission:Documents.Templates.Update"));
-        templates.AddChild(VaultExtractPermissions.Documents.Templates.Delete, L("Permission:Documents.Templates.Delete"));
-
         var cabinets = group.AddPermission(VaultExtractPermissions.Cabinets.Default, L("Permission:Cabinets"));
         cabinets.AddChild(VaultExtractPermissions.Cabinets.Create, L("Permission:Cabinets.Create"));
         cabinets.AddChild(VaultExtractPermissions.Cabinets.Update, L("Permission:Cabinets.Update"));

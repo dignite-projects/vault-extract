@@ -151,17 +151,6 @@ public partial class FieldDefinitionToDtoMapper : MapperBase<FieldDefinition, Fi
     public override partial void Map(FieldDefinition source, FieldDefinitionDto destination);
 }
 
-/// <summary>
-/// ExportTemplate -> ExportTemplateDto (#207). All scalar values, including immutable <see cref="ExportTemplate.DocumentTypeId"/>,
-/// and the column collection (FieldDefinitionId / Order) are mapped directly by Mapperly with no lookup projection.
-/// </summary>
-[Mapper(RequiredMappingStrategy = RequiredMappingStrategy.Target)]
-public partial class ExportTemplateToDtoMapper : MapperBase<ExportTemplate, ExportTemplateDto>
-{
-    public override partial ExportTemplateDto Map(ExportTemplate source);
-    public override partial void Map(ExportTemplate source, ExportTemplateDto destination);
-}
-
 [Mapper(RequiredMappingStrategy = RequiredMappingStrategy.Target)]
 public partial class CabinetToDtoMapper : MapperBase<Cabinet, CabinetDto>
 {
