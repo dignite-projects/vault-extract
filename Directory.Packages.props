@@ -102,6 +102,10 @@
         <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.0" />
         <PackageVersion Include="ElBruno.MarkItDotNet" Version="0.6.0" />
         <PackageVersion Include="ElBruno.MarkItDotNet.Excel" Version="0.6.0" />
+        <!-- Charset detection for legacy-encoded CSV/TSV/TXT uploads (#493). Tri-licensed MPL-1.1 /
+             GPL-2.0-or-later / LGPL-2.1-or-later; taken here under the LGPL arm, which "or later" makes
+             compatible with this repository's LGPL-3.0-only license. -->
+        <PackageVersion Include="UTF.Unknown" Version="2.6.0" />
         <!-- PdfPig: digital-PDF text layer + embedded raster image extraction for the PdfExtractor (#301).
              Pinned to the exact version ElBruno.MarkItDotNet 0.6.0 pulls transitively, so the host process
              resolves a single PdfPig (no upgrade/downgrade conflict between the two providers). -->
