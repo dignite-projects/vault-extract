@@ -21,7 +21,9 @@ namespace Dignite.Vault.Extract.Documents;
 /// <para>
 /// <paramref name="Value"/> must be a canonical JSON <b>scalar</b> aligned with
 /// <paramref name="DataType"/>: numbers are bare JSON numbers, booleans are true/false, Date is a
-/// <c>"yyyy-MM-dd"</c> string, and DateTime is an offset-free <c>"yyyy-MM-ddThh:mm:ss"</c> string.
+/// <see cref="FieldValueFormats.Date"/> string, and DateTime is an offset-free
+/// <see cref="FieldValueFormats.DateTime"/> string (24-hour <c>HH</c>, not the <c>hh</c> this comment used to
+/// claim — the two format strings differ, and only the former round-trips).
 /// Misaligned values are filtered out / fail loudly in the App layer and never reach this point.
 /// </para>
 /// <para>
