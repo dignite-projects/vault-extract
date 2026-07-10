@@ -47,11 +47,47 @@ public interface IDocumentRepository : IRepository<Document, Guid>
     /// rows regardless of the ambient filter state. <c>IMultiTenant</c> still applies by ambient state (a source
     /// and its derived documents share a tenant).
     /// </para>
+    /// <para>
+    /// Contrast <see cref="AnyByOriginAsync"/>, whose soft-delete visibility is left to the caller's ambient filter
+    /// state precisely because its two callers want opposite semantics. The divergence is deliberate, not drift.
+    /// </para>
     /// </summary>
     Task<bool> AnyLiveDerivedDuplicateAsync(
         Guid originDocumentId,
         string originConstituentKey,
         Guid excludeDocumentId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether any <see cref="Document"/> carries <paramref name="originDocumentId"/> as its
+    /// <see cref="Document.OriginDocumentId"/> — i.e. whether that source still has derived sub-documents.
+    /// Existence-only (compiles to SQL <c>EXISTS</c>, no row materialization), served by the leading (and only)
+    /// column of the plain <c>OriginDocumentId</c> index.
+    /// <para>
+    /// Backs both <c>DocumentAppService</c> delete guards (#508). Soft-delete visibility is the <b>caller's</b>
+    /// choice, expressed through the ambient <c>IDataFilter</c> state rather than a parameter:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description><c>DeleteAsync</c> calls it with the <c>ISoftDelete</c> filter ON, so only <b>live</b>
+    /// children count — a source whose sub-documents are all already in the recycle bin stays soft-deletable.</description></item>
+    /// <item><description><c>PermanentDeleteAsync</c> calls it from inside its
+    /// <c>DataFilter.Disable&lt;ISoftDelete&gt;()</c> scope, so recycle-bin children count too — hard-deleting the
+    /// source reclaims the blob they reach through <c>OriginDocumentId</c>, and a recycle-bin child is
+    /// restorable.</description></item>
+    /// </list>
+    /// <para>
+    /// <c>IMultiTenant</c> always applies by ambient state (a source and its derived documents share a tenant), so
+    /// the check never leaves the source's own layer.
+    /// </para>
+    /// <para>
+    /// Contrast <see cref="AnyLiveDerivedDuplicateAsync"/>, which deliberately pins <c>!IsDeleted</c> in its own
+    /// predicate: it has a single caller that always wants live-only yet runs inside a
+    /// <c>Disable&lt;ISoftDelete&gt;()</c> scope. This method has two callers wanting opposite semantics, so it must
+    /// <b>not</b> pin the predicate. Both directions of that choice are locked by <c>DocumentParentDelete_Tests</c>.
+    /// </para>
+    /// </summary>
+    Task<bool> AnyByOriginAsync(
+        Guid originDocumentId,
         CancellationToken cancellationToken = default);
 
     /// <summary>

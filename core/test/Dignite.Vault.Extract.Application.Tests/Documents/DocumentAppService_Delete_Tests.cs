@@ -88,31 +88,32 @@ public class DocumentAppService_Delete_Tests
     }
 
     [Fact]
-    public async Task DeleteAsync_Succeeds_Even_When_Document_Still_Has_Live_SubDocuments()
+    public async Task DeleteAsync_Is_Blocked_When_Document_Still_Has_SubDocuments()
     {
-        // #481: the former guard (block soft-delete of a source while it still has live derived sub-documents) is
-        // removed. Children now own a real FileOrigin and a fully independent lifecycle; a dangling OriginDocumentId
-        // provenance pointer on a deleted source is accepted (downstream consumes provenance at Ready time).
-        // Deleting a parent never cascades to children: exactly one DocumentDeletedEto fires, for the parent only.
+        // #508: a source must not enter the recycle bin while derived sub-documents still point at it. Fail-closed
+        // before any mutation — no soft delete, no DocumentDeletedEto. Which children count as "still there" is
+        // decided by the ambient ISoftDelete filter inside AnyByOriginAsync, so that distinction is exercised
+        // against the real DB in DocumentParentDelete_Tests, not here.
         var doc = CreateDocument();
         _documentRepository.GetAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(doc);
+        _documentRepository.AnyByOriginAsync(doc.Id, Arg.Any<CancellationToken>()).Returns(true);
 
-        await _appService.DeleteAsync(doc.Id);
+        var exception = await Should.ThrowAsync<BusinessException>(async () =>
+            await _appService.DeleteAsync(doc.Id));
 
-        await _documentRepository.Received(1).DeleteAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>());
-        await _distributedEventBus.Received(1).PublishAsync(
-            Arg.Is<DocumentDeletedEto>(e => e.DocumentId == doc.Id),
+        exception.Code.ShouldBe(VaultExtractErrorCodes.Document.HasSubDocuments);
+        await _documentRepository.DidNotReceive().DeleteAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        await _distributedEventBus.DidNotReceive().PublishAsync(
+            Arg.Any<DocumentDeletedEto>(),
             Arg.Any<bool>());
     }
 
     [Fact]
-    public async Task DeleteAsync_Succeeds_When_SubDocuments_Are_All_Already_Deleted()
+    public async Task DeleteAsync_Succeeds_When_The_Document_Has_No_SubDocuments()
     {
-        // A source whose sub-documents are all already deleted (or that never had any) is always deletable — the
-        // plain success path, now indistinguishable at this mocked-repository layer from the "still has live
-        // children" case above since #481 removed the guard entirely (the real DB-level distinction between live vs.
-        // already-deleted children lives in DocumentParentDelete_Tests).
+        // The mock's AnyByOriginAsync default (false) is the "no sub-documents survive the guard's filter" case:
+        // either the source never had children, or they are all already in the recycle bin.
         var doc = CreateDocument();
         _documentRepository.GetAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(doc);
@@ -385,6 +386,28 @@ public class DocumentAppService_Delete_Tests
         await _appService.PermanentDeleteAsync(doc.Id);
 
         await _blobContainer.Received(1).DeleteAsync(doc.FileOrigin!.BlobName, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PermanentDeleteAsync_Is_Blocked_When_Document_Still_Has_SubDocuments()
+    {
+        // #508: hard-deleting a source reclaims the blob its children reach through OriginDocumentId (they carry no
+        // FileOrigin of their own since #487). Fail-closed before the hard delete AND before the blob reclaim, so a
+        // blocked call is a complete no-op. Unlike DeleteAsync, this guard also counts recycle-bin children — that
+        // is an ambient-DataFilter behaviour, covered against the real DB in DocumentParentDelete_Tests.
+        var doc = CreateDocument();
+        _documentRepository.GetAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(doc);
+        _documentRepository.AnyByOriginAsync(doc.Id, Arg.Any<CancellationToken>()).Returns(true);
+
+        var exception = await Should.ThrowAsync<BusinessException>(async () =>
+            await _appService.PermanentDeleteAsync(doc.Id));
+
+        exception.Code.ShouldBe(VaultExtractErrorCodes.Document.HasSubDocumentsPermanentDelete);
+        await _documentRepository.DidNotReceive().HardDeleteAsync(doc.Id, Arg.Any<CancellationToken>());
+        await _blobContainer.DidNotReceive().DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _distributedEventBus.DidNotReceive().PublishAsync(
+            Arg.Any<DocumentPermanentlyDeletedEto>(),
+            Arg.Any<bool>());
     }
 
     private static Document CreateDocument()

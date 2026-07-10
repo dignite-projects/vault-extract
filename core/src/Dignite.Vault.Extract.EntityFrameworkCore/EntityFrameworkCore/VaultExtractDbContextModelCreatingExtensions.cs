@@ -122,17 +122,18 @@ public static class VaultExtractDbContextModelCreatingExtensions
             b.HasIndex(x => x.CreationTime);
 
             // #306 / #346 Scenario B back-reference (#481: no longer a uniqueness constraint here). OriginDocumentId
-            // is PASSIVE provenance (Option A) — this plain, non-unique, non-filtered index serves only the #354
-            // "list a source's derived documents" read (OriginDocumentId is the leading and only column; it is also
-            // portable across every DB provider, unlike the retired SQL-Server-only HasFilter). Spawn idempotency no
-            // longer lives on this table: it is now the DocumentSegment ledger's unique (SourceDocumentId,
-            // SegmentKey) index plus the segment row's Status transition + optimistic concurrency (see
-            // DerivedDocumentSpawner) that makes a sequential retry abort cleanly and a concurrent double-spawn lose
-            // on the ConcurrencyStamp at commit. This also dissolves the #391 soft-delete-filtered-unique-index
-            // complication: a retracted (soft-deleted) child and its re-spawned successor may now freely share the
-            // same OriginConstituentKey, since nothing on Document enforces uniqueness over that pair any more. No FK
-            // on OriginDocumentId: it is a soft provenance pointer, not a constraint, so the derived document
-            // outlives the source (the source may be hard-deleted while derived ones remain).
+            // is PASSIVE provenance (Option A) — this plain, non-unique, non-filtered index serves the #354
+            // "list a source's derived documents" read and the #508 delete-guard EXISTS (OriginDocumentId is the
+            // leading and only column; it is also portable across every DB provider, unlike the retired
+            // SQL-Server-only HasFilter). Spawn idempotency no longer lives on this table: it is now the
+            // DocumentSegment ledger's unique (SourceDocumentId, SegmentKey) index plus the segment row's Status
+            // transition + optimistic concurrency (see DerivedDocumentSpawner) that makes a sequential retry abort
+            // cleanly and a concurrent double-spawn lose on the ConcurrencyStamp at commit. This also dissolves the
+            // #391 soft-delete-filtered-unique-index complication: a retracted (soft-deleted) child and its
+            // re-spawned successor may now freely share the same OriginConstituentKey, since nothing on Document
+            // enforces uniqueness over that pair any more. Still no FK on OriginDocumentId: it is a soft provenance
+            // pointer, not a constraint — the invariant that a source outlives its children is enforced at the
+            // application layer by the #508 DocumentAppService delete guards, not by the database.
             b.HasIndex(x => x.OriginDocumentId);
 
             // #411: duplicate-detection fingerprint (SHA-256 hex of this type's normalized unique-key field values).

@@ -47,6 +47,16 @@ downloads the parent's blob (a frontend concern). The parse job seeds a derived 
 `SliceText` and **never touches a blob** (its `FileOrigin?.BlobName` is null) — see
 `Text_Extraction_Seeds_Derived_Document_From_Segment_Slice`.
 
+**Therefore the source outlives its children (#508).** Because `OriginDocumentId` is a sub-document's *only* route to
+a source file, `DocumentAppService` fail-closes on both delete paths: `DeleteAsync` throws
+`Extract:DocumentHasSubDocuments` while any **live** child exists, and `PermanentDeleteAsync` throws
+`Extract:DocumentHasSubDocumentsPermanentDelete` while **any** child exists — recycle-bin ones included, since hard
+delete reclaims the parent's blob and a soft-deleted child is restorable. The asymmetry is carried entirely by the
+ambient `ISoftDelete` filter around `IDocumentRepository.AnyByOriginAsync` (permanent delete runs it inside its
+`DataFilter.Disable<ISoftDelete>()` scope). Neither guard cascades, and neither sits on the retraction path: #349 /
+#364 soft-delete children through `IDocumentRepository` directly. #481 had removed this guard on the premise that
+children own their own `FileOrigin`; #487 reverted that premise, so #508 restored it.
+
 _#487 Phase A deleted the retention chain **and**, in the same pass, the routing of embedded standalone documents —
 but only the retention chain was the thing being abandoned. **#494 restored the routing** (it is v0.2.0's behaviour,
 unchanged): once `FileOrigin` went back to nullable, a figure child became exactly what a text child already is — a
