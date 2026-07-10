@@ -185,6 +185,66 @@ public class DocumentSegmentationJob_Tests : VaultExtractTestBase<DocumentSegmen
     }
 
     [Fact]
+    public async Task Container_Of_One_Text_And_One_Figure_Constituent_Is_A_Real_Bundle()
+    {
+        // #494 Consequence 2 regression guard: a born-digital wrapper bundling one text document and one PHOTO of a
+        // document (a receipt pasted into a PDF). The figure constituent must count toward the ">=2 real bundle"
+        // floor. Under #487 the figure span was dropped before the count, leaving a single text slice -> the
+        // container was flagged SegmentationIncomplete and spawned nothing, stranding a legitimate bundle in the
+        // review queue with no path out.
+        var receiptText = "RECEIPT No 7 Total 70";
+        var marked = $"Invoice A first\n{ImageOcrMarkup.Wrap(receiptText, 2)}";
+        var containerId = await ArrangeContainerAsync(
+            markdown: "Invoice A first", asContainer: true, markedMarkdown: marked);
+
+        StubSplit(("Invoice A first", true), (ImageOcrMarkup.OpenPagePrefix + "2]*", true));
+
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId);
+            segments.Count.ShouldBe(2);
+            segments.ShouldAllBe(s => s.Status == DocumentSegmentStatus.Spawned);
+            segments.Count(s => s.Kind == DocumentSegmentKind.Text).ShouldBe(1);
+            segments.Single(s => s.Kind == DocumentSegmentKind.Figure).SliceText.ShouldBe(receiptText);
+
+            (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).Count.ShouldBe(2);
+
+            var container = await _documentRepository.GetAsync(containerId);
+            container.ReviewReasons.ShouldBe(DocumentReviewReasons.None); // NOT SegmentationIncomplete
+            container.IsSegmented.ShouldBeTrue();
+        });
+    }
+
+    [Fact]
+    public async Task Decorative_Figure_In_A_Concrete_Document_Spawns_Nothing()
+    {
+        // The element-of-parent case the segmentation prompt's reject-list covers (a logo / stamp / chart). The LLM
+        // returns the figure span with isSubDocument=false, so nothing routes: no row, no child, no review flag.
+        // Restoring figure routing (#494) must not make every logo-bearing document sprout a sub-document.
+        var marked = $"Report body\n{ImageOcrMarkup.Wrap("ACME logo", 1)}";
+        var docId = await ArrangeContainerAsync(
+            markdown: "Report body", asContainer: false, markedMarkdown: marked);
+
+        StubSplit(("Report body", false), (ImageOcrMarkup.OpenPagePrefix + "1]*", false));
+
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = docId });
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            (await _segmentRepository.GetListAsync(s => s.SourceDocumentId == docId)).ShouldBeEmpty();
+            (await _documentRepository.GetListAsync(d => d.OriginDocumentId == docId)).ShouldBeEmpty();
+
+            var parent = await _documentRepository.GetAsync(docId);
+            parent.IsSegmented.ShouldBeTrue(); // the LLM is not re-paid for the same answer
+            parent.ReviewReasons.ShouldBe(DocumentReviewReasons.None);
+        });
+
+        await _eventBus.DidNotReceive().PublishAsync(Arg.Any<DocumentUploadedEto>());
+    }
+
+    [Fact]
     public async Task Concrete_Document_Prose_Is_Never_Routed_Even_If_The_LLM_Flags_It()
     {
         // #494 guard: a concrete-typed parent routes ONLY figure spans. If the detection pass (wrongly) marks the
