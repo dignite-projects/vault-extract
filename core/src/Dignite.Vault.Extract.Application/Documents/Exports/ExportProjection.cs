@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Dignite.Vault.Extract.Documents.Fields;
 
 namespace Dignite.Vault.Extract.Documents.Exports;
 
@@ -30,8 +31,17 @@ internal sealed class ExportProjection
     public List<ExtractedFieldProjection> ExtractedFields { get; init; } = new();
 }
 
-/// <summary>Typed projection for one type-bound field value. Export renders the corresponding column cell string by field type (from FieldDefinition.DataType, #208) and matches field columns by <see cref="FieldDefinitionId"/> (#207).</summary>
-internal sealed class ExtractedFieldProjection
+/// <summary>
+/// Typed projection for one type-bound field value. Export renders the corresponding column cell string by field
+/// type (from FieldDefinition.DataType, #208) and matches field columns by <see cref="FieldDefinitionId"/> (#207).
+/// <para>
+/// Implements <see cref="IFieldValueColumns"/> (#501 item 8) so <see cref="FieldValueFormatter"/> renders it
+/// through the same switch it renders the persisted <c>DocumentExtractedField</c> through. This projection exists
+/// so the export never materializes that entity — doing so would pull <c>Markdown</c> into memory and into the
+/// change tracker for thousands of documents — which is why the rendering could not simply be a method on it.
+/// </para>
+/// </summary>
+internal sealed class ExtractedFieldProjection : IFieldValueColumns
 {
     public Guid FieldDefinitionId { get; init; }
 

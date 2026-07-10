@@ -39,7 +39,7 @@ namespace Dignite.Vault.Extract.Documents;
 /// </list>
 /// </para>
 /// </summary>
-public class DocumentExtractedField : Entity, IMultiTenant
+public class DocumentExtractedField : Entity, IMultiTenant, IFieldValueColumns
 {
     public virtual Guid? TenantId { get; private set; }
 
@@ -114,7 +114,7 @@ public class DocumentExtractedField : Entity, IMultiTenant
                 BooleanValue = element.GetBoolean();
                 break;
             case FieldDataType.Date:
-                DateValue = DateOnly.ParseExact(element.GetString()!, "yyyy-MM-dd", CultureInfo.InvariantCulture);
+                DateValue = DateOnly.ParseExact(element.GetString()!, FieldValueFormats.Date, CultureInfo.InvariantCulture);
                 break;
             case FieldDataType.DateTime:
                 DateTimeValue = DateTime.Parse(element.GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.None);
@@ -130,20 +130,13 @@ public class DocumentExtractedField : Entity, IMultiTenant
     /// This is the inverse of <see cref="SetValue"/> and round-trips consistently.
     /// <paramref name="dataType"/> is supplied by the caller from the <see cref="FieldDefinition"/> referenced by this row
     /// because type is not persisted on this row (#208).
+    /// <para>
+    /// #501 item 8: the switch itself lives in <see cref="FieldValueFormatter"/>, shared with the export's
+    /// non-entity projection, which reads the same columns and cannot call a method on this entity. Loud-fail on
+    /// an unknown type is preserved there, symmetric with <see cref="SetValue"/>'s default branch.
+    /// </para>
     /// </summary>
-    public JsonElement ToJsonElement(FieldDataType dataType) => dataType switch
-    {
-        FieldDataType.Text => JsonSerializer.SerializeToElement(TextValue),
-        FieldDataType.LongText => JsonSerializer.SerializeToElement(LongTextValue),
-        FieldDataType.Number => JsonSerializer.SerializeToElement(NumberValue),
-        FieldDataType.Boolean => JsonSerializer.SerializeToElement(BooleanValue),
-        FieldDataType.Date => JsonSerializer.SerializeToElement(DateValue?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
-        FieldDataType.DateTime => JsonSerializer.SerializeToElement(DateTimeValue?.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture)),
-        // Symmetric with SetValue's default branch: unknown type loud-fails and never emits a toxic Undefined value.
-        // Otherwise, once assembled into a DTO, response serialization would throw
-        // "Cannot write a JsonElement with ValueKind Undefined" and make the whole document read return 500.
-        _ => throw new ArgumentOutOfRangeException(nameof(dataType), dataType, "Unsupported field data type.")
-    };
+    public JsonElement ToJsonElement(FieldDataType dataType) => FieldValueFormatter.ToJsonElement(this, dataType);
 
     public override object[] GetKeys() => new object[] { DocumentId, FieldDefinitionId, Order };
 }

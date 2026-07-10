@@ -46,7 +46,13 @@ describe('toExportDocumentsInput', () => {
     // DocumentListFilter reaches the export with no edit here. This pins that, since no type can.
     const withFutureKey = { creationTimeMin: '2026-01-01' } as unknown as DocumentListFilter;
 
-    const input = toExportDocumentsInput(TYPE, ExportFormat.Csv, withFutureKey) as Record<string, unknown>;
+    // Widen through `unknown` first: ExportDocumentsInput has no string index signature, so the direct
+    // assertion is a TS2352 compile error. That error made the whole `nx test vault-extract` target fail to
+    // build, and CI only runs `nx run-many -t lint`, so nothing said so.
+    const input = toExportDocumentsInput(TYPE, ExportFormat.Csv, withFutureKey) as unknown as Record<
+      string,
+      unknown
+    >;
 
     expect(input['creationTimeMin']).toBe('2026-01-01');
   });

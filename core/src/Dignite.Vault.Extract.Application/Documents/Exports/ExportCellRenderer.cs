@@ -1,13 +1,13 @@
-using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using Dignite.Vault.Extract.Documents.Fields;
 
 namespace Dignite.Vault.Extract.Documents.Exports;
 
 /// <summary>
-/// Renders one document's typed field-value rows into one export cell string.
+/// Joins one document's typed field-value rows into one export cell string. The per-<c>FieldDataType</c>
+/// rendering itself belongs to <see cref="FieldValueFormatter"/> (#501 item 8); what lives here is the
+/// multi-value join, which only the export performs.
 /// <para>
 /// Extracted from <c>DocumentExportAppService</c> so the ascending-<c>Order</c> join can actually be tested.
 /// It could not be, in place: the only tests that could reach it went through SQLite, which returns
@@ -20,6 +20,18 @@ namespace Dignite.Vault.Extract.Documents.Exports;
 internal static class ExportCellRenderer
 {
     /// <summary>
+    /// Joins a multi-value field's rows in one cell.
+    /// <para>
+    /// #501 item 6: the screen joins with this too (<c>formatExtractedFieldValue</c> in
+    /// <c>angular/…/shared/format-field-value.ts</c>). It cannot be a comma. A comma is the CSV delimiter, so the
+    /// writer would have to quote the cell, and a consumer re-splitting a quoted cell on commas shreds one field
+    /// across several columns. The screen moved to the file's separator rather than the reverse, because the file
+    /// already has consumers parsing it and its bytes are the riskier thing to change.
+    /// </para>
+    /// </summary>
+    public const string MultiValueSeparator = "; ";
+
+    /// <summary>
     /// Renders every value row of one field, ascending by <c>Order</c>, joined (#212). A single-value field has
     /// exactly one row, so the result is that value. Yields null — an empty cell — when the field holds no
     /// renderable value.
@@ -30,33 +42,10 @@ internal static class ExportCellRenderer
             // Never relies on the caller's sequence order: DocumentExportAppService buckets rows with ToLookup,
             // which preserves the source order, and that source order is the database's unspecified one.
             .OrderBy(f => f.Order)
-            .Select(f => FieldValueToString(f, dataType))
+            .Select(f => FieldValueFormatter.ToCellString(f, dataType))
             .Where(s => s != null)
             .ToList();
 
         return rendered.Count > 0 ? string.Join(MultiValueSeparator, rendered) : null;
     }
-
-    /// <summary>
-    /// Joins a multi-value field's rows in one cell. Not a comma: the CSV writer would then have to quote the
-    /// cell, and a consumer re-splitting on the delimiter would silently shred one field into several columns.
-    /// </summary>
-    public const string MultiValueSeparator = "; ";
-
-    // Render typed columns to cell strings by field type, using InvariantCulture and matching the canonical shape in DocumentExtractedField.ToJsonElement.
-    // Type comes from FieldDefinition.DataType (#208: not persisted on field value rows). Unknown type loud-fails, consistent with
-    // SetValue / ToJsonElement / ApplyFieldValueFilter. Never silently output an empty cell: if a new enum value misses this branch,
-    // tests / runtime should fail loudly instead of silently exporting wrong data.
-    private static string? FieldValueToString(ExtractedFieldProjection f, FieldDataType dataType) => dataType switch
-    {
-        FieldDataType.Text => f.TextValue,
-        FieldDataType.LongText => f.LongTextValue,
-        // Render Number in minimal shape ("0.######"): integer 1000 -> "1000", decimal 10.50 -> "10.5",
-        // without the six trailing zeros from decimal(38,6).
-        FieldDataType.Number => f.NumberValue?.ToString("0.######", CultureInfo.InvariantCulture),
-        FieldDataType.Boolean => f.BooleanValue == null ? null : (f.BooleanValue.Value ? "true" : "false"),
-        FieldDataType.Date => f.DateValue?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-        FieldDataType.DateTime => f.DateTimeValue?.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture),
-        _ => throw new ArgumentOutOfRangeException(nameof(dataType), dataType, "Unsupported field data type.")
-    };
 }

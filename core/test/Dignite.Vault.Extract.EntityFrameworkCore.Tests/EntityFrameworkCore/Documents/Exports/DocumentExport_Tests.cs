@@ -450,20 +450,10 @@ public class DocumentExport_Tests : VaultExtractEntityFrameworkCoreTestBase
         IEnumerable<DocumentFieldValue>? fields,
         DocumentReviewReasons reviewReasons = DocumentReviewReasons.None)
     {
-        var document = new Document(
-            id,
-            tenantId: null,
-            fileOrigin: new FileOrigin(
-                blobName: $"blobs/{id:N}.pdf",
-                uploadedByUserName: "test-user",
-                contentType: "application/pdf",
-                contentHash: $"{Guid.NewGuid():N}{Guid.NewGuid():N}",
-                fileSize: 1024,
-                originalFileName: "f.pdf"));
+        var document = new Document(id, tenantId: null, DocumentTestData.NewFileOrigin(id, originalFileName: "f.pdf"));
 
-        // DocumentTypeId / Title have private setters; tests use reflection to simulate "classified + title extracted".
-        typeof(Document).GetProperty(nameof(Document.DocumentTypeId))!.SetValue(document, documentTypeId);
-        typeof(Document).GetProperty(nameof(Document.Title))!.SetValue(document, title);
+        DocumentTestData.MarkClassified(document, documentTypeId);
+        DocumentTestData.SetTitle(document, title);
 
         if (reviewReasons != DocumentReviewReasons.None)
         {

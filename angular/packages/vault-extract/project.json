@@ -27,7 +27,8 @@
       "options": {
         "tsConfig": "packages/vault-extract/tsconfig.spec.json",
         "buildTarget": "vault-extract:build",
-        "runner": "vitest"
+        "runner": "vitest",
+        "include": ["**/*.spec.ts", "../documents/**/*.spec.ts", "../config/**/*.spec.ts"]
       }
     },
     "lint": {

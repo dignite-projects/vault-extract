@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Dignite.Vault.Extract.Documents;
@@ -253,7 +251,7 @@ public class DocumentExportAppService_Filter_Tests : VaultExtractEntityFramework
     private Task SeedDocumentAsync(decimal amount, Action<Document>? configure = null, Guid? id = null)
     {
         var documentId = id ?? Guid.NewGuid();
-        var doc = new Document(documentId, _currentTenant.Id, NewFileOrigin(documentId));
+        var doc = new Document(documentId, _currentTenant.Id, DocumentTestData.NewFileOrigin(documentId));
         return PersistAsync(doc, amount, configure);
     }
 
@@ -262,14 +260,14 @@ public class DocumentExportAppService_Filter_Tests : VaultExtractEntityFramework
         var documentId = Guid.NewGuid();
         // A sub-document has no file of its own (#487 reverted FileOrigin to nullable); it is a Markdown slice
         // reached through OriginDocumentId.
-        var doc = Document.CreateDerived(documentId, _currentTenant.Id, fileOrigin: null, originDocumentId, constituentKey);
+        var doc = Document.CreateDerived(
+            documentId, _currentTenant.Id, fileOrigin: null, originDocumentId, originConstituentKey: constituentKey);
         return PersistAsync(doc, amount, configure: null);
     }
 
     private async Task PersistAsync(Document doc, decimal amount, Action<Document>? configure)
     {
-        // DocumentTypeId has a Domain private setter; simulate the classified state (#207 internal relation by Id).
-        typeof(Document).GetProperty(nameof(Document.DocumentTypeId))!.SetValue(doc, TypeId);
+        DocumentTestData.MarkClassified(doc, TypeId);
         doc.SetFields(new[]
         {
             new DocumentFieldValue(AmountFieldId, FieldDataType.Number, JsonSerializer.SerializeToElement(amount)),
@@ -280,15 +278,6 @@ public class DocumentExportAppService_Filter_Tests : VaultExtractEntityFramework
         await _documentRepository.InsertAsync(doc, autoSave: true);
     }
 
-    private static FileOrigin NewFileOrigin(Guid documentId) => new(
-        blobName: $"blobs/{documentId:N}.pdf",
-        uploadedByUserName: "test-user",
-        contentType: "application/pdf",
-        contentHash: $"{Guid.NewGuid():N}{Guid.NewGuid():N}",
-        fileSize: 1024,
-        originalFileName: "invoice.pdf");
-
-    private static Guid TypeId => DeterministicGuid("type:" + TypeCode);
-    private static Guid AmountFieldId => DeterministicGuid("field:amount");
-    private static Guid DeterministicGuid(string key) => new(MD5.HashData(Encoding.UTF8.GetBytes(key)));
+    private static Guid TypeId => DocumentTestData.DeterministicGuid("type:" + TypeCode);
+    private static Guid AmountFieldId => DocumentTestData.DeterministicGuid("field:amount");
 }
