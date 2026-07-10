@@ -84,6 +84,21 @@ public class MarkdownTitleExtractor_Tests
         MarkdownTitleExtractor.ExtractTitle("# Hello World", maxLength: 5).ShouldBe("Hello");
     }
 
+    /// <summary>
+    /// #491: the cut must not split a surrogate pair. This is not academic — `Document.SetTitle` can only repair a lone
+    /// surrogate on its `> MaxTitleLength` branch, and a title pre-cut to exactly the limit never enters it, so a split
+    /// pair here would be persisted and served to MCP clients.
+    /// </summary>
+    [Fact]
+    public void Truncation_Never_Splits_A_Surrogate_Pair()
+    {
+        // maxLength=2 lands inside the pair, so the high surrogate is dropped and only "A" survives.
+        var title = MarkdownTitleExtractor.ExtractTitle("# A\U0001F600B", maxLength: 2);
+
+        title.ShouldBe("A");
+        char.IsHighSurrogate(title![^1]).ShouldBeFalse();
+    }
+
     [Fact]
     public void Collapses_Internal_Whitespace()
     {

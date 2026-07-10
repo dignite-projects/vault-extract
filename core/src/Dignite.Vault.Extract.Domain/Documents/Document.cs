@@ -416,6 +416,11 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         SetReviewReason(DocumentReviewReasons.SegmentationIncomplete, present: false);
         // #411: a (re)classification is a fresh duplicate-review context; the cascade re-extraction recomputes the fingerprint.
         ResetDuplicateDetectionState();
+        // #491: FieldExtractionIncomplete is deliberately NOT cleared here, unlike the duplicate state above. Markdown is
+        // write-once, so oversized-for-the-old-type means oversized-for-the-new-type; and the cascade re-extraction is
+        // queued only after this UoW commits, so at this instant the latest field-extraction run is still the prior
+        // Succeeded decline. Clearing the bit would let DeriveLifecycleAsync derive a premature Ready in the window
+        // before the new type's extraction runs. The re-extraction re-evaluates the bit and clears it if it now fits.
         ReviewDisposition = DocumentReviewDisposition.NotReviewed;
         RejectionReason = null; // #284 review-fix: leaving Rejected disposition -> clear stale rejection reason; only Rejected should have one.
         if (wasContainer)
@@ -583,6 +588,9 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         SetReviewReason(DocumentReviewReasons.SegmentationIncomplete, present: false);
         // #411: operator (re)confirmed a type; the cascade re-extraction recomputes the fingerprint for the new context.
         ResetDuplicateDetectionState();
+        // #491: FieldExtractionIncomplete is deliberately NOT cleared here — same reasoning as
+        // ApplyAutomaticClassificationResult. Confirming a type does not shrink the Markdown, and clearing the bit before
+        // the cascade re-extraction runs would open a premature-Ready window.
         ReviewDisposition = DocumentReviewDisposition.Confirmed;
         RejectionReason = null; // #284 review-fix: rejection is recoverable; clear stale rejection reason after Reclassify / Confirm.
         if (wasContainer)

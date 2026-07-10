@@ -209,8 +209,37 @@ public class FieldExtractionService_Tests
     }
 
     /// <summary>
-    /// #491: once a run actually reaches the LLM — the host raised the ceiling, or a re-parse shortened the body — the
-    /// blocking signal from the earlier declined run must be cleared, or the document would stay short of Ready forever.
+    /// #491: the decline write carries the same stale-reclassify guard as the extraction write. If the document was
+    /// reclassified between the phase-1 capture and the decline, the run is stale and must pin nothing — otherwise a
+    /// stale run would leave a blocking reason on a document that has since moved to a type it may well fit.
+    /// </summary>
+    [Fact]
+    public async Task Decline_On_A_Document_Reclassified_In_Flight_Pins_Nothing()
+    {
+        var doc = CreateClassifiedDocument(
+            typeCode: "contract.general",
+            markdown: new string('x', FieldExtractionServiceTestModule.MarkdownCeiling + 1));
+        SetupType("contract.general");
+        _fieldDefinitionRepository.GetListAsync(TypeId("contract.general"), Arg.Any<CancellationToken>())
+            .Returns(new List<FieldDefinition> { CreateField("contract.general", "amount", FieldDataType.Number) });
+
+        // Phase 1 sees contract.general; by the time the decline reloads, an operator has reclassified the document.
+        _documentRepository.FindAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(_ => doc, _ =>
+            {
+                Invoke(doc, "ApplyAutomaticClassificationResult", TypeId("invoice.general"), 0.99);
+                return doc;
+            });
+
+        var result = await _service.ExtractAsync(doc.Id, tenantId: null, expectedEventTypeCode: null);
+
+        result.Outcome.ShouldBe(FieldExtractionOutcome.Skipped);
+        doc.ReviewReasons.HasFlag(DocumentReviewReasons.FieldExtractionIncomplete).ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// #491: once a run actually reaches the LLM — the host raised the ceiling — the blocking signal from the earlier
+    /// declined run must be cleared, or the document would stay short of Ready forever.
     /// </summary>
     [Fact]
     public async Task Successful_Extraction_Clears_A_Previous_Decline()

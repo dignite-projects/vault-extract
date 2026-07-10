@@ -332,9 +332,10 @@ public class DocumentParseBackgroundJob
             if (string.IsNullOrWhiteSpace(title))
                 return null;
 
-            return title.Length <= DocumentConsts.MaxTitleLength
-                ? title
-                : title[..DocumentConsts.MaxTitleLength];
+            // #491: same reason as the input cut above — and here the lone surrogate would be persisted. Cutting to
+            // exactly MaxTitleLength keeps Document.SetTitle's surrogate guard from ever firing (it is gated on
+            // `> MaxTitleLength`), so a split pair would reach the DB and the MCP egress.
+            return TextTruncator.AtCharBoundary(title, DocumentConsts.MaxTitleLength);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -362,9 +363,8 @@ public class DocumentParseBackgroundJob
         }
 
         var trimmed = withoutExtension.Trim();
-        return trimmed.Length <= DocumentConsts.MaxTitleLength
-            ? trimmed
-            : trimmed[..DocumentConsts.MaxTitleLength];
+        // #491: a file name can carry astral-plane characters; cut at a char boundary (see TryGenerateTitleAsync).
+        return TextTruncator.AtCharBoundary(trimmed, DocumentConsts.MaxTitleLength);
     }
 
     private sealed record ParseWorkItem(

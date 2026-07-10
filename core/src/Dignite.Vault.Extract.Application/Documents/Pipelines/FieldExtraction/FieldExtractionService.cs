@@ -358,8 +358,9 @@ public class FieldExtractionService : ITransientDependency
 
             document.SetFields(fieldValues);
 
-            // #491: this run reached the LLM, so whatever earlier run declined an oversized body has been superseded
-            // (typically the host raised MaxFieldExtractionMarkdownLength, or a re-parse shortened the Markdown).
+            // #491: this run reached the LLM, so an earlier declined run has been superseded. The only way that happens
+            // is the host raising MaxFieldExtractionMarkdownLength — Markdown is write-once (SetMarkdown immutability),
+            // so a document's body can never shrink in place.
             document.SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: false);
 
             // #284: evaluate required-field missingness at the moment extraction completes and materialize MissingRequiredFields.
