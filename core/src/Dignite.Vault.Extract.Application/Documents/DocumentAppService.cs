@@ -791,45 +791,41 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         return await MapToDtoAsync(document);
     }
 
+    /// <summary>
+    /// Narrows the list by its metadata filters through the shared <see cref="DocumentQueries.ApplyMetadataFilter"/>
+    /// chain — the same one <c>DocumentExportAppService</c> runs, so "download the current view" cannot drift from
+    /// the view (#501 item 1). The list's own <c>IsDeleted</c> (recycle bin) stays out of the shared chain and is
+    /// applied by <see cref="ExecuteListQueryAsync"/> inside <c>DataFilter.Disable&lt;ISoftDelete&gt;()</c>.
+    /// </summary>
     protected virtual IQueryable<Document> ApplyFilter(
         IQueryable<Document> query, GetDocumentListInput input, Guid? documentTypeId)
     {
-        if (input.LifecycleStatus.HasValue)
-            query = query.Where(x => x.LifecycleStatus == input.LifecycleStatus.Value);
-
-        // Type filtering uses the resolved internal DocumentTypeId (#207).
-        if (documentTypeId.HasValue)
-            query = query.Where(x => x.DocumentTypeId == documentTypeId.Value);
-
-        if (input.CabinetId.HasValue)
-            query = query.Where(x => x.CabinetId == input.CabinetId.Value);
-
-        // Sub-document provenance filter (#354): list the documents derived from a given source (e.g. a
-        // container's children). The IMultiTenant global filter still applies, so both ends stay tenant-scoped.
-        if (input.OriginDocumentId.HasValue)
-            query = query.Where(x => x.OriginDocumentId == input.OriginDocumentId.Value);
-
-        // Filter by manual-review disposition phase (#284). Rejected documents have ReviewDisposition=Rejected and can be queried explicitly.
-        if (input.ReviewDisposition.HasValue)
-            query = query.Where(d => d.ReviewDisposition == input.ReviewDisposition.Value);
-
-        // Operator review queue (#284): any unresolved review reason (unresolved classification + missing required fields, one queue) and not rejected.
-        // Rejected documents have already been handled by the operator, so they are not in the work queue; they can still be queried separately by ReviewDisposition=Rejected.
-        // Uses the canonical DocumentReviewQueries.RequiresAttention predicate, shared with the overview
-        // needs-review statistic (#333) so the queue and the count never drift.
-        if (input.HasReviewReasons == true)
-            query = query.Where(DocumentReviewQueries.RequiresAttention);
-
-        return query;
+        return query.ApplyMetadataFilter(new DocumentMetadataFilter
+        {
+            // Type filtering uses the resolved internal DocumentTypeId (#207), not input.DocumentTypeCode.
+            DocumentTypeId = documentTypeId,
+            LifecycleStatus = input.LifecycleStatus,
+            CabinetId = input.CabinetId,
+            OriginDocumentId = input.OriginDocumentId,
+            ReviewDisposition = input.ReviewDisposition,
+            HasReviewReasons = input.HasReviewReasons,
+            // The list contract exposes no date range; the export's does. Leaving these null keeps the shared
+            // chain's semantics single-sourced without widening this DTO.
+        });
     }
 
+    /// <summary>
+    /// Orders through the shared <see cref="DocumentQueries.OrderByCreationTime"/>, which appends the <c>Id</c>
+    /// tiebreaker the export already had (#501 item 5). Without it a <c>CreationTime</c> tie — ordinary for a
+    /// batch upload — leaves the order to the database, and a tied row on a page boundary can appear on two
+    /// pages or none.
+    /// </summary>
     protected virtual IQueryable<Document> ApplySorting(IQueryable<Document> query, string? sorting)
     {
         return sorting?.Trim().ToLowerInvariant() switch
         {
-            "creationtime" or "creationtime asc" => query.OrderBy(x => x.CreationTime),
-            "creationtime desc" => query.OrderByDescending(x => x.CreationTime),
-            _ => query.OrderByDescending(x => x.CreationTime)
+            "creationtime" or "creationtime asc" => query.OrderByCreationTime(descending: false),
+            _ => query.OrderByCreationTime(descending: true)
         };
     }
 

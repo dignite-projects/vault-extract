@@ -256,6 +256,127 @@ public class DocumentExport_Tests : VaultExtractEntityFrameworkCoreTestBase
     }
 
     [Fact]
+    public async Task Export_fails_fast_when_the_type_declares_more_fields_than_the_column_cap()
+    {
+        // #501 item 2: #499 derived the columns from the type's live fields and deleted the template layer that
+        // used to cap them at 100, leaving rows bounded and columns unbounded. Three fields, cap of two.
+        var originalMax = DocumentExportConsts.MaxColumnCount;
+        DocumentExportConsts.MaxColumnCount = 2;
+        try
+        {
+            var typeId = _guidGenerator.Create();
+            await WithUnitOfWorkAsync(async () =>
+            {
+                await SeedTypeAsync(typeId);
+                await SeedFieldAsync(_guidGenerator.Create(), typeId, "a", "A", FieldDataType.Text, displayOrder: 0);
+                await SeedFieldAsync(_guidGenerator.Create(), typeId, "b", "B", FieldDataType.Text, displayOrder: 1);
+                await SeedFieldAsync(_guidGenerator.Create(), typeId, "c", "C", FieldDataType.Text, displayOrder: 2);
+            });
+
+            await WithUnitOfWorkAsync(async () =>
+            {
+                var ex = await Should.ThrowAsync<BusinessException>(() => _appService.ExportAsync(NewInput()));
+                ex.Code.ShouldBe(VaultExtractErrorCodes.Export.ColumnLimitExceeded);
+            });
+        }
+        finally
+        {
+            DocumentExportConsts.MaxColumnCount = originalMax;
+        }
+    }
+
+    [Fact]
+    public async Task Export_allows_a_type_declaring_exactly_the_column_cap()
+    {
+        // The bound is inclusive. Pinned separately because an off-by-one here rejects a legal export, and the
+        // fail-fast test above passes either way.
+        var originalMax = DocumentExportConsts.MaxColumnCount;
+        DocumentExportConsts.MaxColumnCount = 2;
+        try
+        {
+            var typeId = _guidGenerator.Create();
+            await WithUnitOfWorkAsync(async () =>
+            {
+                await SeedTypeAsync(typeId);
+                await SeedFieldAsync(_guidGenerator.Create(), typeId, "a", "A", FieldDataType.Text, displayOrder: 0);
+                await SeedFieldAsync(_guidGenerator.Create(), typeId, "b", "B", FieldDataType.Text, displayOrder: 1);
+            });
+
+            var csv = await ExportCsvAsync();
+
+            // The four fixed system columns do not count against the cap; only the type-bound fields do.
+            csv.ShouldContain("LifecycleStatus,ReviewStatus,ReviewReasons,Title,A,B");
+        }
+        finally
+        {
+            DocumentExportConsts.MaxColumnCount = originalMax;
+        }
+    }
+
+    [Fact]
+    public async Task Export_keeps_each_fields_values_in_its_own_column()
+    {
+        // #501 item 3 replaced the per-cell rescan of every value the document holds with one ILookup per row.
+        // A bucket keyed or sorted wrongly would smear one field's values into another's column, or lose the
+        // ascending-Order join that Export_renders_a_multi_value_field_as_an_ordered_join pins.
+        var typeId = _guidGenerator.Create();
+        var tagsFieldId = _guidGenerator.Create();
+        var amountFieldId = _guidGenerator.Create();
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            await SeedTypeAsync(typeId);
+            await _fieldDefinitionRepository.InsertAsync(
+                new FieldDefinition(tagsFieldId, null, typeId, "tags", "Tags", "extract",
+                    FieldDataType.Text, displayOrder: 0, allowMultiple: true),
+                autoSave: true);
+            await SeedFieldAsync(amountFieldId, typeId, "amount", "Amount", FieldDataType.Text, displayOrder: 1);
+
+            await _documentRepository.InsertAsync(
+                CreateDocument(_guidGenerator.Create(), typeId, "Doc X", new[]
+                {
+                    new DocumentFieldValue(amountFieldId, FieldDataType.Text, Json("42"), 0),
+                    new DocumentFieldValue(tagsFieldId, FieldDataType.Text, Json("beta"), 1),
+                    new DocumentFieldValue(tagsFieldId, FieldDataType.Text, Json("alpha"), 0),
+                }),
+                autoSave: true);
+        });
+
+        var csv = await ExportCsvAsync();
+
+        // Tags joins its own two rows in Order; Amount carries only its own value, never a neighbour's.
+        csv.ShouldContain("Doc X,alpha; beta,42");
+    }
+
+    [Fact]
+    public async Task Export_leaves_an_empty_cell_for_a_field_the_document_has_no_value_for()
+    {
+        // The ILookup indexer must yield an empty bucket (not throw, not borrow another field's rows) for a field
+        // this document never had extracted.
+        var typeId = _guidGenerator.Create();
+        var amountFieldId = _guidGenerator.Create();
+        var missingFieldId = _guidGenerator.Create();
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            await SeedTypeAsync(typeId);
+            await SeedFieldAsync(amountFieldId, typeId, "amount", "Amount", FieldDataType.Text, displayOrder: 0);
+            await SeedFieldAsync(missingFieldId, typeId, "absent", "Absent", FieldDataType.Text, displayOrder: 1);
+
+            await _documentRepository.InsertAsync(
+                CreateDocument(_guidGenerator.Create(), typeId, "Doc Y", new[]
+                {
+                    new DocumentFieldValue(amountFieldId, FieldDataType.Text, Json("7"), 0),
+                }),
+                autoSave: true);
+        });
+
+        var csv = await ExportCsvAsync();
+
+        csv.ShouldContain("Doc Y,7,");
+    }
+
+    [Fact]
     public async Task Export_loud_fails_on_an_unknown_document_type_rather_than_emitting_an_empty_file()
     {
         // A header-only CSV would be a silent lie about what the layer contains. The list may legitimately show an

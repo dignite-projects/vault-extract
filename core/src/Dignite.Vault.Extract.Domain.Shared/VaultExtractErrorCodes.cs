@@ -85,6 +85,10 @@ public static class VaultExtractErrorCodes
         // The five Extract:ExportTemplate* codes died with the template layer (#499). The wire value below is
         // frozen and unchanged.
         public const string DocumentLimitExceeded = "Extract:ExportDocumentLimitExceeded";
+
+        // #501 item 2: the column bound, restored after #499 deleted ExportTemplateConsts.MaxColumnCount along
+        // with the template that enforced it. Keeps the "Extract:Export*" shape of its row-bound twin above.
+        public const string ColumnLimitExceeded = "Extract:ExportColumnLimitExceeded";
     }
 
     // Cabinets (#194).

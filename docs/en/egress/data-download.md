@@ -13,7 +13,8 @@ POST /api/vault-extract/documents/export
   { documentTypeCode, format, …the document list's filters }
         │
         │  ambient IMultiTenant filter; narrowed to documentTypeCode
-        │  matched rows > MaxExportDocumentCount ? → fail (Extract:ExportDocumentLimitExceeded)
+        │  type's live fields > MaxColumnCount ?    → fail (Extract:ExportColumnLimitExceeded)
+        │  matched rows > MaxExportDocumentCount ?  → fail (Extract:ExportDocumentLimitExceeded)
         ▼
   4 fixed system columns + one column per live FieldDefinition of that type (DisplayOrder, Name)
         │
@@ -32,7 +33,9 @@ There is **no saved column projection.** #499 deleted the export-template layer:
 
 ### Scope
 
-The export takes exactly the filters the operator document list can express — lifecycle status, cabinet, creation-time range, needs-review, sub-documents of a source, and extracted-field-value filters — so the file is the view. `documentTypeCode` is **required**: extracted fields are type-scoped, and the columns *are* that type's field definitions, so a mixed-type view has nothing to emit. An unknown type code fails loudly rather than returning a header-only file.
+The export takes the filters the operator document list can express — lifecycle status, cabinet, needs-review, sub-documents of a source, and extracted-field-value filters — so the file is the view. It also accepts a creation-time range, which the list contract does not yet expose. `documentTypeCode` is **required**: extracted fields are type-scoped, and the columns *are* that type's field definitions, so a mixed-type view has nothing to emit. An unknown type code fails loudly rather than returning a header-only file.
+
+"The file is the view" is enforced on the server, not by convention: both services narrow through the one shared `DocumentQueries.ApplyMetadataFilter` chain and order through the one shared `DocumentQueries.OrderByCreationTime` (`CreationTime` descending, `Id` as tiebreaker, so a batch upload's ties do not reshuffle between the screen and the file). Neither service hand-writes a predicate of its own. The soft-delete recycle bin is the one deliberate asymmetry: the list can open it, the export never does, so a deleted document cannot leave through a file.
 
 ## Formats
 
@@ -52,6 +55,7 @@ JSON file export is intentionally **not** offered — programmatic consumers sho
 
 - **Tenant isolation** is enforced by ABP's ambient `IMultiTenant` global filter on the `Documents` query, per the `CLAUDE.md` security conventions.
 - **Per-export document cap** (`DocumentExportConsts.MaxExportDocumentCount`, default 10000): if the filters match more rows than the cap, the export **fails** (`Extract:ExportDocumentLimitExceeded`) rather than silently truncating — for accounting data, dropping vouchers is more dangerous than an error. Narrow the filter.
+- **Per-export column cap** (`DocumentExportConsts.MaxColumnCount`, default 100): if the requested type declares more live field definitions than the cap, the export **fails** (`Extract:ExportColumnLimitExceeded`). The file is built synchronously and held in memory as one cell per (row, column), so the columns are bounded like the rows. The four fixed system columns do not count against it. Archive the fields the type no longer needs.
 - **Permission**: `VaultExtract.Documents.Export`. (The old `VaultExtract.Documents.Templates.*` keys were removed with the template layer; grants naming them are inert.)
 
 ## Example: composing a freee-style import CSV

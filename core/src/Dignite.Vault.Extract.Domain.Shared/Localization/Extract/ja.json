@@ -388,6 +388,7 @@
     "Extract:FieldTypeDoesNotSupportRange": "フィールド '{FieldName}' は型 {DataType} で、等価一致のみ対応しており、範囲（最小/最大）クエリには対応していません。",
     "Extract:FieldTypeNotQueryable": "フィールド '{FieldName}' は型 {DataType}（長文テキスト）で、検索フィルターとして使用できません。",
     "Extract:ExportDocumentLimitExceeded": "このダウンロードは {count} 件のドキュメントに一致し、1 回あたりの上限 {max} 件を超えています。フィルターを絞り込むか、選択するドキュメントを減らしてください。",
+    "Extract:ExportColumnLimitExceeded": "このドキュメントタイプは {count} 個のフィールドを定義しており、1 回あたりの列数の上限 {max} を超えています。不要になったフィールドのアーカイブを管理者に依頼してください。",
     "ExportFormat:Csv": "CSV",
     "ExportFormat:Xlsx": "Excel (XLSX)",
     "Extract:InvalidCabinetName": "キャビネット名 '{name}' に制御文字（改行、タブなど）が含まれており、使用できません。",

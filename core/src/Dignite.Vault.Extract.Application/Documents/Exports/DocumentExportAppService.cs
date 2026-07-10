@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -60,39 +59,46 @@ public class DocumentExportAppService : VaultExtractAppService, IDocumentExportA
         // used to traverse soft-delete to resolve columns it explicitly referenced; nothing references them now.
         var fieldDefinitions = await _fieldDefinitionRepository.GetListAsync(documentType.Id);
 
+        // #501 item 2: the column count is bounded explicitly, symmetric with the row bound below. The template
+        // layer capped its saved projection at ExportTemplateConsts.MaxColumnCount = 100; #499 deleted the
+        // template and derived the columns from the type's live fields instead, and nothing else caps the number
+        // of fields a type may carry. A very wide export is built synchronously and held in memory as one
+        // ClosedXML cell object per (row, column) before SaveAs, so it fails fast here rather than degrading.
+        if (fieldDefinitions.Count > DocumentExportConsts.MaxColumnCount)
+        {
+            throw new BusinessException(VaultExtractErrorCodes.Export.ColumnLimitExceeded)
+                .WithData("count", fieldDefinitions.Count)
+                .WithData("max", DocumentExportConsts.MaxColumnCount);
+        }
+
         // Tenant isolation is enforced by the ambient IMultiTenant filter, including GetQueryableAsync below.
         var query = await _documentRepository.GetQueryableAsync();
-        query = query.Where(d => d.DocumentTypeId == documentType.Id);
 
-        if (input.LifecycleStatus.HasValue)
-            query = query.Where(d => d.LifecycleStatus == input.LifecycleStatus.Value);
-        if (input.CabinetId.HasValue)
-            query = query.Where(d => d.CabinetId == input.CabinetId.Value);
-
-        // Sub-document provenance (#354): only the children derived from this source document.
-        if (input.OriginDocumentId.HasValue)
-            query = query.Where(d => d.OriginDocumentId == input.OriginDocumentId.Value);
-        // Operator review queue (#284 / #395): reuses the canonical DocumentReviewQueries.RequiresAttention
-        // expression the list and the needs-review badge already run. A second, hand-rolled "needs review"
-        // predicate here is precisely how the exported file and the screen would quietly disagree.
-        if (input.HasReviewReasons == true)
-            query = query.Where(DocumentReviewQueries.RequiresAttention);
-
-        if (input.CreationTimeMin.HasValue)
-            query = query.Where(d => d.CreationTime >= input.CreationTimeMin.Value.Date);
-        // Upper time bound includes the full Max date (< Max + 1 day), matching date picker intuition.
-        if (input.CreationTimeMax.HasValue)
-            query = query.Where(d => d.CreationTime < input.CreationTimeMax.Value.Date.AddDays(1));
+        // #501 item 1: the metadata predicates are the shared DocumentQueries.ApplyMetadataFilter chain, the one
+        // the operator list runs. Hand-writing a second copy here is how "download the current view" silently
+        // stops downloading the view — the #496 bug class, one layer down. Filters the export contract does not
+        // expose (ReviewDisposition) stay null; the recycle bin is fail-closed by never disabling ISoftDelete.
+        query = query.ApplyMetadataFilter(new DocumentMetadataFilter
+        {
+            DocumentTypeId = documentType.Id,
+            LifecycleStatus = input.LifecycleStatus,
+            CabinetId = input.CabinetId,
+            OriginDocumentId = input.OriginDocumentId,
+            HasReviewReasons = input.HasReviewReasons,
+            CreationTimeMin = input.CreationTimeMin,
+            CreationTimeMax = input.CreationTimeMax,
+        });
 
         // Extracted-field-value filters, AND-combined with the metadata filters above. Resolve the field names
         // against the type (unknown field loud-fails via the shared resolver — the same path the document list /
         // MCP search use), match document ids through the EXISTS query (GetFieldMatchedIdsAsync; the ambient
         // IMultiTenant filter keeps it in the caller's layer), then intersect. The Take(limit + 1) below still
-        // bounds the export size.
+        // bounds the export size. fieldDefinitions is passed as the already-loaded lookup (#501 item 4).
         if (input.FieldFilters is { Count: > 0 })
         {
             var fieldQueries = await DocumentFieldQueryResolver.ResolveAsync(
-                _fieldDefinitionRepository, input.FieldFilters, documentType.Id, documentType.TypeCode);
+                _fieldDefinitionRepository, input.FieldFilters, documentType.Id, documentType.TypeCode,
+                knownDefinitions: fieldDefinitions);
             var matchedIds = await _documentRepository.GetFieldMatchedIdsAsync(documentType.Id, fieldQueries);
             query = query.Where(d => matchedIds.Contains(d.Id));
         }
@@ -103,11 +109,9 @@ public class DocumentExportAppService : VaultExtractAppService, IDocumentExportA
         var limit = DocumentExportConsts.MaxExportDocumentCount;
         var rows = await AsyncExecuter.ToListAsync(
             query
-                // ThenByDescending(Id) for the same reason the columns are ordered by (DisplayOrder, Name):
-                // CreationTime ties are ordinary for a batch upload, and without a tiebreaker the same data
-                // exports in a different row order run to run.
-                .OrderByDescending(d => d.CreationTime)
-                .ThenByDescending(d => d.Id)
+                // The list's default order, from the one shared implementation (#501 item 5) — including the Id
+                // tiebreaker, for the same reason the columns are ordered by (DisplayOrder, Name).
+                .OrderByCreationTime(descending: true)
                 .Select(d => new ExportProjection
                 {
                     Title = d.Title,
@@ -147,6 +151,12 @@ public class DocumentExportAppService : VaultExtractAppService, IDocumentExportA
         var dataRows = rows
             .Select(r =>
             {
+                // #501 item 3: bucket this row's field values by FieldDefinitionId once, in one pass. Each cell
+                // is then an O(1) bucket lookup instead of a Where + OrderBy rescan of every value the document
+                // holds — the old shape cost O(columns x values) per row, and #499 grew `columns` from an
+                // operator-chosen subset capped at 100 to every live field the type declares.
+                var valuesByField = r.ExtractedFields.ToLookup(f => f.FieldDefinitionId);
+
                 var cells = new string?[headers.Count];
                 cells[0] = r.LifecycleStatus.ToString();
                 cells[1] = r.ReviewDisposition.ToString();
@@ -156,7 +166,9 @@ public class DocumentExportAppService : VaultExtractAppService, IDocumentExportA
                 cells[3] = r.Title;
                 for (var i = 0; i < fieldDefinitions.Count; i++)
                 {
-                    cells[systemCount + i] = GetExtractedValue(r, fieldDefinitions[i].Id, fieldDefinitions[i].DataType);
+                    // The ILookup indexer yields an empty sequence for a field this document has no value for.
+                    cells[systemCount + i] = ExportCellRenderer.RenderCell(
+                        valuesByField[fieldDefinitions[i].Id], fieldDefinitions[i].DataType);
                 }
                 return cells;
             })
@@ -178,36 +190,4 @@ public class DocumentExportAppService : VaultExtractAppService, IDocumentExportA
 
         return new RemoteStreamContent(new MemoryStream(bytes), fileName, contentType);
     }
-
-    private static string? GetExtractedValue(ExportProjection d, Guid fieldDefinitionId, FieldDataType dataType)
-    {
-        // Render all value rows for this field by Order ascending, then join (#212). Single-value fields have exactly one row,
-        // so the result is that value. Multi-value fields join rows with "; ", preserving all values deterministically
-        // without relying on DB row order for child subqueries without explicit ordering.
-        var rendered = d.ExtractedFields
-            .Where(f => f.FieldDefinitionId == fieldDefinitionId)
-            .OrderBy(f => f.Order)
-            .Select(f => FieldValueToString(f, dataType))
-            .Where(s => s != null)
-            .ToList();
-
-        return rendered.Count > 0 ? string.Join("; ", rendered) : null;
-    }
-
-    // Render typed columns to cell strings by field type, using InvariantCulture and matching the canonical shape in DocumentExtractedField.ToJsonElement.
-    // Type comes from FieldDefinition.DataType (#208: not persisted on field value rows). Unknown type loud-fails, consistent with
-    // SetValue / ToJsonElement / ApplyFieldValueFilter. Never silently output an empty cell: if a new enum value misses this branch,
-    // tests / runtime should fail loudly instead of silently exporting wrong data.
-    private static string? FieldValueToString(ExtractedFieldProjection f, FieldDataType dataType) => dataType switch
-    {
-        FieldDataType.Text => f.TextValue,
-        FieldDataType.LongText => f.LongTextValue,
-        // Render Number in minimal shape ("0.######"): integer 1000 -> "1000", decimal 10.50 -> "10.5",
-        // without the six trailing zeros from decimal(38,6).
-        FieldDataType.Number => f.NumberValue?.ToString("0.######", CultureInfo.InvariantCulture),
-        FieldDataType.Boolean => f.BooleanValue == null ? null : (f.BooleanValue.Value ? "true" : "false"),
-        FieldDataType.Date => f.DateValue?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-        FieldDataType.DateTime => f.DateTimeValue?.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture),
-        _ => throw new ArgumentOutOfRangeException(nameof(dataType), dataType, "Unsupported field data type.")
-    };
 }

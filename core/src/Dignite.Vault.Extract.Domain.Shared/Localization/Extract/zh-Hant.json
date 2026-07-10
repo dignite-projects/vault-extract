@@ -388,6 +388,7 @@
     "Extract:FieldTypeDoesNotSupportRange": "欄位 '{FieldName}' 類型為 {DataType}，僅支援等值比對，不支援區間（min/max）查詢。",
     "Extract:FieldTypeNotQueryable": "欄位 '{FieldName}' 類型為 {DataType}（長文字），無法作為搜尋條件。",
     "Extract:ExportDocumentLimitExceeded": "本次下載比對到 {count} 份文件，超過單次上限 {max}。請縮小篩選範圍或減少勾選數量。",
+    "Extract:ExportColumnLimitExceeded": "此文件類型定義了 {count} 個欄位，超過單次下載的欄數上限 {max}。請聯絡管理員封存此類型不再需要的欄位。",
     "ExportFormat:Csv": "CSV",
     "ExportFormat:Xlsx": "Excel (XLSX)",
     "Extract:InvalidCabinetName": "文件櫃名稱 '{name}' 包含換行 / 定位字元等控制字元，不允許使用。",
