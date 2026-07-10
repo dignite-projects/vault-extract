@@ -35,6 +35,29 @@ public class DocumentAppService_ExtractedFields_Tests
         _eventBus = GetRequiredService<IDistributedEventBus>();
     }
 
+    /// <summary>
+    /// #491: manual entry is the only escape from the blocking <c>FieldExtractionIncomplete</c> reason — no operator
+    /// action can shrink a document's Markdown. Writing the values by hand means the human did the work the LLM
+    /// declined, so the reason clears and the Ready gate is re-derived. Without this the reason would be a dead end.
+    /// </summary>
+    [Fact]
+    public async Task Manual_Entry_Clears_The_Blocking_FieldExtractionIncomplete_Reason()
+    {
+        var doc = CreateClassifiedDocument("host.contract");
+        doc.SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: true);
+        ReviewReasonPolicy.HasBlocking(doc.ReviewReasons).ShouldBeTrue();
+        StubGet(doc);
+        StubFields("host.contract", "amount");
+
+        await _appService.UpdateExtractedFieldsAsync(doc.Id, new UpdateExtractedFieldsInput
+        {
+            Fields = new Dictionary<string, JsonElement> { ["amount"] = JsonString("1000") }
+        });
+
+        doc.ReviewReasons.HasFlag(DocumentReviewReasons.FieldExtractionIncomplete).ShouldBeFalse();
+        ReviewReasonPolicy.HasBlocking(doc.ReviewReasons).ShouldBeFalse();
+    }
+
     [Fact]
     public async Task Should_Write_Fields_And_Republish_FieldsExtractedEto()
     {

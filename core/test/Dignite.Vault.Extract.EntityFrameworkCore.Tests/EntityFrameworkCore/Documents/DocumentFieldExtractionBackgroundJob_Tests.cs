@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Dignite.Vault.Extract.Ai;
 using Dignite.Vault.Extract.Documents;
 using Dignite.Vault.Extract.Documents.DocumentTypes;
 using Dignite.Vault.Extract.Documents.Fields;
@@ -25,9 +26,17 @@ namespace Dignite.Vault.Extract.EntityFrameworkCore.Documents;
 [DependsOn(typeof(VaultExtractEntityFrameworkCoreTestModule))]
 public class FieldExtractionJobTestModule : AbpModule
 {
+    /// <summary>#491: a small ceiling keeps the oversized-body test from persisting a 200k-char body through real EF.</summary>
+    public const int MarkdownCeiling = 64;
+
     public override void ConfigureServices(ServiceConfigurationContext context)
     {
         context.Services.AddSingleton(Substitute.For<IBackgroundJobManager>());
+
+        Configure<VaultExtractBehaviorOptions>(options =>
+        {
+            options.MaxFieldExtractionMarkdownLength = MarkdownCeiling;
+        });
 
         // Register the stub workflow instance directly. ForPartsOf uses the real constructor; DI takes this
         // singleton and bypasses keyed IChatClient resolution.
@@ -116,6 +125,53 @@ public class DocumentFieldExtractionBackgroundJob_Tests
 
             // Lifecycle-neutral: field-extraction is not a key pipeline and does not advance or roll back the document.
             doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.Processing);
+        });
+    }
+
+    /// <summary>
+    /// #491, end to end through real EF: a body over the ceiling makes the job reach a <b>terminal</b> state without an
+    /// LLM call. It must not throw — throwing would return the job to the ABP job store, which would re-send the same
+    /// oversized body on every retry — and it must leave the blocking <c>FieldExtractionIncomplete</c> reason behind so
+    /// the Ready gate withholds the document from downstream.
+    /// </summary>
+    [Fact]
+    public async Task Oversized_Markdown_Completes_The_Run_Without_An_LLM_Call_And_Blocks_Ready()
+    {
+        var typeId = _guidGenerator.Create();
+        var fieldId = _guidGenerator.Create();
+        var documentId = _guidGenerator.Create();
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            await _documentTypeRepository.InsertAsync(
+                new DocumentType(typeId, null, "type.b", "Type B"), autoSave: true);
+            await _fieldDefinitionRepository.InsertAsync(
+                new FieldDefinition(fieldId, null, typeId, "amount", "Amount", "extract", FieldDataType.Number),
+                autoSave: true);
+
+            var doc = NewDocument(documentId);
+            doc.SetMarkdown(new string('x', FieldExtractionJobTestModule.MarkdownCeiling + 1));
+            doc.ApplyAutomaticClassificationResult(typeId, 0.99);
+            await _documentRepository.InsertAsync(doc, autoSave: true);
+        });
+
+        // Does not throw: the decline is a normal, terminal outcome of the stage, not a fault.
+        await _job.ExecuteAsync(new DocumentFieldExtractionJobArgs { DocumentId = documentId, PipelineRunId = null });
+
+        await _workflow.DidNotReceive().ExtractAsync(
+            Arg.Any<IReadOnlyList<FieldExtractionDescriptor>>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var run = await _runRepository.FindLatestByDocumentAndCodeAsync(documentId, VaultExtractPipelines.FieldExtraction);
+            run.ShouldNotBeNull();
+            run!.Status.ShouldBe(PipelineRunStatus.Succeeded);
+
+            var doc = await _documentRepository.FindWithFieldValuesAsync(documentId);
+            doc!.ExtractedFieldValues.ShouldBeEmpty();
+            doc.ReviewReasons.HasFlag(DocumentReviewReasons.FieldExtractionIncomplete).ShouldBeTrue();
+            ReviewReasonPolicy.HasBlocking(doc.ReviewReasons).ShouldBeTrue();
+            doc.LifecycleStatus.ShouldNotBe(DocumentLifecycleStatus.Ready);
         });
     }
 

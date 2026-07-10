@@ -38,6 +38,94 @@ public class DocumentTools_Tests : VaultExtractTestBase<DocumentToolsTestModule>
         _documentAppService = GetRequiredService<IDocumentAppService>();
     }
 
+    /// <summary>
+    /// #491: Take(N) bounds a result set's row count but not one row's payload, so an uncapped body would let a single
+    /// get_document consume the client's whole context window. The body is clipped and the clipping is announced — an
+    /// LLM must never mistake a prefix for the whole document.
+    /// </summary>
+    [Fact]
+    public async Task Oversized_markdown_is_clipped_and_the_truncation_is_announced()
+    {
+        var docId = Guid.NewGuid();
+        var body = new string('x', VaultExtractMcpConsts.MaxDocumentMarkdownChars + 500);
+        _documentAppService.GetAsync(docId).Returns(new DocumentDto
+        {
+            Id = docId,
+            LifecycleStatus = DocumentLifecycleStatus.Ready,
+            CreationTime = new DateTime(2024, 1, 1),
+            Markdown = body
+        });
+
+        var result = await DocumentTools.GetAsync(docId.ToString(), _documentAppService);
+
+        result.MarkdownTruncated.ShouldBeTrue();
+        result.MarkdownTotalChars.ShouldBe(body.Length);
+        // Truncation happens before WrapDocument, so the boundary tags always survive the cut.
+        result.Markdown.ShouldBe(PromptBoundary.WrapDocument(
+            new string('x', VaultExtractMcpConsts.MaxDocumentMarkdownChars)));
+    }
+
+    /// <summary>
+    /// #491: a declined document's ExtractedFields are empty or stale (the gate preserves an earlier run's values
+    /// rather than deleting them). Say so, or a client reads them as current — and cannot tell that state apart from
+    /// "this type declares no fields", which is precisely why the document is withheld from DocumentReadyEto.
+    /// </summary>
+    [Fact]
+    public async Task Declined_field_extraction_is_surfaced_to_direct_read_clients()
+    {
+        var docId = Guid.NewGuid();
+        _documentAppService.GetAsync(docId).Returns(new DocumentDto
+        {
+            Id = docId,
+            LifecycleStatus = DocumentLifecycleStatus.Processing,
+            CreationTime = new DateTime(2024, 1, 1),
+            Markdown = "# Huge body",
+            ReviewReasons = DocumentReviewReasons.FieldExtractionIncomplete
+        });
+
+        var result = await DocumentTools.GetAsync(docId.ToString(), _documentAppService);
+
+        result.FieldExtractionDeclined.ShouldBeTrue();
+    }
+
+    /// <summary>#491: an unrelated review reason must not be misread as a field-extraction decline.</summary>
+    [Fact]
+    public async Task Another_review_reason_does_not_report_a_decline()
+    {
+        var docId = Guid.NewGuid();
+        _documentAppService.GetAsync(docId).Returns(new DocumentDto
+        {
+            Id = docId,
+            LifecycleStatus = DocumentLifecycleStatus.Ready,
+            CreationTime = new DateTime(2024, 1, 1),
+            Markdown = "# Body",
+            ReviewReasons = DocumentReviewReasons.MissingRequiredFields | DocumentReviewReasons.SegmentationIncomplete
+        });
+
+        var result = await DocumentTools.GetAsync(docId.ToString(), _documentAppService);
+
+        result.FieldExtractionDeclined.ShouldBeFalse();
+    }
+
+    /// <summary>#491: the common case stays untouched — a body under the cap reports no truncation.</summary>
+    [Fact]
+    public async Task Body_under_the_cap_reports_no_truncation()
+    {
+        var docId = Guid.NewGuid();
+        _documentAppService.GetAsync(docId).Returns(new DocumentDto
+        {
+            Id = docId,
+            LifecycleStatus = DocumentLifecycleStatus.Ready,
+            CreationTime = new DateTime(2024, 1, 1),
+            Markdown = "# Short body"
+        });
+
+        var result = await DocumentTools.GetAsync(docId.ToString(), _documentAppService);
+
+        result.MarkdownTruncated.ShouldBeFalse();
+        result.MarkdownTotalChars.ShouldBe("# Short body".Length);
+    }
+
     [Fact]
     public async Task Returns_document_with_wrapped_title_and_markdown()
     {

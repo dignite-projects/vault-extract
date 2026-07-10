@@ -313,9 +313,10 @@ public class DocumentParseBackgroundJob
     {
         try
         {
-            var truncated = markdown.Length > _behaviorOptions.MaxTitleGenerationMarkdownLength
-                ? markdown[.._behaviorOptions.MaxTitleGenerationMarkdownLength]
-                : markdown;
+            // A raw markdown[..N] slice can land between the halves of a surrogate pair and emit a lone surrogate
+            // into the prompt. Classification and cabinet suggestion always cut at a char boundary; title generation
+            // did not. Use the shared helper (#491).
+            var truncated = TextTruncator.AtCharBoundary(markdown, _behaviorOptions.MaxTitleGenerationMarkdownLength);
 
             // Title policy: follow document language, built into the prompt, and do not consume DefaultLanguage; hence no-arg call.
             var template = _promptProvider.GetTitleGenerationPrompt();
@@ -331,9 +332,10 @@ public class DocumentParseBackgroundJob
             if (string.IsNullOrWhiteSpace(title))
                 return null;
 
-            return title.Length <= DocumentConsts.MaxTitleLength
-                ? title
-                : title[..DocumentConsts.MaxTitleLength];
+            // #491: same reason as the input cut above — and here the lone surrogate would be persisted. Cutting to
+            // exactly MaxTitleLength keeps Document.SetTitle's surrogate guard from ever firing (it is gated on
+            // `> MaxTitleLength`), so a split pair would reach the DB and the MCP egress.
+            return TextTruncator.AtCharBoundary(title, DocumentConsts.MaxTitleLength);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -361,9 +363,8 @@ public class DocumentParseBackgroundJob
         }
 
         var trimmed = withoutExtension.Trim();
-        return trimmed.Length <= DocumentConsts.MaxTitleLength
-            ? trimmed
-            : trimmed[..DocumentConsts.MaxTitleLength];
+        // #491: a file name can carry astral-plane characters; cut at a char boundary (see TryGenerateTitleAsync).
+        return TextTruncator.AtCharBoundary(trimmed, DocumentConsts.MaxTitleLength);
     }
 
     private sealed record ParseWorkItem(

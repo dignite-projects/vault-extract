@@ -57,5 +57,19 @@ public enum DocumentReviewReasons
     /// it (<c>DeleteAsync</c> — confirmed duplicate). Maintained by the field extraction stage, which only sets it
     /// when <see cref="Documents.Document.DuplicateAllowed"/> is false (so an operator override survives re-extraction).
     /// </summary>
-    DuplicateSuspected = 1 << 3
+    DuplicateSuspected = 1 << 3,
+
+    /// <summary>
+    /// The document's Markdown exceeds <c>VaultExtractBehaviorOptions.MaxFieldExtractionMarkdownLength</c>, so the field
+    /// extraction stage <b>declined to call the LLM at all</b> (#491) rather than send an unbounded prompt body. Only ever
+    /// set when the document's type actually declares field definitions — a type with no fields issues no call, so it can
+    /// never be "incomplete". <b>blocking</b>: <c>ExtractedFields</c> would be empty for a reason unrelated to the
+    /// document's content, and downstream cannot distinguish "this type declares no fields" from "we declined to look", so
+    /// Ready is withheld until a human resolves it. Consumers that only want the text can still subscribe to the earlier
+    /// <c>OCRCompletedEto</c>. Cleared by a later successful extraction (e.g. after the host raises the ceiling), by
+    /// reclassification to a type without fields, or by an operator entering the values by hand
+    /// (<c>DocumentAppService.UpdateExtractedFieldsAsync</c> — the human has taken over the work the LLM declined).
+    /// Maintained by the field extraction stage.
+    /// </summary>
+    FieldExtractionIncomplete = 1 << 4
 }

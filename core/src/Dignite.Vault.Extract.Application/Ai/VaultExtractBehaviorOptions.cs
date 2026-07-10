@@ -87,4 +87,15 @@ public class VaultExtractBehaviorOptions
     /// windows); hosts may raise it for bigger bundles or lower it to cap spend.
     /// </summary>
     public int MaxSegmentationMarkdownLength { get; set; } = 200_000;
+
+    /// <summary>
+    /// Maximum Markdown length (characters) a document may have for type-bound field extraction (#491). Field extraction
+    /// feeds the <b>whole</b> Markdown to the LLM (a type-bound field can sit anywhere, and tail truncation would
+    /// silently miss it — see <c>FieldExtractionWorkflow</c>), so this is the hard upper bound on that single call's
+    /// prompt-token cost and on the transient memory it materializes. Above it the document is left with a blocking
+    /// <c>DocumentReviewReasons.FieldExtractionIncomplete</c> review signal for manual handling rather than paying
+    /// for an enormous call — the same trade <see cref="MaxSegmentationMarkdownLength"/> makes for the same reason.
+    /// Default 200k chars, aligned with segmentation; hosts may raise it for bigger documents or lower it to cap spend.
+    /// </summary>
+    public int MaxFieldExtractionMarkdownLength { get; set; } = 200_000;
 }

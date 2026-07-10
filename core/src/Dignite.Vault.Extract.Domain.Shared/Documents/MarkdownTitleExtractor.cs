@@ -1,5 +1,6 @@
 using System;
 using System.Text.RegularExpressions;
+using Dignite.Vault.Extract.Ai;
 
 namespace Dignite.Vault.Extract.Documents;
 
@@ -126,6 +127,9 @@ public static class MarkdownTitleExtractor
             return string.Empty;
         }
 
-        return collapsed.Length <= limit ? collapsed : collapsed[..limit];
+        // #491: cut at a char boundary. Pre-truncating to exactly `limit` with a raw slice would leave a lone high
+        // surrogate that Document.SetTitle cannot repair — its own surrogate guard only runs on the `> MaxTitleLength`
+        // branch, which an exactly-`limit` string never enters.
+        return TextTruncator.AtCharBoundary(collapsed, limit);
     }
 }

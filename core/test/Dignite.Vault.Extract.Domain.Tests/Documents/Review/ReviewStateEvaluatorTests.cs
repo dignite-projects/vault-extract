@@ -46,13 +46,21 @@ public class ReviewStateEvaluatorTests
             .ShouldBeTrue();
     }
 
-    // Only UnresolvedClassification is blocking and prevents Ready; MissingRequiredFields is non-blocking.
+    // Three reasons withhold Ready: UnresolvedClassification (no confirmed type), DuplicateSuspected (#411), and
+    // FieldExtractionIncomplete (#491 — fields were expected but the body was too large to extract, so an empty
+    // field set would be indistinguishable from a type that declares no fields). MissingRequiredFields and
+    // SegmentationIncomplete are non-blocking: the document is still consumable downstream.
     [Theory]
     [InlineData(DocumentReviewReasons.None, false)]
     [InlineData(DocumentReviewReasons.UnresolvedClassification, true)]
+    [InlineData(DocumentReviewReasons.DuplicateSuspected, true)]
+    [InlineData(DocumentReviewReasons.FieldExtractionIncomplete, true)]
     [InlineData(DocumentReviewReasons.MissingRequiredFields, false)]
+    [InlineData(DocumentReviewReasons.SegmentationIncomplete, false)]
+    [InlineData(DocumentReviewReasons.MissingRequiredFields | DocumentReviewReasons.SegmentationIncomplete, false)]
     [InlineData(DocumentReviewReasons.UnresolvedClassification | DocumentReviewReasons.MissingRequiredFields, true)]
-    public void HasBlocking_Only_UnresolvedClassification_Is_Blocking(DocumentReviewReasons reasons, bool expected)
+    [InlineData(DocumentReviewReasons.FieldExtractionIncomplete | DocumentReviewReasons.SegmentationIncomplete, true)]
+    public void HasBlocking_Is_True_Exactly_For_The_Blocking_Reasons(DocumentReviewReasons reasons, bool expected)
     {
         ReviewReasonPolicy.HasBlocking(reasons).ShouldBe(expected);
     }

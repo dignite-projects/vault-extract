@@ -68,7 +68,7 @@ public class DocumentClassificationWorkflow : ITransientDependency
             Logger.LogWarning(
                 "Classification input truncated from {OriginalLength} to {TruncatedLength} characters; key fields beyond the cutoff will be missed.",
                 markdown.Length, _options.MaxTextLengthPerExtraction);
-            truncatedText = TruncateAtCharBoundary(markdown, _options.MaxTextLengthPerExtraction);
+            truncatedText = TextTruncator.AtCharBoundary(markdown, _options.MaxTextLengthPerExtraction);
         }
 
         // Field architecture v2: DocumentType.DisplayName / Description are DB-resolved strings
@@ -214,22 +214,6 @@ public class DocumentClassificationWorkflow : ITransientDependency
         if (value < 0d) return 0d;
         if (value > 1d) return 1d;
         return value;
-    }
-
-    // Truncate by UTF-16 code units without splitting surrogate pairs: when the last kept char is a
-    // high surrogate whose low surrogate was cut off, drop it too. This avoids half a code point
-    // degrading to U+FFFD when UTF-8 encoded for the LLM. The cut point is already in the discarded
-    // document tail, so dropping one extra char is harmless. internal lets Application.Tests verify
-    // the boundary logic directly, like the confidence helpers above.
-    internal static string TruncateAtCharBoundary(string text, int maxChars)
-    {
-        if (maxChars <= 0)
-            return string.Empty;
-        if (text.Length <= maxChars)
-            return text;
-
-        var end = char.IsHighSurrogate(text[maxChars - 1]) ? maxChars - 1 : maxChars;
-        return text[..end];
     }
 
     private sealed class ClassificationResponse

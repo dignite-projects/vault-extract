@@ -72,7 +72,7 @@ public class CabinetSuggestionWorkflow : ITransientDependency
             Logger.LogWarning(
                 "Cabinet suggestion input truncated from {OriginalLength} to {TruncatedLength} characters.",
                 markdown.Length, _options.MaxTextLengthPerExtraction);
-            truncatedText = TruncateAtCharBoundary(markdown, _options.MaxTextLengthPerExtraction);
+            truncatedText = TextTruncator.AtCharBoundary(markdown, _options.MaxTextLengthPerExtraction);
         }
 
         var numbered = FormatCandidates(candidates);
@@ -167,20 +167,6 @@ public class CabinetSuggestionWorkflow : ITransientDependency
         if (value < 0d) return 0d;
         if (value > 1d) return 1d;
         return value;
-    }
-
-    // Truncate by UTF-16 code units without splitting surrogate pairs, matching
-    // DocumentClassificationWorkflow.TruncateAtCharBoundary. internal lets Application.Tests verify
-    // the boundary logic directly.
-    internal static string TruncateAtCharBoundary(string text, int maxChars)
-    {
-        if (maxChars <= 0)
-            return string.Empty;
-        if (text.Length <= maxChars)
-            return text;
-
-        var end = char.IsHighSurrogate(text[maxChars - 1]) ? maxChars - 1 : maxChars;
-        return text[..end];
     }
 
     internal sealed class CabinetSuggestionResponse

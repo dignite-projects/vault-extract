@@ -654,6 +654,19 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
             DocumentReviewReasons.MissingRequiredFields,
             _reviewEvaluator.MissingRequiredFieldsPresent(requiredIds, extractedIds));
 
+        // #491: a document whose Markdown was over the field-extraction ceiling carries the blocking
+        // FieldExtractionIncomplete reason, and no operator action can shrink the Markdown. Manual entry IS the
+        // resolution — the human has done the work the LLM declined — so clear it here, exactly as MissingRequiredFields
+        // is re-evaluated above. Without this the blocking reason would have no escape path and the document could never
+        // reach Ready. The whole-set replacement above means the fields now on the document are the operator's own.
+        document.SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: false);
+
+        // #491: manual field entry can now clear a **blocking** reason, so this path must re-derive the Ready gate the
+        // same way AllowDuplicateAsync does. Before #491 it never needed to: MissingRequiredFields is non-blocking, so
+        // clearing it could not change LifecycleStatus. Without this call the operator's escape path would write the
+        // fields but leave the document stuck short of Ready, and DocumentReadyEto would never fire.
+        await _pipelineRunManager.ReDeriveLifecycleAsync(document);
+
         await _documentRepository.UpdateAsync(document, autoSave: true);
 
         // FieldsExtractedEto.FieldCount is the logical field count (distinct fields that produced >= 1 value), not the expanded row count.

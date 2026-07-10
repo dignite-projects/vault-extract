@@ -1,5 +1,5 @@
 ---
-description: "Dignite Vault Extract internal LLM call-site anti-patterns: fail-closed security gate / PromptBoundary / compile-time-constant descriptions / MCP schema collection-parameter pitfall"
+description: "Dignite Vault Extract internal LLM call-site anti-patterns: fail-closed security gate / PromptBoundary / compile-time-constant descriptions / MCP schema collection-parameter pitfall / bounded LLM payloads"
 globs:
   - "**/*Workflow*.cs"
   - "**/Pipelines/**/*.cs"
@@ -13,7 +13,7 @@ globs:
 
 # LLM call anti-patterns
 
-This file is referenced by the `maf-workflow-reviewer` agent during PR review to quickly locate typical mistakes at Dignite Vault Extract's internal **LLM call sites** (anti-patterns A / B are security issues, anti-pattern C is an MCP schema correctness issue). The rules apply to all LLM entry points:
+This file is referenced by the `maf-workflow-reviewer` agent during PR review to quickly locate typical mistakes at Dignite Vault Extract's internal **LLM call sites** (anti-patterns A / B are security issues, C is an MCP schema correctness issue, D is a cost / availability issue). The rules apply to all LLM entry points:
 
 - Currently landed: `DocumentClassificationWorkflow` / `FieldExtractionWorkflow` + `FieldExtractionEventHandler` (field architecture v2 unifying Host + tenant (mechanism B)) / `DocumentParseBackgroundJob.TryGenerateTitleAsync`
 - Future extensions: MCP server tools ([#170](https://github.com/dignite-projects/vault-extract/issues/170)), Webhook-triggered LLM paths, any query path where LLM output influences the parameters
@@ -226,8 +226,9 @@ The anti-patterns above are concretizations of the 4 bullets in CLAUDE.md's "## 
 - **PromptBoundary** — user-derived free text must be wrapped before entering a prompt / LLM-facing output
 - **Description / Instructions are compile-time constants** — concatenating user strings at runtime is forbidden
 - **Multi-tenancy isolation** — rely on ABP's `IMultiTenant` global filter (framework-level boundary, including `FromSqlRaw`); do not hand-write predicates; the only discipline is not to disable the filter on LLM paths
+- **Bounded payloads** — every text crossing an LLM boundary has a ceiling (see anti-pattern D). Where the tail is load-bearing the ceiling **gates** the call; otherwise it truncates surrogate-safely and announces the cut. `Take(N)` bounds rows, not bytes
 
-When adding any new LLM call site, self-review against these 4 points; the `maf-workflow-reviewer` agent also checks against this list during PR review.
+When adding any new LLM call site, self-review against these 5 points; the `maf-workflow-reviewer` agent also checks against this list during PR review.
 
 ---
 
@@ -262,3 +263,100 @@ public static async Task<...> SearchAsync(
 **Guard**: use a test that **actually goes through MCP schema generation** — `McpServerTool.Create(method, target, new McpServerToolCreateOptions { Services = autofacServiceProvider })`, asserting that the `ProtocolTool.InputSchema`'s `properties` contains the parameter. **A unit test that calls the C# method directly cannot catch this bug — it bypasses schema generation**. See `DocumentSearchTool_Tests.Mcp_input_schema_exposes_fieldFilters_and_all_llm_parameters`.
 
 **Note**: the MS DI container returns `IsService=true` only for `IEnumerable<T>`, and `false` for other collection interfaces — this pitfall is Autofac-specific, so repro / guard tests must run under the Autofac container (the test base class already calls `UseAutofac()`).
+
+---
+
+## Anti-pattern D: an unbounded payload entering a prompt, or leaving on an LLM-facing egress
+
+**Rule source**: [#491](https://github.com/dignite-projects/vault-extract/issues/491). **This is a cost / availability issue**, and the one anti-pattern here that a correct implementation of B can still commit.
+
+**Do not confuse it with B point 3.** B caps *how many rows* a query returns. D caps *how large one payload is*. A tool can honour `Take(20)` perfectly and still hand the model a 40 MB document body. The two bounds are orthogonal and you need both.
+
+**Scope**: any text crossing an LLM boundary — a document body or field value entering a prompt, and any body returned to an MCP client or other LLM-facing consumer.
+
+### ❌ Wrong 1: feeding a whole document into a prompt with no ceiling
+
+```csharp
+// Wrong: markdown is bounded only by the upload size limit, which is not a Markdown bound at all
+// (a text-dense DOCX/XLSX is a ZIP; its extracted body is routinely 10x the uploaded bytes).
+var messages = new List<ChatMessage>
+{
+    new(ChatRole.System, SystemInstructions),
+    new(ChatRole.User, PromptBoundary.WrapDocument(markdown))   // ← unbounded prompt-token cost
+};
+await _chatClient.GetResponseAsync(messages, options, ct);
+```
+
+**Harm**:
+
+- Unbounded per-document token spend, on the **host's** bill; under multi-tenancy a tenant chooses the input and the host pays
+- `PromptBoundary.Encode` (a `Replace`) + `WrapDocument` interpolation + request serialization each materialize another full copy — roughly 4× the body in UTF-16, all on the large object heap, multiplied by concurrent jobs
+- Bulk re-processing sweeps replay the cost across every document of a type
+
+### ❌ Wrong 2: letting the provider's context-window error fault the job
+
+```csharp
+catch (Exception ex)
+{
+    await FailRunAsync(documentId, runId, ex.Message, pipeline);
+    throw;   // ← back to the ABP job store, which re-sends the same oversized body on every retry
+}
+```
+
+An oversized body is a **permanent** property of the document, not a transient fault. Rethrowing converts one bad document into N identical failures and never reaches a terminal state.
+
+### ❌ Wrong 3: returning an uncapped body to an MCP client
+
+```csharp
+return new DocumentDetailResult
+{
+    Markdown = PromptBoundary.WrapDocument(document.Markdown ?? string.Empty)   // ← eats the client's context window
+};
+```
+
+### ❌ Wrong 4: silently truncating where the tail is load-bearing
+
+```csharp
+// Wrong for field extraction: a contract amount / invoice number can sit anywhere in the document.
+// Tail truncation disguises "missed extraction" as "successful extraction" — strictly worse than failing.
+var truncated = markdown[..MaxChars];
+```
+
+### ✅ Correct: decide gate vs. truncate by whether the tail is load-bearing
+
+Every LLM-facing path picks exactly one, and it follows from the semantics of the call, not from convenience:
+
+| Path | Tail load-bearing? | Bound |
+|---|---|---|
+| `DocumentClassificationWorkflow` | no — the leading semantics classify | truncate at `MaxTextLengthPerExtraction` |
+| `DocumentParseBackgroundJob.TryGenerateTitleAsync` | no | truncate at `MaxTitleGenerationMarkdownLength` |
+| `CabinetSuggestionWorkflow` | no | truncate (reuses `MaxTextLengthPerExtraction`) |
+| `DocumentSegmentationJob` | **yes** — a boundary can be anywhere | **gate** at `MaxSegmentationMarkdownLength` → `SegmentationIncomplete` |
+| `FieldExtractionService` | **yes** — a field can be anywhere | **gate** at `MaxFieldExtractionMarkdownLength` → `FieldExtractionIncomplete` |
+| MCP `get_document` / `documents/{id}` | no — the client can re-read | truncate at `VaultExtractMcpConsts.MaxDocumentMarkdownChars` + announce |
+
+```csharp
+// Gate: no call at all above the ceiling, a review signal instead, and a TERMINAL outcome (never a rethrow).
+if (markdown.Length > _behaviorOptions.MaxFieldExtractionMarkdownLength)
+{
+    return await DeclineOversizedAsync(documentId, tenantId, documentTypeId, markdown.Length);
+}
+
+// Truncate: surrogate-safe, and announced whenever a consumer could mistake a prefix for the whole.
+var clipped = TextTruncator.AtCharBoundary(body, VaultExtractMcpConsts.MaxDocumentMarkdownChars);
+return new DocumentDetailResult
+{
+    Markdown = PromptBoundary.WrapDocument(clipped),   // truncate first, wrap second: the tags must survive the cut
+    MarkdownTruncated = clipped.Length < body.Length,
+    MarkdownTotalChars = body.Length
+};
+```
+
+**Key points recap**:
+
+1. **`Take(N)` is not enough** — it bounds rows, not bytes; a single row's payload needs its own ceiling
+2. **Never truncate a load-bearing tail** — gate the call instead, and raise a review signal so the miss is visible
+3. **A gate is a terminal outcome** — never rethrow an oversized body into the background-job retry loop
+4. **Never cut with a raw range slice** — `text[..n]` can split a surrogate pair; use `TextTruncator.AtCharBoundary`
+5. **Announce every truncation** — `Truncated` / `markdownTruncated` + a total, so an LLM cannot mistake a prefix for the whole
+6. **Prompt ceilings are configuration, egress ceilings are `const`** — a host tunes its own token budget (`VaultExtractBehaviorOptions`), but the safety boundary of an LLM-facing egress must not be widenable at runtime (`VaultExtractMcpConsts`)

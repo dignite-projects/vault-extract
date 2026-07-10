@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Dignite.Vault.Extract.Abstractions.Documents;
+using Dignite.Vault.Extract.Ai;
 using Dignite.Vault.Extract.Documents.Review;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Volo.Abp.DependencyInjection;
 using Volo.Abp.EventBus.Distributed;
 using Volo.Abp.MultiTenancy;
@@ -57,6 +59,7 @@ public class FieldExtractionService : ITransientDependency
     // ICancellationTokenProvider.Use(...), same as DocumentParseBackgroundJob. Event paths fall back to
     // CancellationToken.None when no ambient token exists, preserving behavior.
     private readonly ICancellationTokenProvider _cancellationTokenProvider;
+    private readonly VaultExtractBehaviorOptions _behaviorOptions;
     private readonly ILogger<FieldExtractionService> _logger;
 
     public FieldExtractionService(
@@ -70,6 +73,7 @@ public class FieldExtractionService : ITransientDependency
         ICurrentTenant currentTenant,
         IUnitOfWorkManager unitOfWorkManager,
         ICancellationTokenProvider cancellationTokenProvider,
+        IOptions<VaultExtractBehaviorOptions> behaviorOptions,
         ILogger<FieldExtractionService> logger)
     {
         _documentRepository = documentRepository;
@@ -82,6 +86,7 @@ public class FieldExtractionService : ITransientDependency
         _currentTenant = currentTenant;
         _unitOfWorkManager = unitOfWorkManager;
         _cancellationTokenProvider = cancellationTokenProvider;
+        _behaviorOptions = behaviorOptions.Value;
         _logger = logger;
     }
 
@@ -216,18 +221,24 @@ public class FieldExtractionService : ITransientDependency
 
                 // #284: no field definitions implies no required fields, so clear MissingRequiredFields when reclassifying to a type without fields.
                 // #411: a type with no fields has no unique key, so there is no fingerprint and no duplicate basis — clear both too.
+                // #491: a type with no fields issues no LLM call, so an oversized body can no longer hold this document
+                // back — clear FieldExtractionIncomplete, otherwise reclassifying a declined document to a field-less
+                // type would leave it blocked from Ready forever with nothing an operator could do about it.
                 var hadFields = blankDocument.ExtractedFieldValues.Count > 0;
                 var hadMissingRequired =
                     (blankDocument.ReviewReasons & DocumentReviewReasons.MissingRequiredFields) != DocumentReviewReasons.None;
                 var hadFingerprint = blankDocument.FieldFingerprint != null;
                 var hadDuplicateSuspected =
                     (blankDocument.ReviewReasons & DocumentReviewReasons.DuplicateSuspected) != DocumentReviewReasons.None;
-                if (hadFields || hadMissingRequired || hadFingerprint || hadDuplicateSuspected)
+                var hadExtractionIncomplete =
+                    (blankDocument.ReviewReasons & DocumentReviewReasons.FieldExtractionIncomplete) != DocumentReviewReasons.None;
+                if (hadFields || hadMissingRequired || hadFingerprint || hadDuplicateSuspected || hadExtractionIncomplete)
                 {
                     blankDocument.SetFields(Array.Empty<DocumentFieldValue>());
                     blankDocument.SetReviewReason(DocumentReviewReasons.MissingRequiredFields, present: false);
                     blankDocument.SetFieldFingerprint(null);
                     blankDocument.SetReviewReason(DocumentReviewReasons.DuplicateSuspected, present: false);
+                    blankDocument.SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: false);
                     await _documentRepository.UpdateAsync(blankDocument, autoSave: true);
                 }
 
@@ -238,6 +249,19 @@ public class FieldExtractionService : ITransientDependency
 
             var descriptors = definitions.Select(d => new FieldExtractionDescriptor(
                 d.Id, d.Name, d.Prompt, d.DataType, d.IsRequired, d.AllowMultiple)).ToList();
+
+            // #491: field extraction sends the WHOLE Markdown (a type-bound field can sit anywhere, so tail truncation
+            // would silently miss it — see FieldExtractionWorkflow). An unbounded body is therefore an unbounded
+            // prompt-token cost and, after PromptBoundary.Encode + WrapDocument + request serialization, several times
+            // its own size live on the LOH. Above the ceiling, decline the call entirely — the same trade
+            // DocumentSegmentationJob makes for the same reason, and the same reason it is a gate rather than a
+            // truncation. This path is reachable only when the type declares field definitions (the definitions.Count
+            // == 0 branch returned above), so the review signal always means "fields were expected and we declined to
+            // look", never "this type has no fields".
+            if (markdown.Length > _behaviorOptions.MaxFieldExtractionMarkdownLength)
+            {
+                return await DeclineOversizedAsync(documentId, tenantId, documentTypeId, markdown.Length);
+            }
 
             // Phase 2: external LLM call, **outside any UoW** (hard constraint from background-jobs.md).
             // At this point the short phase 1 UoW has been disposed, so _unitOfWorkManager.Current should be null.
@@ -334,6 +358,11 @@ public class FieldExtractionService : ITransientDependency
 
             document.SetFields(fieldValues);
 
+            // #491: this run reached the LLM, so an earlier declined run has been superseded. The only way that happens
+            // is the host raising MaxFieldExtractionMarkdownLength — Markdown is write-once (SetMarkdown immutability),
+            // so a document's body can never shrink in place.
+            document.SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: false);
+
             // #284: evaluate required-field missingness at the moment extraction completes and materialize MissingRequiredFields.
             // Read paths cannot know whether extraction already ran, so this must be decided at write time.
             // Reuse currentDefinitions reread before writing, filtered by IsRequired, plus the written ExtractedFieldValues.
@@ -384,6 +413,67 @@ public class FieldExtractionService : ITransientDependency
 
             return FieldExtractionResult.Extracted(fieldCount);
         }
+    }
+
+    /// <summary>
+    /// #491: the document's Markdown is over <c>MaxFieldExtractionMarkdownLength</c>, so no LLM call is issued. Records the
+    /// blocking <see cref="DocumentReviewReasons.FieldExtractionIncomplete"/> signal in a short UoW and returns a
+    /// <b>terminal</b> outcome, so <c>DocumentFieldExtractionBackgroundJob</c> completes the run instead of rethrowing into
+    /// the job-store retry loop (which would keep re-sending the same oversized body).
+    /// <para>
+    /// Existing <c>ExtractedFieldValues</c> are deliberately left untouched. A host lowering the ceiling must not silently
+    /// delete values that an earlier, in-budget extraction had legitimately produced; the blocking signal already tells
+    /// downstream and the operator that this document's field set is not current. Nothing is published either — no
+    /// extraction happened, so there is no <c>FieldsExtractedEto</c> to fire.
+    /// </para>
+    /// </summary>
+    protected virtual async Task<FieldExtractionResult> DeclineOversizedAsync(
+        Guid documentId,
+        Guid? tenantId,
+        Guid documentTypeId,
+        int markdownLength)
+    {
+        using var uow = _unitOfWorkManager.Begin(requiresNew: true);
+
+        var document = await _documentRepository.FindAsync(documentId, includeDetails: false);
+        if (document == null)
+        {
+            _logger.LogWarning(
+                "Field extraction requested for missing document {DocumentId} — skipped.",
+                documentId);
+            return FieldExtractionResult.Skipped;
+        }
+
+        if (document.TenantId != tenantId)
+        {
+            _logger.LogWarning(
+                "Cross-tenant field extraction discarded: requested tenant={RequestedTenant} document tenant={DocTenant} document={DocId}",
+                tenantId, document.TenantId, documentId);
+            return FieldExtractionResult.Skipped;
+        }
+
+        // Same stale-reclassify guard as the write path: the type captured in phase 1 must still be the current one,
+        // otherwise a stale run would pin a blocking signal onto a document that has since moved to another type.
+        if (document.DocumentTypeId != documentTypeId)
+        {
+            _logger.LogInformation(
+                "Reclassified before the oversized-document decline could be recorded: captured typeId={CapturedTypeId} " +
+                "current typeId={DocTypeId} doc={DocumentId}. Discarding.",
+                documentTypeId, document.DocumentTypeId, documentId);
+            return FieldExtractionResult.Skipped;
+        }
+
+        document.SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: true);
+        await _documentRepository.UpdateAsync(document, autoSave: true);
+        await uow.CompleteAsync();
+
+        _logger.LogWarning(
+            "Field extraction declined for document {DocumentId}: Markdown is {CharCount} characters, over the " +
+            "MaxFieldExtractionMarkdownLength ceiling of {Ceiling}. No LLM call was made; the document carries the " +
+            "blocking FieldExtractionIncomplete review reason and is withheld from Ready.",
+            documentId, markdownLength, _behaviorOptions.MaxFieldExtractionMarkdownLength);
+
+        return FieldExtractionResult.Declined;
     }
 
     private async Task PublishFieldsExtractedAsync(Guid documentId, Guid? tenantId, int fieldCount, string documentTypeCode)
