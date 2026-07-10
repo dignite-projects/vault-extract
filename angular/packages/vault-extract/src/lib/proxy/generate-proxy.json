@@ -5634,20 +5634,20 @@
             }
           }
         },
-        "Dignite.Vault.Extract.HttpApi.Documents.Exports.ExportTemplateController": {
-          "controllerName": "ExportTemplate",
-          "controllerGroupName": "ExportTemplate",
+        "Dignite.Vault.Extract.HttpApi.Documents.DocumentTypes.Packs.DocumentTypePackController": {
+          "controllerName": "DocumentTypePack",
+          "controllerGroupName": "DocumentTypePack",
           "isRemoteService": true,
           "isIntegrationService": false,
           "apiVersion": null,
-          "type": "Dignite.Vault.Extract.HttpApi.Documents.Exports.ExportTemplateController",
+          "type": "Dignite.Vault.Extract.HttpApi.Documents.DocumentTypes.Packs.DocumentTypePackController",
           "interfaces": [
             {
-              "type": "Dignite.Vault.Extract.Documents.Exports.IExportTemplateAppService",
-              "name": "IExportTemplateAppService",
+              "type": "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.IDocumentTypePackAppService",
+              "name": "IDocumentTypePackAppService",
               "methods": [
                 {
-                  "name": "GetAsync",
+                  "name": "ExportAsync",
                   "parametersOnMethod": [
                     {
                       "name": "id",
@@ -5659,77 +5659,145 @@
                     }
                   ],
                   "returnValue": {
-                    "type": "Dignite.Vault.Extract.Documents.Exports.ExportTemplateDto",
-                    "typeSimple": "Dignite.Vault.Extract.Documents.Exports.ExportTemplateDto"
+                    "type": "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.DocumentTypePackDto",
+                    "typeSimple": "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.DocumentTypePackDto"
                   }
                 },
                 {
-                  "name": "GetListAsync",
+                  "name": "ExportAllAsync",
                   "parametersOnMethod": [],
                   "returnValue": {
-                    "type": "System.Collections.Generic.List<Dignite.Vault.Extract.Documents.Exports.ExportTemplateDto>",
-                    "typeSimple": "[Dignite.Vault.Extract.Documents.Exports.ExportTemplateDto]"
+                    "type": "System.Collections.Generic.List<Dignite.Vault.Extract.Documents.DocumentTypes.Packs.DocumentTypePackDto>",
+                    "typeSimple": "[Dignite.Vault.Extract.Documents.DocumentTypes.Packs.DocumentTypePackDto]"
                   }
                 },
                 {
-                  "name": "CreateAsync",
+                  "name": "ImportAsync",
                   "parametersOnMethod": [
                     {
                       "name": "input",
-                      "typeAsString": "Dignite.Vault.Extract.Documents.Exports.CreateExportTemplateDto, Dignite.Vault.Extract.Application.Contracts",
-                      "type": "Dignite.Vault.Extract.Documents.Exports.CreateExportTemplateDto",
-                      "typeSimple": "Dignite.Vault.Extract.Documents.Exports.CreateExportTemplateDto",
+                      "typeAsString": "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.ImportDocumentTypePacksInput, Dignite.Vault.Extract.Application.Contracts",
+                      "type": "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.ImportDocumentTypePacksInput",
+                      "typeSimple": "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.ImportDocumentTypePacksInput",
                       "isOptional": false,
                       "defaultValue": null
                     }
                   ],
                   "returnValue": {
-                    "type": "Dignite.Vault.Extract.Documents.Exports.ExportTemplateDto",
-                    "typeSimple": "Dignite.Vault.Extract.Documents.Exports.ExportTemplateDto"
+                    "type": "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.DocumentTypePackImportResultDto",
+                    "typeSimple": "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.DocumentTypePackImportResultDto"
                   }
-                },
+                }
+              ]
+            }
+          ],
+          "actions": {
+            "ExportAsyncById": {
+              "uniqueName": "ExportAsyncById",
+              "name": "ExportAsync",
+              "httpMethod": "GET",
+              "url": "api/vault-extract/document-type-packs/{id}",
+              "supportedVersions": [],
+              "parametersOnMethod": [
                 {
-                  "name": "UpdateAsync",
-                  "parametersOnMethod": [
-                    {
-                      "name": "id",
-                      "typeAsString": "System.Guid, System.Private.CoreLib",
-                      "type": "System.Guid",
-                      "typeSimple": "string",
-                      "isOptional": false,
-                      "defaultValue": null
-                    },
-                    {
-                      "name": "input",
-                      "typeAsString": "Dignite.Vault.Extract.Documents.Exports.UpdateExportTemplateDto, Dignite.Vault.Extract.Application.Contracts",
-                      "type": "Dignite.Vault.Extract.Documents.Exports.UpdateExportTemplateDto",
-                      "typeSimple": "Dignite.Vault.Extract.Documents.Exports.UpdateExportTemplateDto",
-                      "isOptional": false,
-                      "defaultValue": null
-                    }
-                  ],
-                  "returnValue": {
-                    "type": "Dignite.Vault.Extract.Documents.Exports.ExportTemplateDto",
-                    "typeSimple": "Dignite.Vault.Extract.Documents.Exports.ExportTemplateDto"
-                  }
-                },
+                  "name": "id",
+                  "typeAsString": "System.Guid, System.Private.CoreLib",
+                  "type": "System.Guid",
+                  "typeSimple": "string",
+                  "isOptional": false,
+                  "defaultValue": null
+                }
+              ],
+              "parameters": [
                 {
-                  "name": "DeleteAsync",
-                  "parametersOnMethod": [
-                    {
-                      "name": "id",
-                      "typeAsString": "System.Guid, System.Private.CoreLib",
-                      "type": "System.Guid",
-                      "typeSimple": "string",
-                      "isOptional": false,
-                      "defaultValue": null
-                    }
-                  ],
-                  "returnValue": {
-                    "type": "System.Void",
-                    "typeSimple": "System.Void"
-                  }
-                },
+                  "nameOnMethod": "id",
+                  "name": "id",
+                  "jsonName": null,
+                  "type": "System.Guid",
+                  "typeSimple": "string",
+                  "isOptional": false,
+                  "defaultValue": null,
+                  "constraintTypes": [],
+                  "bindingSourceId": "Path",
+                  "descriptorName": ""
+                }
+              ],
+              "returnValue": {
+                "type": "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.DocumentTypePackDto",
+                "typeSimple": "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.DocumentTypePackDto"
+              },
+              "allowAnonymous": null,
+              "authorizeDatas": [],
+              "implementFrom": "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.IDocumentTypePackAppService"
+            },
+            "ExportAllAsync": {
+              "uniqueName": "ExportAllAsync",
+              "name": "ExportAllAsync",
+              "httpMethod": "GET",
+              "url": "api/vault-extract/document-type-packs",
+              "supportedVersions": [],
+              "parametersOnMethod": [],
+              "parameters": [],
+              "returnValue": {
+                "type": "System.Collections.Generic.List<Dignite.Vault.Extract.Documents.DocumentTypes.Packs.DocumentTypePackDto>",
+                "typeSimple": "[Dignite.Vault.Extract.Documents.DocumentTypes.Packs.DocumentTypePackDto]"
+              },
+              "allowAnonymous": null,
+              "authorizeDatas": [],
+              "implementFrom": "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.IDocumentTypePackAppService"
+            },
+            "ImportAsyncByInput": {
+              "uniqueName": "ImportAsyncByInput",
+              "name": "ImportAsync",
+              "httpMethod": "POST",
+              "url": "api/vault-extract/document-type-packs/import",
+              "supportedVersions": [],
+              "parametersOnMethod": [
+                {
+                  "name": "input",
+                  "typeAsString": "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.ImportDocumentTypePacksInput, Dignite.Vault.Extract.Application.Contracts",
+                  "type": "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.ImportDocumentTypePacksInput",
+                  "typeSimple": "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.ImportDocumentTypePacksInput",
+                  "isOptional": false,
+                  "defaultValue": null
+                }
+              ],
+              "parameters": [
+                {
+                  "nameOnMethod": "input",
+                  "name": "input",
+                  "jsonName": null,
+                  "type": "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.ImportDocumentTypePacksInput",
+                  "typeSimple": "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.ImportDocumentTypePacksInput",
+                  "isOptional": false,
+                  "defaultValue": null,
+                  "constraintTypes": null,
+                  "bindingSourceId": "Body",
+                  "descriptorName": ""
+                }
+              ],
+              "returnValue": {
+                "type": "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.DocumentTypePackImportResultDto",
+                "typeSimple": "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.DocumentTypePackImportResultDto"
+              },
+              "allowAnonymous": null,
+              "authorizeDatas": [],
+              "implementFrom": "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.IDocumentTypePackAppService"
+            }
+          }
+        },
+        "Dignite.Vault.Extract.HttpApi.Documents.Exports.DocumentExportController": {
+          "controllerName": "DocumentExport",
+          "controllerGroupName": "DocumentExport",
+          "isRemoteService": true,
+          "isIntegrationService": false,
+          "apiVersion": null,
+          "type": "Dignite.Vault.Extract.HttpApi.Documents.Exports.DocumentExportController",
+          "interfaces": [
+            {
+              "type": "Dignite.Vault.Extract.Documents.Exports.IDocumentExportAppService",
+              "name": "IDocumentExportAppService",
+              "methods": [
                 {
                   "name": "ExportAsync",
                   "parametersOnMethod": [
@@ -5751,199 +5819,11 @@
             }
           ],
           "actions": {
-            "GetAsyncById": {
-              "uniqueName": "GetAsyncById",
-              "name": "GetAsync",
-              "httpMethod": "GET",
-              "url": "api/vault-extract/export-templates/{id}",
-              "supportedVersions": [],
-              "parametersOnMethod": [
-                {
-                  "name": "id",
-                  "typeAsString": "System.Guid, System.Private.CoreLib",
-                  "type": "System.Guid",
-                  "typeSimple": "string",
-                  "isOptional": false,
-                  "defaultValue": null
-                }
-              ],
-              "parameters": [
-                {
-                  "nameOnMethod": "id",
-                  "name": "id",
-                  "jsonName": null,
-                  "type": "System.Guid",
-                  "typeSimple": "string",
-                  "isOptional": false,
-                  "defaultValue": null,
-                  "constraintTypes": [],
-                  "bindingSourceId": "Path",
-                  "descriptorName": ""
-                }
-              ],
-              "returnValue": {
-                "type": "Dignite.Vault.Extract.Documents.Exports.ExportTemplateDto",
-                "typeSimple": "Dignite.Vault.Extract.Documents.Exports.ExportTemplateDto"
-              },
-              "allowAnonymous": null,
-              "authorizeDatas": [],
-              "implementFrom": "Dignite.Vault.Extract.Documents.Exports.IExportTemplateAppService"
-            },
-            "GetListAsync": {
-              "uniqueName": "GetListAsync",
-              "name": "GetListAsync",
-              "httpMethod": "GET",
-              "url": "api/vault-extract/export-templates",
-              "supportedVersions": [],
-              "parametersOnMethod": [],
-              "parameters": [],
-              "returnValue": {
-                "type": "System.Collections.Generic.List<Dignite.Vault.Extract.Documents.Exports.ExportTemplateDto>",
-                "typeSimple": "[Dignite.Vault.Extract.Documents.Exports.ExportTemplateDto]"
-              },
-              "allowAnonymous": null,
-              "authorizeDatas": [],
-              "implementFrom": "Dignite.Vault.Extract.Documents.Exports.IExportTemplateAppService"
-            },
-            "CreateAsyncByInput": {
-              "uniqueName": "CreateAsyncByInput",
-              "name": "CreateAsync",
-              "httpMethod": "POST",
-              "url": "api/vault-extract/export-templates",
-              "supportedVersions": [],
-              "parametersOnMethod": [
-                {
-                  "name": "input",
-                  "typeAsString": "Dignite.Vault.Extract.Documents.Exports.CreateExportTemplateDto, Dignite.Vault.Extract.Application.Contracts",
-                  "type": "Dignite.Vault.Extract.Documents.Exports.CreateExportTemplateDto",
-                  "typeSimple": "Dignite.Vault.Extract.Documents.Exports.CreateExportTemplateDto",
-                  "isOptional": false,
-                  "defaultValue": null
-                }
-              ],
-              "parameters": [
-                {
-                  "nameOnMethod": "input",
-                  "name": "input",
-                  "jsonName": null,
-                  "type": "Dignite.Vault.Extract.Documents.Exports.CreateExportTemplateDto",
-                  "typeSimple": "Dignite.Vault.Extract.Documents.Exports.CreateExportTemplateDto",
-                  "isOptional": false,
-                  "defaultValue": null,
-                  "constraintTypes": null,
-                  "bindingSourceId": "Body",
-                  "descriptorName": ""
-                }
-              ],
-              "returnValue": {
-                "type": "Dignite.Vault.Extract.Documents.Exports.ExportTemplateDto",
-                "typeSimple": "Dignite.Vault.Extract.Documents.Exports.ExportTemplateDto"
-              },
-              "allowAnonymous": null,
-              "authorizeDatas": [],
-              "implementFrom": "Dignite.Vault.Extract.Documents.Exports.IExportTemplateAppService"
-            },
-            "UpdateAsyncByIdAndInput": {
-              "uniqueName": "UpdateAsyncByIdAndInput",
-              "name": "UpdateAsync",
-              "httpMethod": "PUT",
-              "url": "api/vault-extract/export-templates/{id}",
-              "supportedVersions": [],
-              "parametersOnMethod": [
-                {
-                  "name": "id",
-                  "typeAsString": "System.Guid, System.Private.CoreLib",
-                  "type": "System.Guid",
-                  "typeSimple": "string",
-                  "isOptional": false,
-                  "defaultValue": null
-                },
-                {
-                  "name": "input",
-                  "typeAsString": "Dignite.Vault.Extract.Documents.Exports.UpdateExportTemplateDto, Dignite.Vault.Extract.Application.Contracts",
-                  "type": "Dignite.Vault.Extract.Documents.Exports.UpdateExportTemplateDto",
-                  "typeSimple": "Dignite.Vault.Extract.Documents.Exports.UpdateExportTemplateDto",
-                  "isOptional": false,
-                  "defaultValue": null
-                }
-              ],
-              "parameters": [
-                {
-                  "nameOnMethod": "id",
-                  "name": "id",
-                  "jsonName": null,
-                  "type": "System.Guid",
-                  "typeSimple": "string",
-                  "isOptional": false,
-                  "defaultValue": null,
-                  "constraintTypes": [],
-                  "bindingSourceId": "Path",
-                  "descriptorName": ""
-                },
-                {
-                  "nameOnMethod": "input",
-                  "name": "input",
-                  "jsonName": null,
-                  "type": "Dignite.Vault.Extract.Documents.Exports.UpdateExportTemplateDto",
-                  "typeSimple": "Dignite.Vault.Extract.Documents.Exports.UpdateExportTemplateDto",
-                  "isOptional": false,
-                  "defaultValue": null,
-                  "constraintTypes": null,
-                  "bindingSourceId": "Body",
-                  "descriptorName": ""
-                }
-              ],
-              "returnValue": {
-                "type": "Dignite.Vault.Extract.Documents.Exports.ExportTemplateDto",
-                "typeSimple": "Dignite.Vault.Extract.Documents.Exports.ExportTemplateDto"
-              },
-              "allowAnonymous": null,
-              "authorizeDatas": [],
-              "implementFrom": "Dignite.Vault.Extract.Documents.Exports.IExportTemplateAppService"
-            },
-            "DeleteAsyncById": {
-              "uniqueName": "DeleteAsyncById",
-              "name": "DeleteAsync",
-              "httpMethod": "DELETE",
-              "url": "api/vault-extract/export-templates/{id}",
-              "supportedVersions": [],
-              "parametersOnMethod": [
-                {
-                  "name": "id",
-                  "typeAsString": "System.Guid, System.Private.CoreLib",
-                  "type": "System.Guid",
-                  "typeSimple": "string",
-                  "isOptional": false,
-                  "defaultValue": null
-                }
-              ],
-              "parameters": [
-                {
-                  "nameOnMethod": "id",
-                  "name": "id",
-                  "jsonName": null,
-                  "type": "System.Guid",
-                  "typeSimple": "string",
-                  "isOptional": false,
-                  "defaultValue": null,
-                  "constraintTypes": [],
-                  "bindingSourceId": "Path",
-                  "descriptorName": ""
-                }
-              ],
-              "returnValue": {
-                "type": "System.Void",
-                "typeSimple": "System.Void"
-              },
-              "allowAnonymous": null,
-              "authorizeDatas": [],
-              "implementFrom": "Dignite.Vault.Extract.Documents.Exports.IExportTemplateAppService"
-            },
             "ExportAsyncByInput": {
               "uniqueName": "ExportAsyncByInput",
               "name": "ExportAsync",
               "httpMethod": "POST",
-              "url": "api/vault-extract/export-templates/export",
+              "url": "api/vault-extract/documents/export",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {
@@ -5975,7 +5855,7 @@
               },
               "allowAnonymous": null,
               "authorizeDatas": [],
-              "implementFrom": "Dignite.Vault.Extract.Documents.Exports.IExportTemplateAppService"
+              "implementFrom": "Dignite.Vault.Extract.Documents.Exports.IDocumentExportAppService"
             }
           }
         },
@@ -6398,6 +6278,95 @@
               "allowAnonymous": null,
               "authorizeDatas": [],
               "implementFrom": "Dignite.Vault.Extract.Documents.Fields.IFieldDraftSuggestionAppService"
+            }
+          }
+        },
+        "Dignite.Vault.Extract.HttpApi.Documents.Fields.FieldPromptPolishController": {
+          "controllerName": "FieldPromptPolish",
+          "controllerGroupName": "FieldPromptPolish",
+          "isRemoteService": true,
+          "isIntegrationService": false,
+          "apiVersion": null,
+          "type": "Dignite.Vault.Extract.HttpApi.Documents.Fields.FieldPromptPolishController",
+          "interfaces": [
+            {
+              "type": "Dignite.Vault.Extract.Documents.Fields.IFieldPromptPolishAppService",
+              "name": "IFieldPromptPolishAppService",
+              "methods": [
+                {
+                  "name": "PolishAsync",
+                  "parametersOnMethod": [
+                    {
+                      "name": "input",
+                      "typeAsString": "Dignite.Vault.Extract.Documents.Fields.FieldPromptPolishInput, Dignite.Vault.Extract.Application.Contracts",
+                      "type": "Dignite.Vault.Extract.Documents.Fields.FieldPromptPolishInput",
+                      "typeSimple": "Dignite.Vault.Extract.Documents.Fields.FieldPromptPolishInput",
+                      "isOptional": false,
+                      "defaultValue": null
+                    },
+                    {
+                      "name": "cancellationToken",
+                      "typeAsString": "System.Threading.CancellationToken, System.Private.CoreLib",
+                      "type": "System.Threading.CancellationToken",
+                      "typeSimple": "System.Threading.CancellationToken",
+                      "isOptional": true,
+                      "defaultValue": null
+                    }
+                  ],
+                  "returnValue": {
+                    "type": "Dignite.Vault.Extract.Documents.Fields.FieldPromptPolishResultDto",
+                    "typeSimple": "Dignite.Vault.Extract.Documents.Fields.FieldPromptPolishResultDto"
+                  }
+                }
+              ]
+            }
+          ],
+          "actions": {
+            "PolishAsyncByInputAndCancellationToken": {
+              "uniqueName": "PolishAsyncByInputAndCancellationToken",
+              "name": "PolishAsync",
+              "httpMethod": "POST",
+              "url": "api/vault-extract/field-prompt-polish/polish",
+              "supportedVersions": [],
+              "parametersOnMethod": [
+                {
+                  "name": "input",
+                  "typeAsString": "Dignite.Vault.Extract.Documents.Fields.FieldPromptPolishInput, Dignite.Vault.Extract.Application.Contracts",
+                  "type": "Dignite.Vault.Extract.Documents.Fields.FieldPromptPolishInput",
+                  "typeSimple": "Dignite.Vault.Extract.Documents.Fields.FieldPromptPolishInput",
+                  "isOptional": false,
+                  "defaultValue": null
+                },
+                {
+                  "name": "cancellationToken",
+                  "typeAsString": "System.Threading.CancellationToken, System.Private.CoreLib",
+                  "type": "System.Threading.CancellationToken",
+                  "typeSimple": "System.Threading.CancellationToken",
+                  "isOptional": false,
+                  "defaultValue": null
+                }
+              ],
+              "parameters": [
+                {
+                  "nameOnMethod": "input",
+                  "name": "input",
+                  "jsonName": null,
+                  "type": "Dignite.Vault.Extract.Documents.Fields.FieldPromptPolishInput",
+                  "typeSimple": "Dignite.Vault.Extract.Documents.Fields.FieldPromptPolishInput",
+                  "isOptional": false,
+                  "defaultValue": null,
+                  "constraintTypes": null,
+                  "bindingSourceId": "Body",
+                  "descriptorName": ""
+                }
+              ],
+              "returnValue": {
+                "type": "Dignite.Vault.Extract.Documents.Fields.FieldPromptPolishResultDto",
+                "typeSimple": "Dignite.Vault.Extract.Documents.Fields.FieldPromptPolishResultDto"
+              },
+              "allowAnonymous": null,
+              "authorizeDatas": [],
+              "implementFrom": "Dignite.Vault.Extract.Documents.Fields.IFieldPromptPolishAppService"
             }
           }
         },
@@ -7796,6 +7765,458 @@
         }
       ]
     },
+    "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.DocumentTypePackDto": {
+      "baseType": null,
+      "isEnum": false,
+      "enumNames": null,
+      "enumValues": null,
+      "genericArguments": null,
+      "properties": [
+        {
+          "name": "Version",
+          "jsonName": null,
+          "type": "System.Int32",
+          "typeSimple": "number",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "TypeCode",
+          "jsonName": null,
+          "type": "System.String",
+          "typeSimple": "string",
+          "isRequired": true,
+          "minLength": 0,
+          "maxLength": 128,
+          "minimum": null,
+          "maximum": null,
+          "regex": "^[A-Za-z0-9_\\-]+(\\.[A-Za-z0-9_\\-]+)*$",
+          "isNullable": false
+        },
+        {
+          "name": "DisplayName",
+          "jsonName": null,
+          "type": "System.String",
+          "typeSimple": "string",
+          "isRequired": true,
+          "minLength": 0,
+          "maxLength": 128,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "Description",
+          "jsonName": null,
+          "type": "System.String",
+          "typeSimple": "string",
+          "isRequired": false,
+          "minLength": 0,
+          "maxLength": 512,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true
+        },
+        {
+          "name": "ConfidenceThreshold",
+          "jsonName": null,
+          "type": "System.Double",
+          "typeSimple": "number",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": "0",
+          "maximum": "1",
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "Priority",
+          "jsonName": null,
+          "type": "System.Int32",
+          "typeSimple": "number",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "Fields",
+          "jsonName": null,
+          "type": "[Dignite.Vault.Extract.Documents.DocumentTypes.Packs.DocumentTypePackFieldDto]",
+          "typeSimple": "[Dignite.Vault.Extract.Documents.DocumentTypes.Packs.DocumentTypePackFieldDto]",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        }
+      ]
+    },
+    "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.DocumentTypePackFieldDto": {
+      "baseType": null,
+      "isEnum": false,
+      "enumNames": null,
+      "enumValues": null,
+      "genericArguments": null,
+      "properties": [
+        {
+          "name": "Name",
+          "jsonName": null,
+          "type": "System.String",
+          "typeSimple": "string",
+          "isRequired": true,
+          "minLength": 0,
+          "maxLength": 64,
+          "minimum": null,
+          "maximum": null,
+          "regex": "^[A-Za-z0-9_\\-]{1,64}$",
+          "isNullable": false
+        },
+        {
+          "name": "DisplayName",
+          "jsonName": null,
+          "type": "System.String",
+          "typeSimple": "string",
+          "isRequired": true,
+          "minLength": 0,
+          "maxLength": 128,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "Prompt",
+          "jsonName": null,
+          "type": "System.String",
+          "typeSimple": "string",
+          "isRequired": false,
+          "minLength": 0,
+          "maxLength": 4000,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true
+        },
+        {
+          "name": "DataType",
+          "jsonName": null,
+          "type": "Dignite.Vault.Extract.Documents.Fields.FieldDataType",
+          "typeSimple": "enum",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "DisplayOrder",
+          "jsonName": null,
+          "type": "System.Int32",
+          "typeSimple": "number",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "IsRequired",
+          "jsonName": null,
+          "type": "System.Boolean",
+          "typeSimple": "boolean",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "AllowMultiple",
+          "jsonName": null,
+          "type": "System.Boolean",
+          "typeSimple": "boolean",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "IsUniqueKey",
+          "jsonName": null,
+          "type": "System.Boolean",
+          "typeSimple": "boolean",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        }
+      ]
+    },
+    "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.DocumentTypePackImportResultDto": {
+      "baseType": null,
+      "isEnum": false,
+      "enumNames": null,
+      "enumValues": null,
+      "genericArguments": null,
+      "properties": [
+        {
+          "name": "Items",
+          "jsonName": null,
+          "type": "[Dignite.Vault.Extract.Documents.DocumentTypes.Packs.DocumentTypePackItemResultDto]",
+          "typeSimple": "[Dignite.Vault.Extract.Documents.DocumentTypes.Packs.DocumentTypePackItemResultDto]",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "TypesCreated",
+          "jsonName": null,
+          "type": "System.Int32",
+          "typeSimple": "number",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "TypesUpdated",
+          "jsonName": null,
+          "type": "System.Int32",
+          "typeSimple": "number",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "TypesSkipped",
+          "jsonName": null,
+          "type": "System.Int32",
+          "typeSimple": "number",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "FieldsCreated",
+          "jsonName": null,
+          "type": "System.Int32",
+          "typeSimple": "number",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "FieldsUpdated",
+          "jsonName": null,
+          "type": "System.Int32",
+          "typeSimple": "number",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "FieldsSkipped",
+          "jsonName": null,
+          "type": "System.Int32",
+          "typeSimple": "number",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        }
+      ]
+    },
+    "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.DocumentTypePackItemResultDto": {
+      "baseType": null,
+      "isEnum": false,
+      "enumNames": null,
+      "enumValues": null,
+      "genericArguments": null,
+      "properties": [
+        {
+          "name": "TypeCode",
+          "jsonName": null,
+          "type": "System.String",
+          "typeSimple": "string",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "TypeAction",
+          "jsonName": null,
+          "type": "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.PackItemAction",
+          "typeSimple": "enum",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "FieldsCreated",
+          "jsonName": null,
+          "type": "System.Int32",
+          "typeSimple": "number",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "FieldsUpdated",
+          "jsonName": null,
+          "type": "System.Int32",
+          "typeSimple": "number",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "FieldsSkipped",
+          "jsonName": null,
+          "type": "System.Int32",
+          "typeSimple": "number",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        }
+      ]
+    },
+    "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.ImportDocumentTypePacksInput": {
+      "baseType": null,
+      "isEnum": false,
+      "enumNames": null,
+      "enumValues": null,
+      "genericArguments": null,
+      "properties": [
+        {
+          "name": "Packs",
+          "jsonName": null,
+          "type": "[Dignite.Vault.Extract.Documents.DocumentTypes.Packs.DocumentTypePackDto]",
+          "typeSimple": "[Dignite.Vault.Extract.Documents.DocumentTypes.Packs.DocumentTypePackDto]",
+          "isRequired": true,
+          "minLength": 1,
+          "maxLength": 100,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        },
+        {
+          "name": "Mode",
+          "jsonName": null,
+          "type": "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.PackImportMode",
+          "typeSimple": "enum",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        }
+      ]
+    },
+    "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.PackImportMode": {
+      "baseType": "System.Enum",
+      "isEnum": true,
+      "enumNames": [
+        "CreateOrUpdate",
+        "CreateOnly"
+      ],
+      "enumValues": [
+        0,
+        1
+      ],
+      "genericArguments": null,
+      "properties": null
+    },
+    "Dignite.Vault.Extract.Documents.DocumentTypes.Packs.PackItemAction": {
+      "baseType": "System.Enum",
+      "isEnum": true,
+      "enumNames": [
+        "Created",
+        "Updated",
+        "Skipped"
+      ],
+      "enumValues": [
+        0,
+        1,
+        2
+      ],
+      "genericArguments": null,
+      "properties": null
+    },
     "Dignite.Vault.Extract.Documents.DocumentTypes.UpdateDocumentTypeDto": {
       "baseType": null,
       "isEnum": false,
@@ -7931,7 +8352,7 @@
         }
       ]
     },
-    "Dignite.Vault.Extract.Documents.Exports.CreateExportTemplateDto": {
+    "Dignite.Vault.Extract.Documents.Exports.ExportDocumentsInput": {
       "baseType": null,
       "isEnum": false,
       "enumNames": null,
@@ -7939,7 +8360,7 @@
       "genericArguments": null,
       "properties": [
         {
-          "name": "Name",
+          "name": "DocumentTypeCode",
           "jsonName": null,
           "type": "System.String",
           "typeSimple": "string",
@@ -7963,137 +8384,6 @@
           "maximum": null,
           "regex": null,
           "isNullable": false
-        },
-        {
-          "name": "DocumentTypeId",
-          "jsonName": null,
-          "type": "System.Guid",
-          "typeSimple": "string",
-          "isRequired": true,
-          "minLength": null,
-          "maxLength": null,
-          "minimum": null,
-          "maximum": null,
-          "regex": null,
-          "isNullable": false
-        },
-        {
-          "name": "Columns",
-          "jsonName": null,
-          "type": "[Dignite.Vault.Extract.Documents.Exports.ExportColumnInput]",
-          "typeSimple": "[Dignite.Vault.Extract.Documents.Exports.ExportColumnInput]",
-          "isRequired": true,
-          "minLength": 1,
-          "maxLength": null,
-          "minimum": null,
-          "maximum": null,
-          "regex": null,
-          "isNullable": false
-        }
-      ]
-    },
-    "Dignite.Vault.Extract.Documents.Exports.ExportColumnDto": {
-      "baseType": null,
-      "isEnum": false,
-      "enumNames": null,
-      "enumValues": null,
-      "genericArguments": null,
-      "properties": [
-        {
-          "name": "FieldDefinitionId",
-          "jsonName": null,
-          "type": "System.Guid",
-          "typeSimple": "string",
-          "isRequired": false,
-          "minLength": null,
-          "maxLength": null,
-          "minimum": null,
-          "maximum": null,
-          "regex": null,
-          "isNullable": false
-        },
-        {
-          "name": "Order",
-          "jsonName": null,
-          "type": "System.Int32",
-          "typeSimple": "number",
-          "isRequired": false,
-          "minLength": null,
-          "maxLength": null,
-          "minimum": null,
-          "maximum": null,
-          "regex": null,
-          "isNullable": false
-        }
-      ]
-    },
-    "Dignite.Vault.Extract.Documents.Exports.ExportColumnInput": {
-      "baseType": null,
-      "isEnum": false,
-      "enumNames": null,
-      "enumValues": null,
-      "genericArguments": null,
-      "properties": [
-        {
-          "name": "FieldDefinitionId",
-          "jsonName": null,
-          "type": "System.Guid",
-          "typeSimple": "string",
-          "isRequired": true,
-          "minLength": null,
-          "maxLength": null,
-          "minimum": null,
-          "maximum": null,
-          "regex": null,
-          "isNullable": false
-        },
-        {
-          "name": "Order",
-          "jsonName": null,
-          "type": "System.Int32",
-          "typeSimple": "number",
-          "isRequired": false,
-          "minLength": null,
-          "maxLength": null,
-          "minimum": null,
-          "maximum": null,
-          "regex": null,
-          "isNullable": false
-        }
-      ]
-    },
-    "Dignite.Vault.Extract.Documents.Exports.ExportDocumentsInput": {
-      "baseType": null,
-      "isEnum": false,
-      "enumNames": null,
-      "enumValues": null,
-      "genericArguments": null,
-      "properties": [
-        {
-          "name": "TemplateId",
-          "jsonName": null,
-          "type": "System.Guid",
-          "typeSimple": "string",
-          "isRequired": false,
-          "minLength": null,
-          "maxLength": null,
-          "minimum": null,
-          "maximum": null,
-          "regex": null,
-          "isNullable": false
-        },
-        {
-          "name": "DocumentIds",
-          "jsonName": null,
-          "type": "[System.Guid]",
-          "typeSimple": "[string]",
-          "isRequired": false,
-          "minLength": null,
-          "maxLength": null,
-          "minimum": null,
-          "maximum": null,
-          "regex": null,
-          "isNullable": true
         },
         {
           "name": "LifecycleStatus",
@@ -8146,6 +8436,45 @@
           "maximum": null,
           "regex": null,
           "isNullable": true
+        },
+        {
+          "name": "HasReviewReasons",
+          "jsonName": null,
+          "type": "System.Boolean?",
+          "typeSimple": "boolean?",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true
+        },
+        {
+          "name": "OriginDocumentId",
+          "jsonName": null,
+          "type": "System.Guid?",
+          "typeSimple": "string?",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true
+        },
+        {
+          "name": "FieldFilters",
+          "jsonName": null,
+          "type": "[Dignite.Vault.Extract.Documents.DocumentFieldFilter]",
+          "typeSimple": "[Dignite.Vault.Extract.Documents.DocumentFieldFilter]",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": 10,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true
         }
       ]
     },
@@ -8162,141 +8491,6 @@
       ],
       "genericArguments": null,
       "properties": null
-    },
-    "Dignite.Vault.Extract.Documents.Exports.ExportTemplateDto": {
-      "baseType": "Volo.Abp.Application.Dtos.EntityDto<System.Guid>",
-      "isEnum": false,
-      "enumNames": null,
-      "enumValues": null,
-      "genericArguments": null,
-      "properties": [
-        {
-          "name": "TenantId",
-          "jsonName": null,
-          "type": "System.Guid?",
-          "typeSimple": "string?",
-          "isRequired": false,
-          "minLength": null,
-          "maxLength": null,
-          "minimum": null,
-          "maximum": null,
-          "regex": null,
-          "isNullable": true
-        },
-        {
-          "name": "Name",
-          "jsonName": null,
-          "type": "System.String",
-          "typeSimple": "string",
-          "isRequired": false,
-          "minLength": null,
-          "maxLength": null,
-          "minimum": null,
-          "maximum": null,
-          "regex": null,
-          "isNullable": false
-        },
-        {
-          "name": "Format",
-          "jsonName": null,
-          "type": "Dignite.Vault.Extract.Documents.Exports.ExportFormat",
-          "typeSimple": "enum",
-          "isRequired": false,
-          "minLength": null,
-          "maxLength": null,
-          "minimum": null,
-          "maximum": null,
-          "regex": null,
-          "isNullable": false
-        },
-        {
-          "name": "DocumentTypeId",
-          "jsonName": null,
-          "type": "System.Guid",
-          "typeSimple": "string",
-          "isRequired": false,
-          "minLength": null,
-          "maxLength": null,
-          "minimum": null,
-          "maximum": null,
-          "regex": null,
-          "isNullable": false
-        },
-        {
-          "name": "Columns",
-          "jsonName": null,
-          "type": "[Dignite.Vault.Extract.Documents.Exports.ExportColumnDto]",
-          "typeSimple": "[Dignite.Vault.Extract.Documents.Exports.ExportColumnDto]",
-          "isRequired": false,
-          "minLength": null,
-          "maxLength": null,
-          "minimum": null,
-          "maximum": null,
-          "regex": null,
-          "isNullable": false
-        }
-      ]
-    },
-    "Dignite.Vault.Extract.Documents.Exports.UpdateExportTemplateDto": {
-      "baseType": null,
-      "isEnum": false,
-      "enumNames": null,
-      "enumValues": null,
-      "genericArguments": null,
-      "properties": [
-        {
-          "name": "Name",
-          "jsonName": null,
-          "type": "System.String",
-          "typeSimple": "string",
-          "isRequired": true,
-          "minLength": 0,
-          "maxLength": 128,
-          "minimum": null,
-          "maximum": null,
-          "regex": null,
-          "isNullable": false
-        },
-        {
-          "name": "Format",
-          "jsonName": null,
-          "type": "Dignite.Vault.Extract.Documents.Exports.ExportFormat",
-          "typeSimple": "enum",
-          "isRequired": false,
-          "minLength": null,
-          "maxLength": null,
-          "minimum": null,
-          "maximum": null,
-          "regex": null,
-          "isNullable": false
-        },
-        {
-          "name": "DocumentTypeId",
-          "jsonName": null,
-          "type": "System.Guid",
-          "typeSimple": "string",
-          "isRequired": true,
-          "minLength": null,
-          "maxLength": null,
-          "minimum": null,
-          "maximum": null,
-          "regex": null,
-          "isNullable": false
-        },
-        {
-          "name": "Columns",
-          "jsonName": null,
-          "type": "[Dignite.Vault.Extract.Documents.Exports.ExportColumnInput]",
-          "typeSimple": "[Dignite.Vault.Extract.Documents.Exports.ExportColumnInput]",
-          "isRequired": true,
-          "minLength": 1,
-          "maxLength": null,
-          "minimum": null,
-          "maximum": null,
-          "regex": null,
-          "isNullable": false
-        }
-      ]
     },
     "Dignite.Vault.Extract.Documents.Fields.CreateFieldDefinitionDto": {
       "baseType": null,
@@ -8350,8 +8544,8 @@
           "type": "System.String",
           "typeSimple": "string",
           "isRequired": false,
-          "minLength": 0,
-          "maxLength": 1024,
+          "minLength": null,
+          "maxLength": null,
           "minimum": null,
           "maximum": null,
           "regex": null,
@@ -8438,7 +8632,7 @@
           "typeSimple": "string",
           "isRequired": true,
           "minLength": 0,
-          "maxLength": 1024,
+          "maxLength": 4000,
           "minimum": null,
           "maximum": null,
           "regex": null,
@@ -8694,6 +8888,50 @@
         }
       ]
     },
+    "Dignite.Vault.Extract.Documents.Fields.FieldPromptPolishInput": {
+      "baseType": null,
+      "isEnum": false,
+      "enumNames": null,
+      "enumValues": null,
+      "genericArguments": null,
+      "properties": [
+        {
+          "name": "Prompt",
+          "jsonName": null,
+          "type": "System.String",
+          "typeSimple": "string",
+          "isRequired": true,
+          "minLength": 0,
+          "maxLength": 4000,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        }
+      ]
+    },
+    "Dignite.Vault.Extract.Documents.Fields.FieldPromptPolishResultDto": {
+      "baseType": null,
+      "isEnum": false,
+      "enumNames": null,
+      "enumValues": null,
+      "genericArguments": null,
+      "properties": [
+        {
+          "name": "Prompt",
+          "jsonName": null,
+          "type": "System.String",
+          "typeSimple": "string",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false
+        }
+      ]
+    },
     "Dignite.Vault.Extract.Documents.Fields.GetFieldDefinitionListInput": {
       "baseType": null,
       "isEnum": false,
@@ -8768,8 +9006,8 @@
           "type": "System.String",
           "typeSimple": "string",
           "isRequired": false,
-          "minLength": 0,
-          "maxLength": 1024,
+          "minLength": null,
+          "maxLength": null,
           "minimum": null,
           "maximum": null,
           "regex": null,
