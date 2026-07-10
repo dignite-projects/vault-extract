@@ -36,15 +36,22 @@ Therefore `DocumentSegment` is a **durable internal ledger**, **not** a transien
 
 The fields mirrored between the two representations are intentional copies made at spawn time:
 `DocumentSegment.SegmentKey → Document.OriginConstituentKey`, `SourceDocumentId → OriginDocumentId`,
-`SliceText → Document.Markdown` (one-way seed), `TenantId → TenantId`. A derived sub-document carries **no
-`FileOrigin` of its own** — `Document.FileOrigin` is nullable again and a spawned sub-document is created with
-`fileOrigin: null`. The markdown-slice split does not give children a source file: **#487 decided against
-physically splitting the source** (the cost of a per-child faithful file was not worth it), which reverted #481's
-required-`FileOrigin` back to the pre-#481 nullable design, and Phase A of #487 deleted the #477/#478 figure-image
-retention chain so figures now stay **inline** in the parent Markdown (no retained blob, no `FigureManifest`). To
-reach a sub-document's source, a consumer follows `OriginDocumentId` to the parent and downloads the parent's blob
-(a frontend concern). The parse job seeds a derived document's Markdown from its `SliceText` and **never touches a
-blob** (its `FileOrigin?.BlobName` is null) — see `Text_Extraction_Seeds_Derived_Document_From_Segment_Slice`.
+`SliceText → Document.Markdown` (one-way seed), `TenantId → TenantId`. A derived sub-document of **either kind**
+carries **no `FileOrigin` of its own** — `Document.FileOrigin` is nullable again and a spawned sub-document is
+created with `fileOrigin: null`. The markdown-slice split does not give children a source file: **#487 decided
+against physically splitting the source** (the cost of a per-child faithful file was not worth it), which reverted
+#481's required-`FileOrigin` back to the pre-#481 nullable design, and Phase A of #487 deleted the #477/#478
+figure-image retention chain (no retained blob, no `FigureManifest`) — a figure's transcription stays **inline** in
+the parent Markdown. To reach a sub-document's source, a consumer follows `OriginDocumentId` to the parent and
+downloads the parent's blob (a frontend concern). The parse job seeds a derived document's Markdown from its
+`SliceText` and **never touches a blob** (its `FileOrigin?.BlobName` is null) — see
+`Text_Extraction_Seeds_Derived_Document_From_Segment_Slice`.
+
+_#487 Phase A deleted the retention chain **and**, in the same pass, the routing of embedded standalone documents —
+but only the retention chain was the thing being abandoned. **#494 restored the routing** (it is v0.2.0's behaviour,
+unchanged): once `FileOrigin` went back to nullable, a figure child became exactly what a text child already is — a
+Markdown slice with no blob. A figure span whose LLM verdict is `isSubDocument` therefore spawns again, its
+transcription living both inline in the parent's Markdown and as the seed of its own sub-document._
 
 ## 🚦 RED LINE: the subsystem assumes exactly two Kinds {Text, Figure}
 
@@ -67,18 +74,18 @@ default — the #364-class missed-branch bug, hardened in #379), not a license t
 | `RoutedDocumentId` | **keep explicit** | reconstructable from `(OriginDocumentId, OriginConstituentKey)`, but the explicit pointer is the ledger's purpose (idempotency + retraction clarity); reconstructing the join is more complex, not less |
 | `SliceText` | **transient one-way seed** | duplicated by `Document.Markdown` after parse; bounded duplication is accepted; **do not add a parse→segment writeback to clear it** (couples parse job to the ledger for a low-value saving) |
 
-_Removed by #487: `PageNumber` and `FigureContentHash`. Both were **figure-only**, and since #487 deleted the figure-image retention chain (Phase A) figure spans are **detected-but-skipped** — they no longer route to sub-documents — so neither column was ever written again. Dropped from the entity (+ EF config + `DocumentSegmentConsts.MaxFigureContentHashLength`) with the `V487_DropDormantSegmentFigureColumns` migration._
+_Removed by #487: `PageNumber` and `FigureContentHash`, dropped from the entity (+ EF config + `DocumentSegmentConsts.MaxFigureContentHashLength`) with the `V487_DropDormantSegmentFigureColumns` migration. Both were **figure-only**; `FigureContentHash` belonged to the deleted retention chain, and `PageNumber` was **write-only even at v0.2.0** (nothing in `core/src` ever read it back). #494's restored figure routing needs neither — a figure child is identified by the SHA-256 of its transcription like any other slice — so there is **no migration to undo**._
 
-_`Kind = Figure` is **legacy-only** since #487: fresh detection writes only `Text` (a figure span is skipped before
-any row is persisted), so `Figure` survives only on rows persisted by pre-#487 deployments. Two retention rules:
-a **Spawned** Figure row is deliberately kept — its `SegmentKey` is the **sole duplicate-spawn barrier** (#481
-moved spawn idempotency entirely onto this ledger after dropping the Document-side unique index) and its `Kind`
-shields its live sub-document from the #364 retraction; a **still-Pending** Figure row is deleted on encounter by
-`DocumentSegmentationJob.DeleteLegacyFigureSegmentAsync` instead of spawned (the restored Phase A guard — the #487
-FileOrigin revert had dropped it). **Do not delete Spawned Figure rows out-of-band** (e.g. a cleanup migration):
-the "live routed child ⟺ its ledger row exists (while the source lives)" invariant is what keeps re-splits
-idempotent and the ≥2 bundle count honest. The `Figure` enum value becomes safely removable only when no such rows
-remain (they leave via the parent's hard-delete FK cascade)._
+_**`Kind = Figure` is live again (#494).** Fresh detection writes it for every standalone figure span, exactly as at
+v0.2.0. Both kinds are first-class: a **Text** row's premise is the container bundle (`IsContainerIndependent()`
+false — it goes inert if the source is reclassified to a concrete type, and #364 retracts its already-spawned
+child), while a **Figure** row is container-independent (an embedded standalone document stands on its own, so it
+spawns whether the parent is a bundle or a concrete document, and #364 keeps it). **Do not delete Figure rows
+out-of-band** (e.g. a cleanup migration, or a "legacy leftover" guard in the spawn path — #487 briefly had one, and
+#494 removed it): a Spawned row's `SegmentKey` is the **sole duplicate-spawn barrier** (#481 moved spawn idempotency
+entirely onto this ledger after dropping the Document-side unique index), and a still-Pending row is a real
+constituent whose spawn simply has not happened yet. The "live routed child ⟺ its ledger row exists (while the
+source lives)" invariant is what keeps re-splits idempotent and the ≥2 bundle count honest._
 
 Watch for accreted residue: a fast-iterated subsystem leaves write-only fields / never-assigned enum values / dead
 projections. #390 removed three (`DocumentSegmentStatus.NotADocument`, `DetectionContext.UploadedByUserName`,

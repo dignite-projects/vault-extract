@@ -30,21 +30,26 @@ namespace Dignite.Vault.Extract.Documents.Pipelines.Segmentation;
 /// (which retains the inline <c>*[Image OCR]*…*[End OCR]*</c> figure provenance markers, #381) and spawns each
 /// standalone span as a derived <see cref="Document"/> seeded from its (stripped, clean) slice.
 /// <para>
-/// <b>One identity model, one spawn sink.</b> Every standalone TEXT span is keyed by the SHA-256 of its clean slice
+/// <b>One identity model, one spawn sink.</b> Every standalone span is keyed by the SHA-256 of its clean slice
 /// text and spawned through the shared <see cref="DerivedDocumentSpawner"/>. That content-hash identity is
 /// mirrored onto the derived <see cref="Document"/> as <c>OriginConstituentKey</c> (#481: passive provenance
-/// there, Option A — no longer DB-enforced on <see cref="Document"/>). <b>A figure span is never routed</b> since
-/// #487 Phase A removed the figure image storage/retention chain (#477/#478) — its transcription stays inline in
-/// the parent's Markdown only; <see cref="DocumentSegmentKind.Figure"/> remains a valid, exhaustively-handled
-/// value only for a legacy row persisted before that deploy (Phase B deletes a legacy still-Pending Figure row on
-/// encounter instead of spawning it — see <see cref="DeleteLegacyFigureSegmentAsync"/>).
+/// there, Option A — no longer DB-enforced on <see cref="Document"/>). A sub-document of either kind carries no
+/// file of its own (<c>fileOrigin: null</c>): it is a Markdown slice seeded from <c>SliceText</c>, and a consumer
+/// reaches its source by following <c>OriginDocumentId</c> to the parent's blob.
 /// </para>
 /// <para>
-/// <b>Container vs embedded-document mode.</b> A container's TEXT spans become sub-documents and the split must
-/// yield ≥2 (else <see cref="DocumentReviewReasons.SegmentationIncomplete"/>); a concrete-typed parent's own
-/// embedded figure spans are never routed (Phase A), so the embedded-document mode currently persists nothing —
-/// the parent simply extracts normally with the figure transcription inline, a clean no-op, never a review flag.
-/// The <see cref="DocumentSegmentKind"/> recorded per row drives the #364 retraction filter.
+/// <b>Container vs embedded-document mode.</b> A container's spans become sub-documents and the split must yield
+/// ≥2 (else <see cref="DocumentReviewReasons.SegmentationIncomplete"/>); a concrete-typed parent routes only its
+/// standalone FIGURE spans (a receipt photo inside a contract), never its own prose, and degrades to a logged
+/// no-op instead of a review flag when there is nothing to route. The <see cref="DocumentSegmentKind"/> recorded
+/// per row drives the #364 retraction filter.
+/// </para>
+/// <para>
+/// <b>#494 restores figure routing.</b> #487 Phase A deleted the figure-image storage/retention chain (#477/#478)
+/// and, in the same pass, the routing of embedded standalone documents — but only the retention chain was the
+/// thing being abandoned. Since #487 reverted <c>Document.FileOrigin</c> to nullable, a figure child is exactly
+/// what a text child already is: a Markdown slice with no blob. This job therefore routes figure spans again,
+/// exactly as it did at v0.2.0.
 /// </para>
 /// <para>
 /// <b>Two phases, both resumable + idempotent</b> (unchanged from #346). Phase A runs the one-shot LLM detection
@@ -253,27 +258,28 @@ public class DocumentSegmentationJob
             return;
         }
 
-        // Build a row for each STANDALONE TEXT span only (the parent's own content / covers / figure spans are never
-        // persisted, #487 Phase A): clean text + key from the stripped slice. Only a container's spans route; an
-        // embedded-document source has nothing left to route now that figure spans are always skipped.
+        // Build a row for each STANDALONE span only (the parent's own content / covers / element-of-parent figures
+        // are never persisted): kind from the span's opening boundary, clean text + key from the seeded slice.
         var prepared = new List<PreparedSegment>();
         foreach (var slice in markedSlices)
         {
-            // #487 Phase A: the figure image storage/retention chain (#477/#478) was removed — a figure span is no
-            // longer routed anywhere. Skip it before any of the (now removed) manifest / content-hash resolution;
-            // its transcription stays inline in the parent's Markdown only.
-            if (slice.IsFigure)
-            {
-                continue;
-            }
-
-            var cleanText = ImageOcrMarkup.Strip(slice.Text);
+            // #371/#373: a Figure span seeds from its figure BODY only — ExtractBodies drops any surrounding parent
+            // prose the LLM folded into the span by omitting a separate parent-body boundary, so the figure child is
+            // the transcription and nothing more. A Text span keeps its prose and strips only the inline figure
+            // markers. Either way the child seed carries no markers. Seeding a figure child with Strip would drag the
+            // parent's body text into it.
+            var isFigure = slice.IsFigure;
+            var cleanText = isFigure
+                ? ImageOcrMarkup.ExtractBodies(slice.Text)
+                : ImageOcrMarkup.Strip(slice.Text);
             if (string.IsNullOrWhiteSpace(cleanText))
             {
-                continue; // a slice that was only sentinels
+                continue; // a slice that was only markers
             }
 
-            if (!slice.IsSubDocument || !context.IsContainer)
+            // A container routes every standalone constituent; a concrete-typed parent routes only a standalone
+            // FIGURE (#494 — its own prose is its body, never a sub-document of itself).
+            if (!slice.IsSubDocument || !(context.IsContainer || isFigure))
             {
                 continue;
             }
@@ -281,7 +287,7 @@ public class DocumentSegmentationJob
             prepared.Add(new PreparedSegment(
                 ContentHasher.Sha256Hex(Encoding.UTF8.GetBytes(cleanText)),
                 cleanText,
-                DocumentSegmentKind.Text));
+                isFigure ? DocumentSegmentKind.Figure : DocumentSegmentKind.Text));
         }
 
         // Byte-identical detection among the spawnable slices: same content -> same key -> the unique
@@ -447,17 +453,6 @@ public class DocumentSegmentationJob
     private async Task SpawnDerivedDocumentAsync(
         PendingSegment segment, DetectionContext context, CancellationToken cancellationToken)
     {
-        // #487 retired figure routing, so fresh detection never persists a Figure-kind row — one reaching this
-        // spawn path can only be a pre-#487 deployment's still-Pending leftover. Delete it instead of spawning
-        // (restores the Phase A delete-guard that the #487 FileOrigin revert dropped): its transcription already
-        // sits inline in the parent's Markdown, and spawning it now would resurrect the retired figure
-        // sub-document path.
-        if (segment.Kind == DocumentSegmentKind.Figure)
-        {
-            await DeleteLegacyFigureSegmentAsync(segment, context);
-            return;
-        }
-
         // Shared complete-phase UoW (#358): insert the derived document, mark this segment Spawned, publish
         // DocumentUploadedEto, and queue text extraction — atomically. The reload guard is kind-aware (#371).
         // A derived sub-document carries no file of its own (fileOrigin: null) — it seeds Markdown from
@@ -486,43 +481,13 @@ public class DocumentSegmentationJob
     }
 
     /// <summary>
-    /// Deletes a legacy still-Pending Figure-kind segment row instead of spawning it (#487): Phase A retired figure
-    /// routing (fresh detection skips a figure span before any row is persisted), so the only way a Figure-kind row
-    /// reaches Phase B is as a pre-#487 deployment's leftover. Reloads + re-checks
-    /// <see cref="DocumentSegmentStatus.Pending"/> inside its own short UoW first (a concurrent worker may already
-    /// have spawned or deleted it between <see cref="LoadPendingSegmentsAsync"/>'s snapshot and here) — a legacy
-    /// <b>Spawned</b> Figure row is never touched: its <c>SegmentKey</c> remains the sole duplicate-spawn barrier
-    /// (#481) and its kind shields its live sub-document from the #364 retraction. The parent keeps the
-    /// transcription inline in its own Markdown either way — this is a routing no-op, not a fault, so it is not
-    /// added to the caller's failure list and never flags the source for review.
-    /// </summary>
-    private async Task DeleteLegacyFigureSegmentAsync(PendingSegment segment, DetectionContext context)
-    {
-        Logger.LogInformation(
-            "Figure segment {SegmentId} of source {SourceId} is a pre-#487 leftover; deleted instead of spawned — "
-            + "figure routing is retired and the transcription remains inline in the parent's Markdown.",
-            segment.SegmentId, context.SourceDocumentId);
-
-        using (_currentTenant.Change(context.TenantId))
-        using (var uow = _unitOfWorkManager.Begin(requiresNew: true))
-        {
-            var entity = await _segmentRepository.FindAsync(segment.SegmentId);
-            if (entity is { Status: DocumentSegmentStatus.Pending })
-            {
-                await _segmentRepository.DeleteAsync(entity);
-            }
-
-            await uow.CompleteAsync();
-        }
-    }
-
-    /// <summary>
     /// Kind-aware stale guard (#371), run inside the spawn UoW (opens none of its own): a
     /// <see cref="DocumentSegmentKind.Text"/> constituent spawns only while the source is <b>still a container</b>
     /// (its bundle premise) — if an operator reclassified it to a concrete type mid-job, the leftover Text segments
-    /// are inert and the already-spawned ones are retracted by #364. The <see cref="DocumentSegmentKind.Figure"/>
-    /// arm is defense-in-depth only since #487: a Figure-kind row is deleted before the spawn path is entered
-    /// (see <see cref="DeleteLegacyFigureSegmentAsync"/>), so it can no longer reach this guard.
+    /// are inert and the already-spawned ones are retracted by #364. A <see cref="DocumentSegmentKind.Figure"/>
+    /// constituent is container-independent: an embedded standalone document stands on its own whether the parent
+    /// is a bundle or a concrete document, so it spawns regardless (and #364 keeps it on a container→type
+    /// reclassify).
     /// </summary>
     private async Task<bool> IsStillSpawnableAsync(Guid sourceId, DocumentSegmentKind kind)
     {
@@ -532,9 +497,9 @@ public class DocumentSegmentationJob
             return false;
         }
 
-        // A container-independent kind (legacy Figure — unreachable here since the #487 delete-guard) spawns
-        // regardless; a container-bound kind (Text) only while the source is still a container. Exhaustive —
-        // adding a kind forces IsContainerIndependent to declare its stance.
+        // A container-independent kind (Figure) spawns regardless; a container-bound kind (Text) only while the
+        // source is still a container. Exhaustive — adding a kind forces IsContainerIndependent to declare its
+        // stance.
         return kind.IsContainerIndependent() || source.IsContainer;
     }
 
@@ -658,9 +623,9 @@ public class DocumentSegmentationJob
         bool AlreadySegmented,
         SubDocumentDetectionContext Detection);
 
-    /// <summary>A standalone span prepared for persistence: its content key, clean slice text, and kind. Since #487
-    /// Phase A a figure span is skipped before this record is ever built, so <see cref="Kind"/> is always
-    /// <see cref="DocumentSegmentKind.Text"/> here.</summary>
+    /// <summary>A standalone span prepared for persistence: its content key, clean slice text, and the kind taken
+    /// from its opening boundary (an <c>*[Image OCR]*</c> marker line opens a <see cref="DocumentSegmentKind.Figure"/>
+    /// span, prose opens a <see cref="DocumentSegmentKind.Text"/> one).</summary>
     private sealed record PreparedSegment(string Key, string CleanText, DocumentSegmentKind Kind);
 
     /// <summary>Detached snapshot of one still-Pending segment, carried across the per-segment external + UoW phases.

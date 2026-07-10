@@ -137,21 +137,63 @@ public class DocumentSegmentationJob_Tests : VaultExtractTestBase<DocumentSegmen
     }
 
     [Fact]
-    public async Task Embedded_Figure_Span_In_A_Concrete_Document_Spawns_Nothing()
+    public async Task Embedded_Figure_Span_In_A_Concrete_Document_Spawns_A_Figure_Sub_Document()
     {
-        // #487 Phase A: the figure image storage/retention chain (#477/#478) was removed — a figure span is never
-        // routed anywhere anymore, unconditionally. A single concrete-typed document (NOT a container) whose
-        // Document.Markdown carries an inlined, marker-bracketed image-invoice transcription is SKIPPED at
-        // detection: no segment row is persisted at all, and nothing spawns. The transcription stays inline in the
-        // parent's Markdown; the parent keeps its own type and is never flagged (it extracts normally — a figure
-        // never routing is not the parent's problem).
+        // #494: a single concrete-typed document (NOT a container) whose Document.Markdown carries an inlined,
+        // marker-bracketed image-invoice transcription routes that figure span to its own sub-document — the v0.2.0
+        // behaviour #487 Phase A removed alongside the figure-image retention chain. The child is a Markdown slice
+        // with no file of its own; the parent keeps its own type, extracts normally with the transcription still
+        // inline, and is never flagged.
         var invoiceText = "INVOICE No 42 Total 100";
         var marked = $"Contract body\n{ImageOcrMarkup.Wrap(invoiceText, 1)}";
         var docId = await ArrangeContainerAsync(
             markdown: "Contract body", asContainer: false, markedMarkdown: marked);
 
         // The figure span's first line IS the open sentinel — that is the verbatim marker the LLM returns for it.
+        // The parent's own prose is returned as a non-sub-document span.
         StubSplit(("Contract body", false), (ImageOcrMarkup.OpenPagePrefix + "1]*", true));
+
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = docId });
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == docId);
+            // Exactly one row: the figure. The parent's own prose span is never persisted.
+            segments.Count.ShouldBe(1);
+            var figure = segments.Single();
+            figure.Kind.ShouldBe(DocumentSegmentKind.Figure);
+            figure.Status.ShouldBe(DocumentSegmentStatus.Spawned);
+            // #373: the figure child seeds from ExtractBodies -> the transcription ONLY. The parent's "Contract body"
+            // prose must not bleed into it, and the markers themselves are gone.
+            figure.SliceText.ShouldBe(invoiceText);
+            figure.SliceText.ShouldNotContain("Contract body");
+            figure.SegmentKey.ShouldBe(ContentHasher.Sha256Hex(Encoding.UTF8.GetBytes(invoiceText)));
+
+            var derived = await _documentRepository.GetListAsync(d => d.OriginDocumentId == docId);
+            derived.Count.ShouldBe(1);
+            derived.Single().FileOrigin.ShouldBeNull(); // a sub-document carries no file of its own
+            derived.Single().OriginConstituentKey.ShouldBe(figure.SegmentKey);
+
+            // The parent keeps its own type and is not flagged for review (embedded-document mode never flags).
+            var parent = await _documentRepository.GetAsync(docId);
+            parent.IsContainer.ShouldBeFalse();
+            parent.IsSegmented.ShouldBeTrue();
+            parent.ReviewReasons.ShouldBe(DocumentReviewReasons.None);
+        });
+
+        await _eventBus.Received(1).PublishAsync(Arg.Any<DocumentUploadedEto>());
+    }
+
+    [Fact]
+    public async Task Concrete_Document_Prose_Is_Never_Routed_Even_If_The_LLM_Flags_It()
+    {
+        // #494 guard: a concrete-typed parent routes ONLY figure spans. If the detection pass (wrongly) marks the
+        // parent's own prose span as a sub-document, that span must still be dropped — a document is never a
+        // sub-document of itself. Without the `context.IsContainer || isFigure` arm this would spawn a duplicate of
+        // the parent. A figure-free concrete document therefore stays a clean no-op: nothing persisted, no flag.
+        var docId = await ArrangeContainerAsync(markdown: "Contract body only", asContainer: false);
+
+        StubSplit(("Contract body only", true)); // the LLM says "this whole thing is a standalone document"
 
         await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = docId });
 
@@ -160,9 +202,8 @@ public class DocumentSegmentationJob_Tests : VaultExtractTestBase<DocumentSegmen
             (await _segmentRepository.GetListAsync(s => s.SourceDocumentId == docId)).ShouldBeEmpty();
             (await _documentRepository.GetListAsync(d => d.OriginDocumentId == docId)).ShouldBeEmpty();
 
-            // The parent keeps its own type and is not flagged for review (embedded-document mode never flags).
             var parent = await _documentRepository.GetAsync(docId);
-            parent.IsContainer.ShouldBeFalse();
+            parent.IsSegmented.ShouldBeTrue(); // marked so a re-enqueue does not re-pay the LLM
             parent.ReviewReasons.ShouldBe(DocumentReviewReasons.None);
         });
 
@@ -368,26 +409,25 @@ public class DocumentSegmentationJob_Tests : VaultExtractTestBase<DocumentSegmen
     }
 
     [Fact]
-    public async Task Legacy_Pending_Figure_Segment_Is_Deleted_On_Encounter_Instead_Of_Spawned()
+    public async Task Pending_Figure_Segment_Spawns_Alongside_Text_Constituents_On_Resume()
     {
-        // #487: figure routing is retired — fresh detection never persists a Figure-kind row, so a still-Pending one
-        // can only be a pre-#487 deployment's leftover (a crash between its insert and its spawn). Phase B must
-        // DELETE it rather than spawn it (its transcription already sits inline in the parent's Markdown; spawning
-        // would resurrect the retired figure sub-document path). Text constituents in the same resume batch spawn
-        // normally, and the run stays clean: the deletion is a routing no-op, not a fault — no review flag.
+        // #494 (reverts the #487 delete-guard): a still-Pending Figure row is a legitimate constituent again — a
+        // crash between its insert and its spawn must resume by SPAWNING it, not deleting it. Deleting would drop a
+        // real sub-document. Text constituents in the same resume batch spawn normally.
         var containerId = await ArrangeContainerAsync("Invoice A first\nInvoice B second");
 
         var figureText = "INVOICE No 9 Total 9";
+        var figureKey = ContentHasher.Sha256Hex(Encoding.UTF8.GetBytes(figureText));
         await WithUnitOfWorkAsync(async () =>
         {
-            // The realistic pre-#487 crashed-after-split state: rows + the IsSegmented marker committed atomically
-            // (#377), spawn never ran. Two Text constituents plus the legacy figure row, all still Pending.
+            // The crashed-after-split state: rows + the IsSegmented marker committed atomically (#377), spawn never
+            // ran. Two Text constituents plus a Figure constituent, all still Pending.
             await _segmentRepository.InsertAsync(NewSegment(containerId, "Invoice A first", 0), autoSave: true);
             await _segmentRepository.InsertAsync(NewSegment(containerId, "Invoice B second", 1), autoSave: true);
             await _segmentRepository.InsertAsync(new DocumentSegment(
                 _guidGenerator.Create(), tenantId: null, sourceDocumentId: containerId,
-                segmentKey: ContentHasher.Sha256Hex(Encoding.UTF8.GetBytes(figureText)),
-                sliceText: figureText, ordinal: 2, kind: DocumentSegmentKind.Figure), autoSave: true);
+                segmentKey: figureKey, sliceText: figureText, ordinal: 2,
+                kind: DocumentSegmentKind.Figure), autoSave: true);
 
             var doc = await _documentRepository.GetAsync(containerId);
             doc.MarkSegmented();
@@ -402,14 +442,64 @@ public class DocumentSegmentationJob_Tests : VaultExtractTestBase<DocumentSegmen
 
         await WithUnitOfWorkAsync(async () =>
         {
-            // The two Text constituents spawned; the legacy Figure row is GONE — deleted, not spawned.
+            // All three rows survive and all three spawned — the Figure row is a constituent, not a leftover.
             var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId);
-            segments.Count.ShouldBe(2);
-            segments.ShouldAllBe(s => s.Kind == DocumentSegmentKind.Text && s.Status == DocumentSegmentStatus.Spawned);
-            (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).Count.ShouldBe(2);
+            segments.Count.ShouldBe(3);
+            segments.ShouldAllBe(s => s.Status == DocumentSegmentStatus.Spawned);
+            segments.Count(s => s.Kind == DocumentSegmentKind.Figure).ShouldBe(1);
+            segments.Count(s => s.Kind == DocumentSegmentKind.Text).ShouldBe(2);
+            (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).Count.ShouldBe(3);
 
             var container = await _documentRepository.GetAsync(containerId);
             container.ReviewReasons.ShouldBe(DocumentReviewReasons.None);
+        });
+    }
+
+    [Fact]
+    public async Task Pending_Figure_Segment_Spawns_Even_After_The_Source_Is_Reclassified_To_A_Concrete_Type()
+    {
+        // #364 / IsContainerIndependent: a Figure constituent stands on its own — an embedded standalone document is
+        // standalone whether its parent is a bundle or a concrete document. So an operator reclassifying the source
+        // away from container mid-job must NOT strand it: the Figure row still spawns, while a Text row (whose
+        // premise is the bundle) goes inert. This is the arm the #487 delete-guard had made unreachable.
+        //
+        // The Text row is seeded directly here to exercise the guard in isolation. On the real reclassify path
+        // ContainerMarkerClearedEventHandler bulk-deletes the Text rows first, so this inert-Pending state is a
+        // defense-in-depth backstop (a job already mid-flight when the marker cleared), not a steady state.
+        var sourceId = await ArrangeContainerAsync("Invoice A first\nInvoice B second", asContainer: false);
+
+        var figureText = "INVOICE No 9 Total 9";
+        await WithUnitOfWorkAsync(async () =>
+        {
+            await _segmentRepository.InsertAsync(NewSegment(sourceId, "Invoice A first", 0), autoSave: true);
+            await _segmentRepository.InsertAsync(new DocumentSegment(
+                _guidGenerator.Create(), tenantId: null, sourceDocumentId: sourceId,
+                segmentKey: ContentHasher.Sha256Hex(Encoding.UTF8.GetBytes(figureText)),
+                sliceText: figureText, ordinal: 1,
+                kind: DocumentSegmentKind.Figure), autoSave: true);
+
+            var doc = await _documentRepository.GetAsync(sourceId);
+            doc.MarkSegmented();
+            await _documentRepository.UpdateAsync(doc, autoSave: true);
+        });
+
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = sourceId });
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == sourceId);
+            // The Figure spawned; the Text row is inert (its container premise is gone) and stays Pending.
+            segments.Single(s => s.Kind == DocumentSegmentKind.Figure).Status
+                .ShouldBe(DocumentSegmentStatus.Spawned);
+            segments.Single(s => s.Kind == DocumentSegmentKind.Text).Status
+                .ShouldBe(DocumentSegmentStatus.Pending);
+
+            var derived = await _documentRepository.GetListAsync(d => d.OriginDocumentId == sourceId);
+            derived.Count.ShouldBe(1);
+
+            // A concrete-typed source never carries the container-only SegmentationIncomplete signal, even though a
+            // Pending row remains.
+            (await _documentRepository.GetAsync(sourceId)).ReviewReasons.ShouldBe(DocumentReviewReasons.None);
         });
     }
 
