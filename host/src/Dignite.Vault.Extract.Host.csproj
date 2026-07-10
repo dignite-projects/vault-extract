@@ -156,6 +156,18 @@
     <Content Remove="$(UserProfile)\.nuget\packages\*\*\contentFiles\any\*\*.abppkg*" />
   </ItemGroup>
 
+  <!-- appsettings.secrets.json is a gitignored, per-developer local override (points at a dev SQL Server).
+       The Web SDK's default appsettings.*.json glob still picks it up as Content, so without this it
+       silently rides along into `dotnet publish` output and can override the deployed server's
+       appsettings.Production.json / environment variables at runtime (AddAppSettingsSecretsJson is
+       unconditional and appended last in the config chain). Keep it out of the publish payload only;
+       CopyToOutputDirectory (build/run) is untouched so local dev still picks it up. -->
+  <ItemGroup>
+    <Content Update="appsettings.secrets.json">
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
   <ProjectExtensions><VisualStudio><UserProperties appsettings_1development_1json__JsonSchema="" /></VisualStudio></ProjectExtensions>
 
 </Project>

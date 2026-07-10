@@ -25,6 +25,7 @@ public class VaultExtractHostDbContextFactory : IDesignTimeDbContextFactory<Vaul
             .SetBasePath(Directory.GetCurrentDirectory())
             .AddJsonFile("appsettings.json", optional: false)
             .AddJsonFile("appsettings.Development.json", optional: true)
+            .AddJsonFile("appsettings.secrets.json", optional: true)
             .AddEnvironmentVariables();
 
         return builder.Build();
