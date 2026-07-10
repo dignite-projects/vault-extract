@@ -62,7 +62,7 @@
     "@typescript-eslint/utils": "^7.0.0",
     "eslint": "^8.23.0",
     "jsdom": "^27.1.0",
-    "lerna": "^8.0.0",
+    "lerna": "^9.0.7",
     "ng-packagr": "~21.2.0",
     "nx": "^21.0.0",
     "typescript": "~5.9.0",
