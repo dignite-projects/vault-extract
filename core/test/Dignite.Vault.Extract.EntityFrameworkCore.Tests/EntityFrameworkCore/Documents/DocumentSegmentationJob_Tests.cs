@@ -368,6 +368,52 @@ public class DocumentSegmentationJob_Tests : VaultExtractTestBase<DocumentSegmen
     }
 
     [Fact]
+    public async Task Legacy_Pending_Figure_Segment_Is_Deleted_On_Encounter_Instead_Of_Spawned()
+    {
+        // #487: figure routing is retired — fresh detection never persists a Figure-kind row, so a still-Pending one
+        // can only be a pre-#487 deployment's leftover (a crash between its insert and its spawn). Phase B must
+        // DELETE it rather than spawn it (its transcription already sits inline in the parent's Markdown; spawning
+        // would resurrect the retired figure sub-document path). Text constituents in the same resume batch spawn
+        // normally, and the run stays clean: the deletion is a routing no-op, not a fault — no review flag.
+        var containerId = await ArrangeContainerAsync("Invoice A first\nInvoice B second");
+
+        var figureText = "INVOICE No 9 Total 9";
+        await WithUnitOfWorkAsync(async () =>
+        {
+            // The realistic pre-#487 crashed-after-split state: rows + the IsSegmented marker committed atomically
+            // (#377), spawn never ran. Two Text constituents plus the legacy figure row, all still Pending.
+            await _segmentRepository.InsertAsync(NewSegment(containerId, "Invoice A first", 0), autoSave: true);
+            await _segmentRepository.InsertAsync(NewSegment(containerId, "Invoice B second", 1), autoSave: true);
+            await _segmentRepository.InsertAsync(new DocumentSegment(
+                _guidGenerator.Create(), tenantId: null, sourceDocumentId: containerId,
+                segmentKey: ContentHasher.Sha256Hex(Encoding.UTF8.GetBytes(figureText)),
+                sliceText: figureText, ordinal: 2, kind: DocumentSegmentKind.Figure), autoSave: true);
+
+            var doc = await _documentRepository.GetAsync(containerId);
+            doc.MarkSegmented();
+            await _documentRepository.UpdateAsync(doc, autoSave: true);
+        });
+
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
+
+        // Resume path: the LLM split is not re-paid.
+        await _workflow.DidNotReceive().RunAsync(
+            Arg.Any<string>(), Arg.Any<SubDocumentDetectionContext>(), Arg.Any<CancellationToken>());
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            // The two Text constituents spawned; the legacy Figure row is GONE — deleted, not spawned.
+            var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId);
+            segments.Count.ShouldBe(2);
+            segments.ShouldAllBe(s => s.Kind == DocumentSegmentKind.Text && s.Status == DocumentSegmentStatus.Spawned);
+            (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).Count.ShouldBe(2);
+
+            var container = await _documentRepository.GetAsync(containerId);
+            container.ReviewReasons.ShouldBe(DocumentReviewReasons.None);
+        });
+    }
+
+    [Fact]
     public async Task Rerun_Is_Idempotent_And_Does_Not_Duplicate_Sub_Documents()
     {
         var containerId = await ArrangeContainerAsync("Invoice A first\nInvoice B second");

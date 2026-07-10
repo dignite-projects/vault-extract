@@ -4,28 +4,33 @@ namespace Dignite.Vault.Extract.Documents.Segments;
 
 /// <summary>
 /// What kind of source span a <see cref="DocumentSegment"/> was carved from by the unified sub-document detection
-/// pass (#371, which folds figure routing #306/#365 and born-digital segmentation #346 into one Markdown-borne
-/// pass). Both kinds share one ledger, one identity model (the SHA-256 of the clean span text), and one spawn
-/// sink (<c>DerivedDocumentSpawner</c>); the distinction <b>forks behaviour at several sites</b> — the central
-/// property being that a <see cref="Figure"/> is <b>orthogonal to its source's container-ness</b> while a
-/// <see cref="Text"/> span is container-bound. That property is centralised in
+/// pass (#371). Behaviourally this is a single bit consulted at one lifecycle moment — when a container source is
+/// reclassified to a concrete type (#364): a <see cref="Text"/> child is retracted (it existed only as a bundle
+/// constituent) while a <see cref="Figure"/> child is kept (an embedded document is orthogonal to its source's
+/// container-ness). That stance is centralised in
 /// <see cref="DocumentSegmentKindExtensions.IsContainerIndependent"/> (an exhaustive switch — a third kind forces it
-/// to declare its stance) and drives: the spawn gate and the still-spawnable guard (a Figure spawns even on a
-/// concrete-typed parent; a Text span spawns only while the source is a container), and the container→concrete
-/// retraction (#364: <see cref="Text"/> children are retracted — they existed only because the parent was a bundle —
-/// while <see cref="Figure"/> children are kept, exactly as a freshly-uploaded concrete document keeps an embedded
-/// figure). The per-span clean-text derivation (<c>ExtractBodies</c> for a figure body vs <c>Strip</c> for a text
-/// span) is decided at carve time from the slice's opening marker, before the kind is recorded.
+/// to declare its stance).
+/// <para>
+/// <b><see cref="Figure"/> is legacy-only since #487 Phase A</b>, which retired figure routing: detection skips a
+/// figure span before any row is persisted (its OCR transcription stays inline in the parent's Markdown), so no
+/// production path writes <see cref="Figure"/> anymore. Rows persisted by pre-#487 deployments remain, with two
+/// retention rules: a <b>Spawned</b> Figure row is deliberately kept — its <c>SegmentKey</c> is the sole
+/// duplicate-spawn barrier (#481 moved spawn idempotency entirely onto this ledger) and its kind shields its live
+/// sub-document from the #364 retraction; a <b>still-Pending</b> Figure row is deleted on encounter by
+/// <c>DocumentSegmentationJob</c> instead of spawned.
+/// </para>
 /// </summary>
 public enum DocumentSegmentKind
 {
-    /// <summary>A born-digital text span — a constituent of a container bundle (#346).</summary>
+    /// <summary>A born-digital text span — a constituent of a container bundle (#346). The only kind fresh
+    /// detection persists since #487.</summary>
     Text = 0,
 
     /// <summary>
-    /// An embedded-figure OCR span (#306): in the document Markdown it was bracketed by the in-band
-    /// <c>*[Image OCR]*…*[End OCR]*</c> provenance markers. Spawned as a text-only sub-document (the transcription);
-    /// no image crop is persisted.
+    /// An embedded-figure OCR span (#306) — <b>legacy-only</b>: #487 Phase A retired figure routing, so this value
+    /// survives only on rows persisted by pre-#487 deployments (see the enum remarks for their retention rules).
+    /// In the document Markdown such a span was bracketed by the in-band <c>*[Image OCR]*…*[End OCR]*</c>
+    /// provenance markers.
     /// </summary>
     Figure = 1
 }
@@ -41,8 +46,8 @@ public static class DocumentSegmentKindExtensions
 {
     /// <summary>
     /// Whether a span of this kind is <b>orthogonal to its source's container-ness</b> (#364/#371): a
-    /// <see cref="DocumentSegmentKind.Figure"/> is a genuinely embedded document, so it spawns even on a
-    /// concrete-typed parent and <b>survives</b> a container→concrete reclassification; a
+    /// <see cref="DocumentSegmentKind.Figure"/> (legacy rows only since #487) is a genuinely embedded document, so
+    /// its already-spawned sub-document <b>survives</b> a container→concrete reclassification; a
     /// <see cref="DocumentSegmentKind.Text"/> exists only as a container-bundle constituent, so it spawns only while
     /// the source is a container and is <b>retracted</b> when the source is reclassified to a concrete type.
     /// </summary>

@@ -61,9 +61,11 @@ public class DocumentSegment : CreationAuditedAggregateRoot<Guid>, IMultiTenant
 
     /// <summary>
     /// Which kind of source span this segment was carved from by the unified detection pass (#371): a born-digital
-    /// text constituent (<see cref="DocumentSegmentKind.Text"/>) or an embedded-figure OCR span
-    /// (<see cref="DocumentSegmentKind.Figure"/>). Drives retraction (#364): a container→type reclassify retracts
-    /// <see cref="DocumentSegmentKind.Text"/> children but keeps <see cref="DocumentSegmentKind.Figure"/> ones.
+    /// text constituent (<see cref="DocumentSegmentKind.Text"/>) or — on legacy rows persisted before #487 retired
+    /// figure routing — an embedded-figure OCR span (<see cref="DocumentSegmentKind.Figure"/>). Drives retraction
+    /// (#364): a container→type reclassify retracts <see cref="DocumentSegmentKind.Text"/> children but keeps
+    /// <see cref="DocumentSegmentKind.Figure"/> ones. See <see cref="DocumentSegmentKind"/> for the legacy-row
+    /// retention rules.
     /// </summary>
     public virtual DocumentSegmentKind Kind { get; private set; }
 

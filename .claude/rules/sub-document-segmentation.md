@@ -69,6 +69,17 @@ default — the #364-class missed-branch bug, hardened in #379), not a license t
 
 _Removed by #487: `PageNumber` and `FigureContentHash`. Both were **figure-only**, and since #487 deleted the figure-image retention chain (Phase A) figure spans are **detected-but-skipped** — they no longer route to sub-documents — so neither column was ever written again. Dropped from the entity (+ EF config + `DocumentSegmentConsts.MaxFigureContentHashLength`) with the `V487_DropDormantSegmentFigureColumns` migration._
 
+_`Kind = Figure` is **legacy-only** since #487: fresh detection writes only `Text` (a figure span is skipped before
+any row is persisted), so `Figure` survives only on rows persisted by pre-#487 deployments. Two retention rules:
+a **Spawned** Figure row is deliberately kept — its `SegmentKey` is the **sole duplicate-spawn barrier** (#481
+moved spawn idempotency entirely onto this ledger after dropping the Document-side unique index) and its `Kind`
+shields its live sub-document from the #364 retraction; a **still-Pending** Figure row is deleted on encounter by
+`DocumentSegmentationJob.DeleteLegacyFigureSegmentAsync` instead of spawned (the restored Phase A guard — the #487
+FileOrigin revert had dropped it). **Do not delete Spawned Figure rows out-of-band** (e.g. a cleanup migration):
+the "live routed child ⟺ its ledger row exists (while the source lives)" invariant is what keeps re-splits
+idempotent and the ≥2 bundle count honest. The `Figure` enum value becomes safely removable only when no such rows
+remain (they leave via the parent's hard-delete FK cascade)._
+
 Watch for accreted residue: a fast-iterated subsystem leaves write-only fields / never-assigned enum values / dead
 projections. #390 removed three (`DocumentSegmentStatus.NotADocument`, `DetectionContext.UploadedByUserName`,
 `PendingSegment.SliceText`); #487 removed two more (`PageNumber`, `FigureContentHash`). Re-run a dead-code sweep when
