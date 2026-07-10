@@ -388,6 +388,7 @@
     "Extract:FieldTypeDoesNotSupportRange": "Field '{FieldName}' is of type {DataType}, which supports only equality matching, not range (min/max) queries.",
     "Extract:FieldTypeNotQueryable": "Field '{FieldName}' is of type {DataType} (long-form text), which cannot be used as a search filter.",
     "Extract:ExportDocumentLimitExceeded": "The download matches {count} documents, exceeding the per-download limit of {max}. Narrow the filter or select fewer documents.",
+    "Extract:ExportColumnLimitExceeded": "This document type defines {count} fields, exceeding the per-download column limit of {max}. Ask an administrator to archive the fields this type no longer needs.",
     "ExportFormat:Csv": "CSV",
     "ExportFormat:Xlsx": "Excel (XLSX)",
     "Extract:InvalidCabinetName": "Cabinet name '{name}' contains control characters (newlines, tabs, etc.), which are not allowed.",

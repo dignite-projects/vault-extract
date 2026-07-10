@@ -388,6 +388,7 @@
     "Extract:FieldTypeDoesNotSupportRange": "字段 '{FieldName}' 类型为 {DataType}，仅支持等值匹配，不支持区间（min/max）查询。",
     "Extract:FieldTypeNotQueryable": "字段 '{FieldName}' 类型为 {DataType}（长文本），不能作为检索条件。",
     "Extract:ExportDocumentLimitExceeded": "本次下载匹配到 {count} 个文档，超过单次上限 {max}。请缩小筛选范围或减少勾选数量。",
+    "Extract:ExportColumnLimitExceeded": "该文档类型定义了 {count} 个字段，超过单次下载的列数上限 {max}。请联系管理员归档该类型不再需要的字段。",
     "ExportFormat:Csv": "CSV",
     "ExportFormat:Xlsx": "Excel (XLSX)",
     "Extract:InvalidCabinetName": "文件柜名称 '{name}' 包含换行 / 制表符等控制字符，不允许使用。",

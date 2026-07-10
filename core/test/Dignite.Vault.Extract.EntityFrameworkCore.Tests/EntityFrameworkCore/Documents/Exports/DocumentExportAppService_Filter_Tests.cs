@@ -176,6 +176,55 @@ public class DocumentExportAppService_Filter_Tests : VaultExtractEntityFramework
         csv.ShouldNotContain("300");
     }
 
+    [Fact]
+    public async Task Field_filter_resolution_falls_back_to_the_repository_when_the_preloaded_cache_misses()
+    {
+        // #501 item 4: the export hands its already-loaded field definitions to DocumentFieldQueryResolver so a
+        // filtered name costs no extra round-trip. The cache is matched with StringComparison.Ordinal; the
+        // repository compares in SQL, where the column collation decides — SQL Server's default is
+        // case-INsensitive. Loud-failing on an ordinal miss would therefore reject a name the database, and the
+        // list path that has no cache, still accept: a fresh file-vs-screen divergence, which is the one thing
+        // #501 item 1 exists to prevent. Only the database gets to say a field does not exist.
+        //
+        // An empty cache stands in for the miss, because SQLite cannot be made case-insensitive here. Delete the
+        // `?? await fieldDefinitionRepository.FindByNameAsync(...)` fallback and this reddens.
+        await WithUnitOfWorkAsync(SeedSchemaAsync);
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var queries = await DocumentFieldQueryResolver.ResolveAsync(
+                _fieldDefinitionRepository,
+                new List<DocumentFieldFilter> { new() { Name = "amount", Value = "100" } },
+                TypeId,
+                TypeCode,
+                knownDefinitions: new List<FieldDefinition>());
+
+            queries.ShouldHaveSingleItem().FieldDefinitionId.ShouldBe(AmountFieldId);
+        });
+    }
+
+    [Fact]
+    public async Task Field_filter_resolution_uses_the_preloaded_definition_when_it_hits()
+    {
+        // The hit path must resolve to the same FieldDefinitionId the repository would have returned — the cache
+        // is an optimisation, never a second source of truth.
+        await WithUnitOfWorkAsync(SeedSchemaAsync);
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var definitions = await _fieldDefinitionRepository.GetListAsync(TypeId);
+
+            var queries = await DocumentFieldQueryResolver.ResolveAsync(
+                _fieldDefinitionRepository,
+                new List<DocumentFieldFilter> { new() { Name = "amount", Value = "100" } },
+                TypeId,
+                TypeCode,
+                knownDefinitions: definitions);
+
+            queries.ShouldHaveSingleItem().FieldDefinitionId.ShouldBe(AmountFieldId);
+        });
+    }
+
     private static ExportDocumentsInput NewInput(Action<ExportDocumentsInput>? configure = null)
     {
         var input = new ExportDocumentsInput { DocumentTypeCode = TypeCode };
