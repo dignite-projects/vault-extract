@@ -42,8 +42,14 @@ public class ElBrunoMarkdownProvider : IMarkdownTextProvider, ITransientDependen
             await XlsxSafetyGuard.ValidatePackageAsync(fileStream, cancellationToken: cancellationToken);
         }
 
+        // ElBruno's text converters decode a raw byte stream as UTF-8 with BOM sniffing only, so a
+        // legacy-encoded CSV/TSV/TXT would land in Document.Markdown as U+FFFD (#493). Hand them UTF-8.
+        await using var normalized = TextEncodingNormalizer.AppliesTo(context.FileExtension)
+            ? await TextEncodingNormalizer.ToUtf8Async(fileStream, context.FileExtension, Logger, cancellationToken)
+            : (Stream?)null;
+
         var conversion = await _markdownService.ConvertAsync(
-            fileStream,
+            normalized ?? fileStream,
             context.FileExtension ?? string.Empty,
             cancellationToken);
 
