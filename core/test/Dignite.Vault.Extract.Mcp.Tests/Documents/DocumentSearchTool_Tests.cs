@@ -404,6 +404,44 @@ public class DocumentSearchTool_Tests : VaultExtractTestBase<DocumentSearchToolT
         result.Items[0].ExtractedFields!.ContainsKey("expiryDate").ShouldBeFalse();
     }
 
+    /// <summary>
+    /// #491: a search row exposes ExtractedFields, and a declined document's are empty or — worse — <b>stale</b>,
+    /// because the gate deliberately preserves values from an earlier, in-budget run rather than deleting them. The
+    /// row must say so, per row, or an LLM reads a stale field set as the document's current truth.
+    /// </summary>
+    [Fact]
+    public async Task Per_row_decline_flag_marks_only_the_declined_document()
+    {
+        var declinedId = Guid.NewGuid();
+        var healthyId = Guid.NewGuid();
+        _documentAppService
+            .GetListAsync(Arg.Any<GetDocumentListInput>())
+            .Returns(new PagedResultDto<DocumentListItemDto>(2, new List<DocumentListItemDto>
+            {
+                new()
+                {
+                    Id = declinedId,
+                    LifecycleStatus = DocumentLifecycleStatus.Processing,
+                    CreationTime = new DateTime(2024, 1, 1),
+                    ReviewReasons = DocumentReviewReasons.FieldExtractionIncomplete
+                },
+                new()
+                {
+                    Id = healthyId,
+                    LifecycleStatus = DocumentLifecycleStatus.Ready,
+                    CreationTime = new DateTime(2024, 1, 1),
+                    ReviewReasons = DocumentReviewReasons.MissingRequiredFields
+                }
+            }));
+
+        var result = await DocumentSearchTool.SearchAsync(
+            _documentAppService, documentTypeCode: "contract.general");
+
+        result.Items.Single(i => i.Id == declinedId).FieldExtractionDeclined.ShouldBeTrue();
+        // MissingRequiredFields means extraction ran and some fields were absent — an honest, current result.
+        result.Items.Single(i => i.Id == healthyId).FieldExtractionDeclined.ShouldBeFalse();
+    }
+
     [Fact]
     public async Task Signals_truncation_when_more_matched_than_returned()
     {

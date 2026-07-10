@@ -34,7 +34,9 @@ public sealed class DocumentSearchTool
         + "more extracted-field filters (all combined with AND). Returns an object with items "
         + "(up to 50: id, uri, cabinet id, title, type, lifecycle, created-at, and extracted field values) "
         + "plus totalCount and truncated; when truncated is true more documents matched than were returned, so "
-        + "narrow the query rather than treating items as the complete set. Read a match's full Markdown via its "
+        + "narrow the query rather than treating items as the complete set. When an item's fieldExtractionDeclined is "
+        + "true its document was too large to extract fields from, so that item's extracted field values are empty or "
+        + "out of date and must not be treated as current. Read a match's full Markdown via its "
         + "vault-extract://documents/{id} resource uri. Structured field/metadata "
         + "search only — no keyword/full-text or semantic/vector retrieval. At least one scope anchor is required: "
         + "documentTypeCode, originDocumentId, or cabinetId. Extracted-field filters always require documentTypeCode. "
@@ -159,7 +161,12 @@ public sealed class DocumentSearchTool
                 IsContainer = d.IsContainer,
                 OriginDocumentId = d.OriginDocumentId,
                 // Convert all extracted field values for this document to LLM-facing shape: strings wrapped, structured values raw, null skipped.
-                ExtractedFields = DocumentFieldProjection.Project(d.ExtractedFields)
+                ExtractedFields = DocumentFieldProjection.Project(d.ExtractedFields),
+                // #491: this row carries ExtractedFields, and a declined document's are empty or stale (the gate
+                // preserves values from an earlier in-budget run rather than deleting them). Flag it, or an LLM reads
+                // them as current. A system-controlled bool, so no PromptBoundary wrapping.
+                FieldExtractionDeclined =
+                    (d.ReviewReasons & DocumentReviewReasons.FieldExtractionIncomplete) != DocumentReviewReasons.None
             })
             .ToList();
 

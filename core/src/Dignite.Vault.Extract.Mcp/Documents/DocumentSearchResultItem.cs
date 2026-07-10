@@ -65,4 +65,13 @@ public sealed record DocumentSearchResultItem
     /// injection. null when the document has no extracted fields or all fields are null.
     /// </summary>
     public IReadOnlyDictionary<string, JsonElement>? ExtractedFields { get; init; }
+
+    /// <summary>
+    /// Whether the last field-extraction run declined to read this document because its body exceeded the host's size
+    /// ceiling (#491). Carried here for the same reason as on <see cref="DocumentDetailResult"/>: this row exposes
+    /// <see cref="ExtractedFields"/>, and for a declined document that dictionary is empty or <b>stale</b> — values
+    /// from an earlier, in-budget run are deliberately preserved rather than deleted. Without the flag an LLM would
+    /// read a stale or empty field set as the document's current truth.
+    /// </summary>
+    public required bool FieldExtractionDeclined { get; init; }
 }
