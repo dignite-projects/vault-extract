@@ -458,7 +458,6 @@ core/test/Dignite.Vault.Extract.Application.Tests/Benchmarks/rag-gold-dataset.js
 # Angular NX monorepo Node.js files are tracked
 !angular/package.json
 !angular/package-lock.json
-!angular/lerna.json
 !angular/nx.json
 !angular/tsconfig.base.json
 
