@@ -50,15 +50,6 @@ export const DOCUMENTS_ROUTES: Routes = [
       ),
   },
   {
-    path: 'export-templates',
-    canActivate: [authGuard, permissionGuard],
-    data: { requiredPolicy: EXTRACT_PERMISSIONS.Documents.Templates.Default },
-    loadComponent: () =>
-      import('./exports/export-template-list/export-template-list.component').then(
-        c => c.ExportTemplateListComponent,
-      ),
-  },
-  {
     path: 'cabinets',
     canActivate: [authGuard, permissionGuard],
     data: { requiredPolicy: EXTRACT_PERMISSIONS.Cabinets.Default },

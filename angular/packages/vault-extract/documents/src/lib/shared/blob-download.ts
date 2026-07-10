@@ -12,9 +12,23 @@
  * is to tell the operator to narrow the filter rather than silently hand them a truncated file.
  */
 
-/** `<config name>.csv` / `.xlsx` — the single place both download surfaces name the exported file. */
-export function exportFileName(templateName: string, isXlsx: boolean): string {
-  return templateName + (isXlsx ? '.xlsx' : '.csv');
+/**
+ * `{typeCode}-{yyyyMMdd-HHmmss}.{csv|xlsx}` (#499) — the same rule `DocumentExportAppService` applies to the
+ * `Content-Disposition` it sends. The name is recomputed here rather than read off that header because the
+ * host does not list `Content-Disposition` in `Access-Control-Expose-Headers`, so a cross-origin SPA cannot
+ * see it. Two clocks, one rule: the timestamps differ by the request's latency, which does not matter for a
+ * file name.
+ *
+ * `typeCode` is constrained to `[A-Za-z0-9_-.]` by `DocumentTypeConsts.TypeCodePattern`, so it needs no
+ * escaping; `displayName` would (it is CJK).
+ */
+export function exportFileName(typeCode: string, isXlsx: boolean, now: Date): string {
+  const p = (n: number, width = 2) => String(n).padStart(width, '0');
+  const stamp =
+    `${p(now.getFullYear(), 4)}${p(now.getMonth() + 1)}${p(now.getDate())}` +
+    `-${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
+
+  return `${typeCode}-${stamp}${isXlsx ? '.xlsx' : '.csv'}`;
 }
 
 /** Trigger a browser download for a freshly fetched blob. */

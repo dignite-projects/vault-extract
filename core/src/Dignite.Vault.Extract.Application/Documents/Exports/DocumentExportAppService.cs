@@ -103,7 +103,11 @@ public class DocumentExportAppService : VaultExtractAppService, IDocumentExportA
         var limit = DocumentExportConsts.MaxExportDocumentCount;
         var rows = await AsyncExecuter.ToListAsync(
             query
+                // ThenByDescending(Id) for the same reason the columns are ordered by (DisplayOrder, Name):
+                // CreationTime ties are ordinary for a batch upload, and without a tiebreaker the same data
+                // exports in a different row order run to run.
                 .OrderByDescending(d => d.CreationTime)
+                .ThenByDescending(d => d.Id)
                 .Select(d => new ExportProjection
                 {
                     Title = d.Title,

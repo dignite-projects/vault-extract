@@ -1,1 +1,1 @@
-export * from './export-template.service';
+export * from './document-export.service';

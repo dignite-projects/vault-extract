@@ -48,15 +48,6 @@ export function provideExtract(): EnvironmentProviders {
           layout: eLayoutType.application,
         },
         {
-          path: '/documents/export-templates',
-          name: '::Menu:ExportTemplates',
-          iconClass: 'fas fa-file-export',
-          parentName: '::Menu:Documents',
-          requiredPolicy: EXTRACT_PERMISSIONS.Documents.Templates.Default,
-          order: 4,
-          layout: eLayoutType.application,
-        },
-        {
           path: '/documents/cabinets',
           name: '::Menu:Cabinets',
           iconClass: 'fas fa-folder',

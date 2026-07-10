@@ -1,4 +1,4 @@
-import { ExportDocumentsInput, GetDocumentListInput } from '@dignite/vault-extract';
+import { ExportDocumentsInput, ExportFormat, GetDocumentListInput } from '@dignite/vault-extract';
 
 /**
  * #496: exactly the filter keys the document list composes in `buildFilter()`. Named so the round-trip
@@ -15,37 +15,38 @@ export type DocumentListFilter = Pick<
 >;
 
 /**
- * The one list filter the export deliberately does not carry: a download config is type-bound
- * (`ExportTemplate.DocumentTypeId`) and the server always narrows the export to the template's own type,
- * so sending the type again would be redundant at best and contradictory at worst.
- */
-type SuppliedByTheTemplate = 'documentTypeCode';
-
-/**
- * Compile-time round-trip guard. "Export current view" is only honest if every filter the list can express
+ * Compile-time round-trip guard. "Download current view" is only honest if every filter the list can express
  * survives into the export; a list filter with no `ExportDocumentsInput` counterpart would silently widen
  * the exported set beyond what the operator is looking at (#496 — the bug that `hasReviewReasons` and
  * `originDocumentId` used to be). Adding such a filter breaks this line rather than production.
+ *
+ * #499 tightened it. While the export was template-bound, `documentTypeCode` was exempt (the template
+ * supplied the type). The export now names the type itself, so there is no exempt key left: every member of
+ * `DocumentListFilter` must exist on `ExportDocumentsInput`.
  */
-type EveryListFilterRoundTrips =
-  Exclude<keyof DocumentListFilter, SuppliedByTheTemplate> extends keyof ExportDocumentsInput ? true : never;
+type EveryListFilterRoundTrips = keyof DocumentListFilter extends keyof ExportDocumentsInput ? true : never;
 export const LIST_FILTERS_ROUND_TRIP: EveryListFilterRoundTrips = true;
 
 /**
  * Project the list's active filter onto the export contract, so the downloaded file is exactly the rows on
  * screen. `undefined` members stay `undefined` (an absent filter, not a filter for "none").
+ *
+ * `documentTypeCode` is passed separately because the contract requires it: extracted fields are type-scoped,
+ * and the export's columns *are* that type's field definitions. The caller only offers the action once a
+ * single type is selected, so it is never absent here.
  */
 export function toExportDocumentsInput(
-  templateId: string,
+  documentTypeCode: string,
+  format: ExportFormat,
   filter: DocumentListFilter,
 ): ExportDocumentsInput {
   return {
-    templateId,
+    documentTypeCode,
+    format,
     lifecycleStatus: filter.lifecycleStatus,
     cabinetId: filter.cabinetId,
     originDocumentId: filter.originDocumentId,
     hasReviewReasons: filter.hasReviewReasons,
     fieldFilters: filter.fieldFilters,
-    // documentTypeCode is intentionally absent — see SuppliedByTheTemplate.
   };
 }

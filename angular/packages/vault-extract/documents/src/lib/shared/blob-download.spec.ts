@@ -52,8 +52,19 @@ describe('readBlobErrorMessage', () => {
 });
 
 describe('exportFileName', () => {
-  it('names the file after the download config', () => {
-    expect(exportFileName('invoices', false)).toBe('invoices.csv');
-    expect(exportFileName('invoices', true)).toBe('invoices.xlsx');
+  // #499: mirrors DocumentExportAppService's {typeCode}-{yyyyMMdd-HHmmss}.{ext}. Recomputed client-side
+  // because the host does not expose Content-Disposition cross-origin.
+  const at = new Date(2026, 6, 10, 9, 5, 3); // 2026-07-10 09:05:03 local
+
+  it('stamps the type code and a zero-padded local timestamp', () => {
+    expect(exportFileName('financial_receipt', false, at)).toBe('financial_receipt-20260710-090503.csv');
+  });
+
+  it('switches the extension for xlsx', () => {
+    expect(exportFileName('financial_receipt', true, at)).toBe('financial_receipt-20260710-090503.xlsx');
+  });
+
+  it('pads every component so the name sorts lexicographically by time', () => {
+    expect(exportFileName('t', false, new Date(2026, 0, 2, 3, 4, 5))).toBe('t-20260102-030405.csv');
   });
 });

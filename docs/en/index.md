@@ -30,7 +30,7 @@ How a document moves from extracted Markdown to a confirmed type and extracted f
 The live egress channels that expose outputs to downstream consumers.
 
 - [MCP server](egress/mcp-server.md) — document resources + structured search tool over Streamable HTTP, OpenIddict Bearer auth
-- [Export templates](egress/export-templates.md) — per-tenant CSV / XLSX file egress: field projection, rename, ordering — zero business transformation
+- [Data Download](egress/data-download.md) — CSV / XLSX file egress for the human operator: the document list's filters, every field of the type, zero business transformation
 
 ## Configuration
 

@@ -1,18 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { DocumentLifecycleStatus } from '@dignite/vault-extract';
+import { DocumentLifecycleStatus, ExportFormat } from '@dignite/vault-extract';
 
 import { DocumentListFilter, toExportDocumentsInput } from './export-current-view';
 
-// #496: "export current view" is only honest if the export input carries every filter the list applied.
-// These pin the two ways it could lie: dropping a filter the list applied (file wider than the screen), or
-// inventing one the list did not (file narrower).
+// #496 / #499: "download current view" is only honest if the export input carries every filter the list
+// applied. These pin the two ways it could lie: dropping a filter the list applied (file wider than the
+// screen), or inventing one the list did not (file narrower).
 
-const TEMPLATE_ID = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
+const TYPE = 'invoice.general';
 
 describe('toExportDocumentsInput', () => {
   it('carries every filter the list applied', () => {
     const filter: DocumentListFilter = {
-      documentTypeCode: 'invoice.general',
+      documentTypeCode: TYPE,
       cabinetId: 'cab-1',
       originDocumentId: 'origin-1',
       lifecycleStatus: DocumentLifecycleStatus.Ready,
@@ -20,8 +20,9 @@ describe('toExportDocumentsInput', () => {
       fieldFilters: [{ name: 'amount', value: '100' }],
     };
 
-    expect(toExportDocumentsInput(TEMPLATE_ID, filter)).toEqual({
-      templateId: TEMPLATE_ID,
+    expect(toExportDocumentsInput(TYPE, ExportFormat.Csv, filter)).toEqual({
+      documentTypeCode: TYPE,
+      format: ExportFormat.Csv,
       cabinetId: 'cab-1',
       originDocumentId: 'origin-1',
       lifecycleStatus: DocumentLifecycleStatus.Ready,
@@ -30,14 +31,20 @@ describe('toExportDocumentsInput', () => {
     });
   });
 
-  it('drops documentTypeCode — the template is type-bound and the server narrows to its type', () => {
-    const input = toExportDocumentsInput(TEMPLATE_ID, { documentTypeCode: 'invoice.general' });
+  it('takes documentTypeCode from the caller, not from the list filter', () => {
+    // #499: the export names its own type — the columns ARE that type's field definitions. The list filter's
+    // copy is redundant; the caller passes the resolved code, so a stale filter entry cannot override it.
+    const input = toExportDocumentsInput(TYPE, ExportFormat.Csv, { documentTypeCode: 'something.else' });
 
-    expect('documentTypeCode' in input).toBe(false);
+    expect(input.documentTypeCode).toBe(TYPE);
+  });
+
+  it('carries the requested format', () => {
+    expect(toExportDocumentsInput(TYPE, ExportFormat.Xlsx, {}).format).toBe(ExportFormat.Xlsx);
   });
 
   it('leaves an unset filter unset rather than sending a filter for "none"', () => {
-    const input = toExportDocumentsInput(TEMPLATE_ID, {});
+    const input = toExportDocumentsInput(TYPE, ExportFormat.Csv, {});
 
     expect(input.hasReviewReasons).toBeUndefined();
     expect(input.originDocumentId).toBeUndefined();
@@ -49,6 +56,8 @@ describe('toExportDocumentsInput', () => {
   it('does not coerce hasReviewReasons=false into true', () => {
     // The toolbar only ever sends `true | undefined`, but nothing in the contract forbids false, and a
     // truthiness bug here would silently export the review queue instead of everything.
-    expect(toExportDocumentsInput(TEMPLATE_ID, { hasReviewReasons: false }).hasReviewReasons).toBe(false);
+    expect(
+      toExportDocumentsInput(TYPE, ExportFormat.Csv, { hasReviewReasons: false }).hasReviewReasons,
+    ).toBe(false);
   });
 });
