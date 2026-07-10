@@ -488,7 +488,10 @@ export class FieldDefinitionListComponent implements OnInit {
     const prompt = (this.form.controls.prompt.value ?? '').trim();
     if (!prompt || this.isPolishing()) return;
     this.isPolishing.set(true);
-    this.polishService.polish({ prompt })
+    // `undefined` for the generated `cancellationToken` parameter, as `draftService.draft` and
+    // `slugService.suggest` already do: the C# action declares a CancellationToken, so the ABP proxy
+    // generator emits it positionally. It is never sent — ASP.NET Core supplies RequestAborted.
+    this.polishService.polish({ prompt }, undefined)
       // Cancel when the modal closes so a late response cannot overwrite a reopened form (mirrors draft).
       .pipe(takeUntil(this.draftCancelled$), takeUntilDestroyed(this.destroyRef))
       .subscribe({

@@ -8,7 +8,7 @@ import type { ExportDocumentsInput } from '../../../documents/exports/models';
 export class DocumentExportService {
   private restService = inject(RestService);
   apiName = 'Default';
-
+  
 
   export = (input: ExportDocumentsInput, config?: Partial<Rest.Config>) =>
     this.restService.request<any, Blob>({

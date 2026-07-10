@@ -9,6 +9,14 @@ import {
   documentReviewReasonsOptions,
 } from './proxy/documents/document-review-reasons.enum';
 import { DocumentLifecycleStatus } from './proxy/documents/document-lifecycle-status.enum';
+import {
+  PackImportMode,
+  packImportModeOptions,
+} from './proxy/documents/document-types/packs/pack-import-mode.enum';
+import {
+  PackItemAction,
+  packItemActionOptions,
+} from './proxy/documents/document-types/packs/pack-item-action.enum';
 import { PipelineRunStatus } from './proxy/documents/pipelines/pipeline-run-status.enum';
 import {
   ReclassificationScope,
@@ -58,5 +66,21 @@ describe('proxy enum contract (smoke)', () => {
     expect(ReclassificationScope.AllDocuments).toBe(10);
     expect(ReclassificationScope.PendingReviewQueue).toBe(20);
     expect(reclassificationScopeOptions).toHaveLength(3);
+  });
+
+  // #444, first picked up by the #501-item-7 regen. CreateOrUpdate is 0, so it is what an omitted
+  // `mode` deserializes to on the backend — a renumbering would silently turn "create only" imports
+  // into overwrites of existing types and fields.
+  it('PackImportMode matches backend values (#444)', () => {
+    expect(PackImportMode.CreateOrUpdate).toBe(0);
+    expect(PackImportMode.CreateOnly).toBe(1);
+    expect(packImportModeOptions).toHaveLength(2);
+  });
+
+  it('PackItemAction matches backend values (#444)', () => {
+    expect(PackItemAction.Created).toBe(0);
+    expect(PackItemAction.Updated).toBe(1);
+    expect(PackItemAction.Skipped).toBe(2);
+    expect(packItemActionOptions).toHaveLength(3);
   });
 });

@@ -39,6 +39,14 @@ export interface FieldDefinitionDto extends EntityDto<string> {
   isUniqueKey?: boolean;
 }
 
+export interface FieldPromptPolishInput {
+  prompt: string;
+}
+
+export interface FieldPromptPolishResultDto {
+  prompt?: string;
+}
+
 export interface GetFieldDefinitionListInput {
   documentTypeId?: string | null;
   onlyDeleted?: boolean;
