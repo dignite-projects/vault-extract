@@ -603,11 +603,18 @@ export class DocumentListComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: blob => {
-          triggerBlobDownload(
-            blob,
-            exportFileName(documentTypeCode, format === ExportFormat.Xlsx, new Date()),
-          );
-          this.isExporting.set(false);
+          // The reset lives in `finally`: RxJS routes a throw inside a `next` handler to
+          // reportUnhandledError, never to the `error` handler below. So if triggerBlobDownload throws — a
+          // CSP-blocked or sandboxed `blob:` URL, an overridden `URL` — `isExporting` would stay true and the
+          // toolbar button would stay disabled, silently, until a page reload.
+          try {
+            triggerBlobDownload(
+              blob,
+              exportFileName(documentTypeCode, format === ExportFormat.Xlsx, new Date()),
+            );
+          } finally {
+            this.isExporting.set(false);
+          }
         },
         error: (err: unknown) => {
           this.isExporting.set(false);

@@ -18,8 +18,7 @@ namespace Dignite.Vault.Extract.Documents;
 /// </para>
 /// <para>
 /// Get-only properties plus a single parameterized constructor let System.Text.Json reuse this
-/// constructor during deserialization, with parameter names matching property names. This follows the
-/// same pattern as <c>ExportColumn</c>.
+/// constructor during deserialization, with parameter names matching property names.
 /// </para>
 /// </summary>
 public class DocumentParseMetadata : ValueObject

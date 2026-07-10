@@ -39,6 +39,18 @@ describe('toExportDocumentsInput', () => {
     expect(input.documentTypeCode).toBe(TYPE);
   });
 
+  it('forwards a filter key the projection was never taught about', () => {
+    // The compile-time guard only checks that a key EXISTS on ExportDocumentsInput; it cannot see whether the
+    // projection copies the value, and TypeScript never flags an optional property missing from an object
+    // literal. So the projection spreads `...rest` instead of listing keys by hand — a filter added to
+    // DocumentListFilter reaches the export with no edit here. This pins that, since no type can.
+    const withFutureKey = { creationTimeMin: '2026-01-01' } as unknown as DocumentListFilter;
+
+    const input = toExportDocumentsInput(TYPE, ExportFormat.Csv, withFutureKey) as Record<string, unknown>;
+
+    expect(input['creationTimeMin']).toBe('2026-01-01');
+  });
+
   it('carries the requested format', () => {
     expect(toExportDocumentsInput(TYPE, ExportFormat.Xlsx, {}).format).toBe(ExportFormat.Xlsx);
   });

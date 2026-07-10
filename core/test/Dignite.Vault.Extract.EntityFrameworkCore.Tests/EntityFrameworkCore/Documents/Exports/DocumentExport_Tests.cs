@@ -10,6 +10,7 @@ using Shouldly;
 using Volo.Abp;
 using Volo.Abp.Domain.Entities;
 using Volo.Abp.Guids;
+using Volo.Abp.Validation;
 using Xunit;
 
 namespace Dignite.Vault.Extract.EntityFrameworkCore.Documents;
@@ -261,6 +262,19 @@ public class DocumentExport_Tests : VaultExtractEntityFrameworkCoreTestBase
         // empty page for an unknown type; an artifact handed to an accountant may not.
         await Should.ThrowAsync<EntityNotFoundException>(() =>
             _appService.ExportAsync(new ExportDocumentsInput { DocumentTypeCode = "no.such.type" }));
+    }
+
+    [Fact]
+    public async Task Export_rejects_an_undefined_format_rather_than_silently_writing_csv()
+    {
+        // System.Text.Json casts a JSON number straight onto the enum with no range check, and both format switches
+        // fall through to CSV. Without [EnumDataType], `{"format": 99}` would answer 200 + a CSV — telling a caller
+        // that a format we do not have was produced.
+        var typeId = _guidGenerator.Create();
+        await WithUnitOfWorkAsync(() => SeedTypeAsync(typeId));
+
+        await Should.ThrowAsync<AbpValidationException>(() =>
+            _appService.ExportAsync(NewInput(i => i.Format = (ExportFormat)99)));
     }
 
     [Fact]

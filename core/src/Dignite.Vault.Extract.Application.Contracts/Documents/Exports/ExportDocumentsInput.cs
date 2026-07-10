@@ -31,6 +31,13 @@ public class ExportDocumentsInput
     [DynamicStringLength(typeof(DocumentTypeConsts), nameof(DocumentTypeConsts.MaxTypeCodeLength))]
     public string DocumentTypeCode { get; set; } = default!;
 
+    /// <summary>
+    /// <c>EnumDataType</c> because System.Text.Json casts any JSON number straight onto the enum without a range
+    /// check, and both format switches (here and in <c>ExportFileBuilder</c>) fall through to CSV. Without this,
+    /// <c>{"format": 99}</c> would return 200 + a CSV instead of 400 — a caller asking for a format we do not have
+    /// would be told it succeeded.
+    /// </summary>
+    [EnumDataType(typeof(ExportFormat))]
     public ExportFormat Format { get; set; } = ExportFormat.Csv;
 
     public DocumentLifecycleStatus? LifecycleStatus { get; set; }
