@@ -45,6 +45,7 @@ import {
   EXTRACT_TABLES,
   SortAccessors,
 } from '../../shared/extensible-table';
+import { exportFileName, readBlobErrorMessage, triggerBlobDownload } from '../../shared/blob-download';
 
 // Mirrors ExportTemplateConsts (Domain.Shared).
 const MAX_NAME_LENGTH = 128;
@@ -421,33 +422,39 @@ export class ExportTemplateListComponent implements OnInit {
     this.filteringTemplate.set(null);
 
     this.service
-      .export({
-        templateId: template.id!,
-        lifecycleStatus: f.lifecycleStatus ?? undefined,
-        cabinetId: f.cabinetId ?? undefined,
-        creationTimeMin: f.creationTimeMin ?? undefined,
-        creationTimeMax: f.creationTimeMax ?? undefined,
-      })
+      .export(
+        {
+          templateId: template.id!,
+          lifecycleStatus: f.lifecycleStatus ?? undefined,
+          cabinetId: f.cabinetId ?? undefined,
+          creationTimeMin: f.creationTimeMin ?? undefined,
+          creationTimeMax: f.creationTimeMax ?? undefined,
+        },
+        // skipHandleError: ABP's global handler assumes a JSON error body and throws
+        // "Cannot read properties of undefined (reading 'details')" on this responseType:'blob' request
+        // before it can show anything. Opt out and own the error below.
+        { skipHandleError: true },
+      )
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: blob => {
-          const ext = template.format === ExportFormat.Xlsx ? '.xlsx' : '.csv';
-          this.triggerDownload(blob, template.name + ext);
+          triggerBlobDownload(blob, exportFileName(template.name!, template.format === ExportFormat.Xlsx));
           this.exportingId.set(null);
         },
-        error: () => this.exportingId.set(null),
+        // #496: this used to swallow the failure. The over-limit fail-fast
+        // (Extract:ExportDocumentLimitExceeded) exists to tell the operator to narrow the filter rather
+        // than hand them a truncated ledger — silence defeated it. The message rides inside a Blob body
+        // because the request is responseType:'blob', so ABP's global interceptor never sees it.
+        error: (err: unknown) => {
+          this.exportingId.set(null);
+          void readBlobErrorMessage(err).then(message =>
+            this.toaster.error(
+              message ? escapeHtmlChars(message) : '::ExportTemplate:ExportFailed',
+              '::Error',
+            ),
+          );
+        },
       });
-  }
-
-  private triggerDownload(blob: Blob, fileName: string): void {
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = fileName;
-    anchor.click();
-    // Defer revoke so the browser's download handler has taken ownership of the
-    // blob before its backing URL is released (avoids a race on large files).
-    setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   formatLabel(format: ExportFormat | undefined): string {

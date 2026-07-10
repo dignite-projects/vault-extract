@@ -42,14 +42,18 @@ import {
   DocumentStatisticsService,
   DocumentTypeDto,
   DocumentTypeService,
+  ExportFormat,
+  ExportTemplateDto,
+  ExportTemplateService,
   FieldDefinitionDto,
   FieldDefinitionService,
-  GetDocumentListInput,
   EXTRACT_PERMISSIONS,
 } from '@dignite/vault-extract';
 import { ClientPagedResult, configureEntityTable, EXTRACT_TABLES } from '../../shared/extensible-table';
 import { formatExtractedFieldValue } from '../../shared/format-field-value';
 import { FieldValueFilterComponent } from '../../shared/field-value-filter/field-value-filter.component';
+import { exportFileName, readBlobErrorMessage, triggerBlobDownload } from '../../shared/blob-download';
+import { DocumentListFilter, toExportDocumentsInput } from './export-current-view';
 
 interface TableActivateEvent {
   type?: string;
@@ -87,6 +91,7 @@ export class DocumentListComponent implements OnInit {
   private readonly documentTypeService = inject(DocumentTypeService);
   private readonly fieldDefinitionService = inject(FieldDefinitionService);
   private readonly cabinetService = inject(CabinetService);
+  private readonly exportTemplateService = inject(ExportTemplateService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly confirmation = inject(ConfirmationService);
@@ -110,6 +115,10 @@ export class DocumentListComponent implements OnInit {
   readonly canViewCabinets = this.permissionService.getGrantedPolicy(
     EXTRACT_PERMISSIONS.Cabinets.Default,
   );
+  // #496: "download current view" runs the same export the Data Download page runs, so it is gated on the
+  // same permission. The download *configs* stay authored over there (Documents.Templates.*); this surface
+  // only executes one.
+  readonly canExport = this.permissionService.getGrantedPolicy(EXTRACT_PERMISSIONS.Documents.Export);
   readonly hasDocumentActions = this.canConfirm || this.canDelete;
 
   documents = signal<ClientPagedResult<DocumentListItemDto>>({ totalCount: 0, items: [] });
@@ -147,6 +156,10 @@ export class DocumentListComponent implements OnInit {
   fieldValueFilters = signal<DocumentFieldFilter[]>([]);
   selectedTypeId = signal('');
   isConfirming = signal(false);
+  // #496: download configs are type-bound, so the toolbar only ever offers those of the selected type.
+  // Loaded once (Documents.Export only); the configs themselves are authored on the Data Download page.
+  exportTemplates = signal<ExportTemplateDto[]>([]);
+  isExporting = signal(false);
 
   // #284 review-queue gateway: the toolbar badge shows the canonical needs-review total for the current
   // layer (DocumentStatisticsDto.NeedsReviewCount — same RequiresAttention predicate the review queue runs,
@@ -160,8 +173,16 @@ export class DocumentListComponent implements OnInit {
     () => this.hasDocumentActions || this.documents().items.some(d => d.isContainer || d.originDocumentId),
   );
 
+  // #496: the type filter carries a typeCode; ExportTemplate binds a documentTypeId (#207 — the immutable
+  // internal relation). Resolve through the already-loaded type list rather than adding a lookup.
+  readonly exportConfigs = computed(() => {
+    const documentTypeId = this.documentTypes().find(t => t.typeCode === this.typeFilter())?.id;
+    return documentTypeId ? this.exportTemplates().filter(t => t.documentTypeId === documentTypeId) : [];
+  });
+
   readonly DocumentLifecycleStatus = DocumentLifecycleStatus;
   readonly DocumentReviewReasons = DocumentReviewReasons;
+  readonly ExportFormat = ExportFormat;
 
   constructor() {
     this.rebuildTableProps([]);
@@ -189,6 +210,12 @@ export class DocumentListComponent implements OnInit {
     // avoid a 403 for users without cabinet access (cabinet filter/labels hidden).
     if (this.canViewCabinets) {
       this.loadCabinets();
+    }
+    // #496: ExportTemplate getList is gated by Documents.Templates.Default, but executing a download needs
+    // Documents.Export. An operator holding Export without Templates.Default would 403 here, so the toolbar
+    // simply shows "no download config" for them — degraded, never broken.
+    if (this.canExport) {
+      this.loadExportTemplates();
     }
   }
 
@@ -401,7 +428,9 @@ export class DocumentListComponent implements OnInit {
     });
   }
 
-  private buildFilter(): Partial<GetDocumentListInput> {
+  // #496: typed as DocumentListFilter (not Partial<GetDocumentListInput>) so the compile-time round-trip
+  // guard in export-current-view.ts can assert every key here survives into the export contract.
+  private buildFilter(): DocumentListFilter {
     const fieldFilters = this.fieldValueFilters();
     return {
       documentTypeCode: this.typeFilter() || undefined,
@@ -566,6 +595,51 @@ export class DocumentListComponent implements OnInit {
       .subscribe({
         next: list => this.cabinets.set(list),
         error: () => this.cabinets.set([]),
+      });
+  }
+
+  private loadExportTemplates(): void {
+    this.exportTemplateService.getList()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: list => this.exportTemplates.set(list),
+        error: () => this.exportTemplates.set([]),
+      });
+  }
+
+  /**
+   * #496: download exactly the rows on screen. The export input is projected from the same buildFilter() the
+   * list query runs, so the file cannot disagree with the view — including the needs-review and sub-document
+   * filters, which the export contract could not express until #496.
+   *
+   * Scope is the current filter set, never a row selection: abp-extensible-table has no row-selection
+   * support, so there is nothing to check. Over-limit is a server-side fail-fast (no truncated file); its
+   * message arrives inside a Blob body and is surfaced by readBlobErrorMessage.
+   */
+  exportCurrentView(template: ExportTemplateDto): void {
+    if (this.isExporting()) return;
+    this.isExporting.set(true);
+
+    this.exportTemplateService
+      // skipHandleError: ABP's global handler assumes a JSON error body and throws
+      // "Cannot read properties of undefined (reading 'details')" on this responseType:'blob' request
+      // before it can show anything. Opt out and own the error below.
+      .export(toExportDocumentsInput(template.id!, this.buildFilter()), { skipHandleError: true })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: blob => {
+          triggerBlobDownload(blob, exportFileName(template.name!, template.format === ExportFormat.Xlsx));
+          this.isExporting.set(false);
+        },
+        error: (err: unknown) => {
+          this.isExporting.set(false);
+          void readBlobErrorMessage(err).then(message =>
+            this.toaster.error(
+              message ? escapeHtmlChars(message) : '::ExportTemplate:ExportFailed',
+              '::Error',
+            ),
+          );
+        },
       });
   }
 
