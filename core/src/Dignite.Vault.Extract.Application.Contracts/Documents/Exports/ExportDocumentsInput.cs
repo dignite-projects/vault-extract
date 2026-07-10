@@ -26,6 +26,22 @@ public class ExportDocumentsInput
     public DateTime? CreationTimeMax { get; set; }
 
     /// <summary>
+    /// #496: operator review-queue filter, the export twin of <see cref="GetDocumentListInput.HasReviewReasons"/>
+    /// (#284 / #395). <c>true</c> exports only documents that still require operator attention, evaluated by the
+    /// canonical <c>DocumentReviewQueries.RequiresAttention</c> predicate the document list and the needs-review
+    /// badge already run — never a second, hand-rolled copy. Ignored when <see cref="DocumentIds"/> is supplied.
+    /// </summary>
+    public bool? HasReviewReasons { get; set; }
+
+    /// <summary>
+    /// #496: provenance filter, the export twin of <see cref="GetDocumentListInput.OriginDocumentId"/> (#354).
+    /// When set, exports only the sub-documents derived from this source document (those whose
+    /// <c>Document.OriginDocumentId</c> equals it). Ignored when <see cref="DocumentIds"/> is supplied. Stays
+    /// under the ABP <c>IMultiTenant</c> global filter, so it can only ever reach the caller's own layer.
+    /// </summary>
+    public Guid? OriginDocumentId { get; set; }
+
+    /// <summary>
     /// #414: extracted-field-value filters, resolved against the template's document type and AND-combined
     /// with the metadata filters above (reuses the same machinery as the document list / MCP search —
     /// <c>ApplyFieldValueFilter</c> via <c>GetFieldMatchedIdsAsync</c>). Ignored when <see cref="DocumentIds"/>

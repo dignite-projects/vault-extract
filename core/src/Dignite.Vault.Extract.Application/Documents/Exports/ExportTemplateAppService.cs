@@ -129,6 +129,18 @@ public class ExportTemplateAppService : VaultExtractAppService, IExportTemplateA
                 query = query.Where(d => d.LifecycleStatus == input.LifecycleStatus.Value);
             if (input.CabinetId.HasValue)
                 query = query.Where(d => d.CabinetId == input.CabinetId.Value);
+
+            // #496: the two filters the operator document list could express but the export could not, so that
+            // "export current view" exports exactly the view. Both mirror DocumentAppService.ApplyFilter.
+            // Sub-document provenance (#354): only the children derived from this source document.
+            if (input.OriginDocumentId.HasValue)
+                query = query.Where(d => d.OriginDocumentId == input.OriginDocumentId.Value);
+            // Operator review queue (#284 / #395): reuses the canonical DocumentReviewQueries.RequiresAttention
+            // expression the list and the needs-review badge already run. A second, hand-rolled "needs review"
+            // predicate here is precisely how the exported file and the screen would quietly disagree.
+            if (input.HasReviewReasons == true)
+                query = query.Where(DocumentReviewQueries.RequiresAttention);
+
             if (input.CreationTimeMin.HasValue)
                 query = query.Where(d => d.CreationTime >= input.CreationTimeMin.Value.Date);
             // Upper time bound includes the full Max date (< Max + 1 day), matching date picker intuition.
