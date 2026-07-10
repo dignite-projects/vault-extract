@@ -40,6 +40,56 @@ public class FieldFingerprintCalculator_Tests
     private static DocumentFieldValue Number(Guid id, decimal value) =>
         new(id, FieldDataType.Number, JsonSerializer.SerializeToElement(value));
 
+    /// <summary>One canonical JSON scalar per data type, mirroring <c>FieldValueFormatter_Tests</c>.</summary>
+    private static readonly IReadOnlyDictionary<FieldDataType, string> CanonicalJson =
+        new Dictionary<FieldDataType, string>
+        {
+            [FieldDataType.Text] = "\"INV-001\"",
+            [FieldDataType.LongText] = "\"a longer body\"",
+            [FieldDataType.Number] = "1000.5",
+            [FieldDataType.Boolean] = "true",
+            [FieldDataType.Date] = "\"2026-03-04\"",
+            [FieldDataType.DateTime] = "\"2026-03-04T05:06:07\"",
+        };
+
+    [Fact]
+    public void Every_FieldDataType_member_canonicalizes_into_the_fingerprint()
+    {
+        // #501 item 8 follow-up. Canonicalize is the fourth FieldDataType switch, and the only one that still
+        // defaults SILENTLY (`_ => null`) rather than loud-failing. A null canonical makes Compute return null,
+        // so a new enum member used as a unique key would quietly switch duplicate detection OFF for every
+        // document of that type — a missed duplicate, reported as "no fingerprint", indistinguishable from a
+        // legitimately partial key.
+        //
+        // Left silent on purpose: this runs inside the #411 background-job fingerprint path, where throwing
+        // would rethrow into the retry loop. So the guard is this test rather than a throw. It walks the enum
+        // instead of naming members, so a new one reddens here.
+        foreach (var dataType in Enum.GetValues<FieldDataType>())
+        {
+            var definitionId = Guid.NewGuid();
+            var defs = new[] { Field(definitionId, "key", dataType, isUniqueKey: true) };
+            var values = Values(new DocumentFieldValue(definitionId, dataType, Json(CanonicalJson[dataType])));
+
+            FieldFingerprintCalculator.Compute(values, defs)
+                .ShouldNotBeNull($"{dataType} has no branch in FieldFingerprintCalculator.Canonicalize");
+        }
+    }
+
+    [Fact]
+    public void The_canonical_sample_set_covers_every_FieldDataType_member()
+    {
+        // Guards the guard: without a sample, the walk above would skip the new member instead of failing.
+        var missing = Enum.GetValues<FieldDataType>().Where(t => !CanonicalJson.ContainsKey(t)).ToList();
+
+        missing.ShouldBeEmpty($"add a canonical JSON sample for: {string.Join(", ", missing)}");
+    }
+
+    private static JsonElement Json(string raw)
+    {
+        using var document = JsonDocument.Parse(raw);
+        return document.RootElement.Clone();
+    }
+
     [Fact]
     public void No_Unique_Key_Fields_Returns_Null()
     {

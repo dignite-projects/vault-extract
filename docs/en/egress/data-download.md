@@ -25,7 +25,9 @@ POST /api/vault-extract/documents/export
 ### Columns
 
 - **Fixed system columns** — always emitted, never configurable: `LifecycleStatus`, `ReviewStatus`, `ReviewReasons`, `Title`. These are the channel's stable metadata contract.
-- **Field columns** — one per **live** `FieldDefinition` of the requested type, in `DisplayOrder` (ties broken by `Name`, so the order is total). Headers are the field's `DisplayName`, so renaming a field follows through automatically. Values come from the document's `DocumentExtractedField` rows, rendered from the typed column per the field's `DataType`; a multi-value field joins its values by `Order` with `"; "`.
+- **Field columns** — one per **live** `FieldDefinition` of the requested type, in `DisplayOrder` (ties broken by `Name`, so the order is total). Headers are the field's `DisplayName`, so renaming a field follows through automatically. Values come from the document's `DocumentExtractedField` rows, rendered from the typed column per the field's `DataType`; a multi-value field joins its values by `Order` with `"; "` — **the same separator the operator screen shows**, so a cell reads identically in both places.
+
+> **Why a semicolon, not a comma.** A comma is the CSV delimiter. The writer would have to quote the cell, and a consumer re-splitting a quoted cell on commas would shred one field across several columns. The screen was changed to match the file rather than the other way round (#501 item 6).
 
 There is **no saved column projection.** #499 deleted the export-template layer: a template persisted only "which of this type's fields, in what order", and ordering was already owned by `DisplayOrder` — the same axis the operator list renders its columns by. Two axes over the same fields could disagree, so there is now one. If you want a different column order, change `FieldDefinition.DisplayOrder`; the list and the file move together.
 

@@ -144,8 +144,7 @@ public class DocumentExportListParity_Tests : VaultExtractTestBase<DocumentExpor
             // "Plain" matches no filter below; each of the others matches exactly one.
             await SeedAsync(Guid.NewGuid(), "Plain");
             await SeedAsync(Guid.NewGuid(), "Failed", configure: d =>
-                typeof(Document).GetProperty(nameof(Document.LifecycleStatus))!
-                    .SetValue(d, DocumentLifecycleStatus.Failed));
+                DocumentTestData.SetLifecycleStatus(d, DocumentLifecycleStatus.Failed));
             await SeedAsync(Guid.NewGuid(), "Filed", configure: d => d.SetCabinet(CabinetId));
             await SeedAsync(Guid.NewGuid(), "Queued", configure: d =>
                 d.SetReviewReason(DocumentReviewReasons.MissingRequiredFields, present: true));
@@ -231,7 +230,7 @@ public class DocumentExportListParity_Tests : VaultExtractTestBase<DocumentExpor
         _documentTypeRepository.InsertAsync(new DocumentType(TypeId, null, TypeCode, "Invoice"), autoSave: true);
 
     private Task SeedAsync(Guid id, string title, Action<Document>? configure = null) =>
-        PersistAsync(new Document(id, tenantId: null, NewFileOrigin(id)), title, configure);
+        PersistAsync(new Document(id, tenantId: null, DocumentTestData.NewFileOrigin(id)), title, configure);
 
     private Task SeedDerivedAsync(Guid id, Guid originDocumentId, string title) =>
         PersistAsync(
@@ -240,23 +239,13 @@ public class DocumentExportListParity_Tests : VaultExtractTestBase<DocumentExpor
 
     private Task PersistAsync(Document document, string title, Action<Document>? configure)
     {
-        // DocumentTypeId / Title / LifecycleStatus have private setters; tests reflect to simulate a classified,
-        // titled document. CreationTime is pinned so every seeded row ties: ABP's audit interceptor only fills it
-        // when it is still default.
-        typeof(Document).GetProperty(nameof(Document.DocumentTypeId))!.SetValue(document, TypeId);
-        typeof(Document).GetProperty(nameof(Document.Title))!.SetValue(document, title);
-        typeof(Document).GetProperty(nameof(Document.CreationTime))!.SetValue(document, SharedCreationTime);
+        // Simulate a classified, titled document. CreationTime is pinned so every seeded row ties.
+        DocumentTestData.MarkClassified(document, TypeId);
+        DocumentTestData.SetTitle(document, title);
+        DocumentTestData.SetCreationTime(document, SharedCreationTime);
 
         configure?.Invoke(document);
 
         return _documentRepository.InsertAsync(document, autoSave: true);
     }
-
-    private static FileOrigin NewFileOrigin(Guid documentId) => new(
-        blobName: $"blobs/{documentId:N}.pdf",
-        uploadedByUserName: "test-user",
-        contentType: "application/pdf",
-        contentHash: $"{Guid.NewGuid():N}{Guid.NewGuid():N}",
-        fileSize: 1024,
-        originalFileName: "invoice.pdf");
 }

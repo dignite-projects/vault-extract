@@ -96,10 +96,12 @@ public static class FieldFingerprintCalculator
     {
         FieldDataType.Text => NormalizeText(row.TextValue),
         FieldDataType.LongText => NormalizeText(row.LongTextValue),
+        // Full precision on purpose, unlike FieldValueFormats.CellNumber: two amounts differing beyond six
+        // decimals must not hash to the same fingerprint.
         FieldDataType.Number => row.NumberValue?.ToString("0.############################", CultureInfo.InvariantCulture),
         FieldDataType.Boolean => row.BooleanValue switch { true => "true", false => "false", null => null },
-        FieldDataType.Date => row.DateValue?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-        FieldDataType.DateTime => row.DateTimeValue?.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture),
+        FieldDataType.Date => row.DateValue?.ToString(FieldValueFormats.Date, CultureInfo.InvariantCulture),
+        FieldDataType.DateTime => row.DateTimeValue?.ToString(FieldValueFormats.DateTime, CultureInfo.InvariantCulture),
         _ => null
     };
 

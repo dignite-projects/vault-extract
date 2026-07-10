@@ -100,7 +100,10 @@ internal static class ExtractedFieldValueValidator
         return value.ValueKind == JsonValueKind.String &&
                DateTime.TryParseExact(
                    value.GetString(),
-                   "yyyy-MM-dd",
+                   // The same canonical shape DocumentExtractedField.SetValue parses with. This gate and that
+                   // parse must never disagree: a value this accepts and SetValue cannot read throws inside the
+                   // aggregate, past the point where the caller could correct it.
+                   FieldValueFormats.Date,
                    CultureInfo.InvariantCulture,
                    DateTimeStyles.None,
                    out _);
