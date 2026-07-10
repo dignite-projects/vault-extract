@@ -377,6 +377,8 @@
     "Extract:DocumentUnsupportedFileType": "File '{FileName}' has an unsupported type ('{ContentType}'). Please upload a supported image, PDF, CSV/TSV, DOCX, PPTX, TXT, or XLSX file.",
     "Extract:DocumentNoSourceBlob": "This document has no source file available for download.",
     "Extract:DocumentRestoreConflict": "Cannot restore document '{DocumentId}': a live sub-document with the same source constituent already exists. The restore is rejected to avoid a duplicate.",
+    "Extract:DocumentHasSubDocuments": "This document still has sub-documents derived from it. Delete its sub-documents first, then delete this document.",
+    "Extract:DocumentHasSubDocumentsPermanentDelete": "This document still has sub-documents derived from it, including any already in the recycle bin. Sub-documents have no source file of their own and reach it through this document, so permanently delete them first.",
     "Extract:UnknownPipelineCode": "Pipeline '{PipelineCode}' is not retryable.",
     "Extract:PipelineNeverRan": "Pipeline '{PipelineCode}' has not started yet.",
     "Extract:PipelineRetryInProgress": "Pipeline '{PipelineCode}' already has an attempt in progress.",

@@ -161,16 +161,27 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// <summary>
     /// When this document was derived from a constituent of another document (#306 / #346, Scenario B), the id of
     /// that <b>source</b> document; <c>null</c> for normally-uploaded documents. A peer back-reference
-    /// (reference-by-id, no navigation property, no FK cascade): the derived document has a fully independent
-    /// lifecycle and outlives the source. Exposed at the egress so downstream can follow it for provenance.
+    /// (reference-by-id, no navigation property, no FK cascade), and passive provenance at the DB level (#481).
+    /// <para>
+    /// It is nonetheless the derived document's <b>only</b> route to a source file: since #487 a sub-document
+    /// carries no <see cref="FileOrigin"/> of its own, so a consumer follows this pointer to the parent and
+    /// downloads the parent's blob. The source therefore outlives its children, an invariant the #508
+    /// <c>DocumentAppService</c> delete guards enforce at the application layer (no FK, no DB cascade).
+    /// </para>
+    /// Exposed at the egress so downstream can follow it for provenance.
     /// </summary>
     public virtual Guid? OriginDocumentId { get; private set; }
 
     /// <summary>
     /// Content-derived stable key of the source constituent this document was derived from (#306 figure path /
-    /// #346 born-digital path): the SHA-256 of the Markdown slice text. NOT bbox (which drifts, #210). Unique
-    /// together with <see cref="OriginDocumentId"/> so re-extraction / routing retry never duplicate-spawn.
+    /// #346 born-digital path): the SHA-256 of the Markdown slice text. NOT bbox (which drifts, #210).
     /// <c>null</c> for normally-uploaded documents.
+    /// <para>
+    /// #481 moved spawn idempotency off this pair and onto the <c>DocumentSegment</c> ledger's unique
+    /// <c>(SourceDocumentId, SegmentKey)</c> index, so nothing on <c>Document</c> enforces uniqueness over
+    /// <c>(OriginDocumentId, OriginConstituentKey)</c> any more; <c>DocumentParseBackgroundJob</c> consumes this
+    /// key to look up the seed slice, and <c>RestoreAsync</c> fail-closes on it (#485).
+    /// </para>
     /// </summary>
     public virtual string? OriginConstituentKey { get; private set; }
 

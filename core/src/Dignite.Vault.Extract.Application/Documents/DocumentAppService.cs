@@ -333,14 +333,35 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
             disposeStream: true);
     }
 
+    /// <summary>
+    /// Soft-deletes a document into the recycle bin.
+    /// <para>
+    /// #508 guard: a source must not enter the recycle bin while it still has <b>live</b> derived sub-documents.
+    /// Since #487 a sub-document carries no <see cref="Document.FileOrigin"/> of its own — it is a Markdown slice
+    /// that reaches its source only by following <see cref="Document.OriginDocumentId"/> to the parent's blob — so
+    /// soft-deleting the parent strands it behind a provenance pointer that no longer resolves. (#481 removed this
+    /// guard on the premise that children own their own FileOrigin; #487 reverted that premise but left the guard
+    /// out.) Children already in the recycle bin do not count: the ambient <c>ISoftDelete</c> filter excludes them,
+    /// so a source whose sub-documents are all already deleted stays deletable.
+    /// </para>
+    /// <para>
+    /// The guard is deliberately <b>not</b> a cascade — deleting a parent never auto-deletes children. The operator
+    /// removes the sub-documents first (the list's "view sub-documents" filter surfaces them by
+    /// <see cref="Document.OriginDocumentId"/>). The #349 / #364 container→type reclassify retraction is unaffected:
+    /// it soft-deletes children through <see cref="IDocumentRepository"/> directly, not through this service.
+    /// </para>
+    /// </summary>
     [Authorize(VaultExtractPermissions.Documents.Delete)]
     public virtual async Task DeleteAsync(Guid id)
     {
         var document = await _documentRepository.GetAsync(id);
 
-        // #481: children own a real FileOrigin and a fully independent lifecycle; a dangling OriginDocumentId
-        // provenance pointer on a deleted source is accepted (downstream consumes provenance at Ready time).
-        // Deleting a parent never cascades to children.
+        if (await _documentRepository.AnyByOriginAsync(id))
+        {
+            throw new BusinessException(VaultExtractErrorCodes.Document.HasSubDocuments)
+                .WithData("DocumentId", id);
+        }
+
         await _documentRepository.DeleteAsync(id);
 
         // Notify downstream consumers: the Document entered the trash bin, so derived data should move to a recoverable archived state.
@@ -353,6 +374,19 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
             });
     }
 
+    /// <summary>
+    /// Permanently deletes a document: hard-deletes the row and reclaims its blobs.
+    /// <para>
+    /// #508 guard, the strictly stronger twin of <see cref="DeleteAsync"/>'s: this blocks while <b>any</b>
+    /// sub-document exists, including ones already in the recycle bin. Hard-deleting the source destroys the blob
+    /// its children reach through <see cref="Document.OriginDocumentId"/> (they carry no
+    /// <see cref="Document.FileOrigin"/> of their own since #487, and #487 also dropped the shared-blob reference
+    /// check on the grounds that no shared blobs remain) — and a recycle-bin child is restorable, so restoring it
+    /// afterwards would yield a document that can never reach its source. The existence check therefore runs
+    /// inside the <see cref="ISoftDelete"/>-disabled scope below, which is exactly what makes it count recycle-bin
+    /// children; <c>IMultiTenant</c> stays on, so it never leaves this document's layer.
+    /// </para>
+    /// </summary>
     [Authorize(VaultExtractPermissions.Documents.PermanentDelete)]
     public virtual async Task PermanentDeleteAsync(Guid id)
     {
@@ -361,6 +395,13 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         {
             // Permanent delete needs only scalar fields + owned FileOrigin (blob name); no child collections are needed.
             document = await _documentRepository.GetAsync(id, includeDetails: false);
+
+            // Ambient ISoftDelete is disabled here, so this counts recycle-bin sub-documents too (see the remarks).
+            if (await _documentRepository.AnyByOriginAsync(id))
+            {
+                throw new BusinessException(VaultExtractErrorCodes.Document.HasSubDocumentsPermanentDelete)
+                    .WithData("DocumentId", id);
+            }
         }
 
         await _documentRepository.HardDeleteAsync(id);

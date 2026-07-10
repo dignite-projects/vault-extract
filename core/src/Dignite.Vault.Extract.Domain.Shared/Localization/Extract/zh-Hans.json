@@ -377,6 +377,8 @@
     "Extract:DocumentUnsupportedFileType": "文件 '{FileName}' 的类型 ('{ContentType}') 不受支持。请上传支持的图片、PDF、CSV/TSV、DOCX、PPTX、TXT 或 XLSX 文件。",
     "Extract:DocumentNoSourceBlob": "该文档没有可供下载的源文件。",
     "Extract:DocumentRestoreConflict": "无法恢复文档 '{DocumentId}'：已存在另一份共享同一来源片段的在用子文档。为避免产生重复，已拒绝本次恢复。",
+    "Extract:DocumentHasSubDocuments": "该文档仍有由其拆分出的子文档。请先删除这些子文档，再删除该文档。",
+    "Extract:DocumentHasSubDocumentsPermanentDelete": "该文档仍有由其拆分出的子文档（含已在回收站中的）。子文档没有自己的源文件，需通过该文档才能访问，请先彻底删除这些子文档。",
     "Extract:UnknownPipelineCode": "流水线 '{PipelineCode}' 不支持重试。",
     "Extract:PipelineNeverRan": "流水线 '{PipelineCode}' 尚未运行。",
     "Extract:PipelineRetryInProgress": "流水线 '{PipelineCode}' 已有进行中的尝试。",

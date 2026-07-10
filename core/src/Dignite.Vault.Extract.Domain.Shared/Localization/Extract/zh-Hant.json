@@ -377,6 +377,8 @@
     "Extract:DocumentUnsupportedFileType": "檔案 '{FileName}' 的類型（'{ContentType}'）不受支援。請上傳支援的圖片、PDF、CSV/TSV、DOCX、PPTX、TXT 或 XLSX 檔案。",
     "Extract:DocumentNoSourceBlob": "此文件沒有可供下載的來源檔案。",
     "Extract:DocumentRestoreConflict": "無法還原文件 '{DocumentId}'：已存在另一份共享同一來源片段的在用子文件。為避免產生重複，已拒絕本次還原。",
+    "Extract:DocumentHasSubDocuments": "此文件仍有由其分割出的子文件。請先刪除這些子文件，再刪除此文件。",
+    "Extract:DocumentHasSubDocumentsPermanentDelete": "此文件仍有由其分割出的子文件（含已在回收筒中的）。子文件沒有自己的來源檔案，需透過此文件才能存取，請先永久刪除這些子文件。",
     "Extract:UnknownPipelineCode": "管線 '{PipelineCode}' 不支援重試。",
     "Extract:PipelineNeverRan": "管線 '{PipelineCode}' 尚未執行。",
     "Extract:PipelineRetryInProgress": "管線 '{PipelineCode}' 已有進行中的嘗試。",

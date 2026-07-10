@@ -33,6 +33,16 @@ public static class VaultExtractErrorCodes
         // same (OriginDocumentId, OriginConstituentKey) identity — the application-layer fail-close that replaces
         // the fail-close the #481-dropped #391 filtered-unique index used to give for free at restore time.
         public const string RestoreConflict = "Extract:DocumentRestoreConflict";
+        // #508: a source still has LIVE derived sub-documents, so soft-deleting it is blocked — they would be left
+        // with a dangling OriginDocumentId, which since #487 is their ONLY route to a source file (they carry no
+        // FileOrigin of their own). Same string as before #481 removed it; nothing consumed it in the interim,
+        // so re-adding it is not a wire break.
+        public const string HasSubDocuments = "Extract:DocumentHasSubDocuments";
+        // #508: the permanent-delete twin of the above, and strictly stronger — children already in the recycle bin
+        // count too, because hard-deleting the source reclaims the blob they reach through OriginDocumentId and a
+        // recycle-bin child is restorable. A distinct code because the remedy differs: the operator must look in
+        // the recycle bin, not just the document list.
+        public const string HasSubDocumentsPermanentDelete = "Extract:DocumentHasSubDocumentsPermanentDelete";
     }
 
     public static class DocumentType

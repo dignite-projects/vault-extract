@@ -72,6 +72,22 @@ public class EfCoreDocumentRepository
             GetCancellationToken(cancellationToken));
     }
 
+    public virtual async Task<bool> AnyByOriginAsync(
+        Guid originDocumentId,
+        CancellationToken cancellationToken = default)
+    {
+        // #508 delete guards: does this source still have derived sub-documents? Both global filters are left at
+        // their AMBIENT state on purpose -- that is the whole contract of this method. IMultiTenant keeps the check
+        // inside the source's own layer, and ISoftDelete decides whether recycle-bin children count: DeleteAsync
+        // calls this with the filter on (live children only), PermanentDeleteAsync from inside its
+        // DataFilter.Disable<ISoftDelete>() scope (recycle-bin children count too, since hard-deleting the source
+        // reclaims the blob they reach through OriginDocumentId). Index-served by the plain OriginDocumentId index.
+        var dbSet = await GetDbSetAsync();
+        return await dbSet.AnyAsync(
+            d => d.OriginDocumentId == originDocumentId,
+            GetCancellationToken(cancellationToken));
+    }
+
     public virtual async Task<List<DuplicateCandidateModel>> FindDuplicateCandidatesAsync(
         Guid documentId,
         Guid documentTypeId,
