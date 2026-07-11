@@ -935,6 +935,7 @@ export class DocumentDetailComponent implements OnInit {
     switch (status) {
       case DocumentLifecycleStatus.Uploaded:   return 'badge bg-secondary';
       case DocumentLifecycleStatus.Processing: return 'badge bg-warning text-dark';
+      case DocumentLifecycleStatus.PendingReview: return 'badge bg-info text-dark';
       case DocumentLifecycleStatus.Ready:      return 'badge bg-success';
       case DocumentLifecycleStatus.Failed:     return 'badge bg-danger';
       default:                                 return 'badge bg-secondary';
@@ -951,6 +952,7 @@ export class DocumentDetailComponent implements OnInit {
     switch (status) {
       case DocumentLifecycleStatus.Uploaded:   return '::Document:Status:Uploaded';
       case DocumentLifecycleStatus.Processing: return '::Document:Status:Processing';
+      case DocumentLifecycleStatus.PendingReview: return '::Document:Status:PendingReview';
       case DocumentLifecycleStatus.Ready:      return '::Document:Status:Ready';
       case DocumentLifecycleStatus.Failed:     return '::Document:Status:Failed';
       default:                                 return '::Document:Status:Unknown';

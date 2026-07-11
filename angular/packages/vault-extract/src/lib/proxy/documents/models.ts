@@ -60,6 +60,7 @@ export interface DocumentStatisticsDto {
   totalCount?: number;
   uploadedCount?: number;
   processingCount?: number;
+  pendingReviewCount?: number;
   readyCount?: number;
   failedCount?: number;
   needsReviewCount?: number;

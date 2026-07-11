@@ -162,6 +162,7 @@
 
     "Document:Status:Uploaded": "已上傳",
     "Document:Status:Processing": "處理中",
+    "Document:Status:PendingReview": "待放行",
     "Document:Status:Ready": "就緒",
     "Document:Status:Failed": "失敗",
     "Document:Status:Unknown": "未知",

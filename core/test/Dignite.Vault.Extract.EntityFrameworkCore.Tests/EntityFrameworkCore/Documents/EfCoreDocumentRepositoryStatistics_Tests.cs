@@ -50,6 +50,8 @@ public class EfCoreDocumentRepositoryStatistics_Tests : VaultExtractEntityFramew
             await SeedDocAsync(DocumentLifecycleStatus.Ready, 300);
             await SeedDocAsync(DocumentLifecycleStatus.Ready, 400);
             await SeedDocAsync(DocumentLifecycleStatus.Failed, 500);
+            // #510: PendingReview always carries a blocking review reason, so it also counts as needs-review.
+            await SeedDocAsync(DocumentLifecycleStatus.PendingReview, 700, needsReview: true);
             // Needs review: an unresolved reason is set and it is not rejected; lifecycle stays Uploaded.
             await SeedDocAsync(DocumentLifecycleStatus.Uploaded, 50, needsReview: true);
             // Rejected: carries a reason but disposition == Rejected, so it does NOT count as needs-review;
@@ -65,13 +67,14 @@ public class EfCoreDocumentRepositoryStatistics_Tests : VaultExtractEntityFramew
 
         var stats = await WithUnitOfWorkAsync(() => _documentRepository.GetStatisticsAsync());
 
-        stats.TotalCount.ShouldBe(7);            // 8 active inserts - 1 soft-deleted
+        stats.TotalCount.ShouldBe(8);            // 9 active inserts - 1 soft-deleted
         stats.UploadedCount.ShouldBe(2);         // plain Uploaded + needs-review (still Uploaded)
         stats.ProcessingCount.ShouldBe(1);
+        stats.PendingReviewCount.ShouldBe(1);    // #510: the PendingReview-seeded document
         stats.ReadyCount.ShouldBe(2);
         stats.FailedCount.ShouldBe(2);           // explicit Failed + rejected (-> Failed)
-        stats.NeedsReviewCount.ShouldBe(1);      // the rejected one is excluded
-        stats.TotalStorageBytes.ShouldBe(1610);  // 100+200+300+400+500+50+60
+        stats.NeedsReviewCount.ShouldBe(2);      // the PendingReview seed (blocking reason) + the Uploaded needs-review; the rejected one is excluded
+        stats.TotalStorageBytes.ShouldBe(2310);  // 100+200+300+400+500+700+50+60
     }
 
     [Fact]

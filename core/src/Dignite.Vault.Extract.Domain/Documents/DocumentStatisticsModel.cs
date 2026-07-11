@@ -14,6 +14,8 @@ public class DocumentStatisticsModel
 
     public long ProcessingCount { get; set; }
 
+    public long PendingReviewCount { get; set; }
+
     public long ReadyCount { get; set; }
 
     public long FailedCount { get; set; }

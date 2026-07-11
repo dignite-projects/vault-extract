@@ -135,7 +135,9 @@ public class DocumentPipelineRunManagerTests : VaultExtractDomainTestBase<VaultE
         doc.SetReviewReason(DocumentReviewReasons.DuplicateSuspected, present: true);
         await _manager.CompleteAsync(doc, fieldRun);
 
-        doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.Processing);
+        // #510: all three key pipelines succeeded but DuplicateSuspected (blocking) withholds Ready, so the
+        // availability appearance is PendingReview (waiting on the operator), not Processing (still running).
+        doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.PendingReview);
 
         // Operator decides it is not a duplicate -> clearing the reason + re-deriving releases it to Ready.
         doc.AllowDuplicate();
@@ -298,7 +300,10 @@ public class DocumentPipelineRunManagerTests : VaultExtractDomainTestBase<VaultE
 
         doc.ReviewReasons.ShouldBe(DocumentReviewReasons.UnresolvedClassification);
         doc.DocumentTypeId.ShouldBeNull();
-        doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.Processing);
+        // #510 (Semantics B): a blocking reason alone makes it PendingReview, not Processing — even though
+        // field-extraction never ran (no confirmed type), the machine has gone as far as it can and is waiting
+        // on the operator to confirm a type. Still not Ready, so DocumentReadyEto is not fired.
+        doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.PendingReview);
     }
 
     // ────────────────────────────────────────────────────────────────────────────

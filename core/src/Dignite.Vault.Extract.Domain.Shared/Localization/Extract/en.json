@@ -162,6 +162,7 @@
 
     "Document:Status:Uploaded": "Uploaded",
     "Document:Status:Processing": "Processing",
+    "Document:Status:PendingReview": "Awaiting review",
     "Document:Status:Ready": "Ready",
     "Document:Status:Failed": "Failed",
     "Document:Status:Unknown": "Unknown",

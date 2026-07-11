@@ -8,7 +8,7 @@ namespace Dignite.Vault.Extract.Documents;
 /// </summary>
 public class DocumentStatisticsDto
 {
-    /// <summary>All non-deleted documents in the current layer. Equals the sum of the four lifecycle counts.</summary>
+    /// <summary>All non-deleted documents in the current layer. Equals the sum of the five lifecycle counts.</summary>
     public long TotalCount { get; set; }
 
     /// <summary>Stored but not yet started by any pipeline (<see cref="DocumentLifecycleStatus.Uploaded"/>).</summary>
@@ -16,6 +16,13 @@ public class DocumentStatisticsDto
 
     /// <summary>At least one critical pipeline is still running (<see cref="DocumentLifecycleStatus.Processing"/>).</summary>
     public long ProcessingCount { get; set; }
+
+    /// <summary>
+    /// Pipelines finished but a blocking review reason withholds Ready — waiting on the operator
+    /// (<see cref="DocumentLifecycleStatus.PendingReview"/>, #510). Overlaps <see cref="NeedsReviewCount"/>
+    /// (a PendingReview document always needs attention) but, unlike it, is part of the <see cref="TotalCount"/> partition.
+    /// </summary>
+    public long PendingReviewCount { get; set; }
 
     /// <summary>All critical pipelines succeeded (<see cref="DocumentLifecycleStatus.Ready"/>).</summary>
     public long ReadyCount { get; set; }

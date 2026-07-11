@@ -171,7 +171,8 @@ public class DocumentFieldExtractionBackgroundJob_Tests
             doc!.ExtractedFieldValues.ShouldBeEmpty();
             doc.ReviewReasons.HasFlag(DocumentReviewReasons.FieldExtractionIncomplete).ShouldBeTrue();
             ReviewReasonPolicy.HasBlocking(doc.ReviewReasons).ShouldBeTrue();
-            doc.LifecycleStatus.ShouldNotBe(DocumentLifecycleStatus.Ready);
+            // #510: a blocking reason (FieldExtractionIncomplete) withholds Ready -> PendingReview, not Processing.
+            doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.PendingReview);
         });
     }
 

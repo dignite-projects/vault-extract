@@ -362,14 +362,24 @@ public class DocumentPipelineRunManager : DomainService
             }
         }
 
-        // #284: Ready gate changed from "has confirmed type" to "has no blocking review reasons". Equivalence:
-        // the low-confidence path sets UnresolvedClassification (blocking) and clears DocumentTypeId together, so !HasValue <=> UC set.
-        // Benefit: the gate is extensible. Future blocking reasons cost nothing, and non-blocking reasons such as missing required fields naturally do not block Ready.
-        if (derivedStatus != DocumentLifecycleStatus.Failed &&
-            allSucceeded &&
-            !ReviewReasonPolicy.HasBlocking(document.ReviewReasons))
+        // #284: Ready gate is "no blocking review reason" (ReviewReasonPolicy.Blocking is the single declaration
+        // point). #510: split the not-Ready availability appearance in two. A document that carries a blocking
+        // reason is PendingReview — it has run as far as it can but is withheld from Ready waiting on the operator
+        // (low-confidence classification, suspected duplicate, oversized-for-field-extraction). That is distinct
+        // from Processing, which now means only "a key pipeline is still running / has not started" (no blocking
+        // reason yet). Both withhold downstream release identically — only the transition to Ready fires
+        // DocumentReadyEto — so PendingReview changes the operator-facing status without touching the egress gate.
+        // Failed still dominates both (a failed key pipeline, or an operator rejection via RejectReview).
+        if (derivedStatus != DocumentLifecycleStatus.Failed)
         {
-            derivedStatus = DocumentLifecycleStatus.Ready;
+            if (ReviewReasonPolicy.HasBlocking(document.ReviewReasons))
+            {
+                derivedStatus = DocumentLifecycleStatus.PendingReview;
+            }
+            else if (allSucceeded)
+            {
+                derivedStatus = DocumentLifecycleStatus.Ready;
+            }
         }
 
         document.TransitionLifecycle(derivedStatus);
