@@ -7,14 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Security
+## [0.3.0-preview.1] - 2026-07-11
 
-- **MCP API-key channel is now a real authentication scheme** (#431), replacing the path-scoped middleware. A valid key authenticates via an ASP.NET Core `AuthenticationHandler` (engaged by the cookie `ForwardDefaultSelector`, keeping the endpoint's bare scheme-free `RequireAuthorization()`), so its principal flows through ABP `UseDynamicClaims` — **disabling or deleting the mapped service-account user now revokes the key on the next request**, at parity with a Bearer user (previously revocation was config-removal-only).
-- **MCP API-key channel hardening** (follow-ups to #428 / #430): the `/mcp` endpoint is now **rate-limited** per client IP — covering both the API-key channel and the OAuth discovery `401` path — and a present-but-invalid key raises a rate-limited security `Warning` (source IP + header name, never the value) (#433). API keys can be configured as a **SHA-256 `KeyHash`** (hash-at-rest) instead of plaintext, so a config/secret-store leak no longer exposes usable keys (#435). An opt-in host seed (`Mcp:ApiKey:SeedServiceAccounts`) **enforces least privilege** on each configured service account — applying exactly the `VaultExtract.Documents` grant and failing startup if the account is missing, over-privileged, or holds any role (#434).
+First preview of the 0.3.0 line, opening the post-0.2.0 development cycle. Headline work: broadened ingestion (digital upload formats) and deeper OpenXML / PDF structure extraction; the document-list-driven **Data Download** export with extracted-field filtering; portable document-type **packs**; and two MCP fronts — a downstream-extensible surface (#475) and a size ceiling on every text crossing an LLM boundary (#491). As a `0.y.z` pre-release the exit contracts may still change — see [CONTRIBUTING → Versioning and releases](CONTRIBUTING.md#versioning-and-releases).
 
 ### Added
 
-- A full ABP integration test for the MCP API-key channel: a key-authenticated service-account principal resolves permissions through the real ABP permission checker (granted → search returns rows; ungranted → fail-closed `AbpAuthorizationException`) (#432).
+- **Digital upload formats** — accept CSV / TSV, DOCX, plain-text, and XLSX uploads through the same pipeline as scans and PDFs (#471).
+- **The MCP surface is now additively extensible by downstream modules** — a downstream ABP module (e.g. a commercial edition layered on the channel) appends its own tools via `AddMcpServer().WithTools<T>()` and its own `resources/list` categories via `VaultExtractMcpOptions.ResourceListContributors` (`IMcpResourceListContributor`), without forking. The built-in document-type and cabinet categories become the first two contributors, and fail-closed grant semantics are preserved bit-for-bit. The open-source surface stays strictly single-tenant — cross-tenant capability, if any, lives entirely in downstream editions with per-call authorization (#475, #476).
+- **MCP cabinet discovery and cabinet-scoped search** — cabinets are exposed as a discovery resource and `search_documents` can scope to one (#473).
+- **MCP `search_documents` result truncation is explicit** — the response carries `totalCount` / `truncated`, at parity with `list_document_types` (#445).
+- **Document-type configuration packs** — export a document type with its field definitions as a portable "pack" and import it into another layer or deployment (#444).
+- **Field-definition prompts accept Markdown with an AI-polish action** — a Markdown prompt editor and an AI "polish" endpoint; the former prompt length cap is dropped (#447).
+- **"Data Download" export surface** — the export flow is repositioned onto the document list, defaults to all of the type's fields, filters by extracted field values, and adds an "export current view" toolbar action (#414, #496).
+- **Extracted-field-value filter on the operator document list** (#415).
+- **A full ABP integration test for the MCP API-key channel** — a key-authenticated service-account principal resolves permissions through the real ABP permission checker (granted → search returns rows; ungranted → fail-closed `AbpAuthorizationException`) (#432).
+
+### Changed
+
+- **A size ceiling now bounds every text crossing an LLM boundary** (#491). Field extraction and segmentation **gate** above the ceiling — where the sought value can sit anywhere, the job reaches a terminal review state (`FieldExtractionIncomplete` / `SegmentationIncomplete`) rather than silently extracting from a truncated prefix, and never rethrows an oversized body into the job-retry loop; the decline is surfaced to LLM-facing readers. Classification / title / cabinet suggestion and the MCP document body **truncate** surrogate-safely and announce the cut. Prompt ceilings are host configuration (`VaultExtractBehaviorOptions`); the MCP egress ceiling is a compile-time `const`.
+- **One figure format across PDF and OpenXML** — OpenXML figure transcriptions are wrapped in the same `ImageOcrMarkup` markers the PDF path emits, so downstream sees a single figure representation (#480).
+- **Deeper OpenXML structure extraction** — DOCX heading levels resolved from custom styles (basedOn chain + style `outlineLvl`, with explicit `outlineLvl=9` cancelling a heading) (#316); DOCX footnotes / endnotes surfaced in Markdown (#315); DOCX figures walked per picture instance for grouped multi-image + text-box caption precision (#322); PPTX group-transform / layout-inherited offsets and group ext/chExt scale composed into reading order (#313, #456); `mc:AlternateContent` PPTX shapes no longer silently skipped (#319). Custom-style heading resolution and DOCX figure traversal are memoized per document (#458, #318).
+- **Build / packaging** — SourceLink, deterministic CI builds, and NuGet symbol packages; NuGet and npm license metadata aligned with the LGPL-3.0-only LICENSE.
+
+### Fixed
+
+- Non-BOM legacy-encoded `.csv` / `.tsv` / `.txt` no longer decode as UTF-8 and land in `Document.Markdown` as U+FFFD garbage (#493).
+- Restore the embedded-document route that the segmentation rework left detected-but-unroutable — as a Markdown slice (#494).
+- Restore the sub-document delete guard on both delete paths (#508).
+- DOCX note-body hyperlinks resolved against the owning `FootnotesPart` / `EndnotesPart` (#457); the #268 completeness signal trips when the PDF lattice path drops an out-of-grid fragment (#450 follow-up); multi-level chart category axes and blank leaf category labels (#321).
+- Angular: serialize document-list `fieldFilters` into bindable query params (#415); dark-theme-aware document-detail cabinet text color.
+
+### Removed
+
+- The export-template layer, superseded by the document-list-driven "Data Download" export (#499).
+- Unused lerna tooling from the build (#503).
+
+### Security
+
+- **The MCP API-key channel is now a real authentication scheme** (#431), replacing the path-scoped middleware. A valid key authenticates via an ASP.NET Core `AuthenticationHandler` (engaged by the cookie `ForwardDefaultSelector`, keeping the endpoint's bare scheme-free `RequireAuthorization()`), so its principal flows through ABP `UseDynamicClaims` — **disabling or deleting the mapped service-account user now revokes the key on the next request**, at parity with a Bearer user (previously revocation was config-removal-only).
+- **MCP API-key channel hardening** (follow-ups to #428 / #430): the `/mcp` endpoint is now **rate-limited** per client IP — covering both the API-key channel and the OAuth discovery `401` path — and a present-but-invalid key raises a rate-limited security `Warning` (source IP + header name, never the value) (#433). API keys can be configured as a **SHA-256 `KeyHash`** (hash-at-rest) instead of plaintext, so a config/secret-store leak no longer exposes usable keys (#435). An opt-in host seed (`Mcp:ApiKey:SeedServiceAccounts`) **enforces least privilege** on each configured service account — applying exactly the `VaultExtract.Documents` grant and failing startup if the account is missing, over-privileged, or holds any role (#434).
+- The gitignored `appsettings.secrets.json` no longer leaks into `dotnet publish` output (#502).
 
 ## [0.2.0] - 2026-07-01
 
@@ -116,5 +149,6 @@ Preview of the 0.2.0 line. This release rebrands the project to **Dignite Vault 
 - Legacy Angular document-upload route.
 - Dead fields from the segmentation subsystem (#390).
 
-[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.3.0-preview.1...HEAD
+[0.3.0-preview.1]: https://github.com/dignite-projects/vault-extract/compare/v0.2.0...v0.3.0-preview.1
 [0.2.0]: https://github.com/dignite-projects/vault-extract/compare/v0.1.0...v0.2.0
