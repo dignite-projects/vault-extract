@@ -49,6 +49,7 @@ describe('proxy enum contract (smoke)', () => {
   it('DocumentLifecycleStatus matches backend values', () => {
     expect(DocumentLifecycleStatus.Uploaded).toBe(10);
     expect(DocumentLifecycleStatus.Processing).toBe(20);
+    expect(DocumentLifecycleStatus.PendingReview).toBe(25);
     expect(DocumentLifecycleStatus.Ready).toBe(30);
     expect(DocumentLifecycleStatus.Failed).toBe(99);
   });

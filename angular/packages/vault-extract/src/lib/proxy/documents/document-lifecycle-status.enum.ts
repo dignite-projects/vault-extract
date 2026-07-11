@@ -3,6 +3,7 @@ import { mapEnumToOptions } from '@abp/ng.core';
 export enum DocumentLifecycleStatus {
   Uploaded = 10,
   Processing = 20,
+  PendingReview = 25,
   Ready = 30,
   Failed = 99,
 }

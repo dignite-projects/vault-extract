@@ -278,6 +278,7 @@ public class EfCoreDocumentRepository
             TotalCount = byStatus.Sum(b => b.Count),
             UploadedCount = CountOf(DocumentLifecycleStatus.Uploaded),
             ProcessingCount = CountOf(DocumentLifecycleStatus.Processing),
+            PendingReviewCount = CountOf(DocumentLifecycleStatus.PendingReview),
             ReadyCount = CountOf(DocumentLifecycleStatus.Ready),
             FailedCount = CountOf(DocumentLifecycleStatus.Failed),
             NeedsReviewCount = byStatus.Sum(b => b.NeedsReview),
