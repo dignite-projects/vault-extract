@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- **The static MCP `X-Api-Key` authentication channel** (added in 0.2.0 via #428, hardened in #431–#435) — `/mcp` is OAuth-only again. Both Claude and ChatGPT / OpenAI Codex now complete Guided OAuth with the pre-registered `client_id` (#281), and a headless / service client uses the OAuth client-credentials grant, so a standing pre-shared secret is redundant — building it had reinvented a machine credential OpenIddict already ships. The `/mcp` IP rate limiter (#433) and the #278 OAuth discovery are unaffected; a leftover `Mcp:ApiKey` configuration section now logs a startup warning instead of being silently ignored (#514).
+- **The static MCP `X-Api-Key` authentication channel** (added in 0.2.0 via #428, hardened in #431–#435) — `/mcp` is OAuth-only again. Both Claude and ChatGPT / OpenAI Codex now complete Guided OAuth with the pre-registered `client_id` (#281), and a headless / service client uses the OAuth client-credentials grant, so a standing pre-shared secret is redundant — building it had reinvented a machine credential OpenIddict already ships. The `/mcp` IP rate limiter (#433) and the #278 OAuth discovery are unaffected; a leftover `Mcp:ApiKey` configuration section is now inert and ignored (#514).
 
 ## [0.3.0-preview.1] - 2026-07-11
 
