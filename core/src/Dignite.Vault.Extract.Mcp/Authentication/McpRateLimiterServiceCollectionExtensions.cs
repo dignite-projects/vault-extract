@@ -10,8 +10,8 @@ namespace Dignite.Vault.Extract.Mcp.Authentication;
 /// <summary>
 /// Reusable registration for the <c>/mcp</c> rate limiter (#433), exported by the Mcp egress module so any host
 /// enables it with one <c>Add</c> call + <c>app.UseRateLimiter()</c> + <c>RequireRateLimiting</c> on the endpoint.
-/// Mirrors the #428 <c>AddVaultExtractMcpApiKey</c> split: the deployment-agnostic MECHANISM (the policy, the
-/// per-IP partition, the <c>429</c> rejection) lives here; the HOST owns the config and the pipeline wiring.
+/// The deployment-agnostic MECHANISM (the policy, the per-IP partition, the <c>429</c> rejection) lives here;
+/// the HOST owns the config and the pipeline wiring.
 /// The policy is <b>always</b> registered under <see cref="McpRateLimiterDefaults.PolicyName"/> so the endpoint's
 /// <c>RequireRateLimiting</c> resolves even when the limiter is disabled (it then applies no limit).
 /// </summary>

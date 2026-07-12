@@ -27,7 +27,7 @@ public class McpRateLimiterOptions
     /// </summary>
     public int QueueLimit { get; set; } = 0;
 
-    /// <summary>Fail-fast shape validation at startup, mirroring the API-key options. A no-op when disabled.</summary>
+    /// <summary>Fail-fast shape validation at startup. A no-op when disabled.</summary>
     public void Validate()
     {
         if (!Enabled)

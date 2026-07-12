@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **The static MCP `X-Api-Key` authentication channel** (added in 0.2.0 via #428, hardened in #431–#435) — `/mcp` is OAuth-only again. Both Claude and ChatGPT / OpenAI Codex now complete Guided OAuth with the pre-registered `client_id` (#281), and a headless / service client uses the OAuth client-credentials grant, so a standing pre-shared secret is redundant — building it had reinvented a machine credential OpenIddict already ships. The `/mcp` IP rate limiter (#433) and the #278 OAuth discovery are unaffected (#514).
+
 ## [0.3.0-preview.1] - 2026-07-11
 
 First preview of the 0.3.0 line, opening the post-0.2.0 development cycle. Headline work: broadened ingestion (digital upload formats) and deeper OpenXML / PDF structure extraction; the document-list-driven **Data Download** export with extracted-field filtering; portable document-type **packs**; and two MCP fronts — a downstream-extensible surface (#475) and a size ceiling on every text crossing an LLM boundary (#491). As a `0.y.z` pre-release the exit contracts may still change — see [CONTRIBUTING → Versioning and releases](CONTRIBUTING.md#versioning-and-releases).
