@@ -21,11 +21,11 @@ The transport is **Streamable HTTP** at `/mcp`. (The legacy SSE transport is not
 
 ## Authentication
 
-The `/mcp` endpoint's primary authentication is the host's existing **OpenIddict Bearer** auth — the same scheme as the REST API (audience `VaultExtract`). An **optional static API-key channel** (a custom request header) can be enabled alongside it for clients that cannot run the OAuth flow — see [§3 *Static API key*](#3-static-api-key-custom-header--fallback-for-non-oauth-clients) below. It is **disabled by default**.
+The `/mcp` endpoint is authenticated by the host's existing **OpenIddict Bearer** auth — the same scheme as the REST API (audience `VaultExtract`). There is **no separate API-key system**: every client authenticates with an OAuth-issued Bearer token, obtained either as a manually-supplied token (§1) or through automatic discovery (§2). A headless / service client that runs unattended uses the OAuth **client-credentials** grant to obtain that token (§1) — the standard machine-credential path, reusing the same validation chain.
 
 Every request to `/mcp` requires a valid Bearer token (`RequireAuthorization` on the endpoint). In addition, each tool/resource call performs an explicit server-side permission assertion: the caller must be granted **`VaultExtract.Documents`** (`ExtractPermissions.Documents.Default`). A token without that permission gets an authorization error even though the endpoint accepted the connection (fail-closed, defense in depth).
 
-There are two ways for a client to present that token (a third, non-OAuth option — a static API key — is covered separately in §3). Both end at the same Bearer validation — they differ only in **how the client obtains the token**.
+There are two ways for a client to present that token. Both end at the same Bearer validation — they differ only in **how the client obtains the token**.
 
 ### 1. Manual token (static `Authorization` header)
 
@@ -51,6 +51,7 @@ Point your client at `https://<host>/mcp` with **no** token and supply the clien
 - **MCP Inspector** — in the OAuth / Authentication settings panel set **Client ID** to `VaultExtract_Mcp`, then run *Guided OAuth*.
 - **Claude Desktop / claude.ai custom connector** — in the connector's *Advanced settings* set the **OAuth Client ID** to `VaultExtract_Mcp` (this field exists precisely for servers that don't offer DCR).
 - **mcp-remote / Cursor** — set the configured OAuth client id to `VaultExtract_Mcp`.
+- **ChatGPT connector / OpenAI Codex** (and any other OAuth-capable client) — set the OAuth **Client ID** to `VaultExtract_Mcp`. Recent versions accept a pre-registered client_id, so they complete Guided OAuth without a static header.
 
 The browser opens the Dignite Vault Extract login; you sign in, and — because this is a public client with a published client_id — you get an **explicit consent screen** (`ConsentType = Explicit`) before any token is issued. The client then connects automatically.
 
@@ -115,73 +116,7 @@ Native desktop clients bind a **random loopback port**, so the seeded client is 
 
 `RedirectUris` **replaces** the built-in defaults (it does not merge), so list every URI you still need. Re-run the host with `--migrate-database` to re-seed after changing it. A client's exact callback path can be captured from the `redirect_uri` query parameter on the `/authorize` request during a connect attempt.
 
-> Multi-tenancy is currently disabled (`ExtractHostModule.IsMultiTenant = false`), so all access resolves to the host document space. Tenant isolation is enforced by ABP's ambient `IMultiTenant` global query filter — driven by the authenticated principal's tenant claim, not a hand-written `TenantId` predicate (see `.claude/rules/llm-call-anti-patterns.md`, anti-pattern B) — so it stays correct if multi-tenancy is later enabled, **provided every credential (including an API-key principal) carries the correct tenant claim**.
-
-### 3. Static API key (custom header) — fallback for non-OAuth clients
-
-Some MCP clients cannot run the OAuth flow above but can send a **static custom header** — e.g. **OpenAI Codex** (Streamable-HTTP MCP with arbitrary headers) and **ABP AI Management** (auth type *Custom Header* / *API Key*). For them the host can enable an optional **API-key channel** parallel to the Bearer chain. Claude's native custom connector is OAuth-only and keeps using discovery — it does not use this. (Introduced in #428.)
-
-**Disabled by default.** The shipped `appsettings.json` carries an empty `Mcp:ApiKey:Keys`, so OAuth-only deployments are unaffected. Configure keys via environment variables / user-secrets — **never commit a real key** (the same discipline as `Vault:Extract:ApiKey`):
-
-```jsonc
-"Mcp": {
-  "ApiKey": {
-    "HeaderName": "X-Api-Key",                       // configurable; match it to the client's header
-    "RequireHttps": true,                            // ignore a key presented over plain HTTP (default true)
-    "SeedServiceAccounts": false,                    // opt-in least-privilege seed/guard (#434), see below
-    "Keys": [
-      {
-        // Configure EITHER the plaintext Key OR its KeyHash (hash-at-rest, #435) — not both.
-        "KeyHash": "<lowercase hex sha256 of the key>",  // preferred: a config leak does not expose usable keys
-        // "Key": "<a CSPRNG secret, >= 32 chars>",      // alternative: plaintext, env / user-secrets only
-        "ServiceAccountUserId": "<guid of a provisioned service-account user>",
-        "TenantId": null,                            // host space; set a tenant Guid once multi-tenant
-        "Label": "codex-prod"                        // audit attribution; never the key value
-      }
-    ]
-  },
-  "RateLimit": {                                     // #433: /mcp rate limiter (per client IP); on by default
-    "Enabled": true,
-    "PermitLimit": 300,                              // requests per window per IP — generous; a DoS/brute-force cap
-    "WindowSeconds": 60
-  }
-}
-```
-
-**How it maps to permissions.** A request carrying a valid key is authenticated as the mapped **service-account user**; a missing or invalid key is ignored — the request falls through to the Bearer chain + discovery `401`, never a `403`. The key grants *authentication* only; actual access is still gated by the same fail-closed `CheckPolicyAsync(VaultExtract.Documents)` the Bearer path hits. So you must:
-
-1. **Provision a dedicated service-account user** (ABP admin UI or your own seed), then
-2. **Grant it only `VaultExtract.Documents`** (`ExtractPermissions.Documents.Default`) — directly at the user level, **no roles**. That single permission covers every MCP path (`search_documents`, `get_document`, `list_document_types`, `list_cabinets`, and the document/document-type/cabinet resources). Cabinet discovery is document-read metadata; cabinet create/update/delete operations remain separately protected by `VaultExtract.Cabinets.*`. Granting anything more — or via a shared role — would let an API-key caller exceed an OAuth user; don't.
-
-Set `Mcp:ApiKey:SeedServiceAccounts: true` to have the host **enforce** that least-privilege at startup (opt-in, #434): for every configured `ServiceAccountUserId` it applies the `VaultExtract.Documents` grant and **fails startup** if the account is missing, holds any other VaultExtract permission, or has any role. It never creates users — provision the account first, then copy its Guid into config. Leave it `false` (default) to manage the accounts by hand.
-
-**Operational notes.**
-
-- **TLS only.** The key is a long-lived, bearer-equivalent secret. `Mcp:ApiKey:RequireHttps` (default `true`) makes the server **ignore a key presented over a non-HTTPS request** (it falls through to Bearer), so a key never travels in clear text; behind a TLS-terminating proxy this relies on the host's forwarded-headers handling. Also configure the proxy to strip any inbound copy of the header before forwarding. Set `RequireHttps: false` only for a deliberate plain-HTTP deployment (e.g. local testing).
-- **Hash-at-rest (preferred, #435).** Configure a key's **`KeyHash`** (lowercase hex SHA-256 of the key) instead of the plaintext `Key`, so a leak of host config / the secret store does not hand over usable keys — the runtime compares digests, so the two forms are interchangeable. Set exactly one of `Key` / `KeyHash` per entry. Compute the digest without echoing the secret to history:
-  - bash: `printf %s "$MCP_KEY" | sha256sum` (take the hex, lowercase)
-  - PowerShell: `[BitConverter]::ToString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($env:MCP_KEY))).Replace('-','').ToLower()`
-- **Rotation / revocation.** Multiple keys are supported, each with its own `Label` for audit attribution. Rotate with an overlap window (add the new key → migrate clients → remove the old). You can revoke access three ways: remove the key from config, remove the service account's grant, or **disable / delete the service-account user**. Since #431 the API-key channel is a real authentication scheme whose principal flows through ABP dynamic claims, so disabling or deleting the mapped user takes effect on the **next request** — the same real-time revocation a Bearer user gets (no longer config-removal-only).
-- **Generation / fail-fast.** Generate keys from a CSPRNG (≥ 256 bits, e.g. 32 random bytes base64url); the host refuses to start on a placeholder value or a plaintext key shorter than 32 characters, a malformed `KeyHash`, both/neither of `Key`/`KeyHash`, or duplicate keys when keys are configured.
-- **Rate limiting (#433).** The `/mcp` endpoint is rate-limited per client IP (`Mcp:RateLimit`, on by default, `300`/`60s`), covering both the API-key channel and the discovery `401` path; over-limit requests get `429`. Limits are generous so legitimate MCP session traffic is unaffected — widen `PermitLimit` / `WindowSeconds` or set `Enabled: false` for unusual deployments. Behind a reverse proxy the per-IP partition is only as accurate as the host's forwarded-headers handling. A **present-but-invalid** key is logged as a rate-limited `Warning` (source IP + header name, **never** the value) — an attack signal a simply-absent key does not raise.
-
-#### Connect OpenAI Codex
-
-Add a Streamable-HTTP MCP server pointing at `/mcp` and send the key as a custom header. In `config.toml`:
-
-```toml
-[mcp_servers.extract]
-url = "https://your-extract-host/mcp"
-http_headers = { "X-Api-Key" = "<your-key>" }
-# or read it from the environment instead of inlining the secret:
-# env_http_headers = { "X-Api-Key" = "EXTRACT_MCP_API_KEY" }
-```
-
-(Equivalently, in Codex's UI: transport **Streamable HTTP**, the `/mcp` URL, and a header `X-Api-Key` = `<your-key>`.)
-
-#### Connect ABP AI Management
-
-In *edit MCP server → Auth*, choose **Custom Header**, set the header name to `X-Api-Key` (matching the server's `Mcp:ApiKey:HeaderName`) and the value to your key. If you use the **API Key** auth mode instead and it sends a fixed header name, set `Mcp:ApiKey:HeaderName` on the server to match it.
+> Multi-tenancy is currently disabled (`ExtractHostModule.IsMultiTenant = false`), so all access resolves to the host document space. Tenant isolation is enforced by ABP's ambient `IMultiTenant` global query filter — driven by the authenticated principal's tenant claim, not a hand-written `TenantId` predicate (see `.claude/rules/llm-call-anti-patterns.md`, anti-pattern B) — so it stays correct if multi-tenancy is later enabled, **provided every credential carries the correct tenant claim**.
 
 ## Connect Claude Desktop
 

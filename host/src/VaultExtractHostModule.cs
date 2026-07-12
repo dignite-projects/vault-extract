@@ -268,12 +268,12 @@ public class VaultExtractHostModule : AbpModule
         ConfigureMcpRateLimiter(context);
     }
 
-    // #433: rate-limit the /mcp egress endpoint (API-key brute-force + invalid-key log-flood + DoS backstop).
+    // #433: rate-limit the /mcp egress endpoint (a DoS / abuse backstop against unauthenticated probing).
     // The mechanism (per-IP fixed-window policy, 429 rejection) lives in the Mcp egress module
-    // (AddVaultExtractMcpRateLimiter, mirroring #428's AddVaultExtractMcpApiKey); the host owns the config and the
-    // pipeline wiring. Enabled by default with generous limits (Mcp:RateLimit), applied to /mcp via
-    // RequireRateLimiting in OnApplicationInitialization so it covers BOTH the API-key channel and the #278
-    // discovery-401 path. The limiter never fires for legitimate, in-limit MCP session traffic.
+    // (AddVaultExtractMcpRateLimiter); the host owns the config and the pipeline wiring. Enabled by default
+    // with generous limits (Mcp:RateLimit), applied to /mcp via RequireRateLimiting in
+    // OnApplicationInitialization so it also covers the #278 discovery-401 path. The limiter never fires for
+    // legitimate, in-limit MCP session traffic.
     private void ConfigureMcpRateLimiter(ServiceConfigurationContext context)
     {
         var configuration = context.Services.GetConfiguration();
@@ -340,12 +340,11 @@ public class VaultExtractHostModule : AbpModule
 
     private void ConfigureAuthentication(ServiceConfigurationContext context)
     {
-        // The default (application-cookie) scheme forwards per request. This subsumes ABP's
-        // ForwardIdentityAuthenticationForBearer (Bearer -> OpenIddict) and adds the #431 branch: a /mcp request
-        // carrying only the API-key header is authenticated by the McpApiKey scheme, so its result flows through
-        // UseDynamicClaims for live enrichment + real-time revocation (a middleware-set principal did not).
-        // The /mcp endpoint keeps its bare scheme-free RequireAuthorization() — no scheme is added to the
-        // endpoint policy (the #278 invariant), so the dynamic-claims-enriched principal is not dropped.
+        // The default (application-cookie) scheme forwards per request: a Bearer-carrying request routes to
+        // OpenIddict validation, everything else falls back to the cookie (browser / MVC Account) — ABP's
+        // ForwardIdentityAuthenticationForBearer behaviour, kept explicit. The /mcp endpoint keeps its bare
+        // scheme-free RequireAuthorization() (the #278 invariant), so the dynamic-claims-enriched principal
+        // is not dropped by re-authentication.
         context.Services.ConfigureApplicationCookie(options =>
         {
             options.ForwardDefaultSelector = ctx =>
@@ -354,13 +353,7 @@ public class VaultExtractHostModule : AbpModule
                 if (!authorization.IsNullOrWhiteSpace()
                     && authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
                 {
-                    // Bearer wins whenever present (an API-key header alongside it is ignored).
                     return OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme;
-                }
-
-                if (ctx.RequestServices.GetRequiredService<McpApiKeyRegistry>().IsApiKeyRequest(ctx))
-                {
-                    return McpApiKeyDefaults.AuthenticationScheme;
                 }
 
                 return null; // fall back to the cookie itself (browser / MVC Account)
@@ -373,26 +366,6 @@ public class VaultExtractHostModule : AbpModule
         });
 
         ConfigureMcpAuthentication(context);
-        ConfigureMcpApiKey(context);
-    }
-
-    // #428 / #431: optional static API-key auth for the /mcp egress, parallel to the OpenIddict Bearer chain and
-    // the #278 OAuth discovery flow. It exists for MCP clients that cannot run the dynamic OAuth flow but can send
-    // a static request header (OpenAI Codex, ABP AI Management); Claude's native custom connector is OAuth-only
-    // and keeps using #278, unaffected. The shipped appsettings.json ships an empty Mcp:ApiKey:Keys, so the
-    // channel is DISABLED by default and OAuth-only deployments are untouched. Real keys + the key ->
-    // service-account mapping are host deployment config (env / user-secrets), never committed. #431: the channel
-    // mechanism is a real authentication scheme (McpApiKey) registered by AddVaultExtractMcpApiKey (matching,
-    // constant-time compare, synthetic-principal construction); it is engaged by the cookie ForwardDefaultSelector
-    // in ConfigureAuthentication (routing /mcp + key requests to the scheme) rather than a pipeline middleware, so
-    // a valid key flows through UseDynamicClaims. See docs/en/egress/mcp-server.md.
-    private void ConfigureMcpApiKey(ServiceConfigurationContext context)
-    {
-        var configuration = context.Services.GetConfiguration();
-        context.Services.AddVaultExtractMcpApiKey(options =>
-        {
-            configuration.GetSection("Mcp:ApiKey").Bind(options);
-        });
     }
 
     // #278: add OAuth Protected Resource Metadata discovery for the /mcp export endpoint (RFC 9728). This is additive
@@ -798,9 +771,8 @@ public class VaultExtractHostModule : AbpModule
         app.UseAbpStudioLink();
         app.UseAbpSecurityHeaders();
         app.UseCors();
-        // #431: the static API-key channel is now an authentication scheme (McpApiKey) engaged by the cookie
-        // ForwardDefaultSelector during UseAuthentication (see ConfigureAuthentication), not a pipeline
-        // middleware — so a valid key authenticates as a real scheme and flows through UseDynamicClaims below.
+        // A Bearer-carrying /mcp request is routed to OpenIddict validation by the cookie ForwardDefaultSelector
+        // (see ConfigureAuthentication), so its principal flows through UseDynamicClaims below.
         app.UseAuthentication();
         app.UseAbpOpenIddictValidation();
 
@@ -829,8 +801,8 @@ public class VaultExtractHostModule : AbpModule
             // Tool / resource method bodies still perform explicit permission assertions as fail-closed double insurance.
             // #278: McpDiscoveryChallengeMarker lets 401 responses without token be routed by McpDiscoveryAuthorizationResultHandler
             // to McpAuth challenge, injecting the `WWW-Authenticate: Bearer resource_metadata="..."` discovery pointer.
-            // #433: RequireRateLimiting scopes the /mcp rate limiter to this endpoint, covering the API-key
-            // channel and the #278 discovery-401 path in one place.
+            // #433: RequireRateLimiting scopes the /mcp rate limiter to this endpoint, covering the #278
+            // discovery-401 path and all /mcp traffic in one place.
             endpoints.MapMcp("/mcp")
                 .RequireAuthorization()
                 .RequireRateLimiting(McpRateLimiterDefaults.PolicyName)

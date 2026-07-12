@@ -1,10 +1,10 @@
 namespace Dignite.Vault.Extract.Mcp.Authentication;
 
 /// <summary>
-/// Constants for the <c>/mcp</c> rate limiter (#433). The limiter is a brute-force / log-flood / DoS backstop on
-/// the egress endpoint — it caps request volume per client so an unauthenticated caller cannot probe API keys
-/// indefinitely or drown the discovery <c>401</c> path, while staying generous enough not to disturb legitimate
-/// MCP session traffic (configurable per deployment).
+/// Constants for the <c>/mcp</c> rate limiter (#433). The limiter is a DoS / abuse backstop on the egress
+/// endpoint — it caps request volume per client so an unauthenticated caller cannot flood the endpoint or
+/// drown the discovery <c>401</c> path, while staying generous enough not to disturb legitimate MCP session
+/// traffic (configurable per deployment).
 /// </summary>
 public static class McpRateLimiterDefaults
 {
