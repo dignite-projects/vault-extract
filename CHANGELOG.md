@@ -5,7 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0-preview.2] - 2026-07-12
+
+Second preview of the 0.3.0 line. Headline work: the MCP egress returns to **OAuth-only** (the static `X-Api-Key` channel is removed); a new **`PendingReview`** lifecycle status separates "blocked on a review reason" from "still processing"; and the document-type **configuration-pack** import/export flow is now driven from the operator UI. As a `0.y.z` pre-release the exit contracts may still change — see [CONTRIBUTING → Versioning and releases](CONTRIBUTING.md#versioning-and-releases).
+
+### Added
+
+- **`DocumentLifecycleStatus.PendingReview`** — a document whose pipelines have run as far as they can but that still carries a blocking review reason (`UnresolvedClassification` / `DuplicateSuspected` / `FieldExtractionIncomplete`) now derives to `PendingReview` instead of falling back to `Processing`, giving the operator UI an honest, non-spinner status. The egress gate is untouched — only the transition to `Ready` fires `DocumentReadyEto`, so `PendingReview` withholds downstream release exactly as `Processing` did; document statistics gain a matching `PendingReviewCount` bucket (#510).
+- **Document-type configuration-pack import/export UI** — the #444 config-pack backend (export a document type with its field definitions as a portable pack; import into another layer or deployment) is now driven from the operator Angular app: "Export All" / per-type export, and an import modal with local shape validation, a preview of the types and field counts, create-and-update / create-only reconciliation, and a created / updated / skipped result panel (#444, #513).
 
 ### Removed
 
@@ -153,6 +160,7 @@ Preview of the 0.2.0 line. This release rebrands the project to **Dignite Vault 
 - Legacy Angular document-upload route.
 - Dead fields from the segmentation subsystem (#390).
 
-[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.3.0-preview.1...HEAD
+[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.3.0-preview.2...HEAD
+[0.3.0-preview.2]: https://github.com/dignite-projects/vault-extract/compare/v0.3.0-preview.1...v0.3.0-preview.2
 [0.3.0-preview.1]: https://github.com/dignite-projects/vault-extract/compare/v0.2.0...v0.3.0-preview.1
 [0.2.0]: https://github.com/dignite-projects/vault-extract/compare/v0.1.0...v0.2.0
