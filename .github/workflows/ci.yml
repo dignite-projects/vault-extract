@@ -59,6 +59,11 @@ jobs:
       - name: Run MCP tests
         run: dotnet test core/test/Dignite.Vault.Extract.Mcp.Tests/Dignite.Vault.Extract.Mcp.Tests.csproj --no-build --configuration Release --verbosity normal
 
+      # Real ABP permission pipeline (PermissionManagement Domain+EF on in-memory SQLite, NO AddAlwaysAllowAuthorization):
+      # proves the MCP egress's fail-closed CheckPolicyAsync gate denies an ungranted principal (#516).
+      - name: Run MCP integration tests
+        run: dotnet test core/test/Dignite.Vault.Extract.Mcp.Integration.Tests/Dignite.Vault.Extract.Mcp.Integration.Tests.csproj --no-build --configuration Release --verbosity normal
+
       # Pure unit tests: mocked IChatClient + IPdfRasterizer; no native PDFium or external LLM dependency.
       - name: Run OCR VisionLlm tests
         run: dotnet test core/test/Dignite.Vault.Extract.Ocr.VisionLlm.Tests/Dignite.Vault.Extract.Ocr.VisionLlm.Tests.csproj --no-build --configuration Release --verbosity normal
