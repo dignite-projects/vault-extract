@@ -1,0 +1,170 @@
+<div
+  class="modal d-block"
+  tabindex="-1"
+  style="background:rgba(0,0,0,.4);"
+  (mousedown)="onBackdropMouseDown($event)"
+  (click)="onBackdropClick($event)"
+>
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="fas fa-file-import me-2"></i>
+          {{ '::DocumentType:Pack:ImportTitle' | abpLocalization }}
+        </h5>
+        <button type="button" class="btn-close" (click)="close()" [disabled]="isSubmitting()"></button>
+      </div>
+
+      <div class="modal-body">
+        @if (result(); as r) {
+          <!-- Result view -->
+          <div class="alert alert-success d-flex align-items-center">
+            <i class="fas fa-circle-check me-2"></i>
+            {{ '::DocumentType:Pack:ResultTitle' | abpLocalization }}
+          </div>
+          <div class="row g-3 mb-2">
+            <div class="col-6">
+              <div class="border rounded p-2 h-100">
+                <div class="fw-semibold mb-1">{{ '::DocumentType:Pack:ResultTypes' | abpLocalization }}</div>
+                <div class="small d-flex flex-wrap gap-1">
+                  <span class="badge bg-success">{{ '::DocumentType:Pack:Created' | abpLocalization }} {{ r.typesCreated ?? 0 }}</span>
+                  <span class="badge bg-primary">{{ '::DocumentType:Pack:Updated' | abpLocalization }} {{ r.typesUpdated ?? 0 }}</span>
+                  <span class="badge bg-secondary">{{ '::DocumentType:Pack:Skipped' | abpLocalization }} {{ r.typesSkipped ?? 0 }}</span>
+                </div>
+              </div>
+            </div>
+            <div class="col-6">
+              <div class="border rounded p-2 h-100">
+                <div class="fw-semibold mb-1">{{ '::DocumentType:Pack:ResultFields' | abpLocalization }}</div>
+                <div class="small d-flex flex-wrap gap-1">
+                  <span class="badge bg-success">{{ '::DocumentType:Pack:Created' | abpLocalization }} {{ r.fieldsCreated ?? 0 }}</span>
+                  <span class="badge bg-primary">{{ '::DocumentType:Pack:Updated' | abpLocalization }} {{ r.fieldsUpdated ?? 0 }}</span>
+                  <span class="badge bg-secondary">{{ '::DocumentType:Pack:Skipped' | abpLocalization }} {{ r.fieldsSkipped ?? 0 }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          @if ((r.items?.length ?? 0) > 0) {
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <tbody>
+                  @for (item of r.items ?? []; track item.typeCode) {
+                    <tr>
+                      <td><span class="badge bg-info text-dark">{{ item.typeCode }}</span></td>
+                      <td>
+                        @switch (item.typeAction) {
+                          @case (PackItemAction.Created) {
+                            <span class="text-success">{{ '::DocumentType:Pack:Created' | abpLocalization }}</span>
+                          }
+                          @case (PackItemAction.Updated) {
+                            <span class="text-primary">{{ '::DocumentType:Pack:Updated' | abpLocalization }}</span>
+                          }
+                          @default {
+                            <span class="text-muted">{{ '::DocumentType:Pack:Skipped' | abpLocalization }}</span>
+                          }
+                        }
+                      </td>
+                      <td class="text-end small text-muted">
+                        +{{ item.fieldsCreated ?? 0 }} ~{{ item.fieldsUpdated ?? 0 }} ={{ item.fieldsSkipped ?? 0 }}
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        } @else {
+          <!-- Selection view -->
+          <p class="text-muted small mb-3">{{ '::DocumentType:Pack:ImportSubtitle' | abpLocalization }}</p>
+
+          <div class="mb-3">
+            <label class="form-label">{{ '::DocumentType:Pack:ChooseFile' | abpLocalization }}</label>
+            <input
+              type="file"
+              class="form-control"
+              accept="application/json,.json"
+              (change)="onFileSelected($event)"
+            />
+            <div class="form-text">{{ '::DocumentType:Pack:FileHint' | abpLocalization }}</div>
+          </div>
+
+          @if (parseError(); as err) {
+            <div class="alert alert-danger">
+              <i class="fas fa-triangle-exclamation me-1"></i>
+              @switch (err) {
+                @case ('invalid-json') { {{ '::DocumentType:Pack:Error:InvalidJson' | abpLocalization }} }
+                @case ('empty') { {{ '::DocumentType:Pack:Error:Empty' | abpLocalization }} }
+                @case ('too-many') { {{ '::DocumentType:Pack:Error:TooMany' | abpLocalization: maxPacks }} }
+                @default { {{ '::DocumentType:Pack:Error:NotAPack' | abpLocalization }} }
+              }
+            </div>
+          }
+
+          @if (packs(); as loaded) {
+            <div class="alert alert-secondary">
+              <div class="mb-2">
+                <strong>{{ typeCount() }}</strong> {{ '::DocumentType:Pack:TypesInFile' | abpLocalization }}
+              </div>
+              <div class="d-flex flex-wrap gap-1">
+                @for (pack of loaded; track pack.typeCode) {
+                  <span class="badge bg-info text-dark">
+                    {{ pack.typeCode }}
+                    <span class="opacity-75">· {{ fieldCount(pack) }} {{ '::DocumentType:Pack:Fields' | abpLocalization }}</span>
+                  </span>
+                }
+              </div>
+            </div>
+
+            <div class="mb-1">
+              <label class="form-label">{{ '::DocumentType:Pack:Mode' | abpLocalization }}</label>
+              <div class="form-check">
+                <input
+                  class="form-check-input"
+                  type="radio"
+                  id="pack-mode-upsert"
+                  [checked]="mode() === PackImportMode.CreateOrUpdate"
+                  (change)="setMode(PackImportMode.CreateOrUpdate)"
+                />
+                <label class="form-check-label" for="pack-mode-upsert">
+                  {{ '::DocumentType:Pack:ModeCreateOrUpdate' | abpLocalization }}
+                  <span class="d-block small text-muted">{{ '::DocumentType:Pack:ModeCreateOrUpdateHint' | abpLocalization }}</span>
+                </label>
+              </div>
+              <div class="form-check">
+                <input
+                  class="form-check-input"
+                  type="radio"
+                  id="pack-mode-create"
+                  [checked]="mode() === PackImportMode.CreateOnly"
+                  (change)="setMode(PackImportMode.CreateOnly)"
+                />
+                <label class="form-check-label" for="pack-mode-create">
+                  {{ '::DocumentType:Pack:ModeCreateOnly' | abpLocalization }}
+                  <span class="d-block small text-muted">{{ '::DocumentType:Pack:ModeCreateOnlyHint' | abpLocalization }}</span>
+                </label>
+              </div>
+            </div>
+          }
+        }
+      </div>
+
+      <div class="modal-footer">
+        @if (result()) {
+          <button type="button" class="btn btn-primary" (click)="close()">
+            {{ '::DocumentType:Pack:Done' | abpLocalization }}
+          </button>
+        } @else {
+          <button type="button" class="btn btn-secondary" (click)="close()" [disabled]="isSubmitting()">
+            {{ '::Cancel' | abpLocalization }}
+          </button>
+          <button type="button" class="btn btn-primary" (click)="submit()" [disabled]="!canImport()">
+            @if (isSubmitting()) {
+              <span class="spinner-border spinner-border-sm me-1"></span>
+            }
+            {{ '::DocumentType:Pack:Import' | abpLocalization }}
+          </button>
+        }
+      </div>
+    </div>
+  </div>
+</div>

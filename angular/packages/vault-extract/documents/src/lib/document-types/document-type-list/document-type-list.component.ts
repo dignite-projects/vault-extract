@@ -25,6 +25,8 @@ import { map, of } from 'rxjs';
 import {
   CreateDocumentTypeDto,
   DocumentTypeDto,
+  DocumentTypePackDto,
+  DocumentTypePackService,
   DocumentTypeService,
   EXTRACT_PERMISSIONS,
   SlugSuggestionService,
@@ -39,6 +41,9 @@ import {
 import { SlugSuggestionHandle, wireSlugSuggestion } from '../../shared/slug-suggestion';
 import { FieldReextractionModalComponent } from '../../reprocessing/field-reextraction-modal/field-reextraction-modal.component';
 import { ReclassificationModalComponent } from '../../reprocessing/reclassification-modal/reclassification-modal.component';
+import { DocumentTypePackImportModalComponent } from '../packs/document-type-pack-import-modal.component';
+import { packFileName, serializePacks } from '../packs/pack-io';
+import { triggerBlobDownload } from '../../shared/blob-download';
 
 // Mirrors DocumentTypeConsts (Domain.Shared): TypeCode whitelist + length cap.
 const TYPE_CODE_PATTERN = /^[A-Za-z0-9_\-]+(\.[A-Za-z0-9_\-]+)*$/;
@@ -66,6 +71,7 @@ const DOCUMENT_TYPE_SORTS: SortAccessors<DocumentTypeDto> = {
     NgbDropdownModule,
     FieldReextractionModalComponent,
     ReclassificationModalComponent,
+    DocumentTypePackImportModalComponent,
   ],
   providers: [
     ListService,
@@ -78,6 +84,7 @@ const DOCUMENT_TYPE_SORTS: SortAccessors<DocumentTypeDto> = {
 })
 export class DocumentTypeListComponent implements OnInit {
   private readonly service = inject(DocumentTypeService);
+  private readonly packService = inject(DocumentTypePackService);
   private readonly slugService = inject(SlugSuggestionService);
   private readonly router = inject(Router);
   private readonly fb = inject(FormBuilder);
@@ -93,6 +100,13 @@ export class DocumentTypeListComponent implements OnInit {
   // DocumentTypes.Default only lists. ABP evaluates the `||` policy expression.
   readonly canManage = this.permissionService.getGrantedPolicy(
     `${EXTRACT_PERMISSIONS.DocumentTypes.Create} || ${EXTRACT_PERMISSIONS.DocumentTypes.Update} || ${EXTRACT_PERMISSIONS.DocumentTypes.Delete}`,
+  );
+
+  // Config-pack import (#444): private-deployment migration of type + field config. Mirrors the server gate —
+  // import can create both types AND fields, so both Create grants are required to even open it (the server
+  // additionally asserts the Update permissions lazily on the branches that update existing rows).
+  readonly canImport = this.permissionService.getGrantedPolicy(
+    `${EXTRACT_PERMISSIONS.DocumentTypes.Create} && ${EXTRACT_PERMISSIONS.FieldDefinitions.Create}`,
   );
 
   // Bulk reprocessing entry points (#289): admin-level and independent from type CRUD permissions.
@@ -111,6 +125,7 @@ export class DocumentTypeListComponent implements OnInit {
   types = signal<ClientPagedResult<DocumentTypeDto>>({ totalCount: 0, items: [] });
   isLoading = signal(true);
   showDeleted = signal(false);
+  importOpen = signal(false);
 
   // null = closed; 'create' / DocumentTypeDto = open in the matching mode.
   editing = signal<DocumentTypeDto | 'create' | null>(null);
@@ -374,5 +389,42 @@ export class DocumentTypeListComponent implements OnInit {
 
   openReclassify(type: DocumentTypeDto): void {
     this.reclassifyTarget.set(type);
+  }
+
+  openImport(): void {
+    this.importOpen.set(true);
+  }
+
+  // Export a single type's config (the type + its field definitions) as a downloadable pack (#444).
+  exportOne(type: DocumentTypeDto): void {
+    this.packService
+      .export(type.id!)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: pack => this.downloadPacks(pack, type.typeCode!),
+        error: () => this.toaster.error('::DocumentType:Pack:ExportFailed', '::Error'),
+      });
+  }
+
+  // Export the whole current layer's config as one pack file — the private-deployment migration path.
+  exportAll(): void {
+    this.packService
+      .exportAll()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: packs => {
+          if (packs.length === 0) {
+            this.toaster.info('::DocumentType:Pack:NothingToExport');
+            return;
+          }
+          this.downloadPacks(packs, 'document-types');
+        },
+        error: () => this.toaster.error('::DocumentType:Pack:ExportFailed', '::Error'),
+      });
+  }
+
+  private downloadPacks(packs: DocumentTypePackDto | DocumentTypePackDto[], label: string): void {
+    const blob = new Blob([serializePacks(packs)], { type: 'application/json' });
+    triggerBlobDownload(blob, packFileName(label, new Date()));
   }
 }
