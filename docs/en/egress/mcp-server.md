@@ -118,6 +118,22 @@ Native desktop clients bind a **random loopback port**, so the seeded client is 
 
 > Multi-tenancy is currently disabled (`ExtractHostModule.IsMultiTenant = false`), so all access resolves to the host document space. Tenant isolation is enforced by ABP's ambient `IMultiTenant` global query filter — driven by the authenticated principal's tenant claim, not a hand-written `TenantId` predicate (see `.claude/rules/llm-call-anti-patterns.md`, anti-pattern B) — so it stays correct if multi-tenancy is later enabled, **provided every credential carries the correct tenant claim**.
 
+### Rate limiting
+
+The `/mcp` endpoint is rate-limited per client IP (#433) — a DoS / abuse backstop that also covers the unauthenticated discovery `401` path. It is on by default with generous limits, so legitimate MCP session traffic never hits it; over-limit requests get `429`. Configure it via `Mcp:RateLimit`:
+
+```jsonc
+"Mcp": {
+  "RateLimit": {
+    "Enabled": true,       // set false to disable entirely
+    "PermitLimit": 300,    // requests per window, per client IP
+    "WindowSeconds": 60
+  }
+}
+```
+
+Behind a reverse proxy the per-IP partition is only as accurate as the host's forwarded-headers handling — without client-IP forwarding, all external clients share a single bucket (reverse-proxy hardening and docs are tracked in #469).
+
 ## Connect Claude Desktop
 
 Claude Desktop talks to remote HTTP MCP servers through the `mcp-remote` stdio bridge. In `claude_desktop_config.json`:

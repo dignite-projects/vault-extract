@@ -340,25 +340,10 @@ public class VaultExtractHostModule : AbpModule
 
     private void ConfigureAuthentication(ServiceConfigurationContext context)
     {
-        // The default (application-cookie) scheme forwards per request: a Bearer-carrying request routes to
-        // OpenIddict validation, everything else falls back to the cookie (browser / MVC Account) — ABP's
-        // ForwardIdentityAuthenticationForBearer behaviour, kept explicit. The /mcp endpoint keeps its bare
-        // scheme-free RequireAuthorization() (the #278 invariant), so the dynamic-claims-enriched principal
-        // is not dropped by re-authentication.
-        context.Services.ConfigureApplicationCookie(options =>
-        {
-            options.ForwardDefaultSelector = ctx =>
-            {
-                string authorization = ctx.Request.Headers.Authorization.ToString();
-                if (!authorization.IsNullOrWhiteSpace()
-                    && authorization.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-                {
-                    return OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme;
-                }
-
-                return null; // fall back to the cookie itself (browser / MVC Account)
-            };
-        });
+        // Bearer requests route to OpenIddict validation; everything else falls back to the application
+        // cookie (browser / MVC Account). The /mcp endpoint keeps its bare scheme-free RequireAuthorization()
+        // (the #278 invariant), so the dynamic-claims-enriched principal is not dropped by re-authentication.
+        context.Services.ForwardIdentityAuthenticationForBearer(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
 
         context.Services.Configure<AbpClaimsPrincipalFactoryOptions>(options =>
         {
@@ -745,8 +730,29 @@ public class VaultExtractHostModule : AbpModule
         }
     }
 
+    // #514 removed the static X-Api-Key channel; a leftover Mcp:ApiKey section no longer binds to anything,
+    // so a deployment that still configures keys would break its clients silently (bare 401s, no server-side
+    // signal). Surface the leftover loudly so the operator migrates the client to OAuth and retires the key.
+    private static void WarnIfRemovedMcpApiKeyConfigured(ApplicationInitializationContext context)
+    {
+        if (!context.GetConfiguration().GetSection("Mcp:ApiKey").Exists())
+        {
+            return;
+        }
+
+        context.ServiceProvider
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger<VaultExtractHostModule>()
+            .LogWarning(
+                "Configuration section Mcp:ApiKey is set, but the static X-Api-Key channel was removed (#514) and the " +
+                "section is now ignored. Migrate the client to OAuth (pre-registered client_id, or the client-credentials " +
+                "grant for unattended callers), then remove the section and retire the key's service account.");
+    }
+
     public override void OnApplicationInitialization(ApplicationInitializationContext context)
     {
+        WarnIfRemovedMcpApiKeyConfigured(context);
+
         var app = context.GetApplicationBuilder();
         var env = context.GetEnvironment();
         app.UseForwardedHeaders();
