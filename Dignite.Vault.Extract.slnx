@@ -28,6 +28,7 @@
         <Project Path="core/test/Dignite.Vault.Extract.EntityFrameworkCore.Tests/Dignite.Vault.Extract.EntityFrameworkCore.Tests.csproj" />
         <Project Path="core/test/Dignite.Vault.Extract.Application.Tests/Dignite.Vault.Extract.Application.Tests.csproj" />
         <Project Path="core/test/Dignite.Vault.Extract.Mcp.Tests/Dignite.Vault.Extract.Mcp.Tests.csproj" />
+        <Project Path="core/test/Dignite.Vault.Extract.Mcp.Integration.Tests/Dignite.Vault.Extract.Mcp.Integration.Tests.csproj" />
         <Project Path="core/test/Dignite.Vault.Extract.Ocr.VisionLlm.Tests/Dignite.Vault.Extract.Ocr.VisionLlm.Tests.csproj" />
         <Project Path="core/test/Dignite.Vault.Extract.Ocr.PaddleOcr.Tests/Dignite.Vault.Extract.Ocr.PaddleOcr.Tests.csproj" />
         <Project Path="core/test/Dignite.Vault.Extract.Ocr.AzureDocumentIntelligence.Tests/Dignite.Vault.Extract.Ocr.AzureDocumentIntelligence.Tests.csproj" />
