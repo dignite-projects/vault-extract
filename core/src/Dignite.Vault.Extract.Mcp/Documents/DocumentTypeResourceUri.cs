@@ -12,19 +12,19 @@ namespace Dignite.Vault.Extract.Mcp.Documents;
 /// </summary>
 public static class DocumentTypeResourceUri
 {
-    private const string Prefix = "vault-extract://document-types/";
-    private const string TenantPrefix = "vault-extract://tenants/";
+    private const string Segment = "document-types";
+    private const string Prefix = VaultExtractMcpConsts.UriScheme + Segment + "/";
 
     /// <summary>Resource URI template. Used by <c>[McpServerResource(UriTemplate = ...)]</c> and must be a compile-time constant.</summary>
     public const string Template = Prefix + "{code}";
 
     /// <summary>Explicit-tenant resource URI template.</summary>
-    public const string TenantTemplate = TenantPrefix + "{tenantId}/document-types/{code}";
+    public const string TenantTemplate = VaultExtractMcpConsts.TenantUriRoot + "{tenantId}/" + Segment + "/{code}";
 
     public static string Format(string typeCode) => Prefix + typeCode;
 
     public static string Format(string typeCode, Guid? tenantId) =>
         tenantId.HasValue
-            ? TenantPrefix + tenantId.Value + "/document-types/" + typeCode
+            ? VaultExtractMcpConsts.TenantUriRoot + tenantId.Value + "/" + Segment + "/" + typeCode
             : Format(typeCode);
 }

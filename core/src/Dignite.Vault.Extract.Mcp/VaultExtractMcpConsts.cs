@@ -9,6 +9,19 @@ namespace Dignite.Vault.Extract.Mcp;
 public static class VaultExtractMcpConsts
 {
     /// <summary>
+    /// Root of the MCP resource URI scheme. Single source every per-resource URI helper derives from,
+    /// so the scheme cannot drift across resource kinds.
+    /// </summary>
+    public const string UriScheme = "vault-extract://";
+
+    /// <summary>
+    /// Root for explicit-tenant resource URIs (<c>vault-extract://tenants/{tenantId}/...</c>). Shared by
+    /// every per-resource URI helper so the tenant URI shape cannot drift per resource kind, and so a
+    /// helper's <c>Format</c> output and its registered resource template stay in lockstep.
+    /// </summary>
+    public const string TenantUriRoot = UriScheme + "tenants/";
+
+    /// <summary>
     /// Hard cap on the number of document types returned in one document type enumeration
     /// (<c>list_document_types</c> tool and <c>resources/list</c>). Tenant admins can create any number
     /// of document types; unbounded enumeration can blow up LLM context and create a cost-attack

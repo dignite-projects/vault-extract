@@ -35,7 +35,7 @@ public sealed class DocumentTools
         [Description("The document id (UUID) to read. Obtain it from search_documents results.")]
         string id,
         IDocumentAppService documentAppService,
-        [Description("Optional tenant id (UUID). When supplied, read only that tenant and return a tenant-scoped resource uri.")]
+        [Description("Optional tenant id (UUID). When supplied, read only that tenant and return tenant-scoped resource URIs.")]
         string? tenantId = null,
         CancellationToken cancellationToken = default,
         IServiceProvider? serviceProvider = null)

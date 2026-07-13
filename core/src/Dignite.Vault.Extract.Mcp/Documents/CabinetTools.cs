@@ -22,7 +22,7 @@ public sealed class CabinetTools
         + "instructions.")]
     public static async Task<CabinetListResult> ListAsync(
         ICabinetReadAppService cabinetReadAppService,
-        [Description("Optional tenant id (UUID). When supplied, list only that tenant and return tenant-scoped resource uris.")]
+        [Description("Optional tenant id (UUID). When supplied, list only that tenant and return tenant-scoped resource URIs.")]
         string? tenantId = null,
         CancellationToken cancellationToken = default,
         IServiceProvider? serviceProvider = null)

@@ -71,7 +71,7 @@ public sealed class DocumentSearchTool
         List<DocumentFieldFilter>? fieldFilters = null,
         [Description("Max rows to return (1-50). Defaults to 50.")]
         int? maxResultCount = null,
-        [Description("Optional tenant id (UUID). When supplied, search only that tenant and returned resource URIs retain this tenant scope.")]
+        [Description("Optional tenant id (UUID). When supplied, search only that tenant and return tenant-scoped resource URIs.")]
         string? tenantId = null,
         CancellationToken cancellationToken = default,
         IServiceProvider? serviceProvider = null)

@@ -3,8 +3,8 @@ using System.Collections.Generic;
 namespace Dignite.Vault.Extract.Mcp.Documents;
 
 /// <summary>
-/// Document type field schema: the LLM-facing read projection for MCP resource
-/// a document-type resource URI, ambient or explicitly tenant-scoped. It lets downstream AI clients discover which fields a type
+/// Document type field schema: the LLM-facing read projection for the MCP document-type resource
+/// (ambient or explicitly tenant-scoped). It lets downstream AI clients discover which fields a type
 /// has and what data types they use, so they can populate the search tool's <c>fieldFilters</c> /
 /// <c>includeFields</c> with correct field names. <see cref="DisplayName"/> is admin-configured
 /// user-derived text and is already wrapped with <c>PromptBoundary.WrapField</c> to prevent indirect

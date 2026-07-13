@@ -34,7 +34,7 @@ public sealed class DocumentTypeTools
     public static async Task<DocumentTypeListResult> ListAsync(
         IDocumentTypeAppService documentTypeAppService,
         IFieldDefinitionAppService fieldDefinitionAppService,
-        [Description("Optional tenant id (UUID). When supplied, list only that tenant and return tenant-scoped resource uris.")]
+        [Description("Optional tenant id (UUID). When supplied, list only that tenant and return tenant-scoped resource URIs.")]
         string? tenantId = null,
         CancellationToken cancellationToken = default,
         IServiceProvider? serviceProvider = null)
