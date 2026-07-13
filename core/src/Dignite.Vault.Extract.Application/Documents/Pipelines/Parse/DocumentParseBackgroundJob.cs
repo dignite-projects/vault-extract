@@ -18,6 +18,7 @@ using Volo.Abp.BlobStoring;
 using Volo.Abp.DependencyInjection;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.EventBus.Distributed;
+using Volo.Abp.MultiTenancy;
 using Volo.Abp.Threading;
 using Volo.Abp.Timing;
 using Volo.Abp.Uow;
@@ -52,6 +53,7 @@ public class DocumentParseBackgroundJob
     private readonly ICancellationTokenProvider _cancellationTokenProvider;
     // #346/#371: born-digital container slices / figure spans; looked up in the Begin phase to seed a derived sub-document's Markdown.
     private readonly IRepository<DocumentSegment, Guid> _documentSegmentRepository;
+    private readonly ICurrentTenant _currentTenant;
 
     public DocumentParseBackgroundJob(
         IDocumentRepository documentRepository,
@@ -69,7 +71,8 @@ public class DocumentParseBackgroundJob
         IPromptProvider promptProvider,
         IOptions<VaultExtractBehaviorOptions> behaviorOptions,
         ICancellationTokenProvider cancellationTokenProvider,
-        IRepository<DocumentSegment, Guid> documentSegmentRepository)
+        IRepository<DocumentSegment, Guid> documentSegmentRepository,
+        ICurrentTenant currentTenant)
         : base(documentRepository, runRepository, pipelineRunManager, pipelineRunAccessor, unitOfWorkManager)
     {
         _pipelineJobScheduler = pipelineJobScheduler;
@@ -83,9 +86,18 @@ public class DocumentParseBackgroundJob
         _behaviorOptions = behaviorOptions.Value;
         _cancellationTokenProvider = cancellationTokenProvider;
         _documentSegmentRepository = documentSegmentRepository;
+        _currentTenant = currentTenant;
     }
 
     public override async Task ExecuteAsync(DocumentParseJobArgs args)
+    {
+        using (_currentTenant.Change(args.TenantId))
+        {
+            await ExecuteInTenantAsync(args);
+        }
+    }
+
+    private async Task ExecuteInTenantAsync(DocumentParseJobArgs args)
     {
         var workItem = await BeginRunAsync(args);
 
@@ -238,7 +250,7 @@ public class DocumentParseBackgroundJob
         // Do not gate by AttemptNumber==1: that would miss the first-success case where the first attempt failed and retry succeeded
         // with successful run AttemptNumber > 1.
         await _backgroundJobManager.EnqueueAsync(
-            new DocumentCabinetSuggestionJobArgs { DocumentId = document.Id });
+            new DocumentCabinetSuggestionJobArgs { DocumentId = document.Id, TenantId = document.TenantId });
 
         await uow.CompleteAsync();
     }
@@ -379,5 +391,6 @@ public class DocumentParseBackgroundJob
 public class DocumentParseJobArgs
 {
     public Guid DocumentId { get; set; }
+    public Guid? TenantId { get; set; }
     public Guid? PipelineRunId { get; set; }
 }

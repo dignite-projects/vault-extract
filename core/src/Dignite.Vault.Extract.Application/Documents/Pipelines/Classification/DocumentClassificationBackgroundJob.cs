@@ -56,6 +56,14 @@ public class DocumentClassificationBackgroundJob
 
     public override async Task ExecuteAsync(DocumentClassificationJobArgs args)
     {
+        using (_currentTenant.Change(args.TenantId))
+        {
+            await ExecuteInTenantAsync(args);
+        }
+    }
+
+    private async Task ExecuteInTenantAsync(DocumentClassificationJobArgs args)
+    {
         var workItem = await BeginRunAsync(args);
 
         try
@@ -175,7 +183,7 @@ public class DocumentClassificationBackgroundJob
             // atomically via the outbox. The unified pass (#371) reads Document.Markdown and splits both text and
             // figure spans — there is no separate figure-routing job anymore.
             await _backgroundJobManager.EnqueueAsync(
-                new DocumentSegmentationJobArgs { SourceDocumentId = document.Id });
+                new DocumentSegmentationJobArgs { SourceDocumentId = document.Id, TenantId = document.TenantId });
             return;
         }
 
@@ -238,7 +246,7 @@ public class DocumentClassificationBackgroundJob
         if (shouldRoute)
         {
             await _backgroundJobManager.EnqueueAsync(
-                new DocumentSegmentationJobArgs { SourceDocumentId = document.Id });
+                new DocumentSegmentationJobArgs { SourceDocumentId = document.Id, TenantId = document.TenantId });
         }
     }
 
@@ -253,5 +261,6 @@ public class DocumentClassificationBackgroundJob
 public class DocumentClassificationJobArgs
 {
     public Guid DocumentId { get; set; }
+    public Guid? TenantId { get; set; }
     public Guid? PipelineRunId { get; set; }
 }

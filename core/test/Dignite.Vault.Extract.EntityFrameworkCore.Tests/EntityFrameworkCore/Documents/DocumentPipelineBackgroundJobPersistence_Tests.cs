@@ -11,6 +11,7 @@ using Dignite.Vault.Extract.Documents.Pipelines;
 using Dignite.Vault.Extract.Documents.Pipelines.Classification;
 using Dignite.Vault.Extract.Documents.Pipelines.Parse;
 using Dignite.Vault.Extract.Documents.Segments;
+using Dignite.Vault.Extract.Documents.DocumentTypes;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
@@ -18,9 +19,11 @@ using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Volo.Abp.BackgroundJobs;
 using Volo.Abp.BlobStoring;
+using Volo.Abp.Content;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Guids;
 using Volo.Abp.Modularity;
+using Volo.Abp.MultiTenancy;
 using Volo.Abp.Uow;
 using Xunit;
 
@@ -60,6 +63,8 @@ public class DocumentPipelineBackgroundJobPersistence_Tests
     private readonly IUnitOfWorkManager _unitOfWorkManager;
     private readonly IDocumentAppService _documentAppService;
     private readonly IRepository<DocumentSegment, Guid> _segmentRepository;
+    private readonly IDocumentTypeRepository _documentTypeRepository;
+    private readonly ICurrentTenant _currentTenant;
 
     public DocumentPipelineBackgroundJobPersistence_Tests()
     {
@@ -74,6 +79,66 @@ public class DocumentPipelineBackgroundJobPersistence_Tests
         _unitOfWorkManager = GetRequiredService<IUnitOfWorkManager>();
         _documentAppService = GetRequiredService<IDocumentAppService>();
         _segmentRepository = GetRequiredService<IRepository<DocumentSegment, Guid>>();
+        _documentTypeRepository = GetRequiredService<IDocumentTypeRepository>();
+        _currentTenant = GetRequiredService<ICurrentTenant>();
+    }
+
+    [Fact]
+    public async Task Tenant_Uploaded_Document_Parse_Job_Should_Restore_Queued_Tenant_And_Succeed()
+    {
+        var tenantId = _guidGenerator.Create();
+        var documentId = Guid.Empty;
+
+        using (_currentTenant.Change(tenantId))
+        {
+            await WithUnitOfWorkAsync(async () =>
+            {
+                await _documentTypeRepository.InsertAsync(
+                    new DocumentType(_guidGenerator.Create(), tenantId, "test.document", "Test document"),
+                    autoSave: true);
+
+                var uploaded = await _documentAppService.UploadAsync(new UploadDocumentInput
+                {
+                    File = new RemoteStreamContent(
+                        new MemoryStream([1, 2, 3]), "tenant.pdf", "application/pdf", disposeStream: true)
+                });
+                documentId = uploaded.Id;
+            });
+        }
+
+        // The scheduled payload, not an ambient request scope, carries the tenant into the worker.
+        await _backgroundJobManager.Received(1).EnqueueAsync(
+            Arg.Is<DocumentParseJobArgs>(x => x.DocumentId == documentId && x.TenantId == tenantId),
+            Arg.Any<BackgroundJobPriority>(),
+            Arg.Any<TimeSpan?>());
+
+        _currentTenant.Id.ShouldBeNull(); // simulate a host-scoped background worker
+        StubExtraction("# Tenant document", usedOcr: false);
+
+        await _textExtractionJob.ExecuteAsync(new DocumentParseJobArgs
+        {
+            DocumentId = documentId,
+            TenantId = tenantId
+        });
+
+        using (_currentTenant.Change(tenantId))
+        {
+            await WithUnitOfWorkAsync(async () =>
+            {
+                var document = await _documentRepository.GetAsync(documentId, includeDetails: false);
+                document.Markdown.ShouldBe("# Tenant document");
+            });
+        }
+
+        // Parse's two fan-out paths must keep the same tenant for later document-ID lookups.
+        await _backgroundJobManager.Received(1).EnqueueAsync(
+            Arg.Is<DocumentClassificationJobArgs>(x => x.DocumentId == documentId && x.TenantId == tenantId),
+            Arg.Any<BackgroundJobPriority>(),
+            Arg.Any<TimeSpan?>());
+        await _backgroundJobManager.Received(1).EnqueueAsync(
+            Arg.Is<DocumentCabinetSuggestionJobArgs>(x => x.DocumentId == documentId && x.TenantId == tenantId),
+            Arg.Any<BackgroundJobPriority>(),
+            Arg.Any<TimeSpan?>());
     }
 
     [Fact]

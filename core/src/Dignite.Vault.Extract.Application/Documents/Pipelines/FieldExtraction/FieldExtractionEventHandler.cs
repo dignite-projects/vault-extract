@@ -45,6 +45,7 @@ public class FieldExtractionEventHandler
             new DocumentFieldExtractionJobArgs
             {
                 DocumentId = eventData.DocumentId,
+                TenantId = eventData.TenantId,
                 ExpectedEventTypeCode = eventData.DocumentTypeCode
             });
     }
