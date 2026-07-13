@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Volo.Abp.BackgroundJobs;
 using Volo.Abp.DependencyInjection;
+using Volo.Abp.MultiTenancy;
 using Volo.Abp.Uow;
 
 namespace Dignite.Vault.Extract.Documents.Pipelines.FieldExtraction;
@@ -33,6 +34,7 @@ public class DocumentFieldExtractionBackgroundJob
     : DocumentPipelineBackgroundJobBase<DocumentFieldExtractionJobArgs>, ITransientDependency
 {
     private readonly FieldExtractionService _fieldExtractionService;
+    private readonly ICurrentTenant _currentTenant;
 
     public DocumentFieldExtractionBackgroundJob(
         IDocumentRepository documentRepository,
@@ -40,13 +42,23 @@ public class DocumentFieldExtractionBackgroundJob
         DocumentPipelineRunManager pipelineRunManager,
         DocumentPipelineRunAccessor pipelineRunAccessor,
         IUnitOfWorkManager unitOfWorkManager,
-        FieldExtractionService fieldExtractionService)
+        FieldExtractionService fieldExtractionService,
+        ICurrentTenant currentTenant)
         : base(documentRepository, runRepository, pipelineRunManager, pipelineRunAccessor, unitOfWorkManager)
     {
         _fieldExtractionService = fieldExtractionService;
+        _currentTenant = currentTenant;
     }
 
     public override async Task ExecuteAsync(DocumentFieldExtractionJobArgs args)
+    {
+        using (_currentTenant.Change(args.TenantId))
+        {
+            await ExecuteInTenantAsync(args);
+        }
+    }
+
+    private async Task ExecuteInTenantAsync(DocumentFieldExtractionJobArgs args)
     {
         var (documentId, runId, tenantId) = await BeginRunAsync(args);
 
@@ -95,6 +107,7 @@ public class DocumentFieldExtractionBackgroundJob
 public class DocumentFieldExtractionJobArgs
 {
     public Guid DocumentId { get; set; }
+    public Guid? TenantId { get; set; }
     public Guid? PipelineRunId { get; set; }
 
     /// <summary>

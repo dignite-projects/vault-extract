@@ -74,7 +74,7 @@ public class DocumentReclassificationDispatcherJob
                     // PipelineRunId=null makes the job's BeginOrStartAsync call StartAsync and create
                     // a new classification attempt.
                     await _backgroundJobManager.EnqueueAsync(
-                        new DocumentClassificationJobArgs { DocumentId = id });
+                        new DocumentClassificationJobArgs { DocumentId = id, TenantId = args.TenantId });
                 }
 
                 if (ids.Count == batchSize)

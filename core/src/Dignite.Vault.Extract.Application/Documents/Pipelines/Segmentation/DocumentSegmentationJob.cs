@@ -103,6 +103,16 @@ public class DocumentSegmentationJob
 
     public override async Task ExecuteAsync(DocumentSegmentationJobArgs args)
     {
+        // Background workers do not preserve the request tenant. Restore the queued document's
+        // layer before any repository access so ABP's IMultiTenant filter remains the isolation boundary.
+        using (_currentTenant.Change(args.TenantId))
+        {
+            await ExecuteInTenantAsync(args);
+        }
+    }
+
+    private async Task ExecuteInTenantAsync(DocumentSegmentationJobArgs args)
+    {
         var cancellationToken = _cancellationTokenProvider.Token;
 
         var context = await LoadAsync(args.SourceDocumentId);
@@ -644,4 +654,5 @@ public class DocumentSegmentationJobArgs
 {
     /// <summary>The source document whose Markdown (with inline figure markers, #381) should be analyzed for standalone sub-documents.</summary>
     public Guid SourceDocumentId { get; set; }
+    public Guid? TenantId { get; set; }
 }

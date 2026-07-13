@@ -87,7 +87,7 @@ public class DocumentFieldReextractionDispatcherJob
                     // state is consistent; the worst case is one extra LLM cost, the same accepted cost
                     // as chained dispatcher forking in this file.
                     await _backgroundJobManager.EnqueueAsync(
-                        new DocumentFieldExtractionJobArgs { DocumentId = id });
+                        new DocumentFieldExtractionJobArgs { DocumentId = id, TenantId = args.TenantId });
                 }
 
                 // Full batch means there may be a next page: cursor = last ID in this batch and chain

@@ -42,13 +42,14 @@ public class DocumentPipelineJobScheduler : ITransientDependency
         var run = await _pipelineRunManager.QueueAsync(document, pipelineCode);
 
         await _documentRepository.UpdateAsync(document, autoSave: true);
-        await EnqueueAsync(document.Id, pipelineCode, run.Id, delay);
+        await EnqueueAsync(document.Id, document.TenantId, pipelineCode, run.Id, delay);
 
         return run;
     }
 
     protected virtual Task EnqueueAsync(
         Guid documentId,
+        Guid? tenantId,
         string pipelineCode,
         Guid pipelineRunId,
         TimeSpan? delay = null)
@@ -60,6 +61,7 @@ public class DocumentPipelineJobScheduler : ITransientDependency
                 new DocumentParseJobArgs
                 {
                     DocumentId = documentId,
+                    TenantId = tenantId,
                     PipelineRunId = pipelineRunId
                 },
                 delay: effectiveDelay),
@@ -67,6 +69,7 @@ public class DocumentPipelineJobScheduler : ITransientDependency
                 new DocumentClassificationJobArgs
                 {
                     DocumentId = documentId,
+                    TenantId = tenantId,
                     PipelineRunId = pipelineRunId
                 },
                 delay: effectiveDelay),
@@ -74,6 +77,7 @@ public class DocumentPipelineJobScheduler : ITransientDependency
                 new DocumentFieldExtractionJobArgs
                 {
                     DocumentId = documentId,
+                    TenantId = tenantId,
                     PipelineRunId = pipelineRunId
                 },
                 delay: effectiveDelay),

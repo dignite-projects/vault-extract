@@ -71,6 +71,14 @@ public class DocumentCabinetSuggestionBackgroundJob
 
     public override async Task ExecuteAsync(DocumentCabinetSuggestionJobArgs args)
     {
+        using (_currentTenant.Change(args.TenantId))
+        {
+            await ExecuteInTenantAsync(args);
+        }
+    }
+
+    private async Task ExecuteInTenantAsync(DocumentCabinetSuggestionJobArgs args)
+    {
         try
         {
             var workItem = await PrepareAsync(args.DocumentId);
@@ -206,4 +214,5 @@ public class DocumentCabinetSuggestionBackgroundJob
 public class DocumentCabinetSuggestionJobArgs
 {
     public Guid DocumentId { get; set; }
+    public Guid? TenantId { get; set; }
 }
