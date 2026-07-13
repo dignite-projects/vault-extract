@@ -80,6 +80,10 @@ public class DocumentPipelineRun : AggregateRoot<Guid>, IMultiTenant
         Status = PipelineRunStatus.Running;
         StartedAt = now;
         CompletedAt = null;
+        // Every execution attempt starts from a clean slate. When ABP retries a failed job in place, the same run
+        // row is re-begun (BeginOrStartAsync reuses it by the job's fixed PipelineRunId); without this reset a prior
+        // attempt's failure message would survive into a subsequent Succeeded run and keep showing on the detail page.
+        StatusMessage = null;
     }
 
     internal void MarkPending(DateTime now)
@@ -92,6 +96,10 @@ public class DocumentPipelineRun : AggregateRoot<Guid>, IMultiTenant
     {
         Status = PipelineRunStatus.Succeeded;
         CompletedAt = now;
+        // A succeeded run carries no diagnostic message (see StatusMessage doc). Defensive alongside the MarkRunning
+        // reset: guarantees no stale failure text can co-exist with a Succeeded status even on any future path that
+        // reaches success without re-entering MarkRunning.
+        StatusMessage = null;
     }
 
     internal void MarkFailed(DateTime now, string statusMessage)

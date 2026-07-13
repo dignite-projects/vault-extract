@@ -244,6 +244,35 @@ public class DocumentPipelineRunManagerTests : VaultExtractDomainTestBase<VaultE
         latestRun.Status.ShouldBe(PipelineRunStatus.Succeeded);
     }
 
+    // Regression: a run reused IN PLACE across Fail → retry → Succeed must not keep the prior failure message.
+    // Unlike the retry scenario above (which creates a new attempt via StartAsync), ABP's automatic in-job retry
+    // re-runs the same background job with the same args, so the scheduler-enqueued job's fixed PipelineRunId makes
+    // BeginOrStartAsync re-begin the SAME run row (AttemptNumber unchanged). StatusMessage was only ever written on
+    // failure and never cleared, so before the fix a reused run could end up Succeeded while still carrying the old
+    // AI/model-error text — which the detail page kept rendering under a green "Succeeded" badge.
+    [Fact]
+    public async Task Reused_Run_On_Retry_Success_Clears_Stale_StatusMessage()
+    {
+        var doc = CreateDocument();
+
+        // The attempt fails with a diagnostic message (e.g. the LLM/model provider error).
+        var run = await _manager.StartAsync(doc, VaultExtractPipelines.FieldExtraction);
+        await _manager.FailAsync(doc, run, errorMessage: "AI provider returned malformed output");
+        run.Status.ShouldBe(PipelineRunStatus.Failed);
+        run.StatusMessage.ShouldBe("AI provider returned malformed output");
+
+        // ABP retries the same job in place: BeginOrStartAsync re-begins THIS run (fixed PipelineRunId), not a new
+        // attempt, so AttemptNumber stays 1 and re-entering Running must wipe the stale message.
+        await _manager.BeginAsync(doc, run);
+        run.AttemptNumber.ShouldBe(1);
+        run.StatusMessage.ShouldBeNull();
+
+        // The retried attempt now succeeds (e.g. after the host switched the model) — no leftover failure text.
+        await _manager.CompleteAsync(doc, run);
+        run.Status.ShouldBe(PipelineRunStatus.Succeeded);
+        run.StatusMessage.ShouldBeNull();
+    }
+
     // ────────────────────────────────────────────────────────────────────────────
     // Scenario 6: CompleteClassificationWithLowConfidenceAsync completes Run and
     //             sets ReviewReasons=UnresolvedClassification (low-confidence signal is on
