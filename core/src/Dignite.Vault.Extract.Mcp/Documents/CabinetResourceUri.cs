@@ -9,19 +9,19 @@ namespace Dignite.Vault.Extract.Mcp.Documents;
 /// </summary>
 public static class CabinetResourceUri
 {
-    private const string Prefix = "vault-extract://cabinets/";
-    private const string TenantPrefix = "vault-extract://tenants/";
+    private const string Segment = "cabinets";
+    private const string Prefix = VaultExtractMcpConsts.UriScheme + Segment + "/";
 
     /// <summary>Resource URI template used by the MCP resource scanner.</summary>
     public const string Template = Prefix + "{id}";
 
     /// <summary>Explicit-tenant resource URI template.</summary>
-    public const string TenantTemplate = TenantPrefix + "{tenantId}/cabinets/{id}";
+    public const string TenantTemplate = VaultExtractMcpConsts.TenantUriRoot + "{tenantId}/" + Segment + "/{id}";
 
     public static string Format(Guid cabinetId) => Prefix + cabinetId;
 
     public static string Format(Guid cabinetId, Guid? tenantId) =>
         tenantId.HasValue
-            ? TenantPrefix + tenantId.Value + "/cabinets/" + cabinetId
+            ? VaultExtractMcpConsts.TenantUriRoot + tenantId.Value + "/" + Segment + "/" + cabinetId
             : Format(cabinetId);
 }

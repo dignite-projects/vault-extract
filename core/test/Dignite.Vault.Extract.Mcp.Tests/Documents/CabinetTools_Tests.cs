@@ -37,7 +37,6 @@ public class CabinetTools_Tests : VaultExtractTestBase<CabinetToolsTestModule>
         var tenantId = Guid.NewGuid();
         var cabinetId = Guid.NewGuid();
         var currentTenant = GetRequiredService<ICurrentTenant>();
-        var ambientTenantId = currentTenant.Id;
         _cabinetReadAppService.GetListAsync().Returns(_ =>
         {
             currentTenant.Id.ShouldBe(tenantId);
@@ -51,7 +50,10 @@ public class CabinetTools_Tests : VaultExtractTestBase<CabinetToolsTestModule>
             serviceProvider: ServiceProvider);
 
         result.Items[0].Uri.ShouldBe(CabinetResourceUri.Format(cabinetId, tenantId));
-        currentTenant.Id.ShouldBe(ambientTenantId);
+        // No post-await ambient check — it would be a tautology: the tool is an async method, so the
+        // ICurrentTenant.Change it makes internally never flows back to this caller's ExecutionContext,
+        // and the assertion would pass even if the using-scope were removed. The stubbed callback above
+        // asserts the scope was actually applied during the call.
     }
 
     [Fact]

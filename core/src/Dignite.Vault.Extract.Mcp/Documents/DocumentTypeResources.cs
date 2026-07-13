@@ -98,10 +98,12 @@ public sealed class DocumentTypeResources
         var fields = await fieldDefinitionAppService.GetListAsync(
             new GetFieldDefinitionListInput { DocumentTypeId = documentType.Id });
 
+        var uri = DocumentTypeResourceUri.Format(documentType.TypeCode, tenantId);
+
         var schema = new DocumentTypeSchema
         {
             TypeCode = documentType.TypeCode,
-            Uri = DocumentTypeResourceUri.Format(documentType.TypeCode, tenantId),
+            Uri = uri,
             // DisplayName is admin-configured user-derived text, so PromptBoundary wrapping prevents
             // indirect prompt injection. TypeCode / field Name / DataType are system-controlled
             // values (whitelist / enum), so they are emitted raw.
@@ -121,7 +123,7 @@ public sealed class DocumentTypeResources
 
         return new TextResourceContents
         {
-            Uri = DocumentTypeResourceUri.Format(documentType.TypeCode, tenantId),
+            Uri = uri,
             MimeType = "application/json",
             Text = JsonSerializer.Serialize(schema)
         };

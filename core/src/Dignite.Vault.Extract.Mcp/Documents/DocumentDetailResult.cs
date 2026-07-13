@@ -40,8 +40,8 @@ public sealed record DocumentDetailResult
     /// <summary>
     /// Whether <see cref="Markdown"/> was clipped to <c>VaultExtractMcpConsts.MaxDocumentMarkdownChars</c> (#491).
     /// Mirrors the <c>Truncated</c> signal on <c>DocumentSearchResult</c> / <c>DocumentTypeListResult</c>: an LLM must
-    /// never mistake a clipped body for the whole document. Read the resource
-    /// ambient or explicitly tenant-scoped document resource for the same (also capped) body, or the REST API for the full text.
+    /// never mistake a clipped body for the whole document. Read the ambient or explicitly
+    /// tenant-scoped document resource for the same (also capped) body, or the REST API for the full text.
     /// </summary>
     public required bool MarkdownTruncated { get; init; }
 
