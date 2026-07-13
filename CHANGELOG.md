@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0-preview.3] - 2026-07-13
+
+Third preview of the 0.3.0 line. Headline work: the MCP egress can now carry an explicit tenant scope across tools and resource URIs, so host-side operators and automation can stay in the selected layer without relying on ambient context alone. As a `0.y.z` pre-release the exit contracts may still change — see [CONTRIBUTING → Versioning and releases](CONTRIBUTING.md#versioning-and-releases).
+
+### Added
+
+- **Tenant-scoped MCP reads** — `search_documents`, `get_document`, `list_document_types`, and `list_cabinets` accept an optional `tenantId` and return tenant-scoped resource URIs when supplied. Document, document-type, and cabinet resources now also expose explicit-tenant URI templates, preserving the selected tenant as clients follow MCP links.
+- **MCP tenant-scope contract tests** — tool-schema and resource-template tests guard that `tenantId` stays visible to MCP clients while the internal service provider parameter remains hidden.
+
 ## [0.3.0-preview.2] - 2026-07-12
 
 Second preview of the 0.3.0 line. Headline work: the MCP egress returns to **OAuth-only** (the static `X-Api-Key` channel is removed); a new **`PendingReview`** lifecycle status separates "blocked on a review reason" from "still processing"; and the document-type **configuration-pack** import/export flow is now driven from the operator UI. As a `0.y.z` pre-release the exit contracts may still change — see [CONTRIBUTING → Versioning and releases](CONTRIBUTING.md#versioning-and-releases).
@@ -160,7 +169,8 @@ Preview of the 0.2.0 line. This release rebrands the project to **Dignite Vault 
 - Legacy Angular document-upload route.
 - Dead fields from the segmentation subsystem (#390).
 
-[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.3.0-preview.2...HEAD
+[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.3.0-preview.3...HEAD
+[0.3.0-preview.3]: https://github.com/dignite-projects/vault-extract/compare/v0.3.0-preview.2...v0.3.0-preview.3
 [0.3.0-preview.2]: https://github.com/dignite-projects/vault-extract/compare/v0.3.0-preview.1...v0.3.0-preview.2
 [0.3.0-preview.1]: https://github.com/dignite-projects/vault-extract/compare/v0.2.0...v0.3.0-preview.1
 [0.2.0]: https://github.com/dignite-projects/vault-extract/compare/v0.1.0...v0.2.0

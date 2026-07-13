@@ -11,6 +11,7 @@ using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Volo.Abp.Domain.Entities;
 using Volo.Abp.Modularity;
+using Volo.Abp.MultiTenancy;
 using Xunit;
 
 namespace Dignite.Vault.Extract.Mcp.Documents;
@@ -36,6 +37,35 @@ public class DocumentTools_Tests : VaultExtractTestBase<DocumentToolsTestModule>
     public DocumentTools_Tests()
     {
         _documentAppService = GetRequiredService<IDocumentAppService>();
+    }
+
+    [Fact]
+    public async Task Reads_in_explicit_tenant_and_returns_tenant_scoped_resource_uri()
+    {
+        var tenantId = Guid.NewGuid();
+        var documentId = Guid.NewGuid();
+        var currentTenant = GetRequiredService<ICurrentTenant>();
+        var ambientTenantId = currentTenant.Id;
+        _documentAppService.GetAsync(documentId).Returns(_ =>
+        {
+            currentTenant.Id.ShouldBe(tenantId);
+            return Task.FromResult(new DocumentDto
+            {
+                Id = documentId,
+                LifecycleStatus = DocumentLifecycleStatus.Ready,
+                CreationTime = new DateTime(2024, 1, 1),
+                Markdown = "# Tenant document"
+            });
+        });
+
+        var result = await DocumentTools.GetAsync(
+            documentId.ToString(),
+            _documentAppService,
+            tenantId: tenantId.ToString(),
+            serviceProvider: ServiceProvider);
+
+        result.Uri.ShouldBe(DocumentResourceUri.Format(documentId, tenantId));
+        currentTenant.Id.ShouldBe(ambientTenantId);
     }
 
     /// <summary>
@@ -151,6 +181,7 @@ public class DocumentTools_Tests : VaultExtractTestBase<DocumentToolsTestModule>
         var result = await DocumentTools.GetAsync(docId.ToString(), _documentAppService);
 
         result.Id.ShouldBe(docId);
+        result.Uri.ShouldBe(DocumentResourceUri.Format(docId));
         // Title must be wrapped by PromptBoundary.WrapField.
         result.Title.ShouldBe(PromptBoundary.WrapField("Acme MSA 2025"));
         result.DocumentTypeCode.ShouldBe("contract.general");

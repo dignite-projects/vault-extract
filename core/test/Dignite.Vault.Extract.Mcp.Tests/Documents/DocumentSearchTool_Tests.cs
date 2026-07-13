@@ -12,6 +12,7 @@ using Shouldly;
 using System.Threading.Tasks;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Modularity;
+using Volo.Abp.MultiTenancy;
 using Xunit;
 
 namespace Dignite.Vault.Extract.Mcp.Documents;
@@ -71,9 +72,58 @@ public class DocumentSearchTool_Tests : VaultExtractTestBase<DocumentSearchToolT
         properties.TryGetProperty("cabinetId", out _).ShouldBeTrue();
         properties.TryGetProperty("lifecycleStatus", out _).ShouldBeTrue();
         properties.TryGetProperty("maxResultCount", out _).ShouldBeTrue();
+        properties.TryGetProperty("tenantId", out _).ShouldBeTrue();
 
         // DI-injected service parameters must not appear in the LLM schema.
         properties.TryGetProperty("documentAppService", out _).ShouldBeFalse();
+        properties.TryGetProperty("serviceProvider", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Searches_in_explicit_tenant_and_returns_tenant_scoped_resource_uri()
+    {
+        var tenantId = Guid.NewGuid();
+        var documentId = Guid.NewGuid();
+        var currentTenant = GetRequiredService<ICurrentTenant>();
+        var ambientTenantId = currentTenant.Id;
+
+        _documentAppService
+            .GetListAsync(Arg.Any<GetDocumentListInput>())
+            .Returns(_ =>
+            {
+                currentTenant.Id.ShouldBe(tenantId);
+                return Task.FromResult(new PagedResultDto<DocumentListItemDto>(1, new List<DocumentListItemDto>
+                {
+                    new()
+                    {
+                        Id = documentId,
+                        LifecycleStatus = DocumentLifecycleStatus.Ready,
+                        CreationTime = new DateTime(2024, 1, 1)
+                    }
+                }));
+            });
+
+        var result = await DocumentSearchTool.SearchAsync(
+            _documentAppService,
+            documentTypeCode: "contract.general",
+            tenantId: tenantId.ToString(),
+            serviceProvider: ServiceProvider);
+
+        result.Items[0].Uri.ShouldBe(DocumentResourceUri.Format(documentId, tenantId));
+        currentTenant.Id.ShouldBe(ambientTenantId);
+    }
+
+    [Fact]
+    public async Task Rejects_invalid_tenant_id_before_querying()
+    {
+        var exception = await Should.ThrowAsync<McpException>(() => DocumentSearchTool.SearchAsync(
+            _documentAppService,
+            documentTypeCode: "contract.general",
+            tenantId: "not-a-guid",
+            serviceProvider: ServiceProvider));
+
+        exception.Message.ShouldContain("Invalid tenant id");
+        await _documentAppService.DidNotReceive().GetListAsync(Arg.Any<GetDocumentListInput>());
     }
 
     [Fact]

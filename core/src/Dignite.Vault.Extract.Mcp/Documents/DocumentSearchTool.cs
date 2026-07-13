@@ -37,11 +37,11 @@ public sealed class DocumentSearchTool
         + "narrow the query rather than treating items as the complete set. When an item's fieldExtractionDeclined is "
         + "true its document was too large to extract fields from, so that item's extracted field values are empty or "
         + "out of date and must not be treated as current. Read a match's full Markdown via its "
-        + "vault-extract://documents/{id} resource uri. Structured field/metadata "
+        + "resource uri (tenant-scoped when tenantId is supplied). Structured field/metadata "
         + "search only — no keyword/full-text or semantic/vector retrieval. At least one scope anchor is required: "
         + "documentTypeCode, originDocumentId, or cabinetId. Extracted-field filters always require documentTypeCode. "
         + "To list the sub-documents of a container, pass that container's id as originDocumentId. Discover a "
-        + "type's filterable fields via vault-extract://document-types/{code}; discover cabinet ids via "
+        + "type's filterable fields via a document-type resource uri; discover cabinet ids via "
         + "resources/list or list_cabinets.")]
     public static async Task<DocumentSearchResult> SearchAsync(
         IDocumentAppService documentAppService,
@@ -71,8 +71,13 @@ public sealed class DocumentSearchTool
         List<DocumentFieldFilter>? fieldFilters = null,
         [Description("Max rows to return (1-50). Defaults to 50.")]
         int? maxResultCount = null,
-        CancellationToken cancellationToken = default)
+        [Description("Optional tenant id (UUID). When supplied, search only that tenant and returned resource URIs retain this tenant scope.")]
+        string? tenantId = null,
+        CancellationToken cancellationToken = default,
+        IServiceProvider? serviceProvider = null)
     {
+        var explicitTenantId = McpTenantScope.Parse(tenantId);
+        using var tenantScope = McpTenantScope.Change(explicitTenantId, serviceProvider);
         // Sub-document provenance query (#354): listing a container's children is anchored by originDocumentId,
         // not by type — the children are heterogeneously typed and their types are unknown to the caller. Parse
         // leniently (LLM clients pass string GUIDs); a malformed value is treated as "no provenance filter".
@@ -147,7 +152,7 @@ public sealed class DocumentSearchTool
         var items = result.Items
             .Select(d => new DocumentSearchResultItem
             {
-                Uri = DocumentResourceUri.Format(d.Id),
+                Uri = DocumentResourceUri.Format(d.Id, explicitTenantId),
                 Id = d.Id,
                 CabinetId = d.CabinetId,
                 // User-derived free text (title) is wrapped with PromptBoundary to prevent indirect prompt injection.

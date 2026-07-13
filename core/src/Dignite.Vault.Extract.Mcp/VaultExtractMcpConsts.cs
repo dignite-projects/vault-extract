@@ -23,7 +23,8 @@ public static class VaultExtractMcpConsts
 
     /// <summary>
     /// Hard cap on the number of Markdown characters of a single document body handed to an MCP client
-    /// (<c>get_document</c> tool and the <c>vault-extract://documents/{id}</c> resource). The existing
+    /// (<c>get_document</c> tool and the <c>vault-extract://documents/{id}</c> resource, including its
+    /// explicit-tenant equivalent). The existing
     /// <c>Take(N)</c> discipline bounds the <b>row count</b> of a result set but says nothing about the
     /// <b>payload size of one row</b>, so a single read of a large document could consume the client's
     /// entire context window — the exact harm .claude/rules/llm-call-anti-patterns.md counterexample B

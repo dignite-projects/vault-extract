@@ -8,6 +8,7 @@ using NSubstitute;
 using Shouldly;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Modularity;
+using Volo.Abp.MultiTenancy;
 using Xunit;
 
 namespace Dignite.Vault.Extract.Mcp.Documents;
@@ -28,6 +29,29 @@ public class CabinetTools_Tests : VaultExtractTestBase<CabinetToolsTestModule>
     public CabinetTools_Tests()
     {
         _cabinetReadAppService = GetRequiredService<ICabinetReadAppService>();
+    }
+
+    [Fact]
+    public async Task Lists_in_explicit_tenant_and_returns_tenant_scoped_resource_uris()
+    {
+        var tenantId = Guid.NewGuid();
+        var cabinetId = Guid.NewGuid();
+        var currentTenant = GetRequiredService<ICurrentTenant>();
+        var ambientTenantId = currentTenant.Id;
+        _cabinetReadAppService.GetListAsync().Returns(_ =>
+        {
+            currentTenant.Id.ShouldBe(tenantId);
+            return Task.FromResult(new PagedResultDto<CabinetDto>(1,
+            [new CabinetDto { Id = cabinetId, Name = "Legal" }]));
+        });
+
+        var result = await CabinetTools.ListAsync(
+            _cabinetReadAppService,
+            tenantId: tenantId.ToString(),
+            serviceProvider: ServiceProvider);
+
+        result.Items[0].Uri.ShouldBe(CabinetResourceUri.Format(cabinetId, tenantId));
+        currentTenant.Id.ShouldBe(ambientTenantId);
     }
 
     [Fact]

@@ -15,6 +15,9 @@ public sealed record DocumentDetailResult
 {
     public required Guid Id { get; init; }
 
+    /// <summary>Resource URI for this document. Uses an explicit tenant scope when the tool was called with tenantId.</summary>
+    public required string Uri { get; init; }
+
     /// <summary>Display title, already wrapped with PromptBoundary.WrapField.</summary>
     public string? Title { get; init; }
 
@@ -38,7 +41,7 @@ public sealed record DocumentDetailResult
     /// Whether <see cref="Markdown"/> was clipped to <c>VaultExtractMcpConsts.MaxDocumentMarkdownChars</c> (#491).
     /// Mirrors the <c>Truncated</c> signal on <c>DocumentSearchResult</c> / <c>DocumentTypeListResult</c>: an LLM must
     /// never mistake a clipped body for the whole document. Read the resource
-    /// <c>vault-extract://documents/{id}</c> for the same (also capped) body, or the REST API for the full text.
+    /// ambient or explicitly tenant-scoped document resource for the same (also capped) body, or the REST API for the full text.
     /// </summary>
     public required bool MarkdownTruncated { get; init; }
 
