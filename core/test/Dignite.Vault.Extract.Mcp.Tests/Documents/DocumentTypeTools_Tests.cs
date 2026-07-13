@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Shouldly;
 using Volo.Abp.Modularity;
+using Volo.Abp.MultiTenancy;
 using Xunit;
 
 namespace Dignite.Vault.Extract.Mcp.Documents;
@@ -40,6 +41,39 @@ public class DocumentTypeTools_Tests : VaultExtractTestBase<DocumentTypeToolsTes
     {
         _documentTypeAppService = GetRequiredService<IDocumentTypeAppService>();
         _fieldDefinitionAppService = GetRequiredService<IFieldDefinitionAppService>();
+    }
+
+    [Fact]
+    public async Task Lists_in_explicit_tenant_and_returns_tenant_scoped_resource_uris()
+    {
+        var tenantId = Guid.NewGuid();
+        var typeId = Guid.NewGuid();
+        var currentTenant = GetRequiredService<ICurrentTenant>();
+        var ambientTenantId = currentTenant.Id;
+        _documentTypeAppService.GetVisibleAsync().Returns(_ =>
+        {
+            currentTenant.Id.ShouldBe(tenantId);
+            return Task.FromResult<List<DocumentTypeDto>>(
+            [
+                new()
+                {
+                    Id = typeId,
+                    TypeCode = "contract.general",
+                    DisplayName = "General Contract"
+                }
+            ]);
+        });
+        _fieldDefinitionAppService.GetListAsync(Arg.Any<GetFieldDefinitionListInput>())
+            .Returns(Task.FromResult<List<FieldDefinitionDto>>([]));
+
+        var result = await DocumentTypeTools.ListAsync(
+            _documentTypeAppService,
+            _fieldDefinitionAppService,
+            tenantId: tenantId.ToString(),
+            serviceProvider: ServiceProvider);
+
+        result.Types[0].Uri.ShouldBe(DocumentTypeResourceUri.Format("contract.general", tenantId));
+        currentTenant.Id.ShouldBe(ambientTenantId);
     }
 
     [Fact]
@@ -93,6 +127,7 @@ public class DocumentTypeTools_Tests : VaultExtractTestBase<DocumentTypeToolsTes
         result.Types.Count.ShouldBe(1);
         var schema = result.Types[0];
         schema.TypeCode.ShouldBe("contract.general");
+        schema.Uri.ShouldBe(DocumentTypeResourceUri.Format("contract.general"));
         // DisplayName must be wrapped by PromptBoundary.
         schema.DisplayName.ShouldBe(PromptBoundary.WrapField("General Contract"));
         schema.Fields.Count.ShouldBe(2);

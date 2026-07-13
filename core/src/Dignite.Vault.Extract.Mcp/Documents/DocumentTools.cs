@@ -15,7 +15,7 @@ namespace Dignite.Vault.Extract.Mcp.Documents;
 /// to read full document content through a tool call (#285). It uses the same data source as
 /// <see cref="DocumentResources"/> and adds no separate maintenance burden. Clients that support MCP
 /// Resources, such as Claude Code CLI, should still use the standard Resource path
-/// (<c>vault-extract://documents/{id}</c>).
+/// (<c>vault-extract://documents/{id}</c>, or the explicit-tenant variant).
 /// </summary>
 [McpServerToolType]
 public sealed class DocumentTools
@@ -35,8 +35,14 @@ public sealed class DocumentTools
         [Description("The document id (UUID) to read. Obtain it from search_documents results.")]
         string id,
         IDocumentAppService documentAppService,
-        CancellationToken cancellationToken = default)
+        [Description("Optional tenant id (UUID). When supplied, read only that tenant and return a tenant-scoped resource uri.")]
+        string? tenantId = null,
+        CancellationToken cancellationToken = default,
+        IServiceProvider? serviceProvider = null)
     {
+        var explicitTenantId = McpTenantScope.Parse(tenantId);
+        using var tenantScope = McpTenantScope.Change(explicitTenantId, serviceProvider);
+
         if (!Guid.TryParse(id, out var documentId))
         {
             throw new McpException($"Invalid document id: {id}");
@@ -67,6 +73,7 @@ public sealed class DocumentTools
         return new DocumentDetailResult
         {
             Id = document.Id,
+            Uri = DocumentResourceUri.Format(document.Id, explicitTenantId),
             // User-derived free text is wrapped with PromptBoundary to prevent indirect prompt
             // injection.
             Title = PromptBoundary.WrapField(document.Title),

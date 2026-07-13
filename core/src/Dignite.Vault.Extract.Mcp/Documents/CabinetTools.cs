@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -21,13 +22,19 @@ public sealed class CabinetTools
         + "instructions.")]
     public static async Task<CabinetListResult> ListAsync(
         ICabinetReadAppService cabinetReadAppService,
-        CancellationToken cancellationToken = default)
+        [Description("Optional tenant id (UUID). When supplied, list only that tenant and return tenant-scoped resource uris.")]
+        string? tenantId = null,
+        CancellationToken cancellationToken = default,
+        IServiceProvider? serviceProvider = null)
     {
+        var explicitTenantId = McpTenantScope.Parse(tenantId);
+        using var tenantScope = McpTenantScope.Change(explicitTenantId, serviceProvider);
+
         // The application use case supplies the permission assertion, tenant isolation, genuine count,
         // stable ordering, and database-side hard cap.
         var cabinets = await cabinetReadAppService.GetListAsync();
         var items = cabinets.Items
-            .Select(CabinetProjection.Project)
+            .Select(cabinet => CabinetProjection.Project(cabinet, explicitTenantId))
             .ToList();
 
         return new CabinetListResult

@@ -6,6 +6,7 @@ using ModelContextProtocol.Protocol;
 using NSubstitute;
 using Shouldly;
 using Volo.Abp.Modularity;
+using Volo.Abp.MultiTenancy;
 using Xunit;
 
 namespace Dignite.Vault.Extract.Mcp.Documents;
@@ -37,6 +38,35 @@ public class DocumentResources_Tests : VaultExtractTestBase<DocumentResourcesTes
     public DocumentResources_Tests()
     {
         _documentAppService = GetRequiredService<IDocumentAppService>();
+    }
+
+    [Fact]
+    public async Task Reads_explicit_tenant_resource_in_its_uri_scope()
+    {
+        var tenantId = Guid.NewGuid();
+        var documentId = Guid.NewGuid();
+        var currentTenant = GetRequiredService<ICurrentTenant>();
+        var ambientTenantId = currentTenant.Id;
+        _documentAppService.GetAsync(documentId).Returns(_ =>
+        {
+            currentTenant.Id.ShouldBe(tenantId);
+            return Task.FromResult(new DocumentDto
+            {
+                Id = documentId,
+                LifecycleStatus = DocumentLifecycleStatus.Ready,
+                CreationTime = new DateTime(2024, 1, 1),
+                Markdown = "# Tenant document"
+            });
+        });
+
+        var result = await DocumentResources.ReadTenantScopedAsync(
+            tenantId.ToString(),
+            documentId.ToString(),
+            _documentAppService,
+            serviceProvider: ServiceProvider);
+
+        ((TextResourceContents)result).Uri.ShouldBe(DocumentResourceUri.Format(documentId, tenantId));
+        currentTenant.Id.ShouldBe(ambientTenantId);
     }
 
     [Fact]

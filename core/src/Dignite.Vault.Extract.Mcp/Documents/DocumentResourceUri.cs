@@ -10,9 +10,18 @@ namespace Dignite.Vault.Extract.Mcp.Documents;
 public static class DocumentResourceUri
 {
     private const string Prefix = "vault-extract://documents/";
+    private const string TenantPrefix = "vault-extract://tenants/";
 
     /// <summary>Resource URI template. Used by <c>[McpServerResource(UriTemplate = ...)]</c> and must be a compile-time constant.</summary>
     public const string Template = Prefix + "{id}";
 
+    /// <summary>Explicit-tenant resource URI template. The tenant is carried in the URI so a later resources/read keeps the selected scope.</summary>
+    public const string TenantTemplate = TenantPrefix + "{tenantId}/documents/{id}";
+
     public static string Format(Guid documentId) => Prefix + documentId;
+
+    public static string Format(Guid documentId, Guid? tenantId) =>
+        tenantId.HasValue
+            ? TenantPrefix + tenantId.Value + "/documents/" + documentId
+            : Format(documentId);
 }

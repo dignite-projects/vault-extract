@@ -34,8 +34,14 @@ public sealed class DocumentTypeTools
     public static async Task<DocumentTypeListResult> ListAsync(
         IDocumentTypeAppService documentTypeAppService,
         IFieldDefinitionAppService fieldDefinitionAppService,
-        CancellationToken cancellationToken = default)
+        [Description("Optional tenant id (UUID). When supplied, list only that tenant and return tenant-scoped resource uris.")]
+        string? tenantId = null,
+        CancellationToken cancellationToken = default,
+        IServiceProvider? serviceProvider = null)
     {
+        var explicitTenantId = McpTenantScope.Parse(tenantId);
+        using var tenantScope = McpTenantScope.Change(explicitTenantId, serviceProvider);
+
         // Delegate to GetVisibleAsync. Fail-closed authorization assertions and ambient tenant
         // isolation (two-layer independent single-layer model) execute inside the AppService.
         var types = await documentTypeAppService.GetVisibleAsync();
@@ -67,6 +73,7 @@ public sealed class DocumentTypeTools
             schemas.Add(new DocumentTypeSchema
             {
                 TypeCode = type.TypeCode,
+                Uri = DocumentTypeResourceUri.Format(type.TypeCode, explicitTenantId),
                 // DisplayName is admin-configured user-derived text; PromptBoundary wrapping prevents
                 // indirect prompt injection.
                 DisplayName = PromptBoundary.WrapField(type.DisplayName),

@@ -14,7 +14,8 @@ namespace Dignite.Vault.Extract.Mcp.Documents;
 
 /// <summary>
 /// Exposes Extract documents as MCP resources on the read path. The resource template
-/// <c>vault-extract://documents/{id}</c> returns the document Markdown body plus a system-metadata header.
+/// <c>vault-extract://documents/{id}</c> and its explicit-tenant counterpart return the document Markdown body
+/// plus a system-metadata header.
 /// Document discovery goes through the search tool instead of putting thousands of documents into
 /// resources/list.
 /// <para>
@@ -30,7 +31,7 @@ public sealed class DocumentResources
 {
     [McpServerResource(
         UriTemplate = DocumentResourceUri.Template,
-        Name = "Extract Document",
+        Name = "Vault Extract Document",
         Title = "Document",
         MimeType = "text/markdown")]
     [Description("Read one Extract document by id. Returns a system-metadata header (type, lifecycle, language, "
@@ -45,6 +46,35 @@ public sealed class DocumentResources
         string id,
         IDocumentAppService documentAppService,
         CancellationToken cancellationToken = default)
+    {
+        return await ReadCoreAsync(id, documentAppService, tenantId: null);
+    }
+
+    [McpServerResource(
+        UriTemplate = DocumentResourceUri.TenantTemplate,
+        Name = "Tenant-Scoped Vault Extract Document",
+        Title = "Tenant-Scoped Document",
+        MimeType = "text/markdown")]
+    [Description("Read one Extract document by tenant id and document id. The tenant id is carried in the resource uri, "
+        + "so following the uri keeps the selected tenant scope. Returns the same bounded, untrusted Markdown payload as "
+        + "the ambient document resource.")]
+    public static async Task<ResourceContents> ReadTenantScopedAsync(
+        string tenantId,
+        string id,
+        IDocumentAppService documentAppService,
+        CancellationToken cancellationToken = default,
+        IServiceProvider? serviceProvider = null)
+    {
+        var explicitTenantId = McpTenantScope.Parse(tenantId);
+        using var tenantScope = McpTenantScope.Change(explicitTenantId, serviceProvider);
+
+        return await ReadCoreAsync(id, documentAppService, explicitTenantId);
+    }
+
+    private static async Task<ResourceContents> ReadCoreAsync(
+        string id,
+        IDocumentAppService documentAppService,
+        Guid? tenantId)
     {
         if (!Guid.TryParse(id, out var documentId))
         {
@@ -71,7 +101,7 @@ public sealed class DocumentResources
 
         return new TextResourceContents
         {
-            Uri = DocumentResourceUri.Format(document.Id),
+            Uri = DocumentResourceUri.Format(document.Id, tenantId),
             MimeType = "text/markdown",
             Text = BuildPayload(document)
         };

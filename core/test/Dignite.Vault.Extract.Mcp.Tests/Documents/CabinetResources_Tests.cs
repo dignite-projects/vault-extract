@@ -13,6 +13,7 @@ using Shouldly;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Domain.Entities;
 using Volo.Abp.Modularity;
+using Volo.Abp.MultiTenancy;
 using Xunit;
 
 namespace Dignite.Vault.Extract.Mcp.Documents;
@@ -33,6 +34,32 @@ public class CabinetResources_Tests : VaultExtractTestBase<CabinetResourcesTestM
     public CabinetResources_Tests()
     {
         _cabinetReadAppService = GetRequiredService<ICabinetReadAppService>();
+    }
+
+    [Fact]
+    public async Task Reads_explicit_tenant_resource_in_its_uri_scope()
+    {
+        var tenantId = Guid.NewGuid();
+        var cabinetId = Guid.NewGuid();
+        var currentTenant = GetRequiredService<ICurrentTenant>();
+        var ambientTenantId = currentTenant.Id;
+        _cabinetReadAppService.GetAsync(cabinetId).Returns(_ =>
+        {
+            currentTenant.Id.ShouldBe(tenantId);
+            return Task.FromResult(new CabinetDto { Id = cabinetId, Name = "Legal" });
+        });
+
+        var result = await CabinetResources.ReadTenantScopedAsync(
+            tenantId.ToString(),
+            cabinetId.ToString(),
+            _cabinetReadAppService,
+            serviceProvider: ServiceProvider);
+
+        var contents = (TextResourceContents)result;
+        contents.Uri.ShouldBe(CabinetResourceUri.Format(cabinetId, tenantId));
+        var schema = JsonSerializer.Deserialize<CabinetSchema>(contents.Text)!;
+        schema.Uri.ShouldBe(CabinetResourceUri.Format(cabinetId, tenantId));
+        currentTenant.Id.ShouldBe(ambientTenantId);
     }
 
     [Fact]

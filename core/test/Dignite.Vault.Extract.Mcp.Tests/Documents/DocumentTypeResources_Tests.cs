@@ -11,6 +11,7 @@ using ModelContextProtocol.Protocol;
 using NSubstitute;
 using Shouldly;
 using Volo.Abp.Modularity;
+using Volo.Abp.MultiTenancy;
 using Xunit;
 
 namespace Dignite.Vault.Extract.Mcp.Documents;
@@ -50,6 +51,36 @@ public class DocumentTypeResources_Tests : VaultExtractTestBase<DocumentTypeReso
     }
 
     [Fact]
+    public async Task Reads_explicit_tenant_resource_in_its_uri_scope()
+    {
+        var tenantId = Guid.NewGuid();
+        var typeId = Guid.NewGuid();
+        var currentTenant = GetRequiredService<ICurrentTenant>();
+        var ambientTenantId = currentTenant.Id;
+        _documentTypeAppService.GetVisibleAsync().Returns(_ =>
+        {
+            currentTenant.Id.ShouldBe(tenantId);
+            return Task.FromResult<List<DocumentTypeDto>>(
+            [new() { Id = typeId, TypeCode = "contract.general", DisplayName = "General Contract" }]);
+        });
+        _fieldDefinitionAppService.GetListAsync(Arg.Any<GetFieldDefinitionListInput>())
+            .Returns(Task.FromResult<List<FieldDefinitionDto>>([]));
+
+        var result = await DocumentTypeResources.ReadTenantScopedAsync(
+            tenantId.ToString(),
+            "contract.general",
+            _documentTypeAppService,
+            _fieldDefinitionAppService,
+            serviceProvider: ServiceProvider);
+
+        var contents = (TextResourceContents)result;
+        contents.Uri.ShouldBe(DocumentTypeResourceUri.Format("contract.general", tenantId));
+        var schema = JsonSerializer.Deserialize<DocumentTypeSchema>(contents.Text)!;
+        schema.Uri.ShouldBe(DocumentTypeResourceUri.Format("contract.general", tenantId));
+        currentTenant.Id.ShouldBe(ambientTenantId);
+    }
+
+    [Fact]
     public async Task Returns_schema_with_wrapped_display_names_ordered_by_display_order()
     {
         // #222: ReadAsync delegates to GetVisibleAsync to filter type by code, then GetListAsync
@@ -84,6 +115,7 @@ public class DocumentTypeResources_Tests : VaultExtractTestBase<DocumentTypeReso
         var schema = JsonSerializer.Deserialize<DocumentTypeSchema>(((TextResourceContents)result).Text)!;
 
         schema.TypeCode.ShouldBe("contract.general");
+        schema.Uri.ShouldBe(DocumentTypeResourceUri.Format("contract.general"));
         // Type / field DisplayName values are admin-configured text and are wrapped by PromptBoundary to
         // defend against indirect prompt injection.
         schema.DisplayName.ShouldBe(PromptBoundary.WrapField("合同"));

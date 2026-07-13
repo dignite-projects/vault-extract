@@ -18,8 +18,9 @@ namespace Dignite.Vault.Extract;
 /// <c>Application.Contracts</c>, symmetric with REST: all read paths go through AppService interfaces
 /// and do not reach into Domain (#222). The surface is additively extensible by downstream modules
 /// (e.g. a commercial edition, #475): extra tools via <c>AddMcpServer().WithTools&lt;TTools&gt;()</c> in
-/// their own module, extra resources/list categories via <see cref="VaultExtractMcpOptions.ResourceListContributors"/>;
-/// the open-source surface itself stays strictly single-tenant behind the ambient IMultiTenant filter.
+/// their own module, extra resources/list categories via <see cref="VaultExtractMcpOptions.ResourceListContributors"/>.
+/// Built-in tools and resource templates use the ambient tenant by default, and also accept an explicit tenant
+/// scope while preserving ABP's enabled IMultiTenant filter and application-service authorization checks.
 /// </summary>
 [DependsOn(
     typeof(VaultExtractApplicationContractsModule))]
