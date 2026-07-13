@@ -70,6 +70,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Volo.Abp.TenantManagement.Application" />
+    <PackageReference Include="Volo.Abp.TenantManagement.HttpApi" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite" />
   </ItemGroup>
 
@@ -82,6 +87,7 @@
     <PackageReference Include="Volo.Abp.FeatureManagement.EntityFrameworkCore" />
     <PackageReference Include="Volo.Abp.PermissionManagement.EntityFrameworkCore" />
     <PackageReference Include="Volo.Abp.SettingManagement.EntityFrameworkCore" />
+    <PackageReference Include="Volo.Abp.TenantManagement.EntityFrameworkCore" />
     <PackageReference Include="Volo.Abp.EntityFrameworkCore.SqlServer" />
   </ItemGroup>
 

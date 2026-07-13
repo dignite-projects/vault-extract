@@ -56,6 +56,9 @@
         <PackageVersion Include="Volo.Abp.SettingManagement.Application" Version="10.2.0" />
         <PackageVersion Include="Volo.Abp.SettingManagement.EntityFrameworkCore" Version="10.2.0" />
         <PackageVersion Include="Volo.Abp.SettingManagement.HttpApi" Version="10.2.0" />
+        <PackageVersion Include="Volo.Abp.TenantManagement.Application" Version="10.2.0" />
+        <PackageVersion Include="Volo.Abp.TenantManagement.EntityFrameworkCore" Version="10.2.0" />
+        <PackageVersion Include="Volo.Abp.TenantManagement.HttpApi" Version="10.2.0" />
         <PackageVersion Include="Volo.Abp.TestBase" Version="10.2.0" />
         <PackageVersion Include="Volo.Abp.AspNetCore.TestBase" Version="10.2.0" />
     </ItemGroup>

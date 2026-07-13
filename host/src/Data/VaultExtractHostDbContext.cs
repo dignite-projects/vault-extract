@@ -10,6 +10,7 @@ using Volo.Abp.Identity.EntityFrameworkCore;
 using Volo.Abp.OpenIddict.EntityFrameworkCore;
 using Volo.Abp.PermissionManagement.EntityFrameworkCore;
 using Volo.Abp.SettingManagement.EntityFrameworkCore;
+using Volo.Abp.TenantManagement.EntityFrameworkCore;
 
 namespace Dignite.Vault.Extract.Host.Data;
 
@@ -47,6 +48,7 @@ public class VaultExtractHostDbContext
         /* Include modules to your migration db context */
 
         builder.ConfigureSettingManagement();
+        builder.ConfigureTenantManagement();
         builder.ConfigureBackgroundJobs();
         builder.ConfigureAuditLogging();
         builder.ConfigureFeatureManagement();

@@ -71,6 +71,8 @@ using Volo.Abp.SettingManagement.EntityFrameworkCore;
 using Volo.Abp.Studio;
 using Volo.Abp.Studio.Client.AspNetCore;
 using Volo.Abp.Swashbuckle;
+using Volo.Abp.TenantManagement;
+using Volo.Abp.TenantManagement.EntityFrameworkCore;
 using Volo.Abp.Timing;
 using Volo.Abp.UI.Navigation.Urls;
 using Volo.Abp.VirtualFileSystem;
@@ -113,6 +115,10 @@ namespace Dignite.Vault.Extract.Host;
     typeof(AbpSettingManagementHttpApiModule),
     typeof(AbpSettingManagementApplicationModule),
 
+    // Tenant Management module packages
+    typeof(AbpTenantManagementHttpApiModule),
+    typeof(AbpTenantManagementApplicationModule),
+
     // Entity Framework Core packages for the used modules
     typeof(AbpAuditLoggingEntityFrameworkCoreModule),
     typeof(AbpIdentityEntityFrameworkCoreModule),
@@ -120,6 +126,7 @@ namespace Dignite.Vault.Extract.Host;
     typeof(AbpFeatureManagementEntityFrameworkCoreModule),
     typeof(AbpPermissionManagementEntityFrameworkCoreModule),
     typeof(AbpSettingManagementEntityFrameworkCoreModule),
+    typeof(AbpTenantManagementEntityFrameworkCoreModule),
     typeof(AbpBackgroundJobsEntityFrameworkCoreModule),
     typeof(AbpBlobStoringFileSystemModule),
     typeof(AbpEntityFrameworkCoreSqlServerModule),
@@ -142,7 +149,7 @@ namespace Dignite.Vault.Extract.Host;
 public class VaultExtractHostModule : AbpModule
 {
     /* Single point to enable/disable multi-tenancy */
-    public const bool IsMultiTenant = false;
+    public const bool IsMultiTenant = true;
 
     public override void PreConfigureServices(ServiceConfigurationContext context)
     {
