@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0-preview.4] - 2026-07-13
+
+Fourth preview of the 0.3.0 line. Headline work: tenant administration is enabled in the host application, document pipeline background jobs now preserve the tenant context they were scheduled for, and the tenant-scoped MCP URI surface has been tightened after review. As a `0.y.z` pre-release the exit contracts may still change — see [CONTRIBUTING → Versioning and releases](CONTRIBUTING.md#versioning-and-releases).
+
+### Added
+
+- **Tenant Management host module** — the host app now includes ABP Tenant Management, its EF Core mapping / migration, and Angular routes so host operators can administer tenants from the deployed host UI (#522).
+- **Pipeline job tenant-context persistence tests** — regression coverage now guards that document pipeline jobs keep the tenant context they were scheduled with, including follow-on reprocessing dispatch paths (#521).
+
+### Fixed
+
+- **Background-job tenant context** — parse, classification, field extraction, segmentation, and cabinet-suggestion jobs now execute in the document's tenant context instead of leaking through ambient or missing tenant state (#521).
+- **Tenant-scoped MCP URI cleanup** — explicit-tenant resource URI helpers now use shared constants and normalized formatting so document, document-type, and cabinet links stay consistent across tools and resources (#519 follow-up).
+
 ## [0.3.0-preview.3] - 2026-07-13
 
 Third preview of the 0.3.0 line. Headline work: the MCP egress can now carry an explicit tenant scope across tools and resource URIs, so host-side operators and automation can stay in the selected layer without relying on ambient context alone. As a `0.y.z` pre-release the exit contracts may still change — see [CONTRIBUTING → Versioning and releases](CONTRIBUTING.md#versioning-and-releases).
@@ -169,7 +183,8 @@ Preview of the 0.2.0 line. This release rebrands the project to **Dignite Vault 
 - Legacy Angular document-upload route.
 - Dead fields from the segmentation subsystem (#390).
 
-[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.3.0-preview.3...HEAD
+[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.3.0-preview.4...HEAD
+[0.3.0-preview.4]: https://github.com/dignite-projects/vault-extract/compare/v0.3.0-preview.3...v0.3.0-preview.4
 [0.3.0-preview.3]: https://github.com/dignite-projects/vault-extract/compare/v0.3.0-preview.2...v0.3.0-preview.3
 [0.3.0-preview.2]: https://github.com/dignite-projects/vault-extract/compare/v0.3.0-preview.1...v0.3.0-preview.2
 [0.3.0-preview.1]: https://github.com/dignite-projects/vault-extract/compare/v0.2.0...v0.3.0-preview.1
