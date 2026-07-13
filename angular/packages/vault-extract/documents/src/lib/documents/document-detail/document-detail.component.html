@@ -297,8 +297,8 @@
           <div class="card shadow-sm">
             <div class="card-body">
               <dl class="row mb-0 small">
-                <dt class="col-sm-5 text-muted">{{ '::Document:Type' | abpLocalization }}</dt>
-                <dd class="col-sm-7">
+                <dt class="col-sm-3 text-muted">{{ '::Document:Type' | abpLocalization }}</dt>
+                <dd class="col-sm-9">
                   @if (documentTypeDisplayName(); as typeName) {
                     <span class="badge bg-info text-dark">{{ typeName }}</span>
                   } @else {
@@ -307,8 +307,8 @@
                 </dd>
 
                 @if (canViewCabinets) {
-                  <dt class="col-sm-5 text-muted">{{ '::Document:Cabinet' | abpLocalization }}</dt>
-                  <dd class="col-sm-7">
+                  <dt class="col-sm-3 text-muted">{{ '::Document:Cabinet' | abpLocalization }}</dt>
+                  <dd class="col-sm-9">
                     @if (isEditingCabinet()) {
                       <div class="d-flex align-items-center gap-2 flex-wrap">
                         <select class="form-select form-select-sm w-auto"
@@ -345,8 +345,8 @@
                   </dd>
                 }
 
-                <dt class="col-sm-5 text-muted">{{ '::Document:ClassificationConfidence' | abpLocalization }}</dt>
-                <dd class="col-sm-7">
+                <dt class="col-sm-3 text-muted">{{ '::Document:ClassificationConfidence' | abpLocalization }}</dt>
+                <dd class="col-sm-9">
                   @if ((document()!.classificationConfidence ?? 0) > 0) {
                     {{ ((document()!.classificationConfidence ?? 0) * 100).toFixed(0) }}%
                   } @else {
@@ -355,8 +355,8 @@
                 </dd>
 
                 @if (document()!.reviewDisposition === DocumentReviewDisposition.Confirmed || document()!.reviewDisposition === DocumentReviewDisposition.Rejected) {
-                  <dt class="col-sm-5 text-muted">{{ '::Document:ReviewStatus' | abpLocalization }}</dt>
-                  <dd class="col-sm-7">
+                  <dt class="col-sm-3 text-muted">{{ '::Document:ReviewStatus' | abpLocalization }}</dt>
+                  <dd class="col-sm-9">
                     @if (document()!.reviewDisposition === DocumentReviewDisposition.Confirmed) {
                       <span class="badge bg-success">
                         {{ '::Document:ReviewDisposition:Confirmed' | abpLocalization }}
@@ -370,8 +370,8 @@
                 }
 
                 @if (document()!.reviewReasonDetails?.length) {
-                  <dt class="col-sm-5 text-muted">{{ '::Document:NeedsReview' | abpLocalization }}</dt>
-                  <dd class="col-sm-7">
+                  <dt class="col-sm-3 text-muted">{{ '::Document:NeedsReview' | abpLocalization }}</dt>
+                  <dd class="col-sm-9">
                     @for (detail of document()!.reviewReasonDetails; track detail.reason) {
                       <div class="small mb-1">
                         <span class="badge"
@@ -404,15 +404,15 @@
                 }
 
                 @if (document()!.rejectionReason) {
-                  <dt class="col-sm-5 text-muted">{{ '::Document:RejectionReason' | abpLocalization }}</dt>
-                  <dd class="col-sm-7 text-muted fst-italic small">{{ document()!.rejectionReason }}</dd>
+                  <dt class="col-sm-3 text-muted">{{ '::Document:RejectionReason' | abpLocalization }}</dt>
+                  <dd class="col-sm-9 text-muted fst-italic small">{{ document()!.rejectionReason }}</dd>
                 }
 
-                <dt class="col-sm-5 text-muted">{{ '::Document:UploadedBy' | abpLocalization }}</dt>
-                <dd class="col-sm-7">{{ document()!.fileOrigin?.uploadedByUserName }}</dd>
+                <dt class="col-sm-3 text-muted">{{ '::Document:UploadedBy' | abpLocalization }}</dt>
+                <dd class="col-sm-9">{{ document()!.fileOrigin?.uploadedByUserName }}</dd>
 
-                <dt class="col-sm-5 text-muted">{{ '::Document:UploadedAt' | abpLocalization }}</dt>
-                <dd class="col-sm-7">{{ document()!.creationTime | date:'yyyy-MM-dd HH:mm' }}</dd>
+                <dt class="col-sm-3 text-muted">{{ '::Document:UploadedAt' | abpLocalization }}</dt>
+                <dd class="col-sm-9">{{ document()!.creationTime | date:'yyyy-MM-dd HH:mm' }}</dd>
               </dl>
             </div>
           </div>
@@ -435,10 +435,10 @@
                   @if (extractedFieldEntries().length > 0) {
                     <dl class="row mb-0 small">
                       @for (entry of extractedFieldEntries(); track entry.key) {
-                        <dt class="col-sm-5 text-muted text-truncate" [title]="entry.key">
+                        <dt class="col-sm-3 text-muted text-truncate" [title]="entry.key">
                           {{ entry.label }}
                         </dt>
-                        <dd class="col-sm-7 mb-2">
+                        <dd class="col-sm-9 mb-2">
                           @if (entry.isMarkdown) {
                             <!-- #418: LongText values render as Markdown, sanitized on bind by Angular's
                                  DomSanitizer — the same pipeline as the left-column preview. -->
