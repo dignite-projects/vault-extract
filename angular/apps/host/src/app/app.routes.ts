@@ -19,6 +19,10 @@ export const APP_ROUTES: Routes = [
     loadChildren: () => import('@abp/ng.setting-management').then(c => c.createRoutes()),
   },
   {
+    path: 'tenant-management',
+    loadChildren: () => import('@abp/ng.tenant-management').then(c => c.createRoutes()),
+  },
+  {
     path: 'documents',
     loadChildren: () => import('@dignite/vault-extract/documents').then(m => m.DOCUMENTS_ROUTES),
   },

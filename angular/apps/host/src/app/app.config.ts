@@ -5,6 +5,7 @@ import { provideFeatureManagementConfig } from '@abp/ng.feature-management';
 import { provideAbpThemeShared,  } from '@abp/ng.theme.shared';
 import { provideIdentityConfig } from '@abp/ng.identity/config';
 import { provideAccountConfig } from '@abp/ng.account/config';
+import { provideTenantManagementConfig } from '@abp/ng.tenant-management/config';
 import { registerLocaleForEsBuild } from '@abp/ng.core/locale';
 import { provideThemeLeptonX } from '@abp/ng.theme.lepton-x';
 import { provideSideMenuLayout } from '@abp/ng.theme.lepton-x/layouts';
@@ -35,6 +36,7 @@ export const appConfig: ApplicationConfig = {
     provideSettingManagementConfig(),
     provideFeatureManagementConfig(),
     provideAccountConfig(),
+    provideTenantManagementConfig(),
     provideAbpThemeShared(),
     provideThemeLeptonX(),
     provideSideMenuLayout(),
