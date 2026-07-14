@@ -27,9 +27,10 @@ public static class VaultExtractPipelines
     /// (<c>DocumentPipelineRunManager.DeriveLifecycleAsync</c>), so <c>DocumentReadyEto</c> is withheld until field
     /// extraction succeeds — this is what lets the duplicate check (which needs extracted fields to compute
     /// <c>Document.FieldFingerprint</c>) gate Ready before downstream consumes a suspected duplicate. The
-    /// classification-completed cascade (<c>FieldExtractionEventHandler</c>) therefore enqueues
-    /// <c>DocumentFieldExtractionBackgroundJob</c> so the cascade path also creates a <c>DocumentPipelineRun</c>;
-    /// the same pipeline is the independent trigger for on-demand / bulk field re-extraction.
+    /// classification-completed cascade therefore also creates a <c>DocumentPipelineRun</c> for field extraction —
+    /// since #527 §8 the classification stage schedules it <b>transactionally</b> (before classification can derive
+    /// Ready) through <c>DocumentPipelineJobScheduler</c>, rather than via a delayed <c>DocumentClassifiedEto</c>
+    /// handler; the same pipeline is the independent trigger for on-demand / bulk field re-extraction.
     /// <para>
     /// <b>Containers run no field extraction</b> and are exempted from this requirement in
     /// <c>DeriveLifecycleAsync</c>. <b>Consequence (#411):</b> bulk re-extraction (#289) of an already-Ready

@@ -33,16 +33,24 @@ public class DocumentPipelineJobScheduler : ITransientDependency
     /// <summary>
     /// Queues a pipeline run for the document. Optional <paramref name="delay"/> controls
     /// how long the background job waits before being picked up.
+    /// <para>
+    /// <paramref name="expectedEventTypeCode"/> (#527 §8) is the field-extraction cascade's stale-reclassify
+    /// early-exit hint: when the classification stage schedules the cascade field-extraction run transactionally, it
+    /// forwards the just-assigned <c>DocumentType.TypeCode</c> so a queued run whose type has since changed can
+    /// short-circuit in <see cref="FieldExtractionService"/> phase 1. It is only meaningful for
+    /// <see cref="VaultExtractPipelines.FieldExtraction"/>; other pipeline codes ignore it.
+    /// </para>
     /// </summary>
     public virtual async Task<DocumentPipelineRun> QueueAsync(
         Document document,
         string pipelineCode,
-        TimeSpan? delay = null)
+        TimeSpan? delay = null,
+        string? expectedEventTypeCode = null)
     {
         var run = await _pipelineRunManager.QueueAsync(document, pipelineCode);
 
         await _documentRepository.UpdateAsync(document, autoSave: true);
-        await EnqueueAsync(document.Id, document.TenantId, pipelineCode, run.Id, delay);
+        await EnqueueAsync(document.Id, document.TenantId, pipelineCode, run.Id, delay, expectedEventTypeCode);
 
         return run;
     }
@@ -52,7 +60,8 @@ public class DocumentPipelineJobScheduler : ITransientDependency
         Guid? tenantId,
         string pipelineCode,
         Guid pipelineRunId,
-        TimeSpan? delay = null)
+        TimeSpan? delay = null,
+        string? expectedEventTypeCode = null)
     {
         var effectiveDelay = delay ?? default;
         return pipelineCode switch
@@ -78,7 +87,8 @@ public class DocumentPipelineJobScheduler : ITransientDependency
                 {
                     DocumentId = documentId,
                     TenantId = tenantId,
-                    PipelineRunId = pipelineRunId
+                    PipelineRunId = pipelineRunId,
+                    ExpectedEventTypeCode = expectedEventTypeCode
                 },
                 delay: effectiveDelay),
             _ => throw new BusinessException(VaultExtractErrorCodes.Pipeline.UnknownCode)

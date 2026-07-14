@@ -7,7 +7,7 @@ namespace Dignite.Vault.Extract.Documents.Fields;
 /// <summary>
 /// Expands one field value, already validated by <see cref="ExtractedFieldValueValidator"/>, into one
 /// or more <see cref="DocumentFieldValue"/> rows (#212). Shared by both write paths: LLM extraction
-/// (<c>FieldExtractionEventHandler</c>) and operator edits
+/// (<c>FieldExtractionService</c>) and operator edits
 /// (<c>DocumentAppService.UpdateExtractedFieldsAsync</c>):
 /// <list type="bullet">
 ///   <item>Single-value fields (<c>allowMultiple == false</c>): scalar <paramref name="value"/> becomes

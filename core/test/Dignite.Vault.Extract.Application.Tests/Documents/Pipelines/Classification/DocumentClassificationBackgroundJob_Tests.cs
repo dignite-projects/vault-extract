@@ -10,6 +10,7 @@ using Dignite.Vault.Extract.Ai;
 using Dignite.Vault.Extract.Documents;
 using Dignite.Vault.Extract.Documents.Pipelines;
 using Dignite.Vault.Extract.Documents.Pipelines.Classification;
+using Dignite.Vault.Extract.Documents.Pipelines.FieldExtraction;
 using Dignite.Vault.Extract.Documents.Pipelines.Segmentation;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
@@ -128,6 +129,45 @@ public class DocumentClassificationBackgroundJob_Tests
     }
 
     [Fact]
+    public async Task HighConfidence_Schedules_Pending_FieldExtraction_Run_Transactionally()
+    {
+        // #527 §8: the classification stage schedules the cascade field-extraction run transactionally with
+        // classification completion (not via a delayed DocumentClassifiedEto handler). Completion therefore sees a
+        // *pending* field-extraction key pipeline and derives Processing — closing the reclassify → premature-Ready
+        // window. The job is enqueued with that exact run id + the just-assigned TypeCode as the stale-reclassify hint.
+        var doc = CreateDocument("This is the content of a service agreement.");
+        SetupDocumentRepository(doc);
+
+        _workflow
+            .RunAsync(Arg.Any<IReadOnlyList<DocumentType>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new DocumentClassificationOutcome
+            {
+                TypeCode = "contract.general",
+                ConfidenceScore = 0.92
+            });
+
+        await _job.ExecuteAsync(new DocumentClassificationJobArgs { DocumentId = doc.Id });
+
+        // A pending field-extraction run now exists, created in the same UoW as classification completion.
+        var feRun = await _runRepository.FindLatestByDocumentAndCodeAsync(
+            doc.Id, VaultExtractPipelines.FieldExtraction);
+        feRun.ShouldNotBeNull();
+        feRun.Status.ShouldBe(PipelineRunStatus.Pending);
+
+        // The field-extraction job is enqueued with that exact run id + the stale-reclassify hint (the removed
+        // FieldExtractionEventHandler used to do this off the ETO).
+        await _backgroundJobManager.Received(1).EnqueueAsync(
+            Arg.Is<DocumentFieldExtractionJobArgs>(a =>
+                a.DocumentId == doc.Id &&
+                a.PipelineRunId == feRun.Id &&
+                a.ExpectedEventTypeCode == "contract.general"),
+            Arg.Any<BackgroundJobPriority>(), Arg.Any<TimeSpan?>());
+
+        // With a pending field-extraction key pipeline, the document derives Processing, never a premature Ready.
+        doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.Processing);
+    }
+
+    [Fact]
     public async Task Container_Marks_Document_And_Does_Not_Publish_ClassifiedEto()
     {
         var doc = CreateDocument("Invoice 1 ... Invoice 2 ... Invoice 3 ... (a bundle of independent invoices)");
@@ -161,10 +201,13 @@ public class DocumentClassificationBackgroundJob_Tests
         doc.ReviewReasons.ShouldBe(DocumentReviewReasons.None);
         doc.ReviewDisposition.ShouldBe(DocumentReviewDisposition.NotReviewed);
 
-        // The crux of Design A: never publishing DocumentClassifiedEto is what stops FieldExtractionEventHandler
-        // from cascading field extraction onto the container.
+        // The crux of Design A: the container branch never schedules the cascade field-extraction run (and never
+        // publishes DocumentClassifiedEto), so no field extraction is cascaded onto the container.
         await _eventBus.DidNotReceive().PublishAsync(
             Arg.Any<DocumentClassifiedEto>(), Arg.Any<bool>());
+        // #527 §8: and no field-extraction run/job is scheduled for a container.
+        await _backgroundJobManager.DidNotReceive().EnqueueAsync(
+            Arg.Any<DocumentFieldExtractionJobArgs>(), Arg.Any<BackgroundJobPriority>(), Arg.Any<TimeSpan?>());
 
         // #371: a detected container enqueues the unified sub-document segmentation job (same UoW as the completion).
         await _backgroundJobManager.Received(1).EnqueueAsync(

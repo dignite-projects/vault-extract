@@ -111,8 +111,10 @@ public class DocumentFieldExtractionJobArgs
     public Guid? PipelineRunId { get; set; }
 
     /// <summary>
-    /// #411: forwarded by the classification cascade (<see cref="FieldExtractionEventHandler"/>) as the
-    /// stale-reclassify-event early-exit hint. <c>null</c> on the on-demand / bulk (#289) path, which always
+    /// #411 / #527 §8: forwarded by the classification stage when it schedules the cascade field-extraction run
+    /// transactionally (<c>DocumentClassificationBackgroundJob</c> and
+    /// <c>DocumentAppService.ApplyManualClassificationAsync</c>, both via <see cref="DocumentPipelineJobScheduler"/>)
+    /// as the stale-reclassify early-exit hint. <c>null</c> on the on-demand / bulk (#289) path, which always
     /// extracts against the document's current type.
     /// </summary>
     public string? ExpectedEventTypeCode { get; set; }

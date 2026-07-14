@@ -17,12 +17,15 @@ using Volo.Abp.Uow;
 namespace Dignite.Vault.Extract.Documents.Pipelines.FieldExtraction;
 
 /// <summary>
-/// Unified field extraction execution engine (#289 step 1). Extracts the core action that used to be inline in
-/// <see cref="FieldExtractionEventHandler"/> into a reusable unit:
+/// Unified field extraction execution engine (#289 step 1). Extracts the core action that used to be inline in the
+/// classification→field-extraction cascade into a reusable unit:
 /// "read field definitions -> <see cref="FieldExtractionWorkflow.ExtractAsync"/> -> in-flight guard -> <c>Document.SetFields</c>
 /// -> publish <see cref="FieldsExtractedEto"/>", shared by two trigger types:
 /// <list type="bullet">
-///   <item>classification-completed event cascade (<see cref="FieldExtractionEventHandler"/>, which keeps event-layer stale / cross-tenant guards before delegating to this engine);</item>
+///   <item>the classification-completed cascade: since #527 §8 the classification stage schedules this run
+///   transactionally with classification completion (<c>DocumentPipelineJobScheduler</c>), forwarding the just-assigned
+///   TypeCode as <c>ExpectedEventTypeCode</c> — the stale-reclassify early-exit hint this engine still guards on,
+///   alongside its cross-tenant / in-flight guards;</item>
 ///   <item>bulk / single-document "field re-extraction" reprocessing (<c>field-extraction</c> pipeline background job, #289 steps 2-4).</item>
 /// </list>
 /// <para>

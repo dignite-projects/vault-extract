@@ -330,7 +330,7 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     }
 
     /// <summary>
-    /// Replaces the full set of type-bound field values (field architecture v2 / Issue #206 + #207). <c>FieldExtractionEventHandler</c> calls this after classification completes;
+    /// Replaces the full set of type-bound field values (field architecture v2 / Issue #206 + #207). <c>FieldExtractionService</c> calls this after the classification cascade runs;
     /// operator edits (<c>UpdateExtractedFieldsAsync</c>) use the same path. Passing an empty collection clears all field rows.
     /// Callers submit the current full field value set for the document, after validating that value types match <see cref="DocumentFieldValue.DataType"/>
     /// and each <see cref="DocumentFieldValue.FieldDefinitionId"/> resolves from a <c>FieldDefinition</c> in the document's layer / type.
@@ -480,8 +480,8 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// <c>Ready</c> (Design A). <see cref="DocumentTypeId"/> stays null, confidence is reset to 0, and any existing
     /// field values are cleared (a container holds no single type's fields). <see cref="Markdown"/> /
     /// <see cref="Title"/> are kept as the original-file / provenance anchor; only type-bound extraction is
-    /// suppressed. The classification caller deliberately does <b>not</b> publish <c>DocumentClassifiedEto</c> for a
-    /// container, so <c>FieldExtractionEventHandler</c> never cascades.
+    /// suppressed. The classification caller takes the container branch, which never schedules the cascade
+    /// field-extraction run and (still) does <b>not</b> publish <c>DocumentClassifiedEto</c> for a container.
     /// </para>
     /// </summary>
     internal void MarkAsContainer()

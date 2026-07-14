@@ -29,6 +29,7 @@ public class DocumentClassificationBackgroundJob
     private readonly VaultExtractBehaviorOptions _aiOptions;
     private readonly ICurrentTenant _currentTenant;
     private readonly IBackgroundJobManager _backgroundJobManager;
+    private readonly DocumentPipelineJobScheduler _pipelineJobScheduler;
 
     public DocumentClassificationBackgroundJob(
         IDocumentRepository documentRepository,
@@ -42,7 +43,8 @@ public class DocumentClassificationBackgroundJob
         IClock clock,
         IOptions<VaultExtractBehaviorOptions> aiOptions,
         ICurrentTenant currentTenant,
-        IBackgroundJobManager backgroundJobManager)
+        IBackgroundJobManager backgroundJobManager,
+        DocumentPipelineJobScheduler pipelineJobScheduler)
         : base(documentRepository, runRepository, pipelineRunManager, pipelineRunAccessor, unitOfWorkManager)
     {
         _documentTypeRepository = documentTypeRepository;
@@ -52,6 +54,7 @@ public class DocumentClassificationBackgroundJob
         _aiOptions = aiOptions.Value;
         _currentTenant = currentTenant;
         _backgroundJobManager = backgroundJobManager;
+        _pipelineJobScheduler = pipelineJobScheduler;
     }
 
     public override async Task ExecuteAsync(DocumentClassificationJobArgs args)
@@ -113,7 +116,7 @@ public class DocumentClassificationBackgroundJob
     private async Task<DocumentClassificationOutcome> ClassifyAsync(ClassificationWorkItem workItem, string markdown)
     {
         // Defense-in-depth: the LLM call itself does not query the DB, so it has no cross-tenant leak
-        // risk, but keep the ambient tenant aligned with FieldExtractionEventHandler. If telemetry /
+        // risk, but keep the ambient tenant aligned with FieldExtractionService. If telemetry /
         // cache / secondary queries are added inside the workflow later, ambient context drift will
         // not bypass isolation.
         using (_currentTenant.Change(workItem.TenantId))
@@ -167,9 +170,10 @@ public class DocumentClassificationBackgroundJob
         var isDerived = document.OriginDocumentId.HasValue;
 
         // #346 container branch: a parent that bundles several independent documents runs no field extraction
-        // itself — mark it a container, complete the run as succeeded, do NOT publish DocumentClassifiedEto (so
-        // FieldExtractionEventHandler never cascades — race-free suppression is simply never emitting the trigger),
-        // and enqueue the unified sub-document detection pass to split it. MarkAsContainer leaves DocumentTypeId
+        // itself — mark it a container, complete the run as succeeded, and (never entering the confirmed-type branch
+        // below) neither schedule the cascade field-extraction run nor publish DocumentClassifiedEto — the race-free
+        // way to suppress extraction is simply never scheduling it. Then enqueue the unified sub-document detection
+        // pass to split it. MarkAsContainer leaves DocumentTypeId
         // null and sets no UnresolvedClassification reason, so the container is not sent to the review queue and —
         // with both key pipelines succeeded and no blocking reason — derives straight to Ready (Design A).
         //
@@ -207,6 +211,17 @@ public class DocumentClassificationBackgroundJob
 
         if (typeDef != null && outcome.ConfidenceScore >= typeDef.ConfidenceThreshold)
         {
+            // #527 §8: create the cascade field-extraction run + enqueue its job in THIS UoW, BEFORE completing
+            // classification, so the classification-completion lifecycle derivation sees a *pending* field-extraction
+            // key pipeline and cannot derive a premature Ready off a prior succeeded run (the reclassify → brief-Ready
+            // window that would fire DocumentReadyEto before the new extraction even runs). The enqueued job resumes
+            // this exact run id (DocumentPipelineRunAccessor.BeginOrStartAsync). The internal cascade no longer depends
+            // on delayed consumption of DocumentClassifiedEto — that ETO stays the external six-stage event with no
+            // internal subscriber (FieldExtractionEventHandler was removed). typeDef.TypeCode is forwarded as the
+            // stale-reclassify early-exit hint the removed handler used to pass.
+            await _pipelineJobScheduler.QueueAsync(
+                document, VaultExtractPipelines.FieldExtraction, expectedEventTypeCode: typeDef.TypeCode);
+
             await PipelineRunManager.CompleteClassificationAsync(
                 document, run, typeDef, outcome.ConfidenceScore);
 

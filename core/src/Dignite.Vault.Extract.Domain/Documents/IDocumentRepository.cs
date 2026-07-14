@@ -117,7 +117,7 @@ public interface IDocumentRepository : IRepository<Document, Guid>
 
     /// <summary>
     /// Finds a Document by Id and eager-loads <b>only</b> the <see cref="Document.ExtractedFieldValues"/> child collection.
-    /// Field extraction write-back paths (<c>FieldExtractionEventHandler</c>) need existing field rows present so
+    /// Field extraction write-back paths (<c>FieldExtractionService</c>) need existing field rows present so
     /// <see cref="Document.SetFields"/> can reconcile correctly (delete old / update in place / insert new).
     /// <para>
     /// Semantics match <c>FindAsync(id, includeDetails: true)</c>: returns <c>null</c> when not found;
