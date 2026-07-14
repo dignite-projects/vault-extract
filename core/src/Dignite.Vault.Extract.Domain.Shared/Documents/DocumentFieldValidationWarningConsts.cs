@@ -14,4 +14,17 @@ public static class DocumentFieldValidationWarningConsts
     /// </para>
     /// </summary>
     public static int MaxMessageLength { get; set; } = 512;
+
+    /// <summary>
+    /// Maximum number of field validation warnings accepted from one field-extraction LLM response (#527 §3).
+    /// <para>
+    /// A hard cap on untrusted model output: it bounds the JSON-schema <c>validationWarnings.maxItems</c> the LLM sees
+    /// AND the server-side normalization that takes at most this many after discarding undeclared / blank / malformed
+    /// entries and deduplicating by field. Since the model produces at most one merged warning per field, this also
+    /// bounds the persisted <c>DocumentFieldValidationWarning</c> rows per document. Not host-tunable — it is a safety
+    /// boundary on how much warning volume one extraction can create, so it is a compile-time constant, not a prompt
+    /// ceiling.
+    /// </para>
+    /// </summary>
+    public static int MaxWarningsPerExtraction { get; set; } = 32;
 }
