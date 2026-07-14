@@ -56,6 +56,15 @@ public interface IDocumentAppService : IApplicationService
     /// </summary>
     Task<DocumentDto> AllowDuplicateAsync(Guid id);
 
+    /// <summary>
+    /// #527 §9: the operator resolves the field validation warnings on the selected fields after comparing the source
+    /// file. Removes those warnings and clears the blocking <c>FieldValidationWarning</c> review reason only when none
+    /// remain, then re-derives lifecycle so the document may transition to Ready. Rejected while field extraction is
+    /// pending/running (an in-flight result would overwrite the decision). Distinct from <see cref="UpdateExtractedFieldsAsync"/>,
+    /// which does not clear warnings.
+    /// </summary>
+    Task<DocumentDto> ResolveFieldValidationWarningsAsync(Guid id, ResolveFieldValidationWarningsInput input);
+
     Task RetryPipelineAsync(Guid id, RetryPipelineInput input);
 
     /// <summary>

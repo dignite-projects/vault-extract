@@ -421,6 +421,26 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     }
 
     /// <summary>
+    /// Resolves (removes) the field validation warnings for the given field definitions (#527 §9) — the operator's
+    /// explicit "reviewed against the source" action — and re-couples the blocking
+    /// <see cref="DocumentReviewReasons.FieldValidationWarning"/> bit: it clears only when <b>no</b> warning remains, so
+    /// resolving a subset leaves the document blocked on the rest. Ids without an active warning are ignored. The caller
+    /// re-derives lifecycle afterwards so the document may transition to Ready once the bit is gone. Distinct from a
+    /// manual field edit (<c>UpdateExtractedFieldsAsync</c>), which deliberately does <b>not</b> clear warnings.
+    /// </summary>
+    public void ResolveFieldValidationWarnings(IReadOnlyCollection<Guid> fieldDefinitionIds)
+    {
+        if (fieldDefinitionIds.Count == 0)
+        {
+            return;
+        }
+
+        var ids = fieldDefinitionIds as ISet<Guid> ?? new HashSet<Guid>(fieldDefinitionIds);
+        _fieldValidationWarnings.RemoveAll(w => ids.Contains(w.FieldDefinitionId));
+        SetReviewReason(DocumentReviewReasons.FieldValidationWarning, _fieldValidationWarnings.Count > 0);
+    }
+
+    /// <summary>
     /// Bitwise set / clear for one review reason (#284): the <b>only</b> entry point for writing reasons. Each bit is maintained by exactly one phase
     /// (UnresolvedClassification <- classification phase, inline in this class; MissingRequiredFields <- field extraction phase, called by the Application-layer
     /// handler / appservice after evaluation in the same UoW as field writes). Bitwise operations ensure the two phases do not overwrite each other.

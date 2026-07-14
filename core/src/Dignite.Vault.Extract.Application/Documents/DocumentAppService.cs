@@ -767,6 +767,39 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     }
 
     /// <summary>
+    /// #527 §9: the operator, after comparing the source file, resolves the field validation warnings on the selected
+    /// fields. Removes those warnings and clears the blocking <see cref="DocumentReviewReasons.FieldValidationWarning"/>
+    /// reason only when none remain, then re-derives lifecycle so the document may transition to Ready (emitting
+    /// <c>DocumentReadyEto</c>) when no other blocking reason is left. Rejected while field extraction is
+    /// pending/running, so an in-flight result cannot overwrite the human decision. Manual field edits
+    /// (<see cref="UpdateExtractedFieldsAsync"/>) do <b>not</b> clear warnings — only this explicit action does. The call
+    /// (user, time, document, selected fields) is captured by ABP audit logging, and the warning-row removals by entity
+    /// change tracking — no parallel warning-history table (#527 §9).
+    /// </summary>
+    [Authorize(VaultExtractPermissions.Documents.ConfirmClassification)]
+    public virtual async Task<DocumentDto> ResolveFieldValidationWarningsAsync(
+        Guid id, ResolveFieldValidationWarningsInput input)
+    {
+        // Reject while field extraction is in progress: a pending/running run would replace the whole warning set on
+        // completion and overwrite the operator's decision. Fast-fail before loading (throws RetryInProgress).
+        await _pipelineRunManager.EnsureNotInProgressAsync(id, VaultExtractPipelines.FieldExtraction);
+
+        // Load the field-stage children (values + warnings) so removing a warning deletes the persisted row, not just
+        // clears the bit (#527 load-path contract).
+        var document = await _documentRepository.FindWithFieldValuesAsync(id);
+        if (document == null)
+        {
+            throw new EntityNotFoundException(typeof(Document), id);
+        }
+
+        document.ResolveFieldValidationWarnings(input.FieldDefinitionIds);
+
+        await _pipelineRunManager.ReDeriveLifecycleAsync(document);
+        await _documentRepository.UpdateAsync(document, autoSave: true);
+        return await MapToDtoAsync(document);
+    }
+
+    /// <summary>
     /// Reassigns the document's cabinet (#257). Symmetric with <see cref="UploadAsync"/> cabinet ownership validation:
     /// assigning to a cabinet asserts <see cref="VaultExtractPermissions.Cabinets.Default"/> and validates that the cabinet exists in the current layer
     /// (tenant isolation is enforced by the ambient IMultiTenant filter, so cross-tenant FindAsync returns null). Removing from a cabinet (CabinetId == null)

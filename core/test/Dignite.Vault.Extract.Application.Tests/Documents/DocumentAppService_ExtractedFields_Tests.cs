@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Dignite.Vault.Extract.Abstractions.Documents;
+using Dignite.Vault.Extract.Documents.Pipelines;
 using NSubstitute;
 using Shouldly;
 using Volo.Abp;
@@ -26,6 +27,7 @@ public class DocumentAppService_ExtractedFields_Tests
     private readonly IDocumentRepository _documentRepository;
     private readonly IFieldDefinitionRepository _fieldDefinitionRepository;
     private readonly IDistributedEventBus _eventBus;
+    private readonly DocumentPipelineRunManager _pipelineRunManager;
 
     public DocumentAppService_ExtractedFields_Tests()
     {
@@ -33,6 +35,7 @@ public class DocumentAppService_ExtractedFields_Tests
         _documentRepository = GetRequiredService<IDocumentRepository>();
         _fieldDefinitionRepository = GetRequiredService<IFieldDefinitionRepository>();
         _eventBus = GetRequiredService<IDistributedEventBus>();
+        _pipelineRunManager = GetRequiredService<DocumentPipelineRunManager>();
     }
 
     /// <summary>
@@ -291,9 +294,78 @@ public class DocumentAppService_ExtractedFields_Tests
         ex.Code.ShouldBe(VaultExtractErrorCodes.Document.NotClassified);
     }
 
+    // ─── §9: explicit operator resolution of field validation warnings ───
+
+    [Fact]
+    public async Task Resolve_Clears_Selected_Warnings_And_Their_Blocking_Bit()
+    {
+        var amountFieldId = Guid.NewGuid();
+        var doc = CreateClassifiedDocument("host.contract");
+        doc.ReplaceFieldValidationWarnings(new[] { new FieldValidationWarning(amountFieldId, "does not reconcile") });
+        ReviewReasonPolicy.HasBlocking(doc.ReviewReasons).ShouldBeTrue();
+        StubFindWithFieldValues(doc);
+
+        await _appService.ResolveFieldValidationWarningsAsync(doc.Id, new ResolveFieldValidationWarningsInput
+        {
+            FieldDefinitionIds = new List<Guid> { amountFieldId }
+        });
+
+        doc.FieldValidationWarnings.ShouldBeEmpty();
+        doc.ReviewReasons.HasFlag(DocumentReviewReasons.FieldValidationWarning).ShouldBeFalse();
+        await _documentRepository.Received().UpdateAsync(doc, Arg.Any<bool>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Resolve_Is_Rejected_While_Field_Extraction_Is_In_Progress()
+    {
+        // #527 §9: a pending/running field-extraction run would replace the whole warning set on completion and
+        // overwrite the human decision, so resolution is rejected while it is in flight.
+        var amountFieldId = Guid.NewGuid();
+        var doc = CreateClassifiedDocument("host.contract");
+        doc.ReplaceFieldValidationWarnings(new[] { new FieldValidationWarning(amountFieldId, "does not reconcile") });
+        StubFindWithFieldValues(doc);
+        // Seed a pending field-extraction run for this document (drives EnsureNotInProgressAsync).
+        await _pipelineRunManager.QueueAsync(doc, VaultExtractPipelines.FieldExtraction);
+
+        var ex = await Should.ThrowAsync<BusinessException>(() =>
+            _appService.ResolveFieldValidationWarningsAsync(doc.Id, new ResolveFieldValidationWarningsInput
+            {
+                FieldDefinitionIds = new List<Guid> { amountFieldId }
+            }));
+
+        ex.Code.ShouldBe(VaultExtractErrorCodes.Pipeline.RetryInProgress);
+        doc.FieldValidationWarnings.Count.ShouldBe(1);   // untouched — rejected before resolving
+    }
+
+    [Fact]
+    public async Task Manual_Field_Edit_Does_Not_Clear_Validation_Warnings()
+    {
+        // #527 §9: saving a manual correction leaves the warning visible until the operator explicitly resolves it —
+        // UpdateExtractedFieldsAsync must not clear the warning or its blocking bit.
+        var amountFieldId = Guid.NewGuid();
+        var doc = CreateClassifiedDocument("host.contract");
+        doc.ReplaceFieldValidationWarnings(new[] { new FieldValidationWarning(amountFieldId, "does not reconcile") });
+        StubGet(doc);
+        StubFields("host.contract", "amount");
+
+        await _appService.UpdateExtractedFieldsAsync(doc.Id, new UpdateExtractedFieldsInput
+        {
+            Fields = new Dictionary<string, JsonElement> { ["amount"] = JsonString("1000") }
+        });
+
+        doc.FieldValidationWarnings.Count.ShouldBe(1);
+        doc.ReviewReasons.HasFlag(DocumentReviewReasons.FieldValidationWarning).ShouldBeTrue();
+    }
+
     private void StubGet(Document doc)
     {
         _documentRepository.GetAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(doc);
+    }
+
+    private void StubFindWithFieldValues(Document doc)
+    {
+        _documentRepository.FindWithFieldValuesAsync(doc.Id, Arg.Any<CancellationToken>())
             .Returns(doc);
     }
 
