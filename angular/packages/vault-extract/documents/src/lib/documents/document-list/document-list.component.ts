@@ -808,6 +808,9 @@ export class DocumentListComponent implements OnInit {
     if ((reasons & DocumentReviewReasons.FieldExtractionIncomplete) !== DocumentReviewReasons.None) {
       return '::Document:ReviewReason:FieldExtractionIncomplete';
     }
+    if ((reasons & DocumentReviewReasons.FieldValidationWarning) !== DocumentReviewReasons.None) {
+      return '::Document:ReviewReason:FieldValidationWarning';
+    }
     if ((reasons & DocumentReviewReasons.SegmentationIncomplete) !== DocumentReviewReasons.None) {
       return '::Document:ReviewReason:SegmentationIncomplete';
     }

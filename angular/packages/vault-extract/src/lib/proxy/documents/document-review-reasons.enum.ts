@@ -7,6 +7,7 @@ export enum DocumentReviewReasons {
   SegmentationIncomplete = 4,
   DuplicateSuspected = 8,
   FieldExtractionIncomplete = 16,
+  FieldValidationWarning = 32,
 }
 
 export const documentReviewReasonsOptions = mapEnumToOptions(DocumentReviewReasons);
