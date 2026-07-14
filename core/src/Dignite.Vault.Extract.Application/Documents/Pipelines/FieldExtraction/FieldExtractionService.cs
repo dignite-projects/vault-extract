@@ -235,13 +235,16 @@ public class FieldExtractionService : ITransientDependency
                     (blankDocument.ReviewReasons & DocumentReviewReasons.DuplicateSuspected) != DocumentReviewReasons.None;
                 var hadExtractionIncomplete =
                     (blankDocument.ReviewReasons & DocumentReviewReasons.FieldExtractionIncomplete) != DocumentReviewReasons.None;
-                if (hadFields || hadMissingRequired || hadFingerprint || hadDuplicateSuspected || hadExtractionIncomplete)
+                // #527 §6: the no-field-definition path also clears any residual validation warnings + the coupled bit.
+                var hadValidationWarnings = blankDocument.FieldValidationWarnings.Count > 0;
+                if (hadFields || hadMissingRequired || hadFingerprint || hadDuplicateSuspected || hadExtractionIncomplete || hadValidationWarnings)
                 {
                     blankDocument.SetFields(Array.Empty<DocumentFieldValue>());
                     blankDocument.SetReviewReason(DocumentReviewReasons.MissingRequiredFields, present: false);
                     blankDocument.SetFieldFingerprint(null);
                     blankDocument.SetReviewReason(DocumentReviewReasons.DuplicateSuspected, present: false);
                     blankDocument.SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: false);
+                    blankDocument.ReplaceFieldValidationWarnings(null);
                     await _documentRepository.UpdateAsync(blankDocument, autoSave: true);
                 }
 
@@ -277,10 +280,9 @@ public class FieldExtractionService : ITransientDependency
                     documentId);
             }
 
-            // #527 §1: the workflow now returns values + validation warnings from one LLM call. This slice consumes only
-            // the values, preserving existing behavior; the write phase wires the warnings into
-            // Document.ReplaceFieldValidationWarnings in a later slice (§6).
-            var extracted = (await _workflow.ExtractAsync(descriptors, markdown, _cancellationTokenProvider.Token)).Values;
+            // #527 §1: one LLM call returns both the field values and the field validation warnings.
+            var extractionResult = await _workflow.ExtractAsync(descriptors, markdown, _cancellationTokenProvider.Token);
+            var extracted = extractionResult.Values;
 
             // Phase 3: short UoW writes Document + publishes FieldsExtractedEto. ABP outbox persists both atomically in the same UoW,
             // avoiding "field write succeeded but event was lost".
@@ -363,6 +365,32 @@ public class FieldExtractionService : ITransientDependency
             }
 
             document.SetFields(fieldValues);
+
+            // #527 §5/§7: persist the field validation warnings atomically with SetFields and the FieldsExtractedEto
+            // below. The workflow keys warnings by field name and has already normalized them (§3); here each is resolved
+            // to the immutable FieldDefinitionId and passed through the SAME in-flight guards as the values — a warning
+            // whose field was deleted, renamed, or changed shape while the LLM was in flight is discarded, never creating
+            // stale review state. ReplaceFieldValidationWarnings couples the blocking FieldValidationWarning bit to the
+            // collection, so a clean re-extraction (no warnings) clears both and lets the document re-derive to Ready.
+            var descriptorsByName = descriptors.ToDictionary(d => d.Name, StringComparer.Ordinal);
+            var warnings = new List<FieldValidationWarning>();
+            foreach (var w in extractionResult.ValidationWarnings)
+            {
+                if (!descriptorsByName.TryGetValue(w.FieldName, out var descriptor)
+                    || !currentDefinitionsById.TryGetValue(descriptor.FieldDefinitionId, out var currentDefinition)
+                    || currentDefinition.DataType != descriptor.DataType
+                    || currentDefinition.AllowMultiple != descriptor.AllowMultiple)
+                {
+                    _logger.LogInformation(
+                        "Field validation warning for '{FieldName}' on doc {DocumentId} was discarded: its field was removed, renamed, or changed shape during extraction.",
+                        w.FieldName, documentId);
+                    continue;
+                }
+
+                warnings.Add(new FieldValidationWarning(currentDefinition.Id, w.Message));
+            }
+
+            document.ReplaceFieldValidationWarnings(warnings);
 
             // #491: this run reached the LLM, so an earlier declined run has been superseded. The only way that happens
             // is the host raising MaxFieldExtractionMarkdownLength — Markdown is write-once (SetMarkdown immutability),

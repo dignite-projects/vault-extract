@@ -416,10 +416,106 @@ public class FieldExtractionCascade_Tests
             Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
+    // ─── #527 §5/§7: field validation warning persistence ───────────────────
+
+    [Fact]
+    public async Task Warning_Is_Persisted_Alongside_The_Kept_Value_And_Sets_The_Bit()
+    {
+        var doc = CreateDocument(tenantId: null, typeCode: "bank.statement");
+        SetupType("bank.statement");
+        _documentRepository.FindAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(doc);
+        _documentRepository.FindWithFieldValuesAsync(doc.Id, Arg.Any<CancellationToken>()).Returns(doc);
+        _fieldDefinitionRepository.GetListAsync(TypeId("bank.statement"), Arg.Any<CancellationToken>())
+            .Returns(new List<FieldDefinition> { CreateFieldDefinition("bank.statement", "transactions", FieldDataType.Text) });
+        _workflow.ExtractAsync(Arg.Any<IReadOnlyList<FieldExtractionDescriptor>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(WorkflowResultWith(
+                new Dictionary<string, JsonElement?> { ["transactions"] = JsonDocument.Parse("\"| a | b |\"").RootElement },
+                new FieldValidationWarningResult("transactions", "Row 4 balance does not reconcile.")));
+
+        await Extract(doc.Id, null, "bank.statement");
+
+        // The value is kept (a warning never nulls the value)...
+        doc.ExtractedFieldValues.Select(v => v.FieldDefinitionId).ShouldContain(FieldId("transactions"));
+        // ...and the warning is persisted for the resolved FieldDefinitionId, with the blocking bit set.
+        doc.FieldValidationWarnings.Count.ShouldBe(1);
+        doc.FieldValidationWarnings.Single().FieldDefinitionId.ShouldBe(FieldId("transactions"));
+        doc.FieldValidationWarnings.Single().Message.ShouldBe("Row 4 balance does not reconcile.");
+        (doc.ReviewReasons & DocumentReviewReasons.FieldValidationWarning).ShouldBe(DocumentReviewReasons.FieldValidationWarning);
+    }
+
+    [Fact]
+    public async Task Clean_ReExtraction_Replaces_And_Clears_A_Prior_Warning()
+    {
+        var doc = CreateDocument(tenantId: null, typeCode: "bank.statement");
+        doc.ReplaceFieldValidationWarnings(new[] { new FieldValidationWarning(FieldId("transactions"), "old mismatch") });
+        (doc.ReviewReasons & DocumentReviewReasons.FieldValidationWarning).ShouldBe(DocumentReviewReasons.FieldValidationWarning);
+        SetupType("bank.statement");
+        _documentRepository.FindAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(doc);
+        _documentRepository.FindWithFieldValuesAsync(doc.Id, Arg.Any<CancellationToken>()).Returns(doc);
+        _fieldDefinitionRepository.GetListAsync(TypeId("bank.statement"), Arg.Any<CancellationToken>())
+            .Returns(new List<FieldDefinition> { CreateFieldDefinition("bank.statement", "transactions", FieldDataType.Text) });
+        _workflow.ExtractAsync(Arg.Any<IReadOnlyList<FieldExtractionDescriptor>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(WorkflowResult(new Dictionary<string, JsonElement?>
+            {
+                ["transactions"] = JsonDocument.Parse("\"| a | b |\"").RootElement
+            }));
+
+        await Extract(doc.Id, null, "bank.statement");
+
+        doc.FieldValidationWarnings.ShouldBeEmpty();
+        (doc.ReviewReasons & DocumentReviewReasons.FieldValidationWarning).ShouldBe(DocumentReviewReasons.None);
+    }
+
+    [Fact]
+    public async Task Warning_For_Field_Whose_Shape_Changed_MidFlight_Is_Discarded()
+    {
+        // Mirrors the value in-flight guard: while the LLM was in flight the field's DataType changed, so both the value
+        // and its warning are stale and discarded (§7).
+        var doc = CreateDocument(tenantId: null, typeCode: "bank.statement");
+        SetupType("bank.statement");
+        _documentRepository.FindAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(doc);
+        _documentRepository.FindWithFieldValuesAsync(doc.Id, Arg.Any<CancellationToken>()).Returns(doc);
+        var initialDefs = new List<FieldDefinition> { CreateFieldDefinition("bank.statement", "amount", FieldDataType.Number) };
+        var currentDefs = new List<FieldDefinition> { CreateFieldDefinition("bank.statement", "amount", FieldDataType.Text) };
+        _fieldDefinitionRepository.GetListAsync(TypeId("bank.statement"), Arg.Any<CancellationToken>())
+            .Returns(initialDefs, currentDefs);
+        _workflow.ExtractAsync(Arg.Any<IReadOnlyList<FieldExtractionDescriptor>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(WorkflowResultWith(
+                new Dictionary<string, JsonElement?> { ["amount"] = JsonDocument.Parse("1500").RootElement },
+                new FieldValidationWarningResult("amount", "some rule failed")));
+
+        await Extract(doc.Id, null, "bank.statement");
+
+        doc.FieldValidationWarnings.ShouldBeEmpty();
+        (doc.ReviewReasons & DocumentReviewReasons.FieldValidationWarning).ShouldBe(DocumentReviewReasons.None);
+    }
+
+    [Fact]
+    public async Task No_Field_Definitions_Clears_Stale_Validation_Warnings()
+    {
+        var doc = CreateDocument(tenantId: null, typeCode: "blank.type");
+        doc.ReplaceFieldValidationWarnings(new[] { new FieldValidationWarning(FieldId("amount"), "old") });
+        (doc.ReviewReasons & DocumentReviewReasons.FieldValidationWarning).ShouldBe(DocumentReviewReasons.FieldValidationWarning);
+        SetupType("blank.type");
+        _documentRepository.FindAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(doc);
+        _documentRepository.FindWithFieldValuesAsync(doc.Id, Arg.Any<CancellationToken>()).Returns(doc);
+        _fieldDefinitionRepository.GetListAsync(TypeId("blank.type"), Arg.Any<CancellationToken>())
+            .Returns(new List<FieldDefinition>());
+
+        await Extract(doc.Id, null, "blank.type");
+
+        doc.FieldValidationWarnings.ShouldBeEmpty();
+        (doc.ReviewReasons & DocumentReviewReasons.FieldValidationWarning).ShouldBe(DocumentReviewReasons.None);
+    }
+
     // ─── helpers ───────────────────────────────────────────────────────────
 
     private static FieldExtractionWorkflowResult WorkflowResult(Dictionary<string, JsonElement?> values) =>
         new(values, Array.Empty<FieldValidationWarningResult>());
+
+    private static FieldExtractionWorkflowResult WorkflowResultWith(
+        Dictionary<string, JsonElement?> values, params FieldValidationWarningResult[] warnings) =>
+        new(values, warnings);
 
     private Task Extract(Guid documentId, Guid? tenantId, string eventTypeCode)
         => _service.ExtractAsync(documentId, tenantId, expectedEventTypeCode: eventTypeCode);
