@@ -16,7 +16,8 @@ public static class ReviewReasonPolicy
     public const DocumentReviewReasons Blocking =
         DocumentReviewReasons.UnresolvedClassification |
         DocumentReviewReasons.DuplicateSuspected |
-        DocumentReviewReasons.FieldExtractionIncomplete;
+        DocumentReviewReasons.FieldExtractionIncomplete |
+        DocumentReviewReasons.FieldValidationWarning;
 
     /// <summary>Whether any blocking reason is present; this is the Ready gate criterion.</summary>
     public static bool HasBlocking(DocumentReviewReasons reasons) => (reasons & Blocking) != DocumentReviewReasons.None;

@@ -126,9 +126,16 @@ public class EfCoreDocumentRepository
     public virtual async Task<Document?> FindWithFieldValuesAsync(
         Guid id, CancellationToken cancellationToken = default)
     {
-        var query = await WithDetailsAsync(d => d.ExtractedFieldValues);
-        return await query.FirstOrDefaultAsync(
-            d => d.Id == id, GetCancellationToken(cancellationToken));
+        // #527: load BOTH field-stage child collections — ExtractedFieldValues and FieldValidationWarnings — because the
+        // field-extraction write phase and the §7 type-change clearing reconcile / delete both. Two collection Includes
+        // reintroduce the Cartesian product #206 removed, so split into per-collection queries (AsSplitQuery); the
+        // single-document scope keeps each query small, and every field-stage caller runs in a short UoW so the split
+        // queries see a consistent snapshot. The generic list path (IncludeDetails) deliberately does NOT co-load
+        // warnings — it projects a bounded summary — so it stays a single, un-split Include.
+        var query = await WithDetailsAsync(d => d.ExtractedFieldValues, d => d.FieldValidationWarnings);
+        return await query
+            .AsSplitQuery()
+            .FirstOrDefaultAsync(d => d.Id == id, GetCancellationToken(cancellationToken));
     }
 
     public virtual async Task HardDeleteAsync(Guid id, CancellationToken cancellationToken = default)
@@ -136,8 +143,9 @@ public class EfCoreDocumentRepository
         // Traverse only soft delete to physically delete already-soft-deleted rows, while preserving the IMultiTenant tenant boundary.
         // Never use IgnoreQueryFilters(), because it would also disable IMultiTenant and allow future callers without app-layer tenant validation
         // to hard-delete across tenants (#220).
-        // ExecuteDeleteAsync relies on DB-level ON DELETE CASCADE. All three child FKs — DocumentExtractedField,
-        // DocumentPipelineRun, and DocumentSegment (#346/#371) — use OnDelete(Cascade), and the narrowed filter does not affect cascading.
+        // ExecuteDeleteAsync relies on DB-level ON DELETE CASCADE. All four child FKs — DocumentExtractedField,
+        // DocumentFieldValidationWarning (#527), DocumentPipelineRun, and DocumentSegment (#346/#371) — use
+        // OnDelete(Cascade), and the narrowed filter does not affect cascading.
         using (DataFilter.Disable<ISoftDelete>())
         {
             var dbContext = await GetDbContextAsync();

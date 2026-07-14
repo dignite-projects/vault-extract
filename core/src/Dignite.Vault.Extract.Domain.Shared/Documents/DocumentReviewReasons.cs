@@ -71,5 +71,20 @@ public enum DocumentReviewReasons
     /// (<c>DocumentAppService.UpdateExtractedFieldsAsync</c> — the human has taken over the work the LLM declined).
     /// Maintained by the field extraction stage.
     /// </summary>
-    FieldExtractionIncomplete = 1 << 4
+    FieldExtractionIncomplete = 1 << 4,
+
+    /// <summary>
+    /// One or more type-bound fields carry a <b>validation warning</b> (#527): unified field extraction returned the
+    /// field's extracted value <b>together with</b> a warning that the value failed a validation rule declared in the
+    /// field's prompt (e.g. a bank-statement balance-consistency check). The extracted value is preserved on
+    /// <c>DocumentExtractedField</c> so an operator can compare it with the source; the warning text lives on the
+    /// separate <c>DocumentFieldValidationWarning</c> child collection and never enters field values, search indexes,
+    /// exports, or event payloads (#527 §11). <b>blocking</b>: the extracted result is not yet trustworthy, so Ready is
+    /// withheld and the document enters the operator review queue until either a later clean re-extraction replaces the
+    /// warning set with an empty one, or an operator explicitly resolves the warnings after comparing the source file.
+    /// Independent of the non-blocking <see cref="MissingRequiredFields"/> — a warned field keeps its value and is never
+    /// mapped to a missing field, and multiple reasons may coexist. Maintained by the field extraction stage, coupled to
+    /// the warning collection in <c>Document.ReplaceFieldValidationWarnings</c> so the bit and the collection cannot diverge.
+    /// </summary>
+    FieldValidationWarning = 1 << 5
 }
