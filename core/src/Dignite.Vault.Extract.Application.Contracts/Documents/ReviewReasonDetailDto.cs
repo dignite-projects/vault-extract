@@ -29,4 +29,12 @@ public class ReviewReasonDetailDto
     /// read and hard-capped.
     /// </summary>
     public List<DuplicateCandidateDto>? DuplicateCandidates { get; set; }
+
+    /// <summary>
+    /// Field validation warnings, non-empty only for <see cref="DocumentReviewReasons.FieldValidationWarning"/> (#527).
+    /// Each carries the field id / name / display name and the escaped message so the operator can compare the value
+    /// against the source and resolve. The warning text lives only here on the REST detail surface — never in field
+    /// values, search, CSV/XLSX export, or ETO payloads (#527 §11).
+    /// </summary>
+    public List<FieldValidationWarningDto>? FieldValidationWarnings { get; set; }
 }

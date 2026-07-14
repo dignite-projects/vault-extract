@@ -357,6 +357,35 @@ public class DocumentAppService_ExtractedFields_Tests
         doc.ReviewReasons.HasFlag(DocumentReviewReasons.FieldValidationWarning).ShouldBeTrue();
     }
 
+    [Fact]
+    public async Task Detail_Dto_Exposes_Field_Validation_Warnings_As_A_Blocking_Review_Reason()
+    {
+        // #527 §10: the REST detail DTO projects the warning with the field's current name / display name + message,
+        // marked blocking. The detail read loads warnings via the field-stage loader.
+        var amountFieldId = Guid.NewGuid();
+        var doc = CreateClassifiedDocument("host.contract");
+        doc.ReplaceFieldValidationWarnings(new[] { new FieldValidationWarning(amountFieldId, "does not reconcile") });
+        StubFindWithFieldValues(doc);
+        // Warned-field name/display-name resolution (soft-delete-disabled predicate lookup).
+        _fieldDefinitionRepository
+            .GetListAsync(Arg.Any<Expression<Func<FieldDefinition, bool>>>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(new List<FieldDefinition>
+            {
+                new(amountFieldId, tenantId: null, documentTypeId: TypeId("host.contract"),
+                    name: "amount", displayName: "Amount", prompt: "extract amount", dataType: FieldDataType.Number)
+            });
+
+        var dto = await _appService.GetAsync(doc.Id);
+
+        var detail = dto.ReviewReasonDetails!.Single(d => d.Reason == DocumentReviewReasons.FieldValidationWarning);
+        detail.IsBlocking.ShouldBeTrue();
+        detail.FieldValidationWarnings!.Count.ShouldBe(1);
+        detail.FieldValidationWarnings[0].FieldDefinitionId.ShouldBe(amountFieldId);
+        detail.FieldValidationWarnings[0].FieldName.ShouldBe("amount");
+        detail.FieldValidationWarnings[0].FieldDisplayName.ShouldBe("Amount");
+        detail.FieldValidationWarnings[0].Message.ShouldBe("does not reconcile");
+    }
+
     private void StubGet(Document doc)
     {
         _documentRepository.GetAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
