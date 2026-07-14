@@ -195,7 +195,7 @@ public class FieldDefinitionAppService : VaultExtractAppService, IFieldDefinitio
                 return ObjectMapper.Map<FieldDefinition, FieldDefinitionDto>(entity);
             }
 
-            // Parent type must exist and be active, with strict single-layer matching (consistent with FieldExtractionEventHandler).
+            // Parent type must exist and be active, with strict single-layer matching (consistent with FieldExtractionService).
             // If the parent type is still deleted, use the cascading path in IDocumentTypeAppService.RestoreAsync instead.
             if (parentType == null || parentType.IsDeleted)
             {

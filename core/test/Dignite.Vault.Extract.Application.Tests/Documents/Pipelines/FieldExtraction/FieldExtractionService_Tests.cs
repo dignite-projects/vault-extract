@@ -50,8 +50,8 @@ public class FieldExtractionServiceTestModule : AbpModule
 /// <summary>
 /// Contract tests for the bulk entry point of <see cref="FieldExtractionService"/>
 /// (<c>expectedEventTypeCode = null</c>) (#289 step 1).
-/// Event-path behavior is guarded by <see cref="FieldExtractionEventHandler_Tests"/> through delegation; this
-/// class focuses on bulk / single-document re-extraction semantics when calling the engine directly.
+/// Cascade-path behavior (with the stale-reclassify hint) is guarded by <see cref="FieldExtractionCascade_Tests"/>;
+/// this class focuses on bulk / single-document re-extraction semantics when calling the engine directly.
 /// </summary>
 public class FieldExtractionService_Tests
     : VaultExtractApplicationTestBase<FieldExtractionServiceTestModule>
@@ -295,7 +295,7 @@ public class FieldExtractionService_Tests
         var doc = new Document(
             Guid.NewGuid(), tenantId: null,
             new FileOrigin($"blobs/{Guid.NewGuid():N}.pdf", "u", "application/pdf", $"{Guid.NewGuid():N}{Guid.NewGuid():N}", 1, "x.pdf"));
-        // Application.Tests has no InternalsVisibleTo; same as FieldExtractionEventHandler_Tests, use reflection
+        // Application.Tests has no InternalsVisibleTo; same as FieldExtractionCascade_Tests, use reflection
         // through the internal channel.
         Invoke(doc, "ApplyAutomaticClassificationResult", TypeId(typeCode), 0.99);
         Invoke(doc, "SetMarkdown", markdown);

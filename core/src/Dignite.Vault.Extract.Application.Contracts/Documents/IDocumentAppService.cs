@@ -65,8 +65,8 @@ public interface IDocumentAppService : IApplicationService
     /// Differs from <see cref="ReclassifyAsync"/> (operator **manually specifies** type, persists synchronously, no LLM)
     /// and <see cref="RetryPipelineAsync"/> (only <c>Failed</c> runs are retryable): this path re-enqueues the classification job
     /// for any document with **completed text extraction**, letting the LLM reclassify automatically using the latest type / field descriptions.
-    /// High confidence publishes <see cref="Abstractions.Documents.DocumentClassifiedEto"/> through transactional outbox and
-    /// <c>FieldExtractionEventHandler</c> cascades field re-extraction; low confidence enters the manual-review queue.
+    /// High confidence publishes <see cref="Abstractions.Documents.DocumentClassifiedEto"/> through transactional outbox while the
+    /// classification stage schedules the cascade field re-extraction run transactionally (#527 §8); low confidence enters the manual-review queue.
     /// </para>
     /// <para>
     /// Warning: this **overwrites** existing classification results, including operator-confirmed types, and field values edited by operators

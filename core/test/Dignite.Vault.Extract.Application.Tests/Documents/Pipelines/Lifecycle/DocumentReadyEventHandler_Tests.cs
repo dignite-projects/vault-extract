@@ -121,6 +121,28 @@ public class DocumentReadyEventHandler_Tests
             Arg.Any<DocumentReadyEto>(), Arg.Any<bool>());
     }
 
+    [Fact]
+    public async Task Stale_Ready_Event_Is_Suppressed_When_Document_Regressed()
+    {
+        // #527 §8: after an earlier Ready transition, a fast reclassification queued a new pending field-extraction run
+        // and derived the document back to Processing. A stale / redelivered Ready lifecycle event must NOT release it
+        // — the handler re-reads the committed state and requires it to still be Ready.
+        var doc = CreateDocument(
+            documentTypeCode: "contract.general", lifecycle: DocumentLifecycleStatus.Processing);
+        SetupDocumentRepository(doc);
+
+        var evt = new DocumentLifecycleStatusChangedEvent(
+            doc.Id, DocumentLifecycleStatus.Processing, DocumentLifecycleStatus.Ready);
+
+        await _handler.HandleEventAsync(evt);
+
+        await _eventBus.DidNotReceive().PublishAsync(
+            Arg.Any<DocumentReadyEto>(), Arg.Any<bool>());
+        // Suppressed by the current-state re-check, before the type lookup.
+        await _documentTypeRepository.DidNotReceive().FindAsync(
+            Arg.Any<Guid>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+    }
+
     private void SetupDocumentRepository(Document doc)
     {
         _documentRepository
@@ -128,7 +150,9 @@ public class DocumentReadyEventHandler_Tests
             .Returns(doc);
     }
 
-    private static Document CreateDocument(string? documentTypeCode)
+    private static Document CreateDocument(
+        string? documentTypeCode,
+        DocumentLifecycleStatus lifecycle = DocumentLifecycleStatus.Ready)
     {
         var doc = new Document(
             Guid.NewGuid(), null,
@@ -144,11 +168,13 @@ public class DocumentReadyEventHandler_Tests
         {
             // Use the internal channel to write DocumentTypeId, the high-confidence path; #207 classification
             // result is the internal Id.
-            typeof(Document)
-                .GetMethod("ApplyAutomaticClassificationResult",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
-                .Invoke(doc, [TypeId(documentTypeCode), 0.99]);
+            Invoke(doc, "ApplyAutomaticClassificationResult", TypeId(documentTypeCode), 0.99);
         }
+
+        // #527 §8: the handler now re-checks the document's *current* lifecycle before publishing DocumentReadyEto,
+        // so tests must put the document in the state it is actually in when the (possibly stale) Ready transition
+        // event is handled. Defaults to Ready (the normal happy path).
+        Invoke(doc, "TransitionLifecycle", lifecycle);
 
         return doc;
     }
@@ -156,12 +182,14 @@ public class DocumentReadyEventHandler_Tests
     private static Document CreateContainerDocument()
     {
         var doc = CreateDocument(documentTypeCode: null);
-        typeof(Document)
-            .GetMethod("MarkAsContainer",
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
-            .Invoke(doc, null);
+        Invoke(doc, "MarkAsContainer");
         return doc;
     }
+
+    private static void Invoke(Document doc, string method, params object[] args) =>
+        typeof(Document)
+            .GetMethod(method, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .Invoke(doc, args);
 
     private static Guid TypeId(string typeCode)
         => new(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes("type:" + typeCode)));

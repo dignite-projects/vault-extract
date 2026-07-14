@@ -62,6 +62,21 @@ public class DocumentReadyEventHandler
             return;
         }
 
+        // #527 §8: defensive current-state re-check. The DocumentReadyEto publish is driven by a lifecycle-changed
+        // event, but by the time this handler runs the document may have moved on — a fast reclassification (manual or
+        // automatic) queues a new pending field-extraction run and derives the document back to Processing /
+        // PendingReview (or an operator rejection derives Failed). Re-reading the committed state and requiring it to
+        // still be Ready stops a stale / redelivered transition from releasing a document that is no longer Ready. The
+        // internal cascade is scheduled transactionally with classification since #527 §8, so this is defense-in-depth,
+        // not the primary gate.
+        if (document.LifecycleStatus != DocumentLifecycleStatus.Ready)
+        {
+            _logger.LogInformation(
+                "Document {DocumentId} is no longer Ready (now {LifecycleStatus}) when handling a stale Ready transition; suppressing DocumentReadyEto.",
+                document.Id, document.LifecycleStatus);
+            return;
+        }
+
         // #346: a container has no confirmed type, so it is NOT a consumable business document — it does not emit the
         // type-confirmed DocumentReadyEto. (Doing so would be a type-less "ready" fired before its sub-documents even
         // exist, with no later way to signal a segmentation failure — the contract break Codex's adversarial review

@@ -196,9 +196,9 @@ public class DocumentPipelineRunManager : DomainService
     /// sent to the operator review queue and, with both key pipelines succeeded and no blocking reason, derives
     /// straight to <c>Ready</c> (Design A).
     /// <para>
-    /// The caller (<c>DocumentClassificationBackgroundJob</c>) must <b>not</b> publish <c>DocumentClassifiedEto</c>
-    /// for a container, so <c>FieldExtractionEventHandler</c> never cascades — the race-free way to suppress
-    /// extraction is simply never emitting its trigger event.
+    /// The caller (<c>DocumentClassificationBackgroundJob</c>) takes the container branch, which never schedules the
+    /// cascade field-extraction run and still does <b>not</b> publish <c>DocumentClassifiedEto</c> for a container —
+    /// the race-free way to suppress extraction is simply never scheduling it.
     /// </para>
     /// </summary>
     public virtual Task CompleteClassificationAsContainerAsync(

@@ -8,7 +8,7 @@ namespace Dignite.Vault.Extract.Documents;
 /// Typed single-field value: input element for <see cref="Document.SetFields"/> (field architecture
 /// v2 / #207).
 /// <para>
-/// Constructed by the App layer (<c>FieldExtractionEventHandler</c> /
+/// Constructed by the App layer (<c>FieldExtractionService</c> /
 /// <c>DocumentAppService.UpdateExtractedFieldsAsync</c>) after validation succeeds. The App layer
 /// receives the raw <see cref="JsonElement"/> submitted by the LLM / operator plus the owning
 /// <c>FieldDefinition</c>, including <see cref="FieldDefinitionId"/> and <see cref="DataType"/>,

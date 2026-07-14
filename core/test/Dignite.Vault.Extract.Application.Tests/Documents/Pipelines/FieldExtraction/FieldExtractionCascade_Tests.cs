@@ -16,7 +16,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Shouldly;
-using Volo.Abp.BackgroundJobs;
 using Volo.Abp.EventBus.Distributed;
 using Volo.Abp.Modularity;
 using Xunit;
@@ -24,7 +23,7 @@ using Xunit;
 namespace Dignite.Vault.Extract.Documents;
 
 [DependsOn(typeof(VaultExtractApplicationTestModule))]
-public class FieldExtractionEventHandlerTestModule : AbpModule
+public class FieldExtractionCascadeTestModule : AbpModule
 {
     public override void ConfigureServices(ServiceConfigurationContext context)
     {
@@ -32,10 +31,6 @@ public class FieldExtractionEventHandlerTestModule : AbpModule
         context.Services.AddSingleton(Substitute.For<IDocumentTypeRepository>());
         context.Services.AddSingleton(Substitute.For<IFieldDefinitionRepository>());
         context.Services.AddSingleton(Substitute.For<IDistributedEventBus>());
-        // #411: the cascade handler now enqueues DocumentFieldExtractionBackgroundJob instead of running the engine
-        // inline (so the field-extraction run participates in the Ready gate). The handler tests assert on the job
-        // manager; the engine-behavior tests invoke FieldExtractionService directly.
-        context.Services.AddSingleton(Substitute.For<IBackgroundJobManager>());
 
         // FieldExtractionWorkflow is a concrete class, so use ForPartsOf with fake constructor dependencies.
         // Each test case configures the virtual ExtractAsync with Returns / Throws.
@@ -47,68 +42,32 @@ public class FieldExtractionEventHandlerTestModule : AbpModule
 }
 
 /// <summary>
-/// Tests for the classification → field-extraction cascade.
-/// <list type="number">
-///   <item><b>Handler</b> (<see cref="FieldExtractionEventHandler"/>): #411 — enqueues
-///   <see cref="DocumentFieldExtractionBackgroundJob"/> (so the run participates in the Ready gate), early-returning
-///   on an empty TypeCode.</item>
-///   <item><b>Engine</b> (<see cref="FieldExtractionService"/>, invoked as the cascade does, with the event TypeCode
-///   as the stale-reclassify hint): reclassify-race discard, cross-tenant defense, FieldsExtractedEto contract,
-///   MissingRequiredFields materialization, and #411 duplicate-fingerprint detection.</item>
-/// </list>
+/// Tests for the classification → field-extraction cascade engine (<see cref="FieldExtractionService"/>, invoked as
+/// the cascade does, with the just-assigned TypeCode forwarded as the stale-reclassify hint): reclassify-race discard,
+/// cross-tenant defense, FieldsExtractedEto contract, MissingRequiredFields materialization, and #411
+/// duplicate-fingerprint detection. Since #527 §8 the classification stage schedules this run <b>transactionally</b>
+/// (before classification can derive Ready) rather than through a delayed <c>DocumentClassifiedEto</c> handler; the
+/// scheduling itself is covered by the classification-job / app-service tests.
 /// Tests derive stable Guids from name / code to keep mocks consistent.
 /// </summary>
-public class FieldExtractionEventHandler_Tests
-    : VaultExtractApplicationTestBase<FieldExtractionEventHandlerTestModule>
+public class FieldExtractionCascade_Tests
+    : VaultExtractApplicationTestBase<FieldExtractionCascadeTestModule>
 {
-    private readonly FieldExtractionEventHandler _handler;
     private readonly FieldExtractionService _service;
     private readonly IDocumentRepository _documentRepository;
     private readonly IDocumentTypeRepository _documentTypeRepository;
     private readonly IFieldDefinitionRepository _fieldDefinitionRepository;
     private readonly FieldExtractionWorkflow _workflow;
     private readonly IDistributedEventBus _eventBus;
-    private readonly IBackgroundJobManager _backgroundJobManager;
 
-    public FieldExtractionEventHandler_Tests()
+    public FieldExtractionCascade_Tests()
     {
-        _handler = GetRequiredService<FieldExtractionEventHandler>();
         _service = GetRequiredService<FieldExtractionService>();
         _documentRepository = GetRequiredService<IDocumentRepository>();
         _documentTypeRepository = GetRequiredService<IDocumentTypeRepository>();
         _fieldDefinitionRepository = GetRequiredService<IFieldDefinitionRepository>();
         _workflow = GetRequiredService<FieldExtractionWorkflow>();
         _eventBus = GetRequiredService<IDistributedEventBus>();
-        _backgroundJobManager = GetRequiredService<IBackgroundJobManager>();
-    }
-
-    // ─── handler: cascade enqueues the field-extraction job (#411) ────────────
-
-    [Fact]
-    public async Task Handler_Empty_DocumentTypeCode_Does_Not_Enqueue_Job()
-    {
-        var evt = NewEvent(Guid.NewGuid(), null, string.Empty);
-
-        await _handler.HandleEventAsync(evt);
-
-        await _backgroundJobManager.DidNotReceive().EnqueueAsync(
-            Arg.Any<DocumentFieldExtractionJobArgs>(),
-            Arg.Any<BackgroundJobPriority>(),
-            Arg.Any<TimeSpan?>());
-    }
-
-    [Fact]
-    public async Task Handler_Enqueues_FieldExtraction_Job_With_DocumentId_And_TypeCode_Hint()
-    {
-        var docId = Guid.NewGuid();
-
-        await _handler.HandleEventAsync(NewEvent(docId, null, "contract.general"));
-
-        await _backgroundJobManager.Received(1).EnqueueAsync(
-            Arg.Is<DocumentFieldExtractionJobArgs>(a =>
-                a.DocumentId == docId && a.ExpectedEventTypeCode == "contract.general"),
-            Arg.Any<BackgroundJobPriority>(),
-            Arg.Any<TimeSpan?>());
     }
 
     // ─── engine: field extraction behavior (invoked as the cascade does) ──────
@@ -461,15 +420,6 @@ public class FieldExtractionEventHandler_Tests
 
     private Task Extract(Guid documentId, Guid? tenantId, string eventTypeCode)
         => _service.ExtractAsync(documentId, tenantId, expectedEventTypeCode: eventTypeCode);
-
-    private static DocumentClassifiedEto NewEvent(Guid documentId, Guid? tenantId, string typeCode) => new()
-    {
-        DocumentId = documentId,
-        TenantId = tenantId,
-        EventTime = DateTime.UtcNow,
-        DocumentTypeCode = typeCode,
-        ClassificationConfidence = 0.92
-    };
 
     private void SetupType(string code, Guid? tenantId = null, Guid? typeId = null)
     {

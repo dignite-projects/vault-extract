@@ -684,7 +684,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
                 definition.Id, definition.DataType, definition.AllowMultiple, value));
         }
 
-        // Whole-set replacement, consistent with FieldExtractionEventHandler: empty means clear all field rows.
+        // Whole-set replacement, consistent with FieldExtractionService: empty means clear all field rows.
         document.SetFields(fieldValues);
 
         // #284: after operator entry, reevaluate missing required fields. If filled, clear MissingRequiredFields to close the review-queue loop;
@@ -711,7 +711,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         await _documentRepository.UpdateAsync(document, autoSave: true);
 
         // FieldsExtractedEto.FieldCount is the logical field count (distinct fields that produced >= 1 value), not the expanded row count.
-        // Use the same algorithm as FieldExtractionEventHandler so both write paths emit the same thin signal for the same final state.
+        // Use the same algorithm as FieldExtractionService so both write paths emit the same thin signal for the same final state.
         // Empty arrays for multi-value fields expand to 0 rows and do not count, avoiding divergence from the LLM path.
         // Downstream consumers are idempotent by (DocumentId, EventType, EventTime) and pull back the latest field values.
         var fieldCount = fieldValues.Select(v => v.FieldDefinitionId).Distinct().Count();
@@ -815,6 +815,15 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
 
         var run = await _pipelineRunManager.QueueAsync(document, VaultExtractPipelines.Classification);
         await _pipelineRunManager.BeginAsync(document, run);
+
+        // #527 §8: create the cascade field-extraction run + enqueue its job in THIS UoW, BEFORE completing the
+        // (manual) classification, so completion derivation sees a *pending* field-extraction key pipeline and cannot
+        // derive a premature Ready off a prior succeeded run when reclassifying an already-processed document. The
+        // enqueued job resumes this exact run id; DocumentClassifiedEto stays the external event with no internal
+        // cascade subscriber (FieldExtractionEventHandler was removed). typeDef.TypeCode is forwarded as the
+        // stale-reclassify early-exit hint the removed handler used to pass.
+        await _pipelineJobScheduler.QueueAsync(
+            document, VaultExtractPipelines.FieldExtraction, expectedEventTypeCode: typeDef.TypeCode);
 
         await _pipelineRunManager.CompleteManualClassificationAsync(document, run, typeDef);
         await _distributedEventBus.PublishAsync(
