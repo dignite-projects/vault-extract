@@ -273,6 +273,9 @@ public class DocumentAppService_Review_Tests
     {
         _documentRepository.GetAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(doc);
+        // #527: the detail read (GetAsync) now loads via the field-stage loader so it can project validation warnings.
+        _documentRepository.FindWithFieldValuesAsync(doc.Id, Arg.Any<CancellationToken>())
+            .Returns(doc);
     }
 
     private static Document CreateDocument()

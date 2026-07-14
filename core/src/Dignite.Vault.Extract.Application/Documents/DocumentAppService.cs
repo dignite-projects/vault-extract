@@ -62,7 +62,13 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // because DocumentResources delegates to this method (#222). MCP / reflection / tool-dispatch paths do not pass through HTTP [Authorize],
         // so this assertion must not be rewritten as a class-level or method-level [Authorize] attribute.
         await CheckPolicyAsync(VaultExtractPermissions.Documents.Default);
-        var document = await _documentRepository.GetAsync(id, includeDetails: true);
+        // #527: load the field-stage children (values + validation warnings) so the detail DTO can project the
+        // warnings. FindWithFieldValuesAsync returns null when missing, so preserve GetAsync's fast-fail semantics.
+        var document = await _documentRepository.FindWithFieldValuesAsync(id);
+        if (document == null)
+        {
+            throw new EntityNotFoundException(typeof(Document), id);
+        }
         return await MapToDtoAsync(document);
     }
 
@@ -1028,6 +1034,25 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
             });
         }
 
+        // #527: a field validation warning. The extracted value stays on ExtractedFields; this projects the separate,
+        // escaped warning messages resolved to the current field name / display name so the operator can compare with
+        // the source and resolve. The bit and the warning collection can briefly disagree (in-flight schema change),
+        // so skip the detail when no warning resolves. Warning text is exposed ONLY here on the REST detail surface,
+        // never in field values / search / export / ETO (#527 §11).
+        if ((document.ReviewReasons & DocumentReviewReasons.FieldValidationWarning) != DocumentReviewReasons.None)
+        {
+            var warnings = await BuildFieldValidationWarningsAsync(document);
+            if (warnings.Count > 0)
+            {
+                details.Add(new ReviewReasonDetailDto
+                {
+                    Reason = DocumentReviewReasons.FieldValidationWarning,
+                    IsBlocking = ReviewReasonPolicy.IsBlocking(DocumentReviewReasons.FieldValidationWarning),
+                    FieldValidationWarnings = warnings
+                });
+            }
+        }
+
         // If all reason-bit details were skipped (for example MRF is the only reason but field names are temporarily empty),
         // return null rather than an empty array. This keeps "no details" semantics consistent with frontend reviewReasonDetails?.length checks.
         // RequiresReview is still determined independently by the upstream predicate.
@@ -1083,6 +1108,43 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
             DocumentConsts.MaxDuplicateCandidates);
 
         return ObjectMapper.Map<List<DuplicateCandidateModel>, List<DuplicateCandidateDto>>(candidates);
+    }
+
+    /// <summary>
+    /// #527 §10: projects the field validation warnings for the detail page. Requires <c>document.FieldValidationWarnings</c>
+    /// to be loaded (the detail read uses the field-stage loader). Resolves each warned FieldDefinitionId to its current
+    /// Name + DisplayName, traversing soft-delete like <see cref="ResolveReferenceMapsAsync"/> so a warning for a
+    /// just-removed field still resolves defensively (unresolved -> null name). The value stays on ExtractedFields;
+    /// only the escaped message is carried here, never into search / export / ETO (#527 §11).
+    /// </summary>
+    protected virtual async Task<List<FieldValidationWarningDto>> BuildFieldValidationWarningsAsync(Document document)
+    {
+        if (document.FieldValidationWarnings.Count == 0)
+        {
+            return new List<FieldValidationWarningDto>();
+        }
+
+        var fieldIds = document.FieldValidationWarnings.Select(w => w.FieldDefinitionId).Distinct().ToList();
+        Dictionary<Guid, (string Name, string DisplayName)> byId;
+        using (DataFilter.Disable<ISoftDelete>())
+        {
+            var defs = await _fieldDefinitionRepository.GetListAsync(d => fieldIds.Contains(d.Id));
+            byId = defs.ToDictionary(d => d.Id, d => (d.Name, d.DisplayName));
+        }
+
+        return document.FieldValidationWarnings
+            .Select(w =>
+            {
+                byId.TryGetValue(w.FieldDefinitionId, out var f);
+                return new FieldValidationWarningDto
+                {
+                    FieldDefinitionId = w.FieldDefinitionId,
+                    FieldName = f.Name,
+                    FieldDisplayName = f.DisplayName,
+                    Message = w.Message
+                };
+            })
+            .ToList();
     }
 
     /// <summary>
