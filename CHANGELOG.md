@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-07-14
+
+Second stable release of the channel. The 0.3.0 line adds **field validation warnings** as a first-class extraction output, brings **multi-tenancy** to the host (tenant administration, tenant-correct background jobs, and a tenant-scoped MCP surface), broadens **ingestion** to born-digital formats, deepens **OpenXML / PDF** structure extraction, repositions the **export** flow onto the document list, and puts a **size ceiling on every text that crosses an LLM boundary**. The MCP egress returns to **OAuth-only** and becomes additively extensible by downstream modules. The granular per-preview history is retained in the `0.3.0-preview.*` sections below.
+
+> As a `0.y.z` release the exit contracts may still change — see [CONTRIBUTING → Versioning and releases](CONTRIBUTING.md#versioning-and-releases). Upgrading from 0.2.0 is backward-compatible at the package level, but deployments must apply the new EF Core migrations (tenant management, `PendingReview`, and the field-validation-warning table) before running the new binaries.
+
+### Added
+
+- **Field validation warnings** — field extraction now returns, in one structured LLM response, the extracted value **and** strongly-typed validation warnings. Warnings persist as a `Document` child collection, raise a new blocking review reason (`FieldValidationWarning`) that withholds `DocumentReadyEto`, surface on the REST detail and in the operator UI, and are cleared by a clean re-extraction or an explicit operator "mark resolved" action. Generic and business-type-independent — the channel presets no domain rules; architecturally the fourth instance of the `DuplicateSuspected` blocking-review pattern (#527).
+- **Multi-tenancy in the host** — the host application now includes ABP Tenant Management (EF mapping, migration, and Angular routes) so host operators can administer tenants from the deployed UI (#522). The MCP egress accepts an optional `tenantId` on `search_documents` / `get_document` / `list_document_types` / `list_cabinets` and returns tenant-scoped resource URIs, preserving the selected layer as clients follow MCP links (#519 and follow-ups).
+- **Digital upload formats** — accept CSV / TSV, DOCX, plain-text, and XLSX uploads through the same pipeline as scans and PDFs (#471).
+- **The MCP surface is additively extensible by downstream modules** — a downstream ABP module appends its own tools via `AddMcpServer().WithTools<T>()` and its own `resources/list` categories via `VaultExtractMcpOptions.ResourceListContributors`, without forking; the open-source surface stays strictly single-tenant (#475, #476). Cabinets are exposed as a discovery resource and `search_documents` can scope to one (#473); `search_documents` results carry explicit `totalCount` / `truncated` (#445).
+- **Document-type configuration packs** — export a document type with its field definitions as a portable pack and import it into another layer or deployment, driven from the operator UI with local shape validation, a preview, and create-and-update / create-only reconciliation (#444, #513).
+- **"Data Download" export** — the export flow is repositioned onto the document list, defaults to all of the type's fields, filters by extracted field values, and adds an "export current view" toolbar action (#414, #496); an extracted-field-value filter is available on the operator document list (#415).
+- **Field-definition prompts accept Markdown with an AI-polish action** — a Markdown prompt editor and an AI "polish" endpoint; the former prompt-length cap is dropped (#447).
+- **`DocumentLifecycleStatus.PendingReview`** — a document whose pipelines have run as far as they can but that still carries a blocking review reason derives to `PendingReview` instead of `Processing`, giving the operator UI an honest, non-spinner status without changing the egress gate (#510).
+
+### Changed
+
+- **A size ceiling now bounds every text crossing an LLM boundary** (#491). Field extraction and segmentation **gate** above the ceiling — reaching a terminal review state rather than extracting from a truncated prefix, and never rethrowing an oversized body into the job-retry loop; classification / title / cabinet suggestion and the MCP document body **truncate** surrogate-safely and announce the cut. Prompt ceilings are host configuration (`VaultExtractBehaviorOptions`); the MCP egress ceiling is a compile-time `const`.
+- **Document pipeline background jobs run in the document's tenant context** — parse, classification, field extraction, segmentation, and cabinet-suggestion jobs no longer leak through ambient or missing tenant state, with regression coverage across the reprocessing dispatch paths (#521).
+- **One figure format across PDF and OpenXML** — OpenXML figure transcriptions are wrapped in the same `ImageOcrMarkup` markers the PDF path emits, so downstream sees a single figure representation (#480).
+- **Deeper OpenXML structure extraction** — DOCX custom-style heading levels (#316), footnotes / endnotes (#315), and per-instance figure walking (#322); PPTX group-transform / layout-inherited reading order and group scale composition (#313, #456); `mc:AlternateContent` shapes no longer silently skipped (#319); heading resolution and figure traversal memoized per document (#458, #318).
+- **Build / packaging** — SourceLink, deterministic CI builds, and NuGet symbol packages; NuGet and npm license metadata aligned with the LGPL-3.0-only LICENSE.
+
+### Fixed
+
+- **Concurrent-upload deadlock** — documents uploaded concurrently no longer deadlock in the pipeline (#533).
+- Non-BOM legacy-encoded `.csv` / `.tsv` / `.txt` no longer decode as UTF-8 and land in `Document.Markdown` as U+FFFD garbage (#493).
+- Restore the embedded-document route that the segmentation rework left detected-but-unroutable, as a Markdown slice (#494); restore the sub-document delete guard on both delete paths (#508).
+- Field extraction is scheduled transactionally at classification completion, closing a premature-`Ready` race, and a reused pipeline run clears its stale status message on retry (#527).
+- DOCX note-body hyperlinks resolved against the owning `FootnotesPart` / `EndnotesPart` (#457); the #268 completeness signal trips when the PDF lattice path drops an out-of-grid fragment (#450 follow-up); multi-level chart category axes and blank leaf category labels (#321).
+- Angular: serialize document-list `fieldFilters` into bindable query params (#415); dark-theme-aware document-detail cabinet text color.
+
+### Removed
+
+- **The static MCP `X-Api-Key` authentication channel** (added in 0.2.0, hardened in #431–#435) — `/mcp` is OAuth-only again. Guided OAuth and the OAuth client-credentials grant cover both interactive and headless clients, so a standing pre-shared secret is redundant; a leftover `Mcp:ApiKey` configuration section is now inert and ignored (#514).
+- The export-template layer, superseded by the document-list-driven "Data Download" export (#499); unused lerna tooling from the build (#503).
+
+### Security
+
+- The gitignored `appsettings.secrets.json` no longer leaks into `dotnet publish` output (#502).
+- Within the line, the MCP API-key channel was first promoted to a real ASP.NET Core authentication scheme and hardened — per-IP rate limiting, SHA-256 hash-at-rest keys, and a least-privilege service-account seed (#431, #433, #434, #435) — and then retired in favour of OAuth-only `/mcp` (#514, see Removed); the granular history is in the preview sections below.
+
 ## [0.3.0-preview.4] - 2026-07-13
 
 Fourth preview of the 0.3.0 line. Headline work: tenant administration is enabled in the host application, document pipeline background jobs now preserve the tenant context they were scheduled for, and the tenant-scoped MCP URI surface has been tightened after review. As a `0.y.z` pre-release the exit contracts may still change — see [CONTRIBUTING → Versioning and releases](CONTRIBUTING.md#versioning-and-releases).
@@ -183,7 +227,8 @@ Preview of the 0.2.0 line. This release rebrands the project to **Dignite Vault 
 - Legacy Angular document-upload route.
 - Dead fields from the segmentation subsystem (#390).
 
-[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.3.0-preview.4...HEAD
+[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/dignite-projects/vault-extract/compare/v0.2.0...v0.3.0
 [0.3.0-preview.4]: https://github.com/dignite-projects/vault-extract/compare/v0.3.0-preview.3...v0.3.0-preview.4
 [0.3.0-preview.3]: https://github.com/dignite-projects/vault-extract/compare/v0.3.0-preview.2...v0.3.0-preview.3
 [0.3.0-preview.2]: https://github.com/dignite-projects/vault-extract/compare/v0.3.0-preview.1...v0.3.0-preview.2
