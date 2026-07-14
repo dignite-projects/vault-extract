@@ -154,6 +154,14 @@
                   {{ '::Document:Review:AllowDuplicate' | abpLocalization }}
                 </button>
               }
+              <!-- #527: resolve field-validation warnings — the operator compares each flagged value against the
+                   source (left column) and accepts them, clearing the blocking bit. Re-extract is the other remedy. -->
+              @if (needsFieldValidationResolution()) {
+                <button type="button" class="btn btn-sm btn-warning" (click)="resolveFieldValidationWarnings()" [disabled]="isResolvingWarnings()">
+                  <i class="fas fa-clipboard-check me-1"></i>
+                  {{ '::Document:Review:ResolveFieldValidationWarnings' | abpLocalization }}
+                </button>
+              }
               <button type="button" class="btn btn-sm btn-outline-danger" (click)="openRejectDialog()">
                 <i class="fas fa-ban me-1"></i>
                 {{ '::Document:Review:Reject' | abpLocalization }}
@@ -397,6 +405,19 @@
                               </button>
                             }
                           </div>
+                        }
+                        <!-- #527: field-validation warnings — each flagged field's display name + the warning message.
+                             The message is bound via interpolation, so Angular escapes it (no innerHTML): the operator
+                             compares the value against the source (left column) before resolving. -->
+                        @if (detail.fieldValidationWarnings?.length) {
+                          <ul class="list-unstyled text-muted ms-1 mt-1 mb-0">
+                            @for (warning of detail.fieldValidationWarnings; track warning.fieldDefinitionId) {
+                              <li class="mb-1">
+                                <span class="fw-semibold">{{ warning.fieldDisplayName || warning.fieldName || warning.fieldDefinitionId }}</span>
+                                <span class="ms-1">{{ warning.message }}</span>
+                              </li>
+                            }
+                          </ul>
                         }
                       </div>
                     }

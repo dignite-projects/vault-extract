@@ -1,7 +1,7 @@
 import { RestService, Rest } from '@abp/ng.core';
 import type { PagedResultDto } from '@abp/ng.core';
 import { Injectable, inject } from '@angular/core';
-import type { ConfirmClassificationInput, DocumentDto, DocumentListItemDto, GetDocumentListInput, ReclassifyDocumentInput, RejectReviewInput, RetryPipelineInput, UpdateDocumentCabinetInput, UpdateExtractedFieldsInput, UploadDocumentInput } from '../../documents/models';
+import type { ConfirmClassificationInput, DocumentDto, DocumentListItemDto, GetDocumentListInput, ReclassifyDocumentInput, RejectReviewInput, ResolveFieldValidationWarningsInput, RetryPipelineInput, UpdateDocumentCabinetInput, UpdateExtractedFieldsInput, UploadDocumentInput } from '../../documents/models';
 
 @Injectable({
   providedIn: 'root',
@@ -100,6 +100,15 @@ export class DocumentService {
     this.restService.request<any, void>({
       method: 'POST',
       url: `/api/vault-extract/documents/${id}/rerecognize`,
+    },
+    { apiName: this.apiName,...config });
+  
+
+  resolveFieldValidationWarnings = (id: string, input: ResolveFieldValidationWarningsInput, config?: Partial<Rest.Config>) =>
+    this.restService.request<any, DocumentDto>({
+      method: 'POST',
+      url: `/api/vault-extract/documents/${id}/review/resolve-field-validation-warnings`,
+      body: input,
     },
     { apiName: this.apiName,...config });
   

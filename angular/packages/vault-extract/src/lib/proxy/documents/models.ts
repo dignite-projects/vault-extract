@@ -74,6 +74,13 @@ export interface DuplicateCandidateDto {
   creationTime?: string;
 }
 
+export interface FieldValidationWarningDto {
+  fieldDefinitionId?: string;
+  fieldName?: string | null;
+  fieldDisplayName?: string | null;
+  message?: string;
+}
+
 export interface FileOriginDto {
   uploadedByUserName?: string;
   originalFileName?: string | null;
@@ -100,6 +107,10 @@ export interface RejectReviewInput {
   reason: string;
 }
 
+export interface ResolveFieldValidationWarningsInput {
+  fieldDefinitionIds: string[];
+}
+
 export interface RetryPipelineInput {
   pipelineCode: string;
 }
@@ -109,6 +120,7 @@ export interface ReviewReasonDetailDto {
   isBlocking?: boolean;
   missingFieldNames?: string[] | null;
   duplicateCandidates?: DuplicateCandidateDto[] | null;
+  fieldValidationWarnings?: FieldValidationWarningDto[] | null;
 }
 
 export interface UpdateDocumentCabinetInput {

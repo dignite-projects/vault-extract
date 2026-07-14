@@ -32,6 +32,7 @@ import {
   FieldDataType,
   FieldDefinitionDto,
   FieldDefinitionService,
+  FieldValidationWarningDto,
   EXTRACT_PERMISSIONS,
   PipelineRunStatus,
 } from '@dignite/vault-extract';
@@ -157,6 +158,8 @@ export class DocumentDetailComponent implements OnInit {
   isRejecting = signal(false);
   // #411: in-flight guard for the "Allow duplicate" operator action.
   isAllowingDuplicate = signal(false);
+  // #527: in-flight guard for the "Mark resolved" field-validation-warning action.
+  isResolvingWarnings = signal(false);
 
   readonly DocumentLifecycleStatus = DocumentLifecycleStatus;
   readonly DocumentReviewDisposition = DocumentReviewDisposition;
@@ -249,6 +252,25 @@ export class DocumentDetailComponent implements OnInit {
     (((this.document()?.reviewReasons ?? DocumentReviewReasons.None) &
       (DocumentReviewReasons.MissingRequiredFields | DocumentReviewReasons.FieldExtractionIncomplete))
       !== DocumentReviewReasons.None),
+  );
+
+  // #527: field-validation warnings are present AND the operator may act — drives the "Mark resolved" CTA. The reason
+  // is blocking (gates Ready): the pipeline kept each flagged value but reported a concern, so the operator compares
+  // it against the source (left column) and either re-extracts or resolves. Resolving clears the bit and releases the
+  // document; editing a field value on its own does NOT clear a warning (#527 §9).
+  needsFieldValidationResolution = computed(() =>
+    this.canEditFields &&
+    (((this.document()?.reviewReasons ?? DocumentReviewReasons.None) & DocumentReviewReasons.FieldValidationWarning)
+      !== DocumentReviewReasons.None),
+  );
+
+  // #527: the warnings carried by the FieldValidationWarning review-reason detail (at most one such detail, one entry
+  // per flagged field). Drives both the itemised list rendered in the metadata card and the id set sent to the resolve
+  // endpoint. Empty when there is no such detail.
+  fieldValidationWarnings = computed<FieldValidationWarningDto[]>(() =>
+    (this.document()?.reviewReasonDetails ?? [])
+      .find(d => d.reason === DocumentReviewReasons.FieldValidationWarning)
+      ?.fieldValidationWarnings ?? [],
   );
 
   // #284: pure availability axis. After the two axes became orthogonal, the review banner and processing
@@ -931,6 +953,40 @@ export class DocumentDetailComponent implements OnInit {
       });
   }
 
+  // #527: the operator has compared the flagged values against the source and accepts them. Resolve every currently
+  // warned field in one call (the operator reviewed them together): the backend removes those warning rows, clears the
+  // blocking reason, and re-derives lifecycle (releasing to Ready + DocumentReadyEto when nothing else blocks). The
+  // other remedy is Re-extract, which re-derives the warnings from scratch. Confirm first, since this dismisses a
+  // data-quality signal. Reload so the badge / banner reflect the change.
+  resolveFieldValidationWarnings(): void {
+    const doc = this.document();
+    if (!doc || this.isResolvingWarnings()) return;
+    const fieldDefinitionIds = this.fieldValidationWarnings()
+      .map(w => w.fieldDefinitionId)
+      .filter((id): id is string => !!id);
+    if (fieldDefinitionIds.length === 0) return;
+    this.confirmation
+      .warn('::Document:Review:ResolveFieldValidationWarnings:Confirm', '::AreYouSure')
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(status => {
+        if (status !== Confirmation.Status.confirm) return;
+        this.isResolvingWarnings.set(true);
+        this.documentService.resolveFieldValidationWarnings(doc.id!, { fieldDefinitionIds })
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({
+            next: () => {
+              this.isResolvingWarnings.set(false);
+              this.toaster.success('::Document:Review:FieldValidationWarningsResolved', '::Success');
+              this.loadDocument();
+            },
+            error: () => {
+              this.isResolvingWarnings.set(false);
+              this.toaster.error('::Document:Review:ActionFailed', '::Error');
+            },
+          });
+      });
+  }
+
   getStatusBadgeClass(status: DocumentLifecycleStatus | undefined): string {
     switch (status) {
       case DocumentLifecycleStatus.Uploaded:   return 'badge bg-secondary';
@@ -976,6 +1032,8 @@ export class DocumentDetailComponent implements OnInit {
         return '::Document:ReviewReason:DuplicateSuspected';
       case DocumentReviewReasons.FieldExtractionIncomplete:
         return '::Document:ReviewReason:FieldExtractionIncomplete';
+      case DocumentReviewReasons.FieldValidationWarning:
+        return '::Document:ReviewReason:FieldValidationWarning';
       default:
         return '::Document:NeedsReview';
     }
@@ -996,6 +1054,8 @@ export class DocumentDetailComponent implements OnInit {
         return '::Document:Review:Hint:DuplicateSuspected';
       case DocumentReviewReasons.FieldExtractionIncomplete:
         return '::Document:Review:Hint:FieldExtractionIncomplete';
+      case DocumentReviewReasons.FieldValidationWarning:
+        return '::Document:Review:Hint:FieldValidationWarning';
       default:
         return '::Document:NeedsReview';
     }
