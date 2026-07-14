@@ -78,6 +78,15 @@ public static class VaultExtractDbContextModelCreatingExtensions
                 .HasForeignKey(f => f.DocumentId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            // #527 §4: field validation warnings are an aggregate-internal child collection (one merged warning per
+            // field), separate from field values. Hard-deleting a Document cascades warning-row deletion (mirrors
+            // ExtractedFieldValues); the blocking FieldValidationWarning review bit is coupled to this collection in
+            // Document.ReplaceFieldValidationWarnings.
+            b.HasMany(x => x.FieldValidationWarnings)
+                .WithOne()
+                .HasForeignKey(w => w.DocumentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
             // FileOrigin is optional: user-uploaded documents always have one (their own upload blob); derived
             // sub-documents spawned from a container carry none (they seed Markdown from the segment slice and have
             // no file of their own to parse or download). Owned columns are nullable so a sub-document row can write
@@ -192,6 +201,30 @@ public static class VaultExtractDbContextModelCreatingExtensions
             b.HasIndex(x => new { x.TenantId, x.FieldDefinitionId, x.NumberValue, x.DocumentId });
             b.HasIndex(x => new { x.TenantId, x.FieldDefinitionId, x.DateValue, x.DocumentId });
             b.HasIndex(x => new { x.TenantId, x.FieldDefinitionId, x.DateTimeValue, x.DocumentId });
+        });
+
+        builder.Entity<DocumentFieldValidationWarning>(b =>
+        {
+            b.ToTable(VaultExtractDbProperties.DbTablePrefix + "DocumentFieldValidationWarnings", VaultExtractDbProperties.DbSchema);
+            b.ConfigureByConvention();
+
+            // Composite primary key (DocumentId, FieldDefinitionId) (#527 §4): one merged warning per field.
+            // DocumentId is also the identifying foreign key to the Document aggregate root.
+            b.HasKey(x => new { x.DocumentId, x.FieldDefinitionId });
+
+            b.Property(x => x.Message).IsRequired().HasMaxLength(DocumentFieldValidationWarningConsts.MaxMessageLength);
+
+            // Internal field-definition association (#207): FK -> FieldDefinition.Id, OnDelete Restrict (mirrors
+            // DocumentExtractedField). FieldDefinition uses soft delete and does not trigger the FK; only hard-deleting a
+            // definition still referenced by a warning is rejected by the DB — the same soft-delete-preserves-history
+            // safety DocumentExtractedField relies on. (§7's ClearFieldValidationWarnings fires on Document *type change*
+            // — reclassify / unclassify / container — NOT on field-definition deletion, so it is not what guards this FK.)
+            // EF automatically creates an index for this FK. This row participates in no field-value index and is never
+            // consulted by field-value search / filtering (#527 §11).
+            b.HasOne<FieldDefinition>()
+                .WithMany()
+                .HasForeignKey(x => x.FieldDefinitionId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         builder.Entity<DocumentPipelineRun>(b =>

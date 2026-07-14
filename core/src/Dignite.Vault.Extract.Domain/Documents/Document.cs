@@ -199,6 +199,19 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// </summary>
     public virtual IReadOnlyCollection<DocumentExtractedField> ExtractedFieldValues => _extractedFieldValues.AsReadOnly();
 
+    // --- Aggregate-internal field validation warnings collection (#527 §4) ---
+
+    private readonly List<DocumentFieldValidationWarning> _fieldValidationWarnings = new();
+
+    /// <summary>
+    /// Type-bound field validation warnings (#527): one merged warning per field whose extracted value failed a
+    /// validation rule declared in the field's prompt. The extracted value itself stays on
+    /// <see cref="ExtractedFieldValues"/>; this collection carries only the warning messages and is kept strictly out of
+    /// field-value queries, search, export, and event payloads (#527 §11). Reconciled — and coupled to the blocking
+    /// <see cref="DocumentReviewReasons.FieldValidationWarning"/> bit — through <see cref="ReplaceFieldValidationWarnings"/>.
+    /// </summary>
+    public virtual IReadOnlyCollection<DocumentFieldValidationWarning> FieldValidationWarnings => _fieldValidationWarnings.AsReadOnly();
+
     protected Document()
     {
     }
@@ -367,6 +380,47 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
     }
 
     /// <summary>
+    /// Replaces the full set of field validation warnings (#527 §4) and, in the <b>same operation</b>, sets or clears the
+    /// blocking <see cref="DocumentReviewReasons.FieldValidationWarning"/> review reason so the collection and the bit can
+    /// never diverge. <c>FieldExtractionService</c> calls this in the field-extraction write phase with the warnings for
+    /// the document's current type; passing an empty collection (or <c>null</c>) clears all warnings and the bit — exactly
+    /// what a later clean re-extraction does to release the document.
+    /// <para>
+    /// Reconciles like <see cref="SetFields"/> (one row per field, keyed by
+    /// <see cref="DocumentFieldValidationWarning.FieldDefinitionId"/>): existing rows are updated in place, dropped rows
+    /// deleted, new rows inserted — avoiding a delete+insert on the same composite key within one <c>SaveChanges</c>.
+    /// Callers submit warnings already resolved to the current field definitions (undeclared / stale-field warnings
+    /// discarded) with normalized, length-bounded messages (#527 §3).
+    /// </para>
+    /// </summary>
+    public void ReplaceFieldValidationWarnings(IEnumerable<FieldValidationWarning>? warnings)
+    {
+        var incoming = warnings?.ToList() ?? new List<FieldValidationWarning>();
+
+        _fieldValidationWarnings.RemoveAll(existing =>
+            incoming.All(w => w.FieldDefinitionId != existing.FieldDefinitionId));
+
+        foreach (var warning in incoming)
+        {
+            var existing = _fieldValidationWarnings.FirstOrDefault(
+                w => w.FieldDefinitionId == warning.FieldDefinitionId);
+            if (existing != null)
+            {
+                existing.SetMessage(warning.Message);
+            }
+            else
+            {
+                _fieldValidationWarnings.Add(
+                    new DocumentFieldValidationWarning(Id, TenantId, warning.FieldDefinitionId, warning.Message));
+            }
+        }
+
+        // Couple the collection and the blocking review bit atomically: the reason is present iff a warning remains,
+        // so a read path can never see a set bit with an empty collection (or the reverse).
+        SetReviewReason(DocumentReviewReasons.FieldValidationWarning, _fieldValidationWarnings.Count > 0);
+    }
+
+    /// <summary>
     /// Bitwise set / clear for one review reason (#284): the <b>only</b> entry point for writing reasons. Each bit is maintained by exactly one phase
     /// (UnresolvedClassification <- classification phase, inline in this class; MissingRequiredFields <- field extraction phase, called by the Application-layer
     /// handler / appservice after evaluation in the same UoW as field writes). Bitwise operations ensure the two phases do not overwrite each other.
@@ -427,6 +481,8 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         SetReviewReason(DocumentReviewReasons.SegmentationIncomplete, present: false);
         // #411: a (re)classification is a fresh duplicate-review context; the cascade re-extraction recomputes the fingerprint.
         ResetDuplicateDetectionState();
+        // #527 §7: reclassification to another type clears the previous type's validation warnings immediately.
+        ClearFieldValidationWarnings();
         // #491: FieldExtractionIncomplete is deliberately NOT cleared here, unlike the duplicate state above. Markdown is
         // write-once, so oversized-for-the-old-type means oversized-for-the-new-type; and the cascade re-extraction is
         // queued only after this UoW commits, so at this instant the latest field-extraction run is still the prior
@@ -463,6 +519,8 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: false);
         // #411: no type -> no fields -> no fingerprint basis; clear duplicate-detection state alongside the fields.
         ResetDuplicateDetectionState();
+        // #527 §7: becoming unclassified clears all type-bound validation warnings.
+        ClearFieldValidationWarnings();
         ReviewDisposition = DocumentReviewDisposition.NotReviewed;
         RejectionReason = null; // #284 review-fix: leaving Rejected disposition -> clear stale rejection reason.
         _extractedFieldValues.Clear();
@@ -513,6 +571,8 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: false);
         // #411: a container holds no single type's fields, so it has no duplicate fingerprint.
         ResetDuplicateDetectionState();
+        // #527 §7: becoming a container clears all type-bound validation warnings.
+        ClearFieldValidationWarnings();
         ReviewDisposition = DocumentReviewDisposition.NotReviewed;
         RejectionReason = null;
         _extractedFieldValues.Clear();
@@ -580,6 +640,22 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         SetReviewReason(DocumentReviewReasons.DuplicateSuspected, present: false);
     }
 
+    /// <summary>
+    /// Clears all field validation warnings and the coupled blocking
+    /// <see cref="DocumentReviewReasons.FieldValidationWarning"/> bit (#527 §7). Called on every type change —
+    /// reclassification to another concrete type, becoming unclassified, or becoming a container — because a warning is
+    /// tied to the type whose prompt produced it and is stale the moment the type changes. Mirrors
+    /// <see cref="ResetDuplicateDetectionState"/>: a blocking review signal owned by the field stage is dropped
+    /// immediately, and a later re-extraction against the new type repopulates it if warranted. The pending
+    /// field-extraction run scheduled transactionally with reclassification (#527 §8) holds the Ready gate in the
+    /// meantime, so clearing the bit here cannot open a premature-Ready window.
+    /// </summary>
+    private void ClearFieldValidationWarnings()
+    {
+        _fieldValidationWarnings.Clear();
+        SetReviewReason(DocumentReviewReasons.FieldValidationWarning, present: false);
+    }
+
     internal void ConfirmClassification(Guid documentTypeId)
     {
         DocumentTypeId = Check.NotDefaultOrNull<Guid>(documentTypeId, nameof(documentTypeId));
@@ -599,6 +675,8 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant
         SetReviewReason(DocumentReviewReasons.SegmentationIncomplete, present: false);
         // #411: operator (re)confirmed a type; the cascade re-extraction recomputes the fingerprint for the new context.
         ResetDuplicateDetectionState();
+        // #527 §7: reclassification to another type clears the previous type's validation warnings immediately.
+        ClearFieldValidationWarnings();
         // #491: FieldExtractionIncomplete is deliberately NOT cleared here — same reasoning as
         // ApplyAutomaticClassificationResult. Confirming a type does not shrink the Markdown, and clearing the bit before
         // the cascade re-extraction runs would open a premature-Ready window.

@@ -116,9 +116,12 @@ public interface IDocumentRepository : IRepository<Document, Guid>
     Task HardDeleteAsync(Guid id, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Finds a Document by Id and eager-loads <b>only</b> the <see cref="Document.ExtractedFieldValues"/> child collection.
-    /// Field extraction write-back paths (<c>FieldExtractionService</c>) need existing field rows present so
-    /// <see cref="Document.SetFields"/> can reconcile correctly (delete old / update in place / insert new).
+    /// Finds a Document by Id and eager-loads its <b>field-stage</b> child collections —
+    /// <see cref="Document.ExtractedFieldValues"/> and (#527) <see cref="Document.FieldValidationWarnings"/>. Both are
+    /// written and cleared together by the field-extraction write phase and the §7 type-change clearing, so the reconcile
+    /// paths (<see cref="Document.SetFields"/> / <see cref="Document.ReplaceFieldValidationWarnings"/> and the clearing
+    /// transitions) need the existing rows present to delete old / update in place / insert new. The two collections are
+    /// loaded with split queries (single-document scope) to avoid the #206 Cartesian product.
     /// <para>
     /// Semantics match <c>FindAsync(id, includeDetails: true)</c>: returns <c>null</c> when not found;
     /// <c>IMultiTenant</c> + <c>ISoftDelete</c> global filters are applied automatically according to ambient state.

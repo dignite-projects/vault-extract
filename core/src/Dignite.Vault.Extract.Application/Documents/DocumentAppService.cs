@@ -802,7 +802,15 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// </summary>
     protected virtual async Task<DocumentDto> ApplyManualClassificationAsync(Guid id, Guid documentTypeId)
     {
-        var document = await _documentRepository.GetAsync(id, includeDetails: true);
+        // #527: load via the field-stage loader (fields + FieldValidationWarnings) rather than the generic
+        // includeDetails path, because CompleteManualClassificationAsync -> ConfirmClassification -> §7
+        // ClearFieldValidationWarnings must reconcile/delete the persisted warning rows, not just clear the blocking bit
+        // while orphaning rows. FindWithFieldValuesAsync returns null when missing, so keep the GetAsync fast-fail.
+        var document = await _documentRepository.FindWithFieldValuesAsync(id);
+        if (document == null)
+        {
+            throw new EntityNotFoundException(typeof(Document), id);
+        }
 
         // Type validation responsibility lives in AppService and no longer goes through manager-internal EnsureRegisteredTypeCodeAsync:
         // resolve by immutable Id (#207), with tenant isolation delegated to ABP IMultiTenant global filters for exact single-layer matching.
