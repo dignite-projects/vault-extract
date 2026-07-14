@@ -85,6 +85,13 @@ public class DocumentController : VaultExtractController, IDocumentAppService
         return _documentAppService.AllowDuplicateAsync(id);
     }
 
+    [HttpPost("{id}/review/resolve-field-validation-warnings")]
+    public virtual Task<DocumentDto> ResolveFieldValidationWarningsAsync(
+        Guid id, [FromBody] ResolveFieldValidationWarningsInput input)
+    {
+        return _documentAppService.ResolveFieldValidationWarningsAsync(id, input);
+    }
+
     [HttpPost("{id}/retry-pipeline")]
     public virtual Task RetryPipelineAsync(Guid id, [FromBody] RetryPipelineInput input)
     {

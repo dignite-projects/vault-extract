@@ -124,6 +124,53 @@ public class DocumentFieldValidationWarning_Tests
         AssertNoWarnings(doc);
     }
 
+    // --- §9 explicit operator resolution ---
+
+    [Fact]
+    public void Resolve_All_Removes_Warnings_And_Clears_Bit()
+    {
+        var doc = ClassifiedDocument();
+        doc.ReplaceFieldValidationWarnings(new[]
+        {
+            new FieldValidationWarning(FieldA, "a"),
+            new FieldValidationWarning(FieldB, "b")
+        });
+
+        doc.ResolveFieldValidationWarnings(new[] { FieldA, FieldB });
+
+        AssertNoWarnings(doc);
+    }
+
+    [Fact]
+    public void Resolve_Subset_Keeps_Bit_And_The_Remaining_Warning()
+    {
+        var doc = ClassifiedDocument();
+        doc.ReplaceFieldValidationWarnings(new[]
+        {
+            new FieldValidationWarning(FieldA, "a"),
+            new FieldValidationWarning(FieldB, "b")
+        });
+
+        doc.ResolveFieldValidationWarnings(new[] { FieldA });
+
+        doc.FieldValidationWarnings.Select(w => w.FieldDefinitionId).ShouldBe(new[] { FieldB });
+        HasWarningBit(doc).ShouldBeTrue();   // still blocked on the unresolved field
+    }
+
+    [Fact]
+    public void Resolve_Ignores_Unknown_And_Empty_Ids()
+    {
+        var doc = WarnedDocument();   // one warning on FieldA
+
+        doc.ResolveFieldValidationWarnings(new[] { FieldC });   // no warning for C -> no-op
+        doc.FieldValidationWarnings.Count.ShouldBe(1);
+        HasWarningBit(doc).ShouldBeTrue();
+
+        doc.ResolveFieldValidationWarnings(Array.Empty<Guid>()); // empty -> no-op
+        doc.FieldValidationWarnings.Count.ShouldBe(1);
+        HasWarningBit(doc).ShouldBeTrue();
+    }
+
     // --- helpers ---
 
     private static void AssertNoWarnings(Document doc)
