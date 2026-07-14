@@ -9,7 +9,7 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CommonModule, formatDate } from '@angular/common';
+import { CommonModule, DOCUMENT, formatDate } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import {
@@ -29,7 +29,7 @@ import {
 import { ConfirmationService, ToasterService } from '@abp/ng.theme.shared';
 import { Confirmation } from '@abp/ng.theme.shared';
 import { NgbDropdownModule } from '@ng-bootstrap/ng-bootstrap';
-import { of } from 'rxjs';
+import { of, Subscription, timer } from 'rxjs';
 import {
   CabinetDto,
   CabinetService,
@@ -58,6 +58,14 @@ interface TableActivateEvent {
   type?: string;
   row?: DocumentListItemDto;
 }
+
+// #440 (interim live status, list surface): while any document on the current page is still processing,
+// silently re-fetch the list so the operator can watch upload/processing progress without a manual Refresh.
+// Mirrors the detail page's #440 poll — silent, tab-visibility-aware, self-terminating — but on a single
+// relaxed interval rather than the detail page's fast-start backoff: the list is a heavier, less
+// latency-sensitive query and the operator wants a calm, predictable cadence, not full-rate polling. To be
+// superseded by server push (SSE / SignalR), see #440.
+const LIST_POLL_INTERVAL_MS = 10000;
 
 @Component({
   selector: 'lib-document-list',
@@ -97,6 +105,8 @@ export class DocumentListComponent implements OnInit {
   private readonly toaster = inject(ToasterService);
   private readonly permissionService = inject(PermissionService);
   private readonly destroyRef = inject(DestroyRef);
+  // #440: DOM document handle for the Page Visibility check that pauses the background poll on a hidden tab.
+  private readonly domDocument = inject(DOCUMENT);
   private readonly extensions = inject(ExtensionsService);
   private readonly locale = inject(LOCALE_ID);
 
@@ -171,8 +181,29 @@ export class DocumentListComponent implements OnInit {
   readonly DocumentReviewReasons = DocumentReviewReasons;
   readonly ExportFormat = ExportFormat;
 
+  // #440: subscription to the pending background poll tick (null when not polling).
+  private pollTimer: Subscription | null = null;
+  // #440: true while a silent poll request is in flight, so the requestStatus$ subscription leaves the
+  // full-page spinner and the Refresh-button spin untouched and the table refreshes in place.
+  private isPolling = false;
+
   constructor() {
     this.rebuildTableProps([]);
+    // #440: pause the background poll while the tab is hidden (no point re-fetching an unseen list) and resume
+    // with an immediate refresh when it returns to the foreground; always tear the timer down on destroy so
+    // navigating away stops polling.
+    const onVisibilityChange = () => {
+      if (this.domDocument.hidden) {
+        this.clearPollTimer();
+      } else if (this.shouldPoll() && !this.pollTimer) {
+        this.pollReload();
+      }
+    };
+    this.domDocument.addEventListener('visibilitychange', onVisibilityChange);
+    this.destroyRef.onDestroy(() => {
+      this.domDocument.removeEventListener('visibilitychange', onVisibilityChange);
+      this.clearPollTimer();
+    });
   }
 
   ngOnInit(): void {
@@ -340,6 +371,16 @@ export class DocumentListComponent implements OnInit {
     this.list.requestStatus$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(status => {
+        // #440: a failed request (a poll tick included) ends the quiet window and stops the poll rather than
+        // hammering a failing endpoint; the next successful load restarts it. Clearing isPolling here also lets
+        // a later manual Refresh show its spinner again.
+        if (status === 'error') {
+          this.isPolling = false;
+          this.clearPollTimer();
+        }
+        // #440: a background poll tick must not flip the full-page spinner or the Refresh-button spin — the
+        // rows refresh in place. While a silent poll is in flight, leave isLoading untouched.
+        if (this.isPolling) return;
         if (status === 'idle' && this.isLoading() && this.documents().items.length === 0) return;
         this.isLoading.set(status === 'loading');
       });
@@ -368,7 +409,42 @@ export class DocumentListComponent implements OnInit {
           totalCount: result.totalCount ?? 0,
           items: result.items ?? [],
         });
+        // #440: a load has landed (initial, filter change, manual Refresh, or a poll tick alike). Drop the
+        // quiet flag and (re)schedule or stop the poll from the freshly loaded page — so polling starts when a
+        // page still holds processing documents and stops once none remain.
+        this.isPolling = false;
+        this.syncPolling();
       });
+  }
+
+  // #440: a background poll tick. Silently re-fetches the current page (getWithoutPageReset keeps the operator
+  // on their page/sort) — never toggles isLoading, guarded via isPolling in the requestStatus$ subscription.
+  private pollReload(): void {
+    this.isPolling = true;
+    this.list.getWithoutPageReset();
+  }
+
+  // #440: poll only while at least one row on the current page is still genuinely advancing (Uploaded or
+  // Processing). Post-#510 a document parked on a blocking review reason is PendingReview (not Processing), so
+  // this can never get stuck polling forever waiting on the operator — Ready / Failed / PendingReview all end
+  // the loop once no row is still processing.
+  private shouldPoll(): boolean {
+    return this.documents().items.some(doc => this.isProcessingDocument(doc));
+  }
+
+  // #440: called after every load. Cancels any pending tick, then — if the page still holds a processing
+  // document and the tab is visible — schedules the next silent re-fetch.
+  private syncPolling(): void {
+    this.clearPollTimer();
+    if (!this.shouldPoll() || this.domDocument.hidden) {
+      return; // hidden tabs resume via the visibilitychange handler in the constructor
+    }
+    this.pollTimer = timer(LIST_POLL_INTERVAL_MS).subscribe(() => this.pollReload());
+  }
+
+  private clearPollTimer(): void {
+    this.pollTimer?.unsubscribe();
+    this.pollTimer = null;
   }
 
   private refreshListFromFirstPage(): void {
