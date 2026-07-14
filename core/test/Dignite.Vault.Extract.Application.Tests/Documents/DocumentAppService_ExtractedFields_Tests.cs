@@ -390,6 +390,11 @@ public class DocumentAppService_ExtractedFields_Tests
     {
         _documentRepository.GetAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(doc);
+        // #527: the DocumentDto write paths (UpdateExtractedFields / Reject / AllowDuplicate / UpdateCabinet) load via
+        // FindWithFieldValuesAsync so the returned DTO carries warning details; stub it to the same instance so those
+        // tests resolve the document rather than hitting the not-found guard.
+        _documentRepository.FindWithFieldValuesAsync(doc.Id, Arg.Any<CancellationToken>())
+            .Returns(doc);
     }
 
     private void StubFindWithFieldValues(Document doc)

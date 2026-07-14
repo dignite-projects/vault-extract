@@ -110,7 +110,7 @@ public class FieldExtractionWorkflow : ITransientDependency
         "You extract structured fields from a Markdown document. " +
         "The first user message lists the fields to extract (schema), each annotated with its data type. " +
         "The second user message contains the document body. " +
-        "Return JSON only with one key per requested field. " +
+        "Respond with JSON only. Produce one normalized value for each requested field. " +
         "Normalize each value to its declared data type: " +
         "Number as a bare JSON number, integer or decimal (strip currency symbols, thousands separators, and units; " +
         "use '.' as the decimal point and '-' for negatives); " +
