@@ -45,16 +45,19 @@ public class FieldExtractionWorkflow : ITransientDependency
     }
 
     /// <summary>
-    /// Extracts fields in batch according to field definitions. Returns a field-name -> JsonElement dictionary; missing or unparseable fields appear as null.
+    /// Extracts fields in batch from one LLM call, returning both the field values and any field validation warnings
+    /// (#527 §1) in a single <see cref="FieldExtractionWorkflowResult"/>. Missing or unparseable values appear as null;
+    /// a warned field still keeps its value (a warning is never a null value). Warnings are defensively normalized (#527 §3).
     /// </summary>
-    public virtual async Task<IReadOnlyDictionary<string, JsonElement?>> ExtractAsync(
+    public virtual async Task<FieldExtractionWorkflowResult> ExtractAsync(
         IReadOnlyList<FieldExtractionDescriptor> fields,
         string markdown,
         CancellationToken cancellationToken = default)
     {
         if (fields.Count == 0)
         {
-            return new Dictionary<string, JsonElement?>();
+            return new FieldExtractionWorkflowResult(
+                new Dictionary<string, JsonElement?>(), Array.Empty<FieldValidationWarningResult>());
         }
 
         // Observability: after removing truncation, field extraction feeds full text. Log input size here (character count + field count)
@@ -97,7 +100,7 @@ public class FieldExtractionWorkflow : ITransientDependency
         var response = await _chatClient.GetResponseAsync(messages, options, cancellationToken);
         var rawJson = response.Text?.Trim() ?? string.Empty;
 
-        return ParseJsonToDictionary(rawJson, fields);
+        return ParseResult(rawJson, fields);
     }
 
     /// <summary>
@@ -120,7 +123,12 @@ public class FieldExtractionWorkflow : ITransientDependency
         "The document is Markdown produced by automated extraction (digital parsing or OCR), so its layout is best-effort and table grids are frequently flattened into plain lines: " +
         "a line of column labels followed by one or more lines of space- or tab-separated values is still a table — read each such line as a row and align its cells to the column labels from left to right. " +
         "Use headings, tables, and lists as structure signals, but never require Markdown table syntax: extract tabular values even when the pipes and separators have been stripped during extraction. " +
-        "Set a field to null only when its information is genuinely absent from the document — not merely because the text is unformatted, split across lines, or lacks table syntax.";
+        "Set a field to null only when its information is genuinely absent from the document — not merely because the text is unformatted, split across lines, or lacks table syntax. " +
+        "Return the result as an object with two keys: \"values\" (one key per requested field, as described above) and \"validationWarnings\". " +
+        "A field's prompt may declare validation rules for its own extracted value (for example a running-balance or total check). " +
+        "When a field's value fails such a rule, still return the value in \"values\" exactly as found in the document, and additionally add one entry to \"validationWarnings\" naming that field and giving a concise, human-readable explanation of the mismatch. " +
+        "Never invent, alter, or fabricate data to make a rule pass, and never drop a value merely because it failed validation — the value stays, the warning is reported separately. " +
+        "When every value passes, or a field declares no validation rule, return an empty \"validationWarnings\" array.";
 
     private static string BuildSchemaUserMessage(IReadOnlyList<FieldExtractionDescriptor> fields)
     {
@@ -146,6 +154,65 @@ public class FieldExtractionWorkflow : ITransientDependency
 
     private static ChatResponseFormat BuildResponseFormat(IReadOnlyList<FieldExtractionDescriptor> fields)
     {
+        // #527 §1/§3: the response is an envelope { values, validationWarnings }. `values` is the existing per-field
+        // typed object; `validationWarnings` is a bounded array whose fieldName is constrained to the declared field
+        // names (an enum) and whose message length is capped, so the model cannot emit warnings for unknown fields or
+        // unbounded text. additionalProperties:false + `required` at every level keeps the shape strict.
+        var fieldNameEnum = new JsonArray();
+        foreach (var field in fields)
+        {
+            fieldNameEnum.Add(field.Name);
+        }
+
+        var warningsSchema = new JsonObject
+        {
+            ["type"] = "array",
+            ["maxItems"] = DocumentFieldValidationWarningConsts.MaxWarningsPerExtraction,
+            ["description"] = "One entry per field whose extracted value fails a validation rule declared in its prompt; empty when all values pass.",
+            ["items"] = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    ["fieldName"] = new JsonObject
+                    {
+                        ["type"] = "string",
+                        ["enum"] = fieldNameEnum,
+                        ["description"] = "The name of the field whose value failed validation."
+                    },
+                    ["message"] = new JsonObject
+                    {
+                        ["type"] = "string",
+                        ["maxLength"] = DocumentFieldValidationWarningConsts.MaxMessageLength,
+                        ["description"] = "A concise, human-readable explanation of the mismatch."
+                    }
+                },
+                ["required"] = new JsonArray { "fieldName", "message" },
+                ["additionalProperties"] = false
+            }
+        };
+
+        var schema = new JsonObject
+        {
+            ["type"] = "object",
+            ["properties"] = new JsonObject
+            {
+                ["values"] = BuildValuesSchema(fields),
+                ["validationWarnings"] = warningsSchema
+            },
+            ["required"] = new JsonArray { "values", "validationWarnings" },
+            ["additionalProperties"] = false
+        };
+
+        using var document = JsonDocument.Parse(schema.ToJsonString());
+        return ChatResponseFormat.ForJsonSchema(
+            document.RootElement.Clone(),
+            schemaName: "ExtractFieldExtraction",
+            schemaDescription: "Extracted field values plus field validation warnings.");
+    }
+
+    private static JsonObject BuildValuesSchema(IReadOnlyList<FieldExtractionDescriptor> fields)
+    {
         var properties = new JsonObject();
         var required = new JsonArray();
 
@@ -155,19 +222,13 @@ public class FieldExtractionWorkflow : ITransientDependency
             required.Add(field.Name);
         }
 
-        var schema = new JsonObject
+        return new JsonObject
         {
             ["type"] = "object",
             ["properties"] = properties,
             ["required"] = required,
             ["additionalProperties"] = false
         };
-
-        using var document = JsonDocument.Parse(schema.ToJsonString());
-        return ChatResponseFormat.ForJsonSchema(
-            document.RootElement.Clone(),
-            schemaName: "ExtractFieldExtraction",
-            schemaDescription: "Extracted Extract field values keyed by field name.");
     }
 
     private static JsonObject BuildFieldValueSchema(FieldDataType dataType, bool allowMultiple)
@@ -241,16 +302,13 @@ public class FieldExtractionWorkflow : ITransientDependency
         return result;
     }
 
-    private IReadOnlyDictionary<string, JsonElement?> ParseJsonToDictionary(
+    private FieldExtractionWorkflowResult ParseResult(
         string rawJson,
         IReadOnlyList<FieldExtractionDescriptor> fields)
     {
-        var result = new Dictionary<string, JsonElement?>(fields.Count);
-
         if (string.IsNullOrWhiteSpace(rawJson))
         {
-            foreach (var f in fields) result[f.Name] = null;
-            return result;
+            return AllNull(fields);
         }
 
         JsonElement root;
@@ -262,13 +320,36 @@ public class FieldExtractionWorkflow : ITransientDependency
         catch (JsonException ex)
         {
             _logger.LogWarning(ex, "Field extraction returned non-JSON output: {Raw}", rawJson);
+            return AllNull(fields);
+        }
+
+        // Envelope (#527 §1): { "values": { ... }, "validationWarnings": [ ... ] }. The two halves are parsed
+        // independently, so a malformed warning can never drop a valid value (and vice versa).
+        return new FieldExtractionWorkflowResult(ParseValues(root, fields), ParseWarnings(root, fields));
+    }
+
+    private static FieldExtractionWorkflowResult AllNull(IReadOnlyList<FieldExtractionDescriptor> fields)
+    {
+        var values = new Dictionary<string, JsonElement?>(fields.Count);
+        foreach (var f in fields) values[f.Name] = null;
+        return new FieldExtractionWorkflowResult(values, Array.Empty<FieldValidationWarningResult>());
+    }
+
+    private IReadOnlyDictionary<string, JsonElement?> ParseValues(
+        JsonElement root,
+        IReadOnlyList<FieldExtractionDescriptor> fields)
+    {
+        var result = new Dictionary<string, JsonElement?>(fields.Count);
+
+        if (!root.TryGetProperty("values", out var values) || values.ValueKind != JsonValueKind.Object)
+        {
             foreach (var f in fields) result[f.Name] = null;
             return result;
         }
 
         foreach (var field in fields)
         {
-            if (!root.TryGetProperty(field.Name, out var prop) || prop.ValueKind == JsonValueKind.Null)
+            if (!values.TryGetProperty(field.Name, out var prop) || prop.ValueKind == JsonValueKind.Null)
             {
                 result[field.Name] = null;
                 continue;
@@ -293,5 +374,80 @@ public class FieldExtractionWorkflow : ITransientDependency
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Defensively normalizes the untrusted <c>validationWarnings</c> array (#527 §3): the JSON schema already constrains
+    /// the shape (fieldName enum + message maxLength + maxItems), but the server does not trust it. Discards warnings for
+    /// undeclared fields and blank / malformed entries, deduplicates to one warning per field (first wins), truncates an
+    /// overlong message at a valid UTF-16 boundary, caps the count, and logs what it dropped or cut — <b>never</b> failing
+    /// the extraction and never touching the parsed values, so a malformed warning cannot lose a valid field value.
+    /// </summary>
+    private IReadOnlyList<FieldValidationWarningResult> ParseWarnings(
+        JsonElement root,
+        IReadOnlyList<FieldExtractionDescriptor> fields)
+    {
+        if (!root.TryGetProperty("validationWarnings", out var warnings) || warnings.ValueKind != JsonValueKind.Array)
+        {
+            return Array.Empty<FieldValidationWarningResult>();
+        }
+
+        var declaredNames = new HashSet<string>(fields.Select(f => f.Name), StringComparer.Ordinal);
+        var byField = new Dictionary<string, FieldValidationWarningResult>(StringComparer.Ordinal);
+        var discarded = 0;
+        var truncated = 0;
+
+        foreach (var item in warnings.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object
+                || !item.TryGetProperty("fieldName", out var nameEl) || nameEl.ValueKind != JsonValueKind.String
+                || !item.TryGetProperty("message", out var msgEl) || msgEl.ValueKind != JsonValueKind.String)
+            {
+                discarded++;
+                continue;
+            }
+
+            var fieldName = nameEl.GetString()!;
+            if (!declaredNames.Contains(fieldName))
+            {
+                discarded++;   // warning for a field the caller never asked about — must not create review state (#527 §3).
+                continue;
+            }
+
+            var message = (msgEl.GetString() ?? string.Empty).Trim();
+            if (message.Length == 0)
+            {
+                discarded++;   // blank message.
+                continue;
+            }
+
+            if (byField.ContainsKey(fieldName))
+            {
+                continue;      // one merged warning per field (first wins); duplicates are silently collapsed.
+            }
+
+            if (byField.Count >= DocumentFieldValidationWarningConsts.MaxWarningsPerExtraction)
+            {
+                discarded++;   // over the count cap.
+                continue;
+            }
+
+            if (message.Length > DocumentFieldValidationWarningConsts.MaxMessageLength)
+            {
+                message = TextTruncator.AtCharBoundary(message, DocumentFieldValidationWarningConsts.MaxMessageLength);
+                truncated++;
+            }
+
+            byField[fieldName] = new FieldValidationWarningResult(fieldName, message);
+        }
+
+        if (discarded > 0 || truncated > 0)
+        {
+            _logger.LogWarning(
+                "Field extraction normalized model validation warnings: {Discarded} discarded (undeclared / blank / malformed / over-cap), {Truncated} truncated to {MaxLength} chars.",
+                discarded, truncated, DocumentFieldValidationWarningConsts.MaxMessageLength);
+        }
+
+        return byField.Values.ToList();
     }
 }

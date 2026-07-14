@@ -277,7 +277,10 @@ public class FieldExtractionService : ITransientDependency
                     documentId);
             }
 
-            var extracted = await _workflow.ExtractAsync(descriptors, markdown, _cancellationTokenProvider.Token);
+            // #527 §1: the workflow now returns values + validation warnings from one LLM call. This slice consumes only
+            // the values, preserving existing behavior; the write phase wires the warnings into
+            // Document.ReplaceFieldValidationWarnings in a later slice (§6).
+            var extracted = (await _workflow.ExtractAsync(descriptors, markdown, _cancellationTokenProvider.Token)).Values;
 
             // Phase 3: short UoW writes Document + publishes FieldsExtractedEto. ABP outbox persists both atomically in the same UoW,
             // avoiding "field write succeeded but event was lost".

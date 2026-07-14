@@ -83,7 +83,7 @@ public class FieldExtractionService_Tests
         _fieldDefinitionRepository.GetListAsync(TypeId("contract.general"), Arg.Any<CancellationToken>())
             .Returns(new List<FieldDefinition> { CreateField("contract.general", "amount", FieldDataType.Number) });
         _workflow.ExtractAsync(Arg.Any<IReadOnlyList<FieldExtractionDescriptor>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new Dictionary<string, JsonElement?> { ["amount"] = JsonDocument.Parse("1500").RootElement });
+            .Returns(WorkflowResult(new Dictionary<string, JsonElement?> { ["amount"] = JsonDocument.Parse("1500").RootElement }));
 
         var result = await _service.ExtractAsync(doc.Id, tenantId: null, expectedEventTypeCode: null);
 
@@ -201,7 +201,7 @@ public class FieldExtractionService_Tests
         _fieldDefinitionRepository.GetListAsync(TypeId("contract.general"), Arg.Any<CancellationToken>())
             .Returns(new List<FieldDefinition> { CreateField("contract.general", "amount", FieldDataType.Number) });
         _workflow.ExtractAsync(Arg.Any<IReadOnlyList<FieldExtractionDescriptor>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new Dictionary<string, JsonElement?> { ["amount"] = JsonDocument.Parse("1500").RootElement });
+            .Returns(WorkflowResult(new Dictionary<string, JsonElement?> { ["amount"] = JsonDocument.Parse("1500").RootElement }));
 
         var result = await _service.ExtractAsync(doc.Id, tenantId: null, expectedEventTypeCode: null);
 
@@ -252,7 +252,7 @@ public class FieldExtractionService_Tests
         _fieldDefinitionRepository.GetListAsync(TypeId("contract.general"), Arg.Any<CancellationToken>())
             .Returns(new List<FieldDefinition> { CreateField("contract.general", "amount", FieldDataType.Number) });
         _workflow.ExtractAsync(Arg.Any<IReadOnlyList<FieldExtractionDescriptor>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new Dictionary<string, JsonElement?> { ["amount"] = JsonDocument.Parse("1500").RootElement });
+            .Returns(WorkflowResult(new Dictionary<string, JsonElement?> { ["amount"] = JsonDocument.Parse("1500").RootElement }));
 
         await _service.ExtractAsync(doc.Id, tenantId: null, expectedEventTypeCode: null);
 
@@ -281,6 +281,9 @@ public class FieldExtractionService_Tests
     }
 
     // ─── helpers ───────────────────────────────────────────────────────────
+
+    private static FieldExtractionWorkflowResult WorkflowResult(Dictionary<string, JsonElement?> values) =>
+        new(values, Array.Empty<FieldValidationWarningResult>());
 
     private void SetupType(string code, Guid? typeId = null)
     {

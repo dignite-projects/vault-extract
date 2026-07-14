@@ -105,7 +105,9 @@ public class DocumentFieldExtractionBackgroundJob_Tests
             .Returns(_ =>
             {
                 _unitOfWorkManager.Current.ShouldBeNull();
-                return new Dictionary<string, JsonElement?> { ["amount"] = JsonDocument.Parse("1500").RootElement };
+                return new FieldExtractionWorkflowResult(
+                    new Dictionary<string, JsonElement?> { ["amount"] = JsonDocument.Parse("1500").RootElement },
+                    Array.Empty<FieldValidationWarningResult>());
             });
 
         // PipelineRunId=null: bulk-path shape. The job creates its own field-extraction run through StartAsync.
