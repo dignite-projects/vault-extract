@@ -643,8 +643,15 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     [Authorize(VaultExtractPermissions.Documents.ConfirmClassification)]
     public virtual async Task<DocumentDto> UpdateExtractedFieldsAsync(Guid id, UpdateExtractedFieldsInput input)
     {
-        // Tenant isolation is enforced by the ambient IMultiTenant filter; GetAsync already throws EntityNotFound for cross-tenant ids.
-        var document = await _documentRepository.GetAsync(id, includeDetails: true);
+        // Tenant isolation is enforced by the ambient IMultiTenant filter (a cross-tenant id resolves to null below).
+        // #527: load the field-stage children (values + warnings), not the lean includeDetails set — otherwise the returned
+        // DTO omits warning details while the blocking bit stays set, so the operator's page loses the warnings (and the
+        // "Mark resolved" button goes inert) until a manual refresh. Editing values does not itself clear warnings (#527 §9).
+        var document = await _documentRepository.FindWithFieldValuesAsync(id);
+        if (document == null)
+        {
+            throw new EntityNotFoundException(typeof(Document), id);
+        }
 
         // Field definitions hang off DocumentType; unclassified documents have no basis for validating field names.
         if (!document.DocumentTypeId.HasValue)
@@ -749,7 +756,12 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     [Authorize(VaultExtractPermissions.Documents.ConfirmClassification)]
     public virtual async Task<DocumentDto> RejectReviewAsync(Guid id, RejectReviewInput input)
     {
-        var document = await _documentRepository.GetAsync(id, includeDetails: true);
+        // #527: FindWithFieldValuesAsync (not the lean includeDetails) so the returned DTO carries the warning details.
+        var document = await _documentRepository.FindWithFieldValuesAsync(id);
+        if (document == null)
+        {
+            throw new EntityNotFoundException(typeof(Document), id);
+        }
         document.RejectReview(input.Reason);
         await _documentRepository.UpdateAsync(document, autoSave: true);
         return await MapToDtoAsync(document);
@@ -765,7 +777,12 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     [Authorize(VaultExtractPermissions.Documents.ConfirmClassification)]
     public virtual async Task<DocumentDto> AllowDuplicateAsync(Guid id)
     {
-        var document = await _documentRepository.GetAsync(id, includeDetails: true);
+        // #527: FindWithFieldValuesAsync (not the lean includeDetails) so the returned DTO carries the warning details.
+        var document = await _documentRepository.FindWithFieldValuesAsync(id);
+        if (document == null)
+        {
+            throw new EntityNotFoundException(typeof(Document), id);
+        }
         document.AllowDuplicate();
         await _pipelineRunManager.ReDeriveLifecycleAsync(document);
         await _documentRepository.UpdateAsync(document, autoSave: true);
@@ -814,7 +831,12 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     [Authorize(VaultExtractPermissions.Documents.Default)]
     public virtual async Task<DocumentDto> UpdateCabinetAsync(Guid id, UpdateDocumentCabinetInput input)
     {
-        var document = await _documentRepository.GetAsync(id, includeDetails: true);
+        // #527: FindWithFieldValuesAsync (not the lean includeDetails) so the returned DTO carries the warning details.
+        var document = await _documentRepository.FindWithFieldValuesAsync(id);
+        if (document == null)
+        {
+            throw new EntityNotFoundException(typeof(Document), id);
+        }
 
         if (input.CabinetId.HasValue)
         {
