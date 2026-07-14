@@ -50,24 +50,32 @@ public class EfCoreDocumentPipelineRunRepository
         }
 
         var dbContext = await GetDbContextAsync();
+        var result = new Dictionary<string, DocumentPipelineRun>();
 
-        // Pick the run with the largest AttemptNumber per PipelineCode. EF Core 8+ translates
-        // GroupBy(...).Select(g => g.OrderByDescending(...).First()) to SQL Server ROW_NUMBER() OVER
-        // (PARTITION BY PipelineCode ORDER BY AttemptNumber DESC) WHERE rn = 1, so only one row per
-        // code is returned. This does not rely on a "small row count + in-memory GroupBy" assumption.
-        var latest = await dbContext.Set<DocumentPipelineRun>()
-            .Where(r => r.DocumentId == documentId && pipelineCodes.Contains(r.PipelineCode))
-            .GroupBy(r => r.PipelineCode)
-            .Select(g => g.OrderByDescending(r => r.AttemptNumber).First())
-            .ToListAsync(GetCancellationToken(cancellationToken));
-
-        var result = latest.ToDictionary(r => r.PipelineCode);
+        // #532: use one bounded latest-attempt lookup per pipeline code. The former grouped query
+        // translated to ROW_NUMBER() and SQL Server chose a clustered-index scan while the table was
+        // small. Concurrent upload transactions had each already inserted an uncommitted run, so the
+        // scans read into one another's write locks and formed a deadlock cycle. TOP (1) + descending
+        // AttemptNumber is satisfied by the portable (DocumentId, PipelineCode, AttemptNumber) index
+        // shape and keeps each read inside its own document/pipeline key range. Lifecycle derivation
+        // requests exactly the three core key pipelines, so the number of round trips stays bounded.
+        foreach (var pipelineCode in pipelineCodes.Distinct())
+        {
+            var run = await FindLatestByDocumentAndCodeAsync(
+                documentId,
+                pipelineCode,
+                cancellationToken);
+            if (run != null)
+            {
+                result[run.PipelineCode] = run;
+            }
+        }
 
         // Merge change-tracker entities that have not been flushed in this UoW. DeriveLifecycle runs
         // immediately after Manager UpdateAsync(run) (autoSave:false) / Insert calls, so the run's
         // post-change state may exist only in the tracker while the DB still has the old value, or
-        // the new run has not been persisted yet. The GroupBy above chooses rows in the DB by the
-        // persisted AttemptNumber and cannot see those unflushed changes. Explicitly merge Added /
+        // the new run has not been persisted yet. The DB lookups above choose rows by the persisted
+        // AttemptNumber and cannot see those unflushed changes. Explicitly merge Added /
         // Modified Local entries, keeping the largest AttemptNumber per PipelineCode, so the
         // responsibility for seeing the unflushed view stays in Infrastructure. Domain
         // DeriveLifecycleAsync therefore no longer needs the caller to pass the just-changed run
