@@ -71,7 +71,7 @@ public class DocumentPipelineRunAggregatePersistence_Tests
 
         await WithUnitOfWorkAsync(async () =>
         {
-            // Insert a run in the same UoW with autoSave:false and intentionally do not flush it. DB-side GroupBy
+            // Insert a run in the same UoW with autoSave:false and intentionally do not flush it. DB-side queries
             // cannot see the uncommitted row because it is not in the database, and the EF identity map cannot
             // materialize it from the query. Only GetLatestRunsByCodesAsync can see it by merging Added entries
             // from the change tracker. This locks #216 follow-up #1: removing that merge foreach in the repository
@@ -92,6 +92,105 @@ public class DocumentPipelineRunAggregatePersistence_Tests
             latest.ShouldContainKey(VaultExtractPipelines.Classification);
             latest[VaultExtractPipelines.Classification].Id.ShouldBe(run.Id);
             latest[VaultExtractPipelines.Classification].Status.ShouldBe(PipelineRunStatus.Pending);
+        });
+    }
+
+    [Fact]
+    public async Task GetLatestRunsByCodes_Returns_Latest_Attempt_For_Each_Requested_Code()
+    {
+        var documentId = _guidGenerator.Create();
+        var latestParseRunId = _guidGenerator.Create();
+        var classificationRunId = _guidGenerator.Create();
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            await _documentRepository.InsertAsync(CreateDocument(documentId), autoSave: true);
+            await _runRepository.InsertAsync(
+                NewRun(documentId, VaultExtractPipelines.Parse, attemptNumber: 1),
+                autoSave: false);
+            await _runRepository.InsertAsync(
+                new DocumentPipelineRun(
+                    latestParseRunId,
+                    documentId,
+                    tenantId: null,
+                    VaultExtractPipelines.Parse,
+                    attemptNumber: 2),
+                autoSave: false);
+            await _runRepository.InsertAsync(
+                new DocumentPipelineRun(
+                    classificationRunId,
+                    documentId,
+                    tenantId: null,
+                    VaultExtractPipelines.Classification,
+                    attemptNumber: 1),
+                autoSave: false);
+            await _runRepository.InsertAsync(
+                NewRun(documentId, VaultExtractPipelines.FieldExtraction, attemptNumber: 1),
+                autoSave: false);
+        });
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var latest = await _runRepository.GetLatestRunsByCodesAsync(
+                documentId,
+                new[]
+                {
+                    VaultExtractPipelines.Parse,
+                    VaultExtractPipelines.Classification
+                });
+
+            latest.Count.ShouldBe(2);
+            latest[VaultExtractPipelines.Parse].Id.ShouldBe(latestParseRunId);
+            latest[VaultExtractPipelines.Parse].AttemptNumber.ShouldBe(2);
+            latest[VaultExtractPipelines.Classification].Id.ShouldBe(classificationRunId);
+            latest.ShouldNotContainKey(VaultExtractPipelines.FieldExtraction);
+        });
+    }
+
+    [Fact]
+    public async Task GetLatestRunsByCodes_Surfaces_Unflushed_Modified_Run_In_Same_Uow()
+    {
+        var documentId = _guidGenerator.Create();
+        var runId = _guidGenerator.Create();
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            await _documentRepository.InsertAsync(CreateDocument(documentId), autoSave: true);
+            await _runRepository.InsertAsync(
+                new DocumentPipelineRun(
+                    runId,
+                    documentId,
+                    tenantId: null,
+                    VaultExtractPipelines.Classification,
+                    attemptNumber: 1),
+                autoSave: true);
+        });
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var run = await _runRepository.GetAsync(runId);
+            run.MarkRunning(DateTime.UtcNow);
+            await _runRepository.UpdateAsync(run, autoSave: false);
+
+            var latest = await _runRepository.GetLatestRunsByCodesAsync(
+                documentId,
+                new[] { VaultExtractPipelines.Classification });
+
+            latest[VaultExtractPipelines.Classification].Id.ShouldBe(runId);
+            latest[VaultExtractPipelines.Classification].Status.ShouldBe(PipelineRunStatus.Running);
+        });
+    }
+
+    [Fact]
+    public async Task GetLatestRunsByCodes_Returns_Empty_For_Empty_Code_Set()
+    {
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var latest = await _runRepository.GetLatestRunsByCodesAsync(
+                _guidGenerator.Create(),
+                Array.Empty<string>());
+
+            latest.ShouldBeEmpty();
         });
     }
 
@@ -126,13 +225,16 @@ public class DocumentPipelineRunAggregatePersistence_Tests
         ex.Code.ShouldBe(VaultExtractErrorCodes.Pipeline.RetryInProgress);
     }
 
-    private DocumentPipelineRun NewRun(Guid documentId, int attemptNumber)
+    private DocumentPipelineRun NewRun(
+        Guid documentId,
+        string pipelineCode = VaultExtractPipelines.Classification,
+        int attemptNumber = 1)
     {
         return new DocumentPipelineRun(
             _guidGenerator.Create(),
             documentId,
             tenantId: null,
-            VaultExtractPipelines.Classification,
+            pipelineCode,
             attemptNumber);
     }
 
