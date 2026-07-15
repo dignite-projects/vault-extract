@@ -37,16 +37,22 @@
         <None Include="$(MSBuildThisFileDirectory).github\icon.png" Pack="true" PackagePath="\" Visible="false"/>
     </ItemGroup>
 
-    <!-- Source Link + symbol packages, so consumers can step into the exact source that built a
+    <!-- Source Link + embedded symbols, so consumers can step into the exact source that built a
          package. Deterministic is already SDK-default true. ContinuousIntegrationBuild is not, and
          stays gated on GITHUB_ACTIONS: only CI builds should bake in path-independent PDBs, since
-         forcing it on locally would replace real local paths and break local step-through debugging. -->
-    <PropertyGroup Label="Source Link / symbol packages">
+         forcing it on locally would replace real local paths and break local step-through debugging.
+
+         PDBs are embedded in the DLL (DebugType=embedded) rather than shipped as a separate .snupkg:
+         Fody strips the PdbChecksum debug-directory entry when it weaves the assembly, which makes
+         NuGet.org's symbol validation reject the .snupkg ("checksum does not match for the dll(s)
+         and corresponding pdb(s)"). An embedded portable PDB carries the same Source Link data, so
+         step-into still works, and there is no separate symbol package for NuGet.org to validate. -->
+    <PropertyGroup Label="Source Link / embedded symbols">
         <PublishRepositoryUrl>true</PublishRepositoryUrl>
         <EmbedUntrackedSources>true</EmbedUntrackedSources>
         <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
-        <IncludeSymbols>true</IncludeSymbols>
-        <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+        <DebugType>embedded</DebugType>
+        <IncludeSymbols>false</IncludeSymbols>
     </PropertyGroup>
 
     <ItemGroup Label="Source Link / symbol packages">
