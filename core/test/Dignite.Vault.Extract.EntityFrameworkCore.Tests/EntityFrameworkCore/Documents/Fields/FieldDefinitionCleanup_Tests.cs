@@ -86,7 +86,7 @@ public class FieldDefinitionCleanup_Tests : VaultExtractTestBase<FieldDefinition
     }
 
     [Fact]
-    public async Task DeleteAsync_Enqueues_Duplicate_Basis_Cleanup_When_The_Last_Unique_Key_Field_Goes()
+    public async Task DeleteAsync_Enqueues_Duplicate_Basis_Cleanup_For_A_Unique_Key_Field()
     {
         // The one case where deletion invalidates the duplicate basis outright: no unique-key field remains, so the
         // type has nothing to fingerprint and any surviving DuplicateSuspected is a blocking false park.
@@ -103,20 +103,18 @@ public class FieldDefinitionCleanup_Tests : VaultExtractTestBase<FieldDefinition
     }
 
     [Fact]
-    public async Task DeleteAsync_Does_Not_Enqueue_Duplicate_Basis_Cleanup_While_Another_Unique_Key_Field_Remains()
+    public async Task DeleteAsync_Still_Enqueues_Duplicate_Basis_Check_While_Another_Unique_Key_Field_Remains()
     {
-        // Deleting one of several unique-key fields only NARROWS the key. Two documents whose wide key values were
-        // equal necessarily have equal narrow key values, so existing DuplicateSuspected flags stay valid — clearing
-        // them would hide real duplicates. The residual (collisions the narrower key would newly create) is
-        // under-detection, not a park, and is #537.
+        // The job, rather than the request's pre-delete snapshot, decides whether this was the last key. Always
+        // enqueueing closes the concurrent-final-two-deletes race; when this other key survives, the job is a no-op.
         var typeId = await ArrangeTypeAsync();
         var firstKeyFieldId = await ArrangeFieldAsync(typeId, "invoice_number", isUniqueKey: true);
         await ArrangeFieldAsync(typeId, "vendor", isUniqueKey: true);
 
         await WithUnitOfWorkAsync(() => _fieldDefinitionAppService.DeleteAsync(firstKeyFieldId));
 
-        await _backgroundJobManager.DidNotReceive().EnqueueAsync(
-            Arg.Any<DuplicateBasisCleanupArgs>(),
+        await _backgroundJobManager.Received(1).EnqueueAsync(
+            Arg.Is<DuplicateBasisCleanupArgs>(a => a.DocumentTypeId == typeId),
             Arg.Any<BackgroundJobPriority>(),
             Arg.Any<TimeSpan?>());
     }
@@ -264,6 +262,30 @@ public class FieldDefinitionCleanup_Tests : VaultExtractTestBase<FieldDefinition
             document!.FieldFingerprint.ShouldBeNull();
             ((document.ReviewReasons & DocumentReviewReasons.DuplicateSuspected) != DocumentReviewReasons.None)
                 .ShouldBeFalse();
+        });
+    }
+
+    [Fact]
+    public async Task DuplicateBasisCleanup_Skips_When_The_Active_Schema_Has_A_Unique_Key()
+    {
+        // Covers both a surviving sibling key and a deleted last key restored/replaced before the queued job runs:
+        // valid duplicate state must not be erased from a schema that still has a duplicate basis.
+        var typeId = await ArrangeTypeAsync();
+        await ArrangeFieldAsync(typeId, "invoice_number", isUniqueKey: true);
+        var documentId = await ArrangeDuplicateSuspectedDocumentAsync(typeId);
+
+        await _duplicateBasisCleanupJob.ExecuteAsync(new DuplicateBasisCleanupArgs
+        {
+            DocumentTypeId = typeId,
+            TenantId = null
+        });
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var document = await _documentRepository.FindWithFieldValuesAsync(documentId);
+            document!.FieldFingerprint.ShouldNotBeNull();
+            ((document.ReviewReasons & DocumentReviewReasons.DuplicateSuspected) != DocumentReviewReasons.None)
+                .ShouldBeTrue();
         });
     }
 
