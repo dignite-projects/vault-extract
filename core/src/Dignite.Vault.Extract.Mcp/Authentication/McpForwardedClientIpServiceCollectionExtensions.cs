@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
+using System.Net.Sockets;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Configuration;
@@ -88,7 +89,7 @@ public static class McpForwardedClientIpServiceCollectionExtensions
                     $"{sectionPath}:KnownProxies contains invalid IP address '{value}'.");
             }
 
-            result.Add(address);
+            AddEquivalentAddresses(result, address);
         }
 
         return result;
@@ -106,9 +107,60 @@ public static class McpForwardedClientIpServiceCollectionExtensions
                     $"{sectionPath}:KnownNetworks contains invalid CIDR network '{value}'.");
             }
 
-            result.Add(network);
+            AddEquivalentNetworks(result, network);
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Kestrel can expose an IPv4 peer either as an IPv4 address or as its IPv4-mapped IPv6 representation when
+    /// dual-mode sockets are in use. Forwarded Headers performs exact proxy/network matching, so trust both
+    /// representations of the same configured endpoint rather than making an operator guess the runtime form.
+    /// </summary>
+    private static void AddEquivalentAddresses(List<IPAddress> result, IPAddress address)
+    {
+        AddDistinct(result, address);
+        if (address.AddressFamily == AddressFamily.InterNetwork)
+        {
+            AddDistinct(result, address.MapToIPv6());
+        }
+        else if (address.IsIPv4MappedToIPv6)
+        {
+            AddDistinct(result, address.MapToIPv4());
+        }
+    }
+
+    private static void AddEquivalentNetworks(List<System.Net.IPNetwork> result, System.Net.IPNetwork network)
+    {
+        AddDistinct(result, network);
+        if (network.BaseAddress.AddressFamily == AddressFamily.InterNetwork)
+        {
+            AddDistinct(
+                result,
+                new System.Net.IPNetwork(network.BaseAddress.MapToIPv6(), network.PrefixLength + 96));
+        }
+        else if (network.BaseAddress.IsIPv4MappedToIPv6 && network.PrefixLength >= 96)
+        {
+            AddDistinct(
+                result,
+                new System.Net.IPNetwork(network.BaseAddress.MapToIPv4(), network.PrefixLength - 96));
+        }
+    }
+
+    private static void AddDistinct(List<IPAddress> values, IPAddress candidate)
+    {
+        if (!values.Contains(candidate))
+        {
+            values.Add(candidate);
+        }
+    }
+
+    private static void AddDistinct(List<System.Net.IPNetwork> values, System.Net.IPNetwork candidate)
+    {
+        if (!values.Contains(candidate))
+        {
+            values.Add(candidate);
+        }
     }
 }
