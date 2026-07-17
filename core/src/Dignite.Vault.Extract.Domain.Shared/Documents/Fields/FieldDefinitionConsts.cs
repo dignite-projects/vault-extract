@@ -10,9 +10,11 @@ public static class FieldDefinitionConsts
     /// AI-polish request (#447). The persisted <c>FieldDefinition.Prompt</c> is intentionally uncapped
     /// (<c>nvarchar(max)</c>, #447: it is admin-authored configuration, not end-user input), so this
     /// bounds only the interactive LLM call to guard cost / abuse — it is no longer a column or
-    /// create/update DTO constraint.
+    /// create/update DTO constraint. #468 deliberately renamed the former <c>MaxPromptLength</c> API rather than
+    /// preserving its ambiguous name: the small source break prevents another persistence path from mistaking this
+    /// interactive-call limit for a stored-field invariant.
     /// </summary>
-    public static int MaxPromptLength { get; set; } = 4000;
+    public static int MaxInteractivePromptInputLength { get; set; } = 4000;
 
     /// <summary>
     /// Whitelist for field <see cref="FieldDefinition.Name"/>: only letters / digits / underscore /

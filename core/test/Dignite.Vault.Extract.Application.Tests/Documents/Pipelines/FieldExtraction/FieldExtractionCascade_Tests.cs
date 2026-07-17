@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Dignite.Vault.Extract.Abstractions.Documents;
+using Dignite.Vault.Extract.Ai;
 using Dignite.Vault.Extract.Documents;
 using Dignite.Vault.Extract.Documents.DocumentTypes;
 using Dignite.Vault.Extract.Documents.Fields;
@@ -14,6 +15,7 @@ using Dignite.Vault.Extract.Documents.Pipelines.FieldExtraction;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 using Shouldly;
 using Volo.Abp.EventBus.Distributed;
@@ -36,7 +38,8 @@ public class FieldExtractionCascadeTestModule : AbpModule
         // Each test case configures the virtual ExtractAsync with Returns / Throws.
         var workflow = Substitute.ForPartsOf<FieldExtractionWorkflow>(
             Substitute.For<IChatClient>(),
-            NullLogger<FieldExtractionWorkflow>.Instance);
+            NullLogger<FieldExtractionWorkflow>.Instance,
+            new FieldSchemaPromptBudgetGuard(Options.Create(new VaultExtractBehaviorOptions())));
         context.Services.AddSingleton(workflow);
     }
 }

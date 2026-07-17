@@ -30,6 +30,7 @@ public class VaultExtractBehaviorOptionsBindingTestModule : AbpModule
                 ["Vault:ExtractBehavior:MaxDocumentTypesInClassificationPrompt"] = "25",
                 ["Vault:ExtractBehavior:MaxTextLengthPerExtraction"] = "16000",
                 ["Vault:ExtractBehavior:MaxTitleGenerationMarkdownLength"] = "2048",
+                ["Vault:ExtractBehavior:MaxFieldSchemaPromptLength"] = "48000",
             })
             .Build();
 
@@ -61,5 +62,6 @@ public class VaultExtractBehaviorOptionsBinding_Tests
         _options.MaxDocumentTypesInClassificationPrompt.ShouldBe(25);                 // default 50
         _options.MaxTextLengthPerExtraction.ShouldBe(16000);                          // default 8000
         _options.MaxTitleGenerationMarkdownLength.ShouldBe(2048);                     // default 4000
+        _options.MaxFieldSchemaPromptLength.ShouldBe(48000);                          // default 32000
     }
 }

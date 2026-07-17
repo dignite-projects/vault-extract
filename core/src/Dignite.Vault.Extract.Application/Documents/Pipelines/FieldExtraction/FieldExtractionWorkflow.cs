@@ -35,13 +35,16 @@ public class FieldExtractionWorkflow : ITransientDependency
 {
     private readonly IChatClient _chatClient;
     private readonly ILogger<FieldExtractionWorkflow> _logger;
+    private readonly FieldSchemaPromptBudgetGuard _schemaPromptBudget;
 
     public FieldExtractionWorkflow(
         [FromKeyedServices(VaultExtractConsts.StructuredChatClientKey)] IChatClient chatClient,
-        ILogger<FieldExtractionWorkflow> logger)
+        ILogger<FieldExtractionWorkflow> logger,
+        FieldSchemaPromptBudgetGuard schemaPromptBudget)
     {
         _chatClient = chatClient;
         _logger = logger;
+        _schemaPromptBudget = schemaPromptBudget;
     }
 
     /// <summary>
@@ -82,8 +85,10 @@ public class FieldExtractionWorkflow : ITransientDependency
         // "instructions" and "user data" separately, together with PromptBoundary.WrapField + BoundaryRule.
         // FieldDefinition.Name is already entity-layer allow-list validated as [A-Za-z0-9_-]{1,64}
         // (see FieldDefinitionConsts.NamePattern), so it cannot contain line breaks, quotes, or Markdown control characters.
-        // f.Prompt is admin-authored configuration (uncapped since #447); its injection defense is PromptBoundary.WrapField
-        // (applied in BuildSchemaUserMessage) + BoundaryRule, not a length limit.
+        // f.Prompt is admin-authored configuration and remains uncapped per field (#447). The persistence paths enforce
+        // MaxFieldSchemaPromptLength over the whole type (#468); assert it again here so a repository bypass, seed, or
+        // future migration can never hand an unbounded schema message to the LLM.
+        _schemaPromptBudget.AssertWithinBudget(fields.Select(f => f.Prompt));
         var schemaMessage = BuildSchemaUserMessage(fields);
         var messages = new List<ChatMessage>
         {

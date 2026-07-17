@@ -172,7 +172,9 @@ These knobs describe *how Dignite Vault Extract calls the model* (language hint,
 "Vault": {
   "ExtractBehavior": {
     "DefaultLanguage": "ja",
-    "MaxTextLengthPerExtraction": 8000
+    "MaxTextLengthPerExtraction": 8000,
+    "MaxFieldExtractionMarkdownLength": 200000,
+    "MaxFieldSchemaPromptLength": 32000
   }
 }
 ```
@@ -180,7 +182,9 @@ These knobs describe *how Dignite Vault Extract calls the model* (language hint,
 | Key | Default | Description |
 | --- | --- | --- |
 | `DefaultLanguage` | `"ja"` | Language hint appended to every system prompt. Match this to your primary user base — Dignite Vault Extract prompts are written language-agnostic and switch via this hint |
-| `MaxTextLengthPerExtraction` | `8000` | Per-call character cap on Markdown fed to **classification** and **cabinet suggestion** (both only need the document's opening for a verdict). **Field extraction is not capped** — it sends the full Markdown, since a type-bound field can appear anywhere in the document and tail truncation would silently drop it. CJK-safe (one character ≈ one CJK glyph). Raise for long contracts / policies if your model's context window allows |
+| `MaxTextLengthPerExtraction` | `8000` | Per-call character cap on Markdown fed to **classification** and **cabinet suggestion** (both only need the document's opening for a verdict). CJK-safe (one character ≈ one CJK glyph). Raise for long contracts / policies if your model's context window allows |
+| `MaxFieldExtractionMarkdownLength` | `200000` | Maximum complete document body accepted by field extraction. Field extraction cannot safely truncate because a field may appear anywhere; an oversized document is declined with a blocking review reason instead of calling the model |
+| `MaxFieldSchemaPromptLength` | `32000` | Maximum total prompt characters across all active field definitions on one document type. Individual prompts remain uncapped; schema create/update/restore/import rejects only when the per-type total exceeds this host-funded LLM budget |
 
 Per-pipeline tuning lives in `ExtractBehavior` — see [classification.md](../pipeline/classification.md) for the keys the classification workflow reads.
 

@@ -80,6 +80,7 @@ public static class VaultExtractErrorCodes
         public const string DataTypeChangeNotAllowed = "Extract:FieldDefinitionDataTypeChangeNotAllowed";
         public const string MultiValueRequiresStringType = "Extract:FieldDefinitionMultiValueRequiresStringType";
         public const string MultiValueChangeNotAllowed = "Extract:FieldDefinitionMultiValueChangeNotAllowed";
+        public const string SchemaPromptBudgetExceeded = "Extract:FieldDefinitionSchemaPromptBudgetExceeded";
     }
 
     public static class ExtractedField

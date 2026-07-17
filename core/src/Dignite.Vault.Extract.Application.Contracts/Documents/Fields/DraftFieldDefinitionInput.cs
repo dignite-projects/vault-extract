@@ -11,12 +11,12 @@ namespace Dignite.Vault.Extract.Documents.Fields;
 public class DraftFieldDefinitionInput
 {
     /// <summary>
-    /// Extraction instructions: the only input signal for drafting. Length limit reuses
-    /// <see cref="FieldDefinitionConsts.MaxPromptLength"/> because this value eventually lands in
-    /// <c>FieldDefinition.Prompt</c>, sharing the same guardrail.
+    /// Extraction instructions: the only input signal for drafting. Capped at
+    /// <see cref="FieldDefinitionConsts.MaxInteractivePromptInputLength"/> to bound this interactive
+    /// LLM call; the persisted <c>FieldDefinition.Prompt</c> remains uncapped per field (#447).
     /// </summary>
     [Required]
-    [DynamicStringLength(typeof(FieldDefinitionConsts), nameof(FieldDefinitionConsts.MaxPromptLength))]
+    [DynamicStringLength(typeof(FieldDefinitionConsts), nameof(FieldDefinitionConsts.MaxInteractivePromptInputLength))]
     public string Prompt { get; set; } = default!;
 
     /// <summary>

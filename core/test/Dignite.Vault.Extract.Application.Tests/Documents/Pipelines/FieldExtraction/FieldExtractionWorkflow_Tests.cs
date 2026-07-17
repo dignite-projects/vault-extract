@@ -3,9 +3,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Dignite.Vault.Extract.Ai;
 using Dignite.Vault.Extract.Documents.Pipelines.FieldExtraction;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 using Shouldly;
 using Xunit;
@@ -33,7 +35,8 @@ public class FieldExtractionWorkflow_Tests
 
         return new FieldExtractionWorkflow(
             chatClient,
-            NullLogger<FieldExtractionWorkflow>.Instance);
+            NullLogger<FieldExtractionWorkflow>.Instance,
+            new FieldSchemaPromptBudgetGuard(Options.Create(new VaultExtractBehaviorOptions())));
     }
 
     private static FieldExtractionDescriptor Field(string name, FieldDataType type)
@@ -244,6 +247,31 @@ public class FieldExtractionWorkflow_Tests
 
         result.Values.ShouldBeEmpty();
         result.ValidationWarnings.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Over_budget_schema_assertion_blocks_the_llm_call()
+    {
+        var chatClient = Substitute.For<IChatClient>();
+        var workflow = new FieldExtractionWorkflow(
+            chatClient,
+            NullLogger<FieldExtractionWorkflow>.Instance,
+            new FieldSchemaPromptBudgetGuard(Options.Create(new VaultExtractBehaviorOptions
+            {
+                MaxFieldSchemaPromptLength = 4
+            })));
+        var fields = new[]
+        {
+            new FieldExtractionDescriptor(
+                Guid.NewGuid(), "body", "12345", FieldDataType.Text, IsRequired: false, AllowMultiple: false)
+        };
+
+        await Should.ThrowAsync<InvalidOperationException>(() => workflow.ExtractAsync(fields, "# doc"));
+
+        await chatClient.DidNotReceive().GetResponseAsync(
+            Arg.Any<IEnumerable<ChatMessage>>(),
+            Arg.Any<ChatOptions?>(),
+            Arg.Any<CancellationToken>());
     }
 
     // ─── validationWarnings: server-side normalization (#527 §3) ───
