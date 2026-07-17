@@ -8,12 +8,50 @@
     <button
       class="btn btn-outline-secondary"
       (click)="refresh()"
-      [disabled]="isLoading()"
+      [disabled]="isLoading() || isBulkDeleting()"
       title="{{ '::Refresh' | abpLocalization }}"
     >
       <i class="fas fa-sync-alt" [class.fa-spin]="isLoading()"></i>
     </button>
   </div>
+
+  @if (canPermanentDelete && selectedCount() > 0) {
+    <div class="alert alert-light border d-flex flex-wrap justify-content-between align-items-center gap-2 py-2 mb-3" role="status">
+      <span class="fw-semibold">
+        <i class="fas fa-check-square me-2" aria-hidden="true"></i>
+        {{ '::Document:Bulk:Selected' | abpLocalization: ((selectedCount() | number) ?? '') }}
+      </span>
+      <div class="d-flex gap-2">
+        <button
+          type="button"
+          class="btn btn-sm btn-outline-secondary"
+          (click)="clearSelection()"
+          [disabled]="isBulkDeleting()"
+        >
+          {{ '::Document:Bulk:ClearSelection' | abpLocalization }}
+        </button>
+        <button
+          type="button"
+          class="btn btn-sm btn-danger"
+          (click)="bulkPermanentDelete()"
+          [disabled]="isBulkDeleting()"
+        >
+          <i
+            class="fas me-1"
+            [class.fa-times]="!isBulkDeleting()"
+            [class.fa-spinner]="isBulkDeleting()"
+            [class.fa-spin]="isBulkDeleting()"
+            aria-hidden="true"
+          ></i>
+          {{
+            (isBulkDeleting()
+              ? '::Document:Bulk:PermanentDeleting'
+              : '::Document:Bulk:PermanentDelete') | abpLocalization
+          }}
+        </button>
+      </div>
+    </div>
+  }
 
   <!-- Loading spinner -->
   @if (isLoading() && documents().items.length === 0) {
@@ -44,13 +82,13 @@
               </button>
               <div ngbDropdownMenu>
                 @if (canRestore) {
-                  <button type="button" ngbDropdownItem (click)="restore(doc)">
+                  <button type="button" ngbDropdownItem (click)="restore(doc)" [disabled]="isBulkDeleting()">
                     <i class="fas fa-rotate-left me-2"></i>
                     {{ '::Document:Restore' | abpLocalization }}
                   </button>
                 }
                 @if (canPermanentDelete) {
-                  <button type="button" ngbDropdownItem (click)="permanentDelete(doc)">
+                  <button type="button" ngbDropdownItem (click)="permanentDelete(doc)" [disabled]="isBulkDeleting()">
                     <i class="fas fa-times me-2"></i>
                     {{ '::Document:PermanentDelete' | abpLocalization }}
                   </button>
@@ -68,12 +106,20 @@
             [actionsTemplate]="actionsTemplate"
             actionsText="AbpUi::Actions"
             [actionsColumnWidth]="150"
+            [selectable]="canPermanentDelete && !isBulkDeleting()"
+            selectionType="checkbox"
+            [selected]="selectedDocuments()"
+            (selectionChange)="onSelectionChange($event)"
           />
         } @else {
           <abp-extensible-table
             [data]="documents().items"
             [recordsTotal]="documents().totalCount"
             [list]="list"
+            [selectable]="canPermanentDelete && !isBulkDeleting()"
+            selectionType="checkbox"
+            [selected]="selectedDocuments()"
+            (selectionChange)="onSelectionChange($event)"
           />
         }
       </div>
