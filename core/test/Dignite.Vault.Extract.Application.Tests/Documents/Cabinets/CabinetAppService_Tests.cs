@@ -1,6 +1,4 @@
 using System;
-using System.Collections.Generic;
-using System.Linq.Expressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -48,22 +46,20 @@ public class CabinetAppService_Tests : VaultExtractApplicationTestBase<CabinetAp
         _cabinetRepository.GetAsync(cabinet.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(cabinet);
 
-        var doc1 = CreateDocumentInCabinet(cabinet.Id);
-        var doc2 = CreateDocumentInCabinet(cabinet.Id);
-        _documentRepository.GetListAsync(
-                Arg.Any<Expression<Func<Document, bool>>>(),
-                Arg.Any<bool>(),
-                Arg.Any<CancellationToken>())
-            .Returns(new List<Document> { doc1, doc2 });
+        _documentRepository.UnassignCabinetDocumentsAsync(cabinet.Id, Arg.Any<CancellationToken>())
+            .Returns(2);
 
         await _appService.DeleteAsync(cabinet.Id);
 
-        // Assignment is cleared, falling back to unclassified: no dangling pointer to a deleted cabinet,
-        // and recreating a same-name cabinet will not accidentally absorb old documents.
-        doc1.CabinetId.ShouldBeNull();
-        doc2.CabinetId.ShouldBeNull();
-        await _documentRepository.Received(1).UpdateManyAsync(
-            Arg.Any<IEnumerable<Document>>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        // The repository owns the set-based reconciliation. Its EF integration tests pin the affected
+        // live/recycle-bin rows; this application test pins ordering before the cabinet deletion.
+        await _documentRepository.Received(1).UnassignCabinetDocumentsAsync(
+            cabinet.Id, Arg.Any<CancellationToken>());
+        Received.InOrder(() =>
+        {
+            _documentRepository.UnassignCabinetDocumentsAsync(cabinet.Id, Arg.Any<CancellationToken>());
+            _cabinetRepository.DeleteAsync(cabinet, Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        });
         await _cabinetRepository.Received(1).DeleteAsync(cabinet, Arg.Any<bool>(), Arg.Any<CancellationToken>());
     }
 
@@ -73,16 +69,14 @@ public class CabinetAppService_Tests : VaultExtractApplicationTestBase<CabinetAp
         var cabinet = new Cabinet(Guid.NewGuid(), null, "Empty");
         _cabinetRepository.GetAsync(cabinet.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(cabinet);
-        _documentRepository.GetListAsync(
-                Arg.Any<Expression<Func<Document, bool>>>(),
-                Arg.Any<bool>(),
-                Arg.Any<CancellationToken>())
-            .Returns(new List<Document>());
+
+        _documentRepository.UnassignCabinetDocumentsAsync(cabinet.Id, Arg.Any<CancellationToken>())
+            .Returns(0);
 
         await _appService.DeleteAsync(cabinet.Id);
 
-        await _documentRepository.DidNotReceive().UpdateManyAsync(
-            Arg.Any<IEnumerable<Document>>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        await _documentRepository.Received(1).UnassignCabinetDocumentsAsync(
+            cabinet.Id, Arg.Any<CancellationToken>());
         await _cabinetRepository.Received(1).DeleteAsync(cabinet, Arg.Any<bool>(), Arg.Any<CancellationToken>());
     }
 
@@ -98,24 +92,9 @@ public class CabinetAppService_Tests : VaultExtractApplicationTestBase<CabinetAp
         await Should.ThrowAsync<EntityNotFoundException>(async () =>
             await _appService.DeleteAsync(tenantCabinet.Id));
 
-        await _documentRepository.DidNotReceive().UpdateManyAsync(
-            Arg.Any<IEnumerable<Document>>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        await _documentRepository.DidNotReceive().UnassignCabinetDocumentsAsync(
+            Arg.Any<Guid>(), Arg.Any<CancellationToken>());
         await _cabinetRepository.DidNotReceive().DeleteAsync(
             Arg.Any<Cabinet>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
-    }
-
-    private static Document CreateDocumentInCabinet(Guid cabinetId)
-    {
-        return new Document(
-            Guid.NewGuid(),
-            tenantId: null,
-            fileOrigin: new FileOrigin(
-                blobName: $"blobs/{Guid.NewGuid():N}.pdf",
-                uploadedByUserName: "test-user",
-                contentType: "application/pdf",
-                contentHash: $"{Guid.NewGuid():N}{Guid.NewGuid():N}",
-                fileSize: 1024,
-                originalFileName: "test.pdf"),
-            cabinetId: cabinetId);
     }
 }
