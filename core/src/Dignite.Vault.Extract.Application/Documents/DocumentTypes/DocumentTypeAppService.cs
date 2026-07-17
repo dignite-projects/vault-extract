@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Dignite.Vault.Extract.Documents.Fields;
 using Dignite.Vault.Extract.Permissions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging;
@@ -20,20 +21,23 @@ public class DocumentTypeAppService : VaultExtractAppService, IDocumentTypeAppSe
     private readonly IDocumentRepository _documentRepository;
     private readonly IFieldDefinitionRepository _fieldDefinitionRepository;
     private readonly DocumentTypeManager _documentTypeManager;
-    private readonly Fields.FieldDefinitionManager _fieldDefinitionManager;
+    private readonly FieldDefinitionManager _fieldDefinitionManager;
+    private readonly FieldSchemaPromptBudgetGuard _schemaPromptBudget;
 
     public DocumentTypeAppService(
         IDocumentTypeRepository repository,
         IDocumentRepository documentRepository,
         IFieldDefinitionRepository fieldDefinitionRepository,
         DocumentTypeManager documentTypeManager,
-        Fields.FieldDefinitionManager fieldDefinitionManager)
+        FieldDefinitionManager fieldDefinitionManager,
+        FieldSchemaPromptBudgetGuard schemaPromptBudget)
     {
         _repository = repository;
         _documentRepository = documentRepository;
         _fieldDefinitionRepository = fieldDefinitionRepository;
         _documentTypeManager = documentTypeManager;
         _fieldDefinitionManager = fieldDefinitionManager;
+        _schemaPromptBudget = schemaPromptBudget;
     }
 
     public virtual async Task<List<DocumentTypeDto>> GetVisibleAsync()
@@ -183,6 +187,15 @@ public class DocumentTypeAppService : VaultExtractAppService, IDocumentTypeAppSe
             // but extreme cases such as manual DB edits / seed bypass can still happen; the domain check rejects it (#304).
             await _documentTypeManager.CheckRestorableAsync(entity);
 
+            // Cascading restore reactivates every deleted field below, so validate their aggregate prompt budget
+            // before writing either the parent or a child. This closes the restore bypass around the CRUD guards.
+            var fieldQueryable = await _fieldDefinitionRepository.GetQueryableAsync();
+            var allFields = await AsyncExecuter.ToListAsync(
+                fieldQueryable.Where(f =>
+                    f.TenantId == entity.TenantId &&
+                    f.DocumentTypeId == entity.Id));
+            _schemaPromptBudget.EnsureCanPersist(entity.TypeCode, allFields.Select(f => f.Prompt));
+
             entity.IsDeleted = false;
             entity.DeletionTime = null;
             entity.DeleterId = null;
@@ -190,12 +203,7 @@ public class DocumentTypeAppService : VaultExtractAppService, IDocumentTypeAppSe
 
             // Cascading restore: also restore soft-deleted FieldDefinitions under the same (TenantId, TypeCode).
             // Unlike single-field RestoreAsync, skip conflicting fields here and log a warning rather than interrupting the whole restore.
-            var fieldQueryable = await _fieldDefinitionRepository.GetQueryableAsync();
-            var deletedFields = await AsyncExecuter.ToListAsync(
-                fieldQueryable.Where(f =>
-                    f.TenantId == entity.TenantId &&
-                    f.DocumentTypeId == entity.Id &&
-                    f.IsDeleted));
+            var deletedFields = allFields.Where(f => f.IsDeleted).ToList();
 
             foreach (var field in deletedFields)
             {

@@ -23,19 +23,22 @@ public class FieldDefinitionAppService : VaultExtractAppService, IFieldDefinitio
     private readonly IDocumentRepository _documentRepository;
     private readonly FieldDefinitionManager _fieldDefinitionManager;
     private readonly IBackgroundJobManager _backgroundJobManager;
+    private readonly FieldSchemaPromptBudgetGuard _schemaPromptBudget;
 
     public FieldDefinitionAppService(
         IFieldDefinitionRepository repository,
         IDocumentTypeRepository documentTypeRepository,
         IDocumentRepository documentRepository,
         FieldDefinitionManager fieldDefinitionManager,
-        IBackgroundJobManager backgroundJobManager)
+        IBackgroundJobManager backgroundJobManager,
+        FieldSchemaPromptBudgetGuard schemaPromptBudget)
     {
         _repository = repository;
         _documentTypeRepository = documentTypeRepository;
         _documentRepository = documentRepository;
         _fieldDefinitionManager = fieldDefinitionManager;
         _backgroundJobManager = backgroundJobManager;
+        _schemaPromptBudget = schemaPromptBudget;
     }
 
     public virtual async Task<List<FieldDefinitionDto>> GetListAsync(GetFieldDefinitionListInput input)
@@ -105,6 +108,7 @@ public class FieldDefinitionAppService : VaultExtractAppService, IFieldDefinitio
         // Soft-delete-aware duplicate check owned by the domain service (#304): the same (TenantId, DocumentTypeId, Name)
         // counts as occupied even when soft-deleted, avoiding conflicts with new records on restore.
         await _fieldDefinitionManager.CheckNameAvailableAsync(input.DocumentTypeId, input.Name);
+        await EnsureSchemaPromptBudgetAsync(type, replacingFieldId: null, projectedPrompt: input.Prompt);
 
         var entity = new FieldDefinition(
             GuidGenerator.Create(),
@@ -162,6 +166,9 @@ public class FieldDefinitionAppService : VaultExtractAppService, IFieldDefinitio
                     .WithData("Name", entity.Name);
             }
         }
+
+        var type = await _documentTypeRepository.GetAsync(entity.DocumentTypeId);
+        await EnsureSchemaPromptBudgetAsync(type, entity.Id, input.Prompt);
 
         entity.Update(input.Name, input.DisplayName, input.Prompt, input.DataType, input.DisplayOrder, input.IsRequired, input.AllowMultiple, input.IsUniqueKey);
         await _repository.UpdateAsync(entity, autoSave: true);
@@ -252,6 +259,20 @@ public class FieldDefinitionAppService : VaultExtractAppService, IFieldDefinitio
             // service keeps a defensive guard and throws RestoreConflict (#304).
             await _fieldDefinitionManager.CheckRestorableAsync(entity);
 
+            // A deleted field is outside the active extraction schema. Restoring it is therefore another
+            // configuration write and must validate the projected active set, especially when siblings were added
+            // while this field was in the recycle bin or the host lowered the configured ceiling.
+            var queryable = await _repository.GetQueryableAsync();
+            var activePrompts = await AsyncExecuter.ToListAsync(
+                queryable
+                    .Where(f =>
+                        f.DocumentTypeId == entity.DocumentTypeId &&
+                        f.Id != entity.Id &&
+                        !f.IsDeleted)
+                    .Select(f => f.Prompt));
+            activePrompts.Add(entity.Prompt);
+            _schemaPromptBudget.EnsureCanPersist(parentType.TypeCode, activePrompts);
+
             entity.IsDeleted = false;
             entity.DeletionTime = null;
             entity.DeleterId = null;
@@ -259,5 +280,19 @@ public class FieldDefinitionAppService : VaultExtractAppService, IFieldDefinitio
 
             return ObjectMapper.Map<FieldDefinition, FieldDefinitionDto>(entity);
         }
+    }
+
+    protected virtual async Task EnsureSchemaPromptBudgetAsync(
+        DocumentType type,
+        Guid? replacingFieldId,
+        string? projectedPrompt)
+    {
+        var fields = await _repository.GetListAsync(type.Id);
+        var projectedPrompts = fields
+            .Where(f => f.Id != replacingFieldId)
+            .Select(f => f.Prompt)
+            .Append(projectedPrompt);
+
+        _schemaPromptBudget.EnsureCanPersist(type.TypeCode, projectedPrompts);
     }
 }

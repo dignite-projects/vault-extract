@@ -398,6 +398,7 @@
     "Extract:FieldDefinitionDataTypeChangeNotAllowed": "Cannot change the data type of field '{Name}': it already has extracted values stored. Create a new field instead.",
     "Extract:FieldDefinitionMultiValueRequiresStringType": "Multi-value is only supported for Text fields, but '{dataType}' was requested. Use a Text field to allow multiple values.",
     "Extract:FieldDefinitionMultiValueChangeNotAllowed": "Cannot turn off multi-value on field '{Name}': it already has extracted values stored, and narrowing to single-value would orphan the extra values. Create a new field instead.",
+    "Extract:FieldDefinitionSchemaPromptBudgetExceeded": "The field schema for document type '{DocumentTypeCode}' contains {ActualLength} prompt characters, exceeding the configured limit of {MaxLength}. Shorten one or more field prompts before saving.",
     "Extract:InvalidFieldDefinitionName": "Field name '{name}' is invalid. Names must match pattern '{pattern}' (letters, digits, underscore, hyphen; 1-64 chars).",
     "Extract:InvalidFieldDefinitionDisplayName": "Field display name '{displayName}' contains control characters (newlines, tabs, etc.), which are not allowed.",
     "Extract:InvalidDocumentTypeDisplayName": "Document type display name '{displayName}' contains control characters (newlines, tabs, etc.), which are not allowed.",

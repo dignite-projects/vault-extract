@@ -398,6 +398,7 @@
     "Extract:FieldDefinitionDataTypeChangeNotAllowed": "無法修改欄位 '{Name}' 的資料類型：此欄位已存在擷取值。請改為新增欄位。",
     "Extract:FieldDefinitionMultiValueRequiresStringType": "多值僅支援文字類型欄位，但要求的是 '{dataType}'。請將欄位宣告為文字類型再開啟多值。",
     "Extract:FieldDefinitionMultiValueChangeNotAllowed": "無法關閉欄位 '{Name}' 的多值：此欄位已存在擷取值，收窄為單值會讓多餘的值變成孤立資料列。請改為新增欄位。",
+    "Extract:FieldDefinitionSchemaPromptBudgetExceeded": "文件類型 '{DocumentTypeCode}' 的欄位 schema 共包含 {ActualLength} 個提示詞字元，超過設定上限 {MaxLength}。請縮短一個或多個欄位提示詞後再儲存。",
     "Extract:InvalidFieldDefinitionName": "欄位名稱 '{name}' 不合法。名稱只能包含字母 / 數字 / 底線 / 連字號，長度 1-64 字元。",
     "Extract:InvalidFieldDefinitionDisplayName": "欄位顯示名稱 '{displayName}' 包含換行 / 定位字元等控制字元，不允許使用。",
     "Extract:InvalidDocumentTypeDisplayName": "文件類型顯示名稱 '{displayName}' 包含換行 / 定位字元等控制字元，不允許使用。",

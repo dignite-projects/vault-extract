@@ -1,10 +1,12 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Dignite.Vault.Extract.Ai;
 using Dignite.Vault.Extract.Documents.DocumentTypes;
 using Dignite.Vault.Extract.Documents.DocumentTypes.Packs;
 using Dignite.Vault.Extract.Documents.Fields;
 using Shouldly;
+using Microsoft.Extensions.Options;
 using Volo.Abp;
 using Volo.Abp.Data;
 using Xunit;
@@ -21,12 +23,18 @@ public class DocumentTypePackAppService_Tests : VaultExtractEntityFrameworkCoreT
     private readonly IDocumentTypePackAppService _packAppService;
     private readonly IDocumentTypeRepository _documentTypeRepository;
     private readonly IFieldDefinitionRepository _fieldDefinitionRepository;
+    private readonly IDocumentTypeAppService _documentTypeAppService;
+    private readonly IFieldDefinitionAppService _fieldDefinitionAppService;
+    private readonly VaultExtractBehaviorOptions _behaviorOptions;
 
     public DocumentTypePackAppService_Tests()
     {
         _packAppService = GetRequiredService<IDocumentTypePackAppService>();
         _documentTypeRepository = GetRequiredService<IDocumentTypeRepository>();
         _fieldDefinitionRepository = GetRequiredService<IFieldDefinitionRepository>();
+        _documentTypeAppService = GetRequiredService<IDocumentTypeAppService>();
+        _fieldDefinitionAppService = GetRequiredService<IFieldDefinitionAppService>();
+        _behaviorOptions = GetRequiredService<IOptions<VaultExtractBehaviorOptions>>().Value;
     }
 
     private static DocumentTypePackDto SamplePack(string typeCode = "host.invoice") => new()
@@ -164,6 +172,69 @@ public class DocumentTypePackAppService_Tests : VaultExtractEntityFrameworkCoreT
             fields.Count.ShouldBe(3); // the new field was added
             fields.Single(f => f.Name == "amount").Prompt.ShouldBe("the total"); // existing field untouched
         });
+    }
+
+    [Fact]
+    public async Task Prompt_longer_than_4000_round_trips_through_export_and_reimport()
+    {
+        var type = await _documentTypeAppService.CreateAsync(new CreateDocumentTypeDto
+        {
+            TypeCode = "host.long-prompt",
+            DisplayName = "Long prompt"
+        });
+        var prompt = new string('x', 5_000);
+        await _fieldDefinitionAppService.CreateAsync(new CreateFieldDefinitionDto
+        {
+            DocumentTypeId = type.Id,
+            Name = "body",
+            DisplayName = "Body",
+            Prompt = prompt,
+            DataType = FieldDataType.LongText
+        });
+
+        var exported = await _packAppService.ExportAsync(type.Id);
+        exported.Fields.Single().Prompt.ShouldBe(prompt);
+
+        var result = await _packAppService.ImportAsync(new ImportDocumentTypePacksInput
+        {
+            Packs = new List<DocumentTypePackDto> { exported }
+        });
+
+        result.FieldsUpdated.ShouldBe(1);
+        var reExported = await _packAppService.ExportAsync(type.Id);
+        reExported.Fields.Single().Prompt.ShouldBe(prompt);
+    }
+
+    [Fact]
+    public async Task Import_rejects_a_whole_pack_whose_total_prompt_budget_is_exceeded_before_writing()
+    {
+        var firstLength = _behaviorOptions.MaxFieldSchemaPromptLength / 2;
+        var pack = SamplePack("host.over-budget");
+        pack.Fields = new List<DocumentTypePackFieldDto>
+        {
+            new()
+            {
+                Name = "first",
+                DisplayName = "First",
+                Prompt = new string('a', firstLength),
+                DataType = FieldDataType.Text
+            },
+            new()
+            {
+                Name = "second",
+                DisplayName = "Second",
+                Prompt = new string('b', _behaviorOptions.MaxFieldSchemaPromptLength - firstLength + 1),
+                DataType = FieldDataType.Text
+            }
+        };
+
+        var ex = await Should.ThrowAsync<BusinessException>(() => _packAppService.ImportAsync(
+            new ImportDocumentTypePacksInput { Packs = new List<DocumentTypePackDto> { pack } }));
+
+        ex.Code.ShouldBe(VaultExtractErrorCodes.FieldDefinition.SchemaPromptBudgetExceeded);
+        ex.Data["ActualLength"].ShouldBe((long)_behaviorOptions.MaxFieldSchemaPromptLength + 1);
+        await WithUnitOfWorkAsync(async () =>
+            (await _documentTypeRepository.FindByTypeCodeAsync(pack.TypeCode)).ShouldBeNull());
     }
 
     [Fact]

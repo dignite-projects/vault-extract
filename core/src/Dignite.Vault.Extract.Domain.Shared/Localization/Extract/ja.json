@@ -398,6 +398,7 @@
     "Extract:FieldDefinitionDataTypeChangeNotAllowed": "フィールド '{Name}' のデータ型は変更できません：既に抽出値が保存されています。代わりに新しいフィールドを作成してください。",
     "Extract:FieldDefinitionMultiValueRequiresStringType": "複数値はテキストフィールドのみ対応していますが、'{dataType}' が要求されました。複数値を許可するにはテキストフィールドを使用してください。",
     "Extract:FieldDefinitionMultiValueChangeNotAllowed": "フィールド '{Name}' の複数値を無効にできません：既に抽出値が保存されており、単一値に狭めると余分な値が孤立してしまいます。代わりに新しいフィールドを作成してください。",
+    "Extract:FieldDefinitionSchemaPromptBudgetExceeded": "ドキュメントタイプ '{DocumentTypeCode}' のフィールドスキーマには合計 {ActualLength} 文字のプロンプトがあり、設定上限 {MaxLength} 文字を超えています。保存する前に、1 つ以上のフィールドプロンプトを短くしてください。",
     "Extract:InvalidFieldDefinitionName": "フィールド名 '{name}' は無効です。名前はパターン '{pattern}' に一致する必要があります（英字・数字・アンダースコア・ハイフン。1〜64 文字）。",
     "Extract:InvalidFieldDefinitionDisplayName": "フィールド表示名 '{displayName}' に制御文字（改行、タブなど）が含まれており、使用できません。",
     "Extract:InvalidDocumentTypeDisplayName": "ドキュメントタイプ表示名 '{displayName}' に制御文字（改行、タブなど）が含まれており、使用できません。",

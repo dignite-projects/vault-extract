@@ -333,6 +333,7 @@ Every LLM-facing path picks exactly one, and it follows from the semantics of th
 | `CabinetSuggestionWorkflow` | no | truncate (reuses `MaxTextLengthPerExtraction`) |
 | `DocumentSegmentationJob` | **yes** — a boundary can be anywhere | **gate** at `MaxSegmentationMarkdownLength` → `SegmentationIncomplete` |
 | `FieldExtractionService` | **yes** — a field can be anywhere | **gate** at `MaxFieldExtractionMarkdownLength` → `FieldExtractionIncomplete` |
+| `FieldExtractionWorkflow` field schema (`Σ FieldDefinition.Prompt`) | **yes** — every field instruction is load-bearing | **reject the configuration write** at the per-type `MaxFieldSchemaPromptLength`; assert again at the call site |
 | MCP `get_document` / `documents/{id}` | no — the client can re-read | truncate at `VaultExtractMcpConsts.MaxDocumentMarkdownChars` + announce |
 
 ```csharp
@@ -360,3 +361,4 @@ return new DocumentDetailResult
 4. **Never cut with a raw range slice** — `text[..n]` can split a surrogate pair; use `TextTruncator.AtCharBoundary`
 5. **Announce every truncation** — `Truncated` / `markdownTruncated` + a total, so an LLM cannot mistake a prefix for the whole
 6. **Prompt ceilings are configuration, egress ceilings are `const`** — a host tunes its own token budget (`VaultExtractBehaviorOptions`), but the safety boundary of an LLM-facing egress must not be widenable at runtime (`VaultExtractMcpConsts`)
+7. **Reject deterministic schema overflow at configuration write time** — an oversized field schema would affect every document of the type, while operators cannot edit admin-owned field definitions. Enforce the per-type total on create/update/restore/pack import; the workflow assertion is defense in depth, not the primary user-facing gate

@@ -14,6 +14,7 @@ using Dignite.Vault.Extract.Documents.Pipelines.FieldExtraction;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 using Shouldly;
 using Volo.Abp.EventBus.Distributed;
@@ -42,7 +43,8 @@ public class FieldExtractionServiceTestModule : AbpModule
 
         var workflow = Substitute.ForPartsOf<FieldExtractionWorkflow>(
             Substitute.For<IChatClient>(),
-            NullLogger<FieldExtractionWorkflow>.Instance);
+            NullLogger<FieldExtractionWorkflow>.Instance,
+            new FieldSchemaPromptBudgetGuard(Options.Create(new VaultExtractBehaviorOptions())));
         context.Services.AddSingleton(workflow);
     }
 }

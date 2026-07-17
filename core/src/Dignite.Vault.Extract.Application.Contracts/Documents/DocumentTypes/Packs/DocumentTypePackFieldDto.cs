@@ -20,7 +20,6 @@ public class DocumentTypePackFieldDto
     [DynamicStringLength(typeof(FieldDefinitionConsts), nameof(FieldDefinitionConsts.MaxDisplayNameLength))]
     public string DisplayName { get; set; } = default!;
 
-    [DynamicStringLength(typeof(FieldDefinitionConsts), nameof(FieldDefinitionConsts.MaxPromptLength))]
     public string? Prompt { get; set; }
 
     public FieldDataType DataType { get; set; } = FieldDataType.Text;

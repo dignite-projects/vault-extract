@@ -35,19 +35,22 @@ public class DocumentTypePackAppService : VaultExtractAppService, IDocumentTypeP
     private readonly IDocumentRepository _documentRepository;
     private readonly DocumentTypeManager _documentTypeManager;
     private readonly FieldDefinitionManager _fieldDefinitionManager;
+    private readonly FieldSchemaPromptBudgetGuard _schemaPromptBudget;
 
     public DocumentTypePackAppService(
         IDocumentTypeRepository documentTypeRepository,
         IFieldDefinitionRepository fieldDefinitionRepository,
         IDocumentRepository documentRepository,
         DocumentTypeManager documentTypeManager,
-        FieldDefinitionManager fieldDefinitionManager)
+        FieldDefinitionManager fieldDefinitionManager,
+        FieldSchemaPromptBudgetGuard schemaPromptBudget)
     {
         _documentTypeRepository = documentTypeRepository;
         _fieldDefinitionRepository = fieldDefinitionRepository;
         _documentRepository = documentRepository;
         _documentTypeManager = documentTypeManager;
         _fieldDefinitionManager = fieldDefinitionManager;
+        _schemaPromptBudget = schemaPromptBudget;
     }
 
     [Authorize(VaultExtractPermissions.DocumentTypes.Default)]
@@ -101,6 +104,11 @@ public class DocumentTypePackAppService : VaultExtractAppService, IDocumentTypeP
             }
         }
 
+        // Validate every projected type schema before touching the store. This is aggregate-wide (not one DTO
+        // attribute per field) and simulates repeated packs in request order, preserving the method's unconditional
+        // no-partial-write guarantee even in the non-transactional test harness.
+        await ValidateSchemaPromptBudgetsAsync(input.Packs, input.Mode);
+
         var result = new DocumentTypePackImportResultDto();
         foreach (var pack in input.Packs)
         {
@@ -120,6 +128,43 @@ public class DocumentTypePackAppService : VaultExtractAppService, IDocumentTypeP
         }
 
         return result;
+    }
+
+    protected virtual async Task ValidateSchemaPromptBudgetsAsync(
+        List<DocumentTypePackDto> packs,
+        PackImportMode mode)
+    {
+        var projectedByTypeCode = new Dictionary<string, Dictionary<string, string?>>(
+            StringComparer.Ordinal);
+
+        foreach (var pack in packs)
+        {
+            if (!projectedByTypeCode.TryGetValue(pack.TypeCode, out var projectedFields))
+            {
+                projectedFields = new Dictionary<string, string?>(StringComparer.Ordinal);
+                var existingType = await _documentTypeRepository.FindByTypeCodeAsync(pack.TypeCode);
+                if (existingType != null)
+                {
+                    var existingFields = await _fieldDefinitionRepository.GetListAsync(existingType.Id);
+                    foreach (var field in existingFields)
+                    {
+                        projectedFields[field.Name] = field.Prompt;
+                    }
+                }
+
+                projectedByTypeCode[pack.TypeCode] = projectedFields;
+            }
+
+            foreach (var field in pack.Fields)
+            {
+                if (!projectedFields.ContainsKey(field.Name) || mode == PackImportMode.CreateOrUpdate)
+                {
+                    projectedFields[field.Name] = field.Prompt;
+                }
+            }
+
+            _schemaPromptBudget.EnsureCanPersist(pack.TypeCode, projectedFields.Values);
+        }
     }
 
     protected virtual async Task<DocumentTypePackItemResultDto> ImportPackAsync(

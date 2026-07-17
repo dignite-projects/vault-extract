@@ -98,4 +98,14 @@ public class VaultExtractBehaviorOptions
     /// Default 200k chars, aligned with segmentation; hosts may raise it for bigger documents or lower it to cap spend.
     /// </summary>
     public int MaxFieldExtractionMarkdownLength { get; set; } = 200_000;
+
+    /// <summary>
+    /// Maximum total number of prompt characters across all active field definitions on one document type (#468).
+    /// One field prompt remains uncapped on its own (#447); the aggregate budget is what bounds the schema text sent
+    /// with every field-extraction call while preserving room for a single long structured-Markdown prompt. The
+    /// configuration write paths reject a projected schema above this ceiling, so an invalid type never mass-parks
+    /// its documents at extraction time. Default 32k characters: comfortably above ordinary 5-30-field schemas and
+    /// well below the default document-body ceiling.
+    /// </summary>
+    public int MaxFieldSchemaPromptLength { get; set; } = 32_000;
 }

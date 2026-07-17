@@ -13,6 +13,7 @@ using Dignite.Vault.Extract.Documents.Pipelines.FieldExtraction;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 using Shouldly;
 using Volo.Abp.BackgroundJobs;
@@ -41,7 +42,9 @@ public class FieldExtractionJobTestModule : AbpModule
         // Register the stub workflow instance directly. ForPartsOf uses the real constructor; DI takes this
         // singleton and bypasses keyed IChatClient resolution.
         var workflow = Substitute.ForPartsOf<FieldExtractionWorkflow>(
-            Substitute.For<IChatClient>(), NullLogger<FieldExtractionWorkflow>.Instance);
+            Substitute.For<IChatClient>(),
+            NullLogger<FieldExtractionWorkflow>.Instance,
+            new FieldSchemaPromptBudgetGuard(Options.Create(new VaultExtractBehaviorOptions())));
         context.Services.AddSingleton(workflow);
     }
 }

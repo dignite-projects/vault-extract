@@ -398,6 +398,7 @@
     "Extract:FieldDefinitionDataTypeChangeNotAllowed": "无法修改字段 '{Name}' 的数据类型：该字段已存在抽取值。请改为新建字段。",
     "Extract:FieldDefinitionMultiValueRequiresStringType": "多值仅支持文本类型字段，但请求的是 '{dataType}'。请将字段声明为文本类型再开启多值。",
     "Extract:FieldDefinitionMultiValueChangeNotAllowed": "无法关闭字段 '{Name}' 的多值：该字段已存在抽取值，收窄为单值会让多余的值变成孤儿行。请改为新建字段。",
+    "Extract:FieldDefinitionSchemaPromptBudgetExceeded": "文档类型 '{DocumentTypeCode}' 的字段 schema 共包含 {ActualLength} 个提示词字符，超过配置上限 {MaxLength}。请缩短一个或多个字段提示词后再保存。",
     "Extract:InvalidFieldDefinitionName": "字段名 '{name}' 不合法。名称只能包含字母 / 数字 / 下划线 / 短横线，长度 1-64 字符。",
     "Extract:InvalidFieldDefinitionDisplayName": "字段显示名 '{displayName}' 包含换行 / 制表符等控制字符，不允许使用。",
     "Extract:InvalidDocumentTypeDisplayName": "文档类型显示名 '{displayName}' 包含换行 / 制表符等控制字符，不允许使用。",
