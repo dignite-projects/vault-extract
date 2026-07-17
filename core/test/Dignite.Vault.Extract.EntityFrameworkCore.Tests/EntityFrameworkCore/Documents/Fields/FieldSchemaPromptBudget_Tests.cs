@@ -32,12 +32,14 @@ public class FieldSchemaPromptBudget_Tests : VaultExtractTestBase<FieldSchemaPro
 {
     private readonly IFieldDefinitionAppService _fieldAppService;
     private readonly IDocumentTypeAppService _typeAppService;
+    private readonly IFieldDefinitionRepository _fieldRepository;
     private readonly VaultExtractBehaviorOptions _options;
 
     public FieldSchemaPromptBudget_Tests()
     {
         _fieldAppService = GetRequiredService<IFieldDefinitionAppService>();
         _typeAppService = GetRequiredService<IDocumentTypeAppService>();
+        _fieldRepository = GetRequiredService<IFieldDefinitionRepository>();
         _options = GetRequiredService<IOptions<VaultExtractBehaviorOptions>>().Value;
     }
 
@@ -103,6 +105,39 @@ public class FieldSchemaPromptBudget_Tests : VaultExtractTestBase<FieldSchemaPro
         {
             _options.MaxFieldSchemaPromptLength = FieldSchemaPromptBudgetTestModule.PromptBudget;
         }
+    }
+
+    [Fact]
+    public async Task Cascading_type_restore_budgets_only_fields_that_will_actually_be_restored()
+    {
+        var type = await CreateTypeAsync();
+        await CreateFieldAsync(
+            type.Id,
+            "conflicting_name",
+            new string('a', FieldSchemaPromptBudgetTestModule.PromptBudget));
+        await _typeAppService.DeleteAsync(type.Id);
+
+        // Reproduce the defensive conflict case the cascade already supports (possible through a legacy/manual
+        // store bypass): the active field wins and the deleted same-name field is deliberately skipped.
+        var activeFieldId = Guid.NewGuid();
+        await WithUnitOfWorkAsync(() =>
+            _fieldRepository.InsertAsync(
+                new FieldDefinition(
+                    activeFieldId,
+                    tenantId: null,
+                    type.Id,
+                    "conflicting_name",
+                    "active",
+                    prompt: "b",
+                    dataType: FieldDataType.Text),
+                autoSave: true));
+
+        await _typeAppService.RestoreAsync(type.Id);
+
+        var activeFields = await _fieldAppService.GetListAsync(
+            new GetFieldDefinitionListInput { DocumentTypeId = type.Id });
+        activeFields.Count.ShouldBe(1);
+        activeFields[0].Id.ShouldBe(activeFieldId);
     }
 
     private async Task<DocumentTypeDto> CreateTypeAsync()
