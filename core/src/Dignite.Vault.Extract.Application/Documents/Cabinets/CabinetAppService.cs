@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Dignite.Vault.Extract.Permissions;
 using Microsoft.AspNetCore.Authorization;
+using Volo.Abp;
 using Volo.Abp.Domain.Entities;
 
 namespace Dignite.Vault.Extract.Documents.Cabinets;
@@ -81,18 +82,28 @@ public class CabinetAppService : VaultExtractAppService, ICabinetAppService
         // Atomically clear CabinetId on documents in this cabinet before deleting it, truly unfiling
         // them. Otherwise documents would dangle to a deleted cabinet (stale ID, and recreating a
         // cabinet with the same name cannot restore membership). Unlike DocumentType InUse protection,
-        // deletion is not blocked. Only active documents are cleared; stale CabinetId on soft-deleted
-        // documents is harmless because the frontend cannot map it and displays uncategorized. Switch
-        // to ExecuteUpdateAsync if one cabinet can contain very many documents.
-        var orphans = await _documentRepository.GetListAsync(
-            d => d.TenantId == CurrentTenant.Id && d.CabinetId == entity.Id);
-        if (orphans.Count > 0)
+        // deletion is not blocked: cabinet membership is optional organization metadata, not document
+        // identity or pipeline state, so "delete cabinet" clears references rather than failing closed.
+        // Switch to ExecuteUpdateAsync if one cabinet can contain very many documents.
+        //
+        // #530: the cleanup runs with ISoftDelete disabled so RECYCLE-BIN documents are unfiled too. Clearing only
+        // live documents made "delete cabinet" mean two different things depending on document lifecycle state — a
+        // binned document kept hidden membership and came back filed into a deleted cabinet on restore, which active
+        // cabinet reads cannot resolve, so the UI shows it as unfiled while the persisted CabinetId still points at
+        // the deleted row. IMultiTenant stays on, so the cleanup never leaves this cabinet's own layer. Unfiling is
+        // idempotent (SetCabinet(null) on an already-unfiled document is a no-op), so a retry is safe.
+        using (DataFilter.Disable<ISoftDelete>())
         {
-            foreach (var doc in orphans)
+            var orphans = await _documentRepository.GetListAsync(
+                d => d.TenantId == CurrentTenant.Id && d.CabinetId == entity.Id);
+            if (orphans.Count > 0)
             {
-                doc.UnassignCabinet();
+                foreach (var doc in orphans)
+                {
+                    doc.UnassignCabinet();
+                }
+                await _documentRepository.UpdateManyAsync(orphans, autoSave: true);
             }
-            await _documentRepository.UpdateManyAsync(orphans, autoSave: true);
         }
 
         await _repository.DeleteAsync(entity);
