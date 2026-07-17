@@ -1,8 +1,12 @@
+using System;
+using System.Collections.Generic;
 using System.Net;
+using System.Net.Http;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -58,8 +62,65 @@ public class McpRateLimiter_Tests
         }
     }
 
-    private static async Task<TestServer> BuildServerAsync(int permitLimit, bool enabled = true)
+    [Fact]
+    public async Task Trusted_forwarded_client_ips_get_independent_rate_limit_partitions()
     {
+        using var server = await BuildServerAsync(
+            permitLimit: 1,
+            transportPeer: IPAddress.Parse("10.0.0.100"),
+            trustedProxy: "10.0.0.100");
+        using var client = server.CreateClient();
+
+        (await SendFromAsync(client, "203.0.113.10")).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await SendFromAsync(client, "203.0.113.11")).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await SendFromAsync(client, "203.0.113.10")).StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+    }
+
+    [Fact]
+    public async Task An_unknown_transport_peer_cannot_spoof_rate_limit_partitions()
+    {
+        using var server = await BuildServerAsync(
+            permitLimit: 1,
+            transportPeer: IPAddress.Parse("10.0.0.200"),
+            trustedProxy: "10.0.0.100");
+        using var client = server.CreateClient();
+
+        (await SendFromAsync(client, "203.0.113.10")).StatusCode.ShouldBe(HttpStatusCode.OK);
+        // The untrusted peer's X-Forwarded-For is ignored, so both requests share 10.0.0.200's bucket.
+        (await SendFromAsync(client, "203.0.113.11")).StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+    }
+
+    [Fact]
+    public void Forwarded_client_ip_without_a_trusted_source_fails_closed()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Mcp:ForwardedClientIp:Enabled"] = "true"
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        Should.Throw<InvalidOperationException>(() =>
+            services.AddVaultExtractMcpForwardedClientIp(
+                configuration.GetSection("Mcp:ForwardedClientIp")));
+    }
+
+    private static async Task<TestServer> BuildServerAsync(
+        int permitLimit,
+        bool enabled = true,
+        IPAddress? transportPeer = null,
+        string? trustedProxy = null)
+    {
+        var forwardedHeadersValues = new Dictionary<string, string?>
+        {
+            ["Mcp:ForwardedClientIp:Enabled"] = (trustedProxy != null).ToString(),
+            ["Mcp:ForwardedClientIp:KnownProxies:0"] = trustedProxy
+        };
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(forwardedHeadersValues)
+            .Build();
+
         var host = await new HostBuilder()
             .ConfigureWebHost(web =>
             {
@@ -74,9 +135,21 @@ public class McpRateLimiter_Tests
                         options.WindowSeconds = 60;
                         options.QueueLimit = 0;
                     });
+                    services.AddVaultExtractMcpForwardedClientIp(
+                        configuration.GetSection("Mcp:ForwardedClientIp"));
                 });
                 web.Configure(app =>
                 {
+                    if (transportPeer != null)
+                    {
+                        app.Use(async (context, next) =>
+                        {
+                            context.Connection.RemoteIpAddress = transportPeer;
+                            await next();
+                        });
+                    }
+
+                    app.UseForwardedHeaders();
                     app.UseRouting();
                     app.UseRateLimiter();
                     app.UseEndpoints(endpoints =>
@@ -92,5 +165,13 @@ public class McpRateLimiter_Tests
             .StartAsync();
 
         return host.GetTestServer();
+    }
+
+    private static Task<HttpResponseMessage> SendFromAsync(HttpClient client, string clientIp)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, "/mcp");
+        request.Headers.Add("X-Forwarded-For", clientIp);
+        request.Headers.Add("X-Forwarded-Proto", "https");
+        return client.SendAsync(request);
     }
 }

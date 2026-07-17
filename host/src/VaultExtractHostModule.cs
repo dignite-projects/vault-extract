@@ -23,7 +23,6 @@ using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Http.Features;
-using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.OpenApi;
@@ -236,14 +235,16 @@ public class VaultExtractHostModule : AbpModule
             {
                 options.DisableTransportSecurityRequirement = true;
             });
-
-            Configure<ForwardedHeadersOptions>(options =>
-            {
-                options.ForwardedHeaders = ForwardedHeaders.XForwardedProto;
-                options.KnownIPNetworks.Clear();
-                options.KnownProxies.Clear();
-            });
         }
+
+        // #469: when explicitly enabled, restore the originating client IP before /mcp rate limiting
+        // so clients behind the same reverse proxy do not collapse into one partition. The MCP module's
+        // registration fails closed unless the deployment declares trusted proxy IPs or CIDR networks.
+        // Forwarded headers remain disabled for client IPs by default; UseForwardedHeaders is already the
+        // first middleware in OnApplicationInitialization.
+        context.Services.AddVaultExtractMcpForwardedClientIp(
+            configuration.GetSection("Mcp:ForwardedClientIp"),
+            includeForwardedProto: !configuration.GetValue<bool>("AuthServer:RequireHttpsMetadata"));
 
         if (hostingEnvironment.IsDevelopment())
         {
