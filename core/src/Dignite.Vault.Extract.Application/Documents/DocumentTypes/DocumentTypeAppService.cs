@@ -187,14 +187,31 @@ public class DocumentTypeAppService : VaultExtractAppService, IDocumentTypeAppSe
             // but extreme cases such as manual DB edits / seed bypass can still happen; the domain check rejects it (#304).
             await _documentTypeManager.CheckRestorableAsync(entity);
 
-            // Cascading restore reactivates every deleted field below, so validate their aggregate prompt budget
-            // before writing either the parent or a child. This closes the restore bypass around the CRUD guards.
+            // Build the exact field set the cascade will reactivate before writing either the parent or a child.
+            // A deleted field whose name conflicts with an already-active sibling is skipped by the established
+            // cascade semantics, so counting it would reject restores whose FINAL active schema is within budget.
             var fieldQueryable = await _fieldDefinitionRepository.GetQueryableAsync();
             var allFields = await AsyncExecuter.ToListAsync(
                 fieldQueryable.Where(f =>
                     f.TenantId == entity.TenantId &&
                     f.DocumentTypeId == entity.Id));
-            _schemaPromptBudget.EnsureCanPersist(entity.TypeCode, allFields.Select(f => f.Prompt));
+            var fieldsToRestore = new List<FieldDefinition>();
+            foreach (var field in allFields.Where(f => f.IsDeleted))
+            {
+                if (await _fieldDefinitionManager.HasActiveNameConflictAsync(entity.Id, field.Name))
+                {
+                    Logger.LogWarning(
+                        "Skip cascade restore of FieldDefinition {FieldId} (Name={Name}) under DocumentType {TypeCode}: an active field with the same name already exists.",
+                        field.Id, field.Name, entity.TypeCode);
+                    continue;
+                }
+
+                fieldsToRestore.Add(field);
+            }
+
+            _schemaPromptBudget.EnsureCanPersist(
+                entity.TypeCode,
+                allFields.Where(f => !f.IsDeleted).Concat(fieldsToRestore).Select(f => f.Prompt));
 
             entity.IsDeleted = false;
             entity.DeletionTime = null;
@@ -203,21 +220,8 @@ public class DocumentTypeAppService : VaultExtractAppService, IDocumentTypeAppSe
 
             // Cascading restore: also restore soft-deleted FieldDefinitions under the same (TenantId, TypeCode).
             // Unlike single-field RestoreAsync, skip conflicting fields here and log a warning rather than interrupting the whole restore.
-            var deletedFields = allFields.Where(f => f.IsDeleted).ToList();
-
-            foreach (var field in deletedFields)
+            foreach (var field in fieldsToRestore)
             {
-                // Per-field duplicate check routes through the domain service (#304); cascade restore skips conflicts
-                // (logs a warning) instead of aborting the whole type restore.
-                var nameConflict = await _fieldDefinitionManager.HasActiveNameConflictAsync(entity.Id, field.Name);
-                if (nameConflict)
-                {
-                    Logger.LogWarning(
-                        "Skip cascade restore of FieldDefinition {FieldId} (Name={Name}) under DocumentType {TypeCode}: an active field with the same name already exists.",
-                        field.Id, field.Name, entity.TypeCode);
-                    continue;
-                }
-
                 field.IsDeleted = false;
                 field.DeletionTime = null;
                 field.DeleterId = null;
