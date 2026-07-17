@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, LOCALE_ID, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, LOCALE_ID, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule, formatDate } from '@angular/common';
 import { ListService, LocalizationPipe, PermissionService, escapeHtmlChars } from '@abp/ng.core';
@@ -11,13 +11,14 @@ import {
 } from '@abp/ng.components/extensible';
 import { Confirmation, ConfirmationService, ToasterService } from '@abp/ng.theme.shared';
 import { NgbDropdownModule } from '@ng-bootstrap/ng-bootstrap';
-import { of } from 'rxjs';
+import { finalize, of } from 'rxjs';
 import {
   DocumentListItemDto,
   DocumentService,
   EXTRACT_PERMISSIONS,
 } from '@dignite/vault-extract';
 import { ClientPagedResult, configureEntityTable, EXTRACT_TABLES } from '../../shared/extensible-table';
+import { executeBulkOperations } from '../../shared/bulk-operation';
 import { formatBytes } from '../../shared/format-bytes';
 
 @Component({
@@ -47,6 +48,9 @@ export class DocumentRecycleBinComponent implements OnInit {
 
   documents = signal<ClientPagedResult<DocumentListItemDto>>({ totalCount: 0, items: [] });
   isLoading = signal(true);
+  selectedDocuments = signal<DocumentListItemDto[]>([]);
+  isBulkDeleting = signal(false);
+  readonly selectedCount = computed(() => this.selectedDocuments().length);
 
   readonly canRestore = this.permissionService.getGrantedPolicy(
     EXTRACT_PERMISSIONS.Documents.Restore,
@@ -136,11 +140,21 @@ export class DocumentRecycleBinComponent implements OnInit {
       )
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(result => {
+        const items = result.items ?? [];
         this.documents.set({
           totalCount: result.totalCount ?? 0,
-          items: result.items ?? [],
+          items,
         });
+        this.reconcileSelection(items);
       });
+  }
+
+  onSelectionChange(selected: DocumentListItemDto[]): void {
+    this.selectedDocuments.set([...selected]);
+  }
+
+  clearSelection(): void {
+    this.selectedDocuments.set([]);
   }
 
   restore(doc: DocumentListItemDto): void {
@@ -154,6 +168,7 @@ export class DocumentRecycleBinComponent implements OnInit {
           .subscribe({
             next: () => {
               this.toaster.success('::Document:RestoredSuccessfully', '::Success');
+              this.clearSelection();
               this.list.getWithoutPageReset();
             },
             error: () => this.toaster.error('::Document:RestoreFailed', '::Error'),
@@ -174,11 +189,62 @@ export class DocumentRecycleBinComponent implements OnInit {
           .subscribe({
             next: () => {
               this.toaster.success('::Document:PermanentlyDeletedSuccessfully', '::Success');
+              this.clearSelection();
               this.list.getWithoutPageReset();
             },
             error: () => this.toaster.error('::Document:PermanentDeleteFailed', '::Error'),
           });
       });
+  }
+
+  bulkPermanentDelete(): void {
+    // Permanent deletion enforces the same parent/child integrity rule, including recycle-bin
+    // children. Delete selected non-containers before their containers and keep the order serial.
+    const selected = [...this.selectedDocuments()]
+      .sort((left, right) => Number(!!left.isContainer) - Number(!!right.isContainer));
+    if (selected.length === 0 || this.isBulkDeleting()) return;
+
+    this.confirmation
+      .warn('::Document:Bulk:PermanentDeleteConfirm', '::AreYouSure', {
+        yesText: '::Document:Bulk:PermanentDelete',
+        messageLocalizationParams: [String(selected.length)],
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(status => {
+        if (status !== Confirmation.Status.confirm) return;
+
+        this.isBulkDeleting.set(true);
+        executeBulkOperations(selected, doc => this.documentService.permanentDelete(doc.id!), 1)
+          .pipe(
+            finalize(() => this.isBulkDeleting.set(false)),
+            takeUntilDestroyed(this.destroyRef),
+          )
+          .subscribe(result => {
+            const succeeded = result.succeeded.length;
+            const failed = result.failed.length;
+            if (failed === 0) {
+              this.toaster.success('::Document:Bulk:PermanentDeleteSucceeded', '::Success', {
+                messageLocalizationParams: [String(succeeded)],
+              });
+            } else if (succeeded > 0) {
+              this.toaster.warn('::Document:Bulk:PermanentDeletePartial', 'AbpUi::Warning', {
+                messageLocalizationParams: [String(succeeded), String(failed)],
+              });
+            } else {
+              this.toaster.error('::Document:Bulk:PermanentDeleteFailed', '::Error', {
+                messageLocalizationParams: [String(failed)],
+              });
+            }
+
+            this.clearSelection();
+            this.list.getWithoutPageReset();
+          });
+      });
+  }
+
+  private reconcileSelection(items: DocumentListItemDto[]): void {
+    const selectedIds = new Set(this.selectedDocuments().map(doc => doc.id).filter(Boolean));
+    this.selectedDocuments.set(items.filter(doc => !!doc.id && selectedIds.has(doc.id)));
   }
 
   isImage(doc: DocumentListItemDto): boolean {

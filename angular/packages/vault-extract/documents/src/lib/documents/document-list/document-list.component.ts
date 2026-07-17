@@ -29,7 +29,7 @@ import {
 import { ConfirmationService, ToasterService } from '@abp/ng.theme.shared';
 import { Confirmation } from '@abp/ng.theme.shared';
 import { NgbDropdownModule } from '@ng-bootstrap/ng-bootstrap';
-import { of, Subscription, timer } from 'rxjs';
+import { finalize, of, Subscription, timer } from 'rxjs';
 import {
   CabinetDto,
   CabinetService,
@@ -52,11 +52,13 @@ import { ClientPagedResult, configureEntityTable, EXTRACT_TABLES } from '../../s
 import { formatExtractedFieldValue } from '../../shared/format-field-value';
 import { FieldValueFilterComponent } from '../../shared/field-value-filter/field-value-filter.component';
 import { exportFileName, readBlobErrorMessage, triggerBlobDownload } from '../../shared/blob-download';
+import { executeBulkOperations } from '../../shared/bulk-operation';
 import { DocumentListFilter, toExportDocumentsInput } from './export-current-view';
 
 interface TableActivateEvent {
   type?: string;
   row?: DocumentListItemDto;
+  event?: Event;
 }
 
 // #440 (interim live status, list surface): while any document on the current page is still processing,
@@ -164,6 +166,9 @@ export class DocumentListComponent implements OnInit {
   selectedTypeId = signal('');
   isConfirming = signal(false);
   isExporting = signal(false);
+  selectedDocuments = signal<DocumentListItemDto[]>([]);
+  isBulkDeleting = signal(false);
+  readonly selectedCount = computed(() => this.selectedDocuments().length);
 
   // #284 review-queue gateway: the toolbar badge shows the canonical needs-review total for the current
   // layer (DocumentStatisticsDto.NeedsReviewCount — same RequiresAttention predicate the review queue runs,
@@ -405,10 +410,12 @@ export class DocumentListComponent implements OnInit {
       )
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(result => {
+        const items = result.items ?? [];
         this.documents.set({
           totalCount: result.totalCount ?? 0,
-          items: result.items ?? [],
+          items,
         });
+        this.reconcileSelection(items);
         // #440: a load has landed (initial, filter change, manual Refresh, or a poll tick alike). Drop the
         // quiet flag and (re)schedule or stop the poll from the freshly loaded page — so polling starts when a
         // page still holds processing documents and stops once none remain.
@@ -448,6 +455,7 @@ export class DocumentListComponent implements OnInit {
   }
 
   private refreshListFromFirstPage(): void {
+    this.clearSelection();
     // Reset to page 1 first (the setter triggers the refetch), then persist — so the URL records page 0,
     // not the page the operator was on before changing the filter. The debounced query$ subscription will
     // also fire and re-persist the same state; writing here too keeps the URL correct synchronously, so a
@@ -748,8 +756,18 @@ export class DocumentListComponent implements OnInit {
   }
 
   onTableActivate(event: TableActivateEvent): void {
-    if (event.type !== 'click' || !event.row) return;
+    if (this.isBulkDeleting() || event.type !== 'click' || !event.row) return;
+    const target = event.event?.target as HTMLElement | null;
+    if (target?.closest?.('input[type="checkbox"]')) return;
     this.openDetail(event.row);
+  }
+
+  onSelectionChange(selected: DocumentListItemDto[]): void {
+    this.selectedDocuments.set([...selected]);
+  }
+
+  clearSelection(): void {
+    this.selectedDocuments.set([]);
   }
 
   openDetail(doc: DocumentListItemDto): void {
@@ -772,6 +790,7 @@ export class DocumentListComponent implements OnInit {
             .subscribe({
             next: () => {
               this.toaster.success('::Document:DeletedSuccessfully', '::Success');
+              this.clearSelection();
               this.list.getWithoutPageReset();
               // A deleted document leaves the (soft-delete-filtered) review queue — refresh the badge.
               this.loadReviewQueueCount();
@@ -780,6 +799,57 @@ export class DocumentListComponent implements OnInit {
           });
         }
       });
+  }
+
+  bulkDelete(): void {
+    // A selected bundle can depend on selected sub-documents. Process non-containers first and
+    // serialize the requests so the existing HasSubDocuments guard sees those children removed.
+    const selected = [...this.selectedDocuments()]
+      .sort((left, right) => Number(!!left.isContainer) - Number(!!right.isContainer));
+    if (selected.length === 0 || this.isBulkDeleting()) return;
+
+    this.confirmation
+      .warn('::Document:Bulk:DeleteConfirm', '::AreYouSure', {
+        yesText: '::Document:Bulk:Delete',
+        messageLocalizationParams: [String(selected.length)],
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(status => {
+        if (status !== Confirmation.Status.confirm) return;
+
+        this.isBulkDeleting.set(true);
+        executeBulkOperations(selected, doc => this.documentService.delete(doc.id!), 1)
+          .pipe(
+            finalize(() => this.isBulkDeleting.set(false)),
+            takeUntilDestroyed(this.destroyRef),
+          )
+          .subscribe(result => {
+            const succeeded = result.succeeded.length;
+            const failed = result.failed.length;
+            if (failed === 0) {
+              this.toaster.success('::Document:Bulk:DeleteSucceeded', '::Success', {
+                messageLocalizationParams: [String(succeeded)],
+              });
+            } else if (succeeded > 0) {
+              this.toaster.warn('::Document:Bulk:DeletePartial', 'AbpUi::Warning', {
+                messageLocalizationParams: [String(succeeded), String(failed)],
+              });
+            } else {
+              this.toaster.error('::Document:Bulk:DeleteFailed', '::Error', {
+                messageLocalizationParams: [String(failed)],
+              });
+            }
+
+            this.clearSelection();
+            this.list.getWithoutPageReset();
+            this.loadReviewQueueCount();
+          });
+      });
+  }
+
+  private reconcileSelection(items: DocumentListItemDto[]): void {
+    const selectedIds = new Set(this.selectedDocuments().map(doc => doc.id).filter(Boolean));
+    this.selectedDocuments.set(items.filter(doc => !!doc.id && selectedIds.has(doc.id)));
   }
 
   // Canonical needs-review total for the toolbar badge. Gated on canConfirm so non-reviewers (who don't

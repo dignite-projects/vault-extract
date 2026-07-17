@@ -9,7 +9,7 @@
       <button
         class="btn btn-outline-secondary"
         (click)="refresh()"
-        [disabled]="isLoading()"
+        [disabled]="isLoading() || isBulkDeleting()"
         title="{{ '::Refresh' | abpLocalization }}"
       >
         <i class="fas fa-sync-alt" [class.fa-spin]="isLoading()"></i>
@@ -145,6 +145,43 @@
     </div>
   }
 
+  @if (canDelete && selectedCount() > 0) {
+    <div class="alert alert-light border d-flex flex-wrap justify-content-between align-items-center gap-2 py-2 mb-3" role="status">
+      <span class="fw-semibold">
+        <i class="fas fa-check-square me-2" aria-hidden="true"></i>
+        {{ '::Document:Bulk:Selected' | abpLocalization: ((selectedCount() | number) ?? '') }}
+      </span>
+      <div class="d-flex gap-2">
+        <button
+          type="button"
+          class="btn btn-sm btn-outline-secondary"
+          (click)="clearSelection()"
+          [disabled]="isBulkDeleting()"
+        >
+          {{ '::Document:Bulk:ClearSelection' | abpLocalization }}
+        </button>
+        <button
+          type="button"
+          class="btn btn-sm btn-danger"
+          (click)="bulkDelete()"
+          [disabled]="isBulkDeleting()"
+        >
+          <i
+            class="fas me-1"
+            [class.fa-trash]="!isBulkDeleting()"
+            [class.fa-spinner]="isBulkDeleting()"
+            [class.fa-spin]="isBulkDeleting()"
+            aria-hidden="true"
+          ></i>
+          {{
+            (isBulkDeleting() ? '::Document:Bulk:Deleting' : '::Document:Bulk:Delete')
+              | abpLocalization
+          }}
+        </button>
+      </div>
+    </div>
+  }
+
   <!-- Loading spinner -->
   @if (isLoading() && documents().items.length === 0) {
     <div class="text-center py-5">
@@ -197,7 +234,7 @@
                   </button>
                 }
                 @if (canDelete) {
-                  <button type="button" ngbDropdownItem (click)="delete(doc, $event)">
+                  <button type="button" ngbDropdownItem (click)="delete(doc, $event)" [disabled]="isBulkDeleting()">
                     <i class="fas fa-trash me-2"></i>
                     {{ '::Delete' | abpLocalization }}
                   </button>
@@ -216,6 +253,10 @@
               [actionsTemplate]="actionsTemplate"
               actionsText="AbpUi::Actions"
               [actionsColumnWidth]="150"
+              [selectable]="canDelete && !isBulkDeleting()"
+              selectionType="checkbox"
+              [selected]="selectedDocuments()"
+              (selectionChange)="onSelectionChange($event)"
               (tableActivate)="onTableActivate($event)"
             />
           } @else {
@@ -223,6 +264,10 @@
               [data]="documents().items"
               [recordsTotal]="documents().totalCount"
               [list]="list"
+              [selectable]="canDelete && !isBulkDeleting()"
+              selectionType="checkbox"
+              [selected]="selectedDocuments()"
+              (selectionChange)="onSelectionChange($event)"
               (tableActivate)="onTableActivate($event)"
             />
           }
