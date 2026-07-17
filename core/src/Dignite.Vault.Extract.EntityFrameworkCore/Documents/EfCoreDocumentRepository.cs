@@ -53,6 +53,23 @@ public class EfCoreDocumentRepository
         }
     }
 
+    public virtual async Task<int> UnassignCabinetDocumentsAsync(
+        Guid cabinetId,
+        CancellationToken cancellationToken = default)
+    {
+        // #530: clear live + recycle-bin references without loading an unbounded set of aggregate payloads. Only
+        // ISoftDelete is disabled; ABP's ambient IMultiTenant predicate remains part of the generated UPDATE.
+        using (DataFilter.Disable<ISoftDelete>())
+        {
+            var dbSet = await GetDbSetAsync();
+            return await dbSet
+                .Where(document => document.CabinetId == cabinetId)
+                .ExecuteUpdateAsync(
+                    setters => setters.SetProperty(document => document.CabinetId, (Guid?)null),
+                    GetCancellationToken(cancellationToken));
+        }
+    }
+
     public virtual async Task<bool> AnyLiveDerivedDuplicateAsync(
         Guid originDocumentId,
         string originConstituentKey,

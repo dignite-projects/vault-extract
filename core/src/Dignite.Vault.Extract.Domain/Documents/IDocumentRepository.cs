@@ -30,6 +30,17 @@ public interface IDocumentRepository : IRepository<Document, Guid>
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Clears <see cref="Document.CabinetId"/> for every document in the ambient tenant layer that references
+    /// <paramref name="cabinetId"/> (#530). Traverses <c>ISoftDelete</c> so recycle-bin documents are unfiled too,
+    /// while retaining the ambient <c>IMultiTenant</c> boundary. Implemented as one set-based update: cabinet
+    /// membership is optional organization metadata, and its removal publishes no document pipeline events.
+    /// Returns the number of affected rows and is idempotent/retry-safe.
+    /// </summary>
+    Task<int> UnassignCabinetDocumentsAsync(
+        Guid cabinetId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Whether another LIVE document already shares the derived-document identity
     /// <c>(OriginDocumentId, OriginConstituentKey)</c> — the #485 restore-time fail-close used by
     /// <c>DocumentAppService.RestoreAsync</c>, replacing the fail-close the #481-dropped #391 filtered-unique index
