@@ -219,6 +219,65 @@ public class EfCoreDocumentRepository
             .AnyAsync(f => f.FieldDefinitionId == fieldDefinitionId, GetCancellationToken(cancellationToken));
     }
 
+    public virtual async Task<List<Guid>> GetIdsWithFieldValidationWarningAsync(
+        Guid fieldDefinitionId,
+        Guid? afterId,
+        int maxCount,
+        CancellationToken cancellationToken = default)
+    {
+        // #528: recycle-bin documents must be cleaned too — restoring one would otherwise resurrect a blocking
+        // warning for a field that no longer exists. IMultiTenant stays on, so the scan never leaves this layer.
+        using (DataFilter.Disable<ISoftDelete>())
+        {
+            var dbSet = await GetDbSetAsync();
+            return await ApplyKeysetPage(
+                    dbSet.Where(d => d.FieldValidationWarnings.Any(w => w.FieldDefinitionId == fieldDefinitionId)),
+                    afterId,
+                    maxCount)
+                .ToListAsync(GetCancellationToken(cancellationToken));
+        }
+    }
+
+    public virtual async Task<List<Guid>> GetIdsWithDuplicateBasisAsync(
+        Guid documentTypeId,
+        Guid? afterId,
+        int maxCount,
+        CancellationToken cancellationToken = default)
+    {
+        using (DataFilter.Disable<ISoftDelete>())
+        {
+            var dbSet = await GetDbSetAsync();
+            return await ApplyKeysetPage(
+                    dbSet.Where(d =>
+                        d.DocumentTypeId == documentTypeId &&
+                        (d.FieldFingerprint != null ||
+                         (d.ReviewReasons & DocumentReviewReasons.DuplicateSuspected) != DocumentReviewReasons.None)),
+                    afterId,
+                    maxCount)
+                .ToListAsync(GetCancellationToken(cancellationToken));
+        }
+    }
+
+    /// <summary>
+    /// Shared keyset page for the #528 cleanup scans: <c>WHERE Id &gt; afterId ORDER BY Id Take(N)</c>, riding the
+    /// primary-key index (O(batch), unlike deep OFFSET paging), projecting Ids only so no full row — especially
+    /// Markdown — is ever materialized.
+    /// </summary>
+    private static IQueryable<Guid> ApplyKeysetPage(IQueryable<Document> query, Guid? afterId, int maxCount)
+    {
+        if (afterId.HasValue)
+        {
+            var cursor = afterId.Value;
+            query = query.Where(d => d.Id.CompareTo(cursor) > 0);
+        }
+
+        return query
+            .OrderBy(d => d.Id)
+            .Take(maxCount)
+            .AsNoTracking()
+            .Select(d => d.Id);
+    }
+
     public virtual async Task<long> CountForReprocessingAsync(
         Guid? documentTypeId,
         DocumentReviewReasons? withReason,

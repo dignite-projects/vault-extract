@@ -221,6 +221,53 @@ public interface IDocumentRepository : IRepository<Document, Guid>
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Keyset-paginated Ids of documents carrying a <see cref="DocumentFieldValidationWarning"/> for
+    /// <paramref name="fieldDefinitionId"/> (#528) — the cleanup scope after that field definition is deleted, since
+    /// a warning naming a field that no longer exists keeps the blocking
+    /// <see cref="DocumentReviewReasons.FieldValidationWarning"/> bit set and parks the document out of
+    /// <c>DocumentReadyEto</c> forever.
+    /// <para>
+    /// <b>Traverses soft delete</b> (the implementation disables <c>ISoftDelete</c>, like
+    /// <see cref="FindByContentHashAsync"/>): a recycle-bin document must be cleaned too, otherwise restoring it
+    /// resurrects review state for a field that no longer exists. The caller distinguishes live from recycle-bin rows
+    /// by reading <c>Document.IsDeleted</c> per row, because only live documents need lifecycle re-derivation.
+    /// <c>IMultiTenant</c> still applies by ambient state, so the scan never leaves the field definition's own layer.
+    /// </para>
+    /// <para>
+    /// Ordered by <c>Id</c> with <c>Id &gt; afterId</c> (null = from the beginning), <c>AsNoTracking</c> +
+    /// <c>Select(d =&gt; d.Id)</c> so no full row (especially Markdown) is ever materialized. The caller chains the
+    /// next batch with the last Id as the cursor.
+    /// </para>
+    /// </summary>
+    Task<List<Guid>> GetIdsWithFieldValidationWarningAsync(
+        Guid fieldDefinitionId,
+        Guid? afterId,
+        int maxCount,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Keyset-paginated Ids of documents under <paramref name="documentTypeId"/> that still carry a duplicate basis —
+    /// a non-null <see cref="Document.FieldFingerprint"/> or the <see cref="DocumentReviewReasons.DuplicateSuspected"/>
+    /// reason (#528).
+    /// <para>
+    /// Used only when a deleted field definition was the type's <b>last active unique-key field</b>. The type then has
+    /// no duplicate basis left, every document's fingerprint should be <c>null</c>, and any lingering
+    /// <c>DuplicateSuspected</c> is definitively obsolete — a blocking false park. Deleting one of <i>several</i>
+    /// unique-key fields is <b>not</b> this case and must not use this scan: narrowing the key preserves equality, so
+    /// existing flags stay valid and clearing them would hide real duplicates (tracked as under-detection in #537).
+    /// </para>
+    /// <para>
+    /// Same contract as <see cref="GetIdsWithFieldValidationWarningAsync"/>: traverses soft delete, keeps
+    /// <c>IMultiTenant</c>, Ids only, keyset cursor.
+    /// </para>
+    /// </summary>
+    Task<List<Guid>> GetIdsWithDuplicateBasisAsync(
+        Guid documentTypeId,
+        Guid? afterId,
+        int maxCount,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Aggregate overview statistics for the current ambient layer (#333): per-lifecycle document counts,
     /// the needs-review count, and the total original uploaded size (sum of <c>FileOrigin.FileSize</c>).
     /// <para>

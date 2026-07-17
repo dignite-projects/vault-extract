@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Dignite.Vault.Extract.Documents.DocumentTypes;
+using Dignite.Vault.Extract.Documents.Fields.Cleanup;
 using Dignite.Vault.Extract.Permissions;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Authorization;
+using Volo.Abp.BackgroundJobs;
 using Volo.Abp.Domain.Entities;
 
 namespace Dignite.Vault.Extract.Documents.Fields;
@@ -20,17 +22,20 @@ public class FieldDefinitionAppService : VaultExtractAppService, IFieldDefinitio
     private readonly IDocumentTypeRepository _documentTypeRepository;
     private readonly IDocumentRepository _documentRepository;
     private readonly FieldDefinitionManager _fieldDefinitionManager;
+    private readonly IBackgroundJobManager _backgroundJobManager;
 
     public FieldDefinitionAppService(
         IFieldDefinitionRepository repository,
         IDocumentTypeRepository documentTypeRepository,
         IDocumentRepository documentRepository,
-        FieldDefinitionManager fieldDefinitionManager)
+        FieldDefinitionManager fieldDefinitionManager,
+        IBackgroundJobManager backgroundJobManager)
     {
         _repository = repository;
         _documentTypeRepository = documentTypeRepository;
         _documentRepository = documentRepository;
         _fieldDefinitionManager = fieldDefinitionManager;
+        _backgroundJobManager = backgroundJobManager;
     }
 
     public virtual async Task<List<FieldDefinitionDto>> GetListAsync(GetFieldDefinitionListInput input)
@@ -163,6 +168,23 @@ public class FieldDefinitionAppService : VaultExtractAppService, IFieldDefinitio
         return ObjectMapper.Map<FieldDefinition, FieldDefinitionDto>(entity);
     }
 
+    /// <summary>
+    /// Soft-deletes a field definition and reconciles the document state derived from it (#528).
+    /// <para>
+    /// Deletion alone used to leave every <see cref="DocumentFieldValidationWarning"/> naming this field in place,
+    /// and with it the blocking <see cref="DocumentReviewReasons.FieldValidationWarning"/> bit — parking those
+    /// documents out of <c>DocumentReadyEto</c> until an operator resolved them by hand or a re-extraction happened
+    /// to run. The cleanup is deferred to <see cref="FieldValidationWarningCleanupJob"/> because the affected set is
+    /// bounded only by the type's document count; enqueueing happens inside this UoW, so it cannot run for a delete
+    /// that rolled back.
+    /// </para>
+    /// <para>
+    /// The scope line is the Ready gate (<c>ReviewReasonPolicy.Blocking</c>): state that <b>withholds</b> a document
+    /// is reconciled here, state that is merely stale is not. Hence the second, conditional job — and hence
+    /// <c>MissingRequiredFields</c> (non-blocking) and a stale fingerprint under a narrowed-but-non-empty unique-key
+    /// set (an under-detection, not a park) are #537, not this path.
+    /// </para>
+    /// </summary>
     [Authorize(VaultExtractPermissions.FieldDefinitions.Delete)]
     public virtual async Task DeleteAsync(Guid id)
     {
@@ -171,7 +193,35 @@ public class FieldDefinitionAppService : VaultExtractAppService, IFieldDefinitio
         {
             throw new EntityNotFoundException(typeof(FieldDefinition), id);
         }
+
+        // #528: decided BEFORE the delete, while this row is still active and therefore still visible to
+        // GetListAsync. Losing the type's LAST unique-key field is the one case where deletion invalidates the
+        // duplicate basis outright: FieldFingerprint is the hash of the unique-key values (#411), so with none left
+        // every fingerprint should be null and any surviving DuplicateSuspected is a blocking false park. Deleting
+        // one of several unique-key fields only narrows the key, which keeps existing flags valid (#537).
+        var wasLastUniqueKeyField =
+            entity.IsUniqueKey &&
+            !(await _repository.GetListAsync(entity.DocumentTypeId))
+                .Any(f => f.Id != entity.Id && f.IsUniqueKey);
+
         await _repository.DeleteAsync(entity);
+
+        await _backgroundJobManager.EnqueueAsync(
+            new FieldValidationWarningCleanupArgs
+            {
+                FieldDefinitionId = entity.Id,
+                TenantId = entity.TenantId
+            });
+
+        if (wasLastUniqueKeyField)
+        {
+            await _backgroundJobManager.EnqueueAsync(
+                new DuplicateBasisCleanupArgs
+                {
+                    DocumentTypeId = entity.DocumentTypeId,
+                    TenantId = entity.TenantId
+                });
+        }
     }
 
     [Authorize(VaultExtractPermissions.FieldDefinitions.Delete)]
