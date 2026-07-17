@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-07-17
+
+Patch release for the 0.3.x stable line. This release tightens field-schema cleanup and prompt-budget guards, hardens MCP client-IP handling behind trusted proxies, fixes delete guards around recycle-bin documents, restores stable NuGet symbol validation by embedding PDBs, and adds operator bulk-delete selection to the document list and recycle bin.
+
+### Added
+
+- **Bulk document delete selection** — the operator document list and recycle bin now support multi-row selection and bulk delete actions, with localized selection/status text (#534).
+
+### Changed
+
+- **Release packaging** — NuGet packages now embed portable PDBs in the assemblies instead of shipping separate `.snupkg` symbol packages, avoiding NuGet.org symbol-validation failures while preserving Source Link step-in support.
+
+### Fixed
+
+- **Field-definition cleanup** — deleting field definitions now removes orphaned field-validation warnings and duplicate-basis cleanup is schema-aware, so fields with matching codes in different document types are not crossed (#528).
+- **Field-schema prompt budgets** — schema prompt-budget validation now applies per document type and accounts for the actual cascade restore fields (#468).
+- **Cabinet and document-type deletion** — cabinet deletion unfiles recycle-bin documents and uses set-based cleanup; document-type delete guards now count recycle-bin documents instead of allowing a type with retained documents to be removed (#530, #531).
+
+### Security
+
+- **MCP forwarded client IP handling** — the host now trusts forwarded client IPs only through explicitly configured proxies and normalizes trusted proxy address forms, keeping rate-limit identity stable behind supported reverse proxies (#469).
+
 ## [0.3.0] - 2026-07-14
 
 Second stable release of the channel. The 0.3.0 line adds **field validation warnings** as a first-class extraction output, brings **multi-tenancy** to the host (tenant administration, tenant-correct background jobs, and a tenant-scoped MCP surface), broadens **ingestion** to born-digital formats, deepens **OpenXML / PDF** structure extraction, repositions the **export** flow onto the document list, and puts a **size ceiling on every text that crosses an LLM boundary**. The MCP egress returns to **OAuth-only** and becomes additively extensible by downstream modules. The granular per-preview history is retained in the `0.3.0-preview.*` sections below.
@@ -227,7 +249,8 @@ Preview of the 0.2.0 line. This release rebrands the project to **Dignite Vault 
 - Legacy Angular document-upload route.
 - Dead fields from the segmentation subsystem (#390).
 
-[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/dignite-projects/vault-extract/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/dignite-projects/vault-extract/compare/v0.2.0...v0.3.0
 [0.3.0-preview.4]: https://github.com/dignite-projects/vault-extract/compare/v0.3.0-preview.3...v0.3.0-preview.4
 [0.3.0-preview.3]: https://github.com/dignite-projects/vault-extract/compare/v0.3.0-preview.2...v0.3.0-preview.3
