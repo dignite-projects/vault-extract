@@ -153,6 +153,8 @@ Environment-variable equivalents use configuration indexes, for example `Mcp__Fo
 
 When enabled, Extract processes `X-Forwarded-For` and `X-Forwarded-Proto` before routing and rate limiting. Startup fails if neither allowlist is populated, if an address/CIDR is invalid, or if `ForwardLimit` is less than one. This is intentional: trusting forwarded headers from arbitrary senders lets a client spoof its IP, rotate rate-limit partitions, and potentially influence scheme-sensitive behavior. Keep the host reachable only through the declared proxies, and set `ForwardLimit` to the actual number of trusted hops. For multi-hop chains, list every trusted hop/network and increase the limit accordingly.
 
+On dual-mode sockets Kestrel may expose an IPv4 peer as an IPv4-mapped IPv6 address (`::ffff:10.0.0.100`). Extract automatically registers both representations for configured IPv4 proxies and networks, so the IPv4 configuration above remains valid in either runtime form.
+
 ## Connect Claude Desktop
 
 Claude Desktop talks to remote HTTP MCP servers through the `mcp-remote` stdio bridge. In `claude_desktop_config.json`:

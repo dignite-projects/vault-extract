@@ -67,7 +67,9 @@ public class McpRateLimiter_Tests
     {
         using var server = await BuildServerAsync(
             permitLimit: 1,
-            transportPeer: IPAddress.Parse("10.0.0.100"),
+            // Kestrel commonly exposes an IPv4 peer in this mapped form on dual-mode sockets. A configured
+            // "10.0.0.100" proxy must match both runtime representations.
+            transportPeer: IPAddress.Parse("10.0.0.100").MapToIPv6(),
             trustedProxy: "10.0.0.100");
         using var client = server.CreateClient();
 
@@ -91,6 +93,19 @@ public class McpRateLimiter_Tests
     }
 
     [Fact]
+    public async Task Trusted_ipv4_network_matches_an_ipv4_mapped_transport_peer()
+    {
+        using var server = await BuildServerAsync(
+            permitLimit: 1,
+            transportPeer: IPAddress.Parse("10.1.2.3").MapToIPv6(),
+            trustedNetwork: "10.1.0.0/16");
+        using var client = server.CreateClient();
+
+        (await SendFromAsync(client, "203.0.113.10")).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await SendFromAsync(client, "203.0.113.11")).StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public void Forwarded_client_ip_without_a_trusted_source_fails_closed()
     {
         var configuration = new ConfigurationBuilder()
@@ -110,12 +125,14 @@ public class McpRateLimiter_Tests
         int permitLimit,
         bool enabled = true,
         IPAddress? transportPeer = null,
-        string? trustedProxy = null)
+        string? trustedProxy = null,
+        string? trustedNetwork = null)
     {
         var forwardedHeadersValues = new Dictionary<string, string?>
         {
-            ["Mcp:ForwardedClientIp:Enabled"] = (trustedProxy != null).ToString(),
-            ["Mcp:ForwardedClientIp:KnownProxies:0"] = trustedProxy
+            ["Mcp:ForwardedClientIp:Enabled"] = (trustedProxy != null || trustedNetwork != null).ToString(),
+            ["Mcp:ForwardedClientIp:KnownProxies:0"] = trustedProxy,
+            ["Mcp:ForwardedClientIp:KnownNetworks:0"] = trustedNetwork
         };
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(forwardedHeadersValues)
