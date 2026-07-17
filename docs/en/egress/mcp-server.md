@@ -132,7 +132,26 @@ The `/mcp` endpoint is rate-limited per client IP (#433) — a DoS / abuse backs
 }
 ```
 
-Behind a reverse proxy the per-IP partition is only as accurate as the host's forwarded-headers handling — without client-IP forwarding, all external clients share a single bucket (reverse-proxy hardening and docs are tracked in #469).
+### Reverse proxy client IPs
+
+By default, Extract does **not** trust `X-Forwarded-For`. A direct deployment partitions the limiter by the transport peer IP. Behind a reverse proxy, that peer is the proxy itself, so all external clients share one rate-limit bucket until trusted client-IP forwarding is explicitly enabled.
+
+Configure the proxy to replace (not blindly append to) `X-Forwarded-For` with the originating address, then declare only the proxy addresses or networks that may supply forwarded headers:
+
+```jsonc
+"Mcp": {
+  "ForwardedClientIp": {
+    "Enabled": true,
+    "ForwardLimit": 1,                  // number of trusted proxy hops
+    "KnownProxies": [ "10.0.0.100" ],  // exact proxy IPs
+    "KnownNetworks": [ "10.1.0.0/16" ] // and/or trusted CIDR ranges
+  }
+}
+```
+
+Environment-variable equivalents use configuration indexes, for example `Mcp__ForwardedClientIp__Enabled=true` and `Mcp__ForwardedClientIp__KnownProxies__0=10.0.0.100`.
+
+When enabled, Extract processes `X-Forwarded-For` and `X-Forwarded-Proto` before routing and rate limiting. Startup fails if neither allowlist is populated, if an address/CIDR is invalid, or if `ForwardLimit` is less than one. This is intentional: trusting forwarded headers from arbitrary senders lets a client spoof its IP, rotate rate-limit partitions, and potentially influence scheme-sensitive behavior. Keep the host reachable only through the declared proxies, and set `ForwardLimit` to the actual number of trusted hops. For multi-hop chains, list every trusted hop/network and increase the limit accordingly.
 
 ## Connect Claude Desktop
 
