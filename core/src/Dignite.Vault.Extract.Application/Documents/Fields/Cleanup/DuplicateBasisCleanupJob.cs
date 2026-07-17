@@ -25,8 +25,9 @@ namespace Dignite.Vault.Extract.Documents.Fields.Cleanup;
 /// <b>Only the last-key case.</b> Deleting one of <i>several</i> unique-key fields merely <i>narrows</i> the key, and
 /// two documents whose wide key values were equal necessarily have equal narrow key values — existing
 /// <c>DuplicateSuspected</c> flags stay valid there, and clearing them would hide real duplicates. That case is an
-/// under-detection of new collisions, not a park, and is tracked in #537. <c>FieldDefinitionAppService.DeleteAsync</c>
-/// is what decides which case applies and only enqueues this job for the former.
+/// under-detection of new collisions, not a park, and is tracked in #537. Every unique-key deletion enqueues this
+/// job; the job rechecks the final active schema and only runs when no unique-key field remains. That execution-time
+/// decision is resilient to concurrent deletes and to a field restore/new key before the queued work starts.
 /// </para>
 /// <para>
 /// Note this clears the reason through <see cref="Document.SetReviewReason"/>, <b>not</b>
@@ -45,6 +46,7 @@ public class DuplicateBasisCleanupJob
     : AsyncBackgroundJob<DuplicateBasisCleanupArgs>, ITransientDependency
 {
     private readonly IDocumentRepository _documentRepository;
+    private readonly IFieldDefinitionRepository _fieldDefinitionRepository;
     private readonly DocumentPipelineRunManager _pipelineRunManager;
     private readonly IBackgroundJobManager _backgroundJobManager;
     private readonly ICurrentTenant _currentTenant;
@@ -53,6 +55,7 @@ public class DuplicateBasisCleanupJob
 
     public DuplicateBasisCleanupJob(
         IDocumentRepository documentRepository,
+        IFieldDefinitionRepository fieldDefinitionRepository,
         DocumentPipelineRunManager pipelineRunManager,
         IBackgroundJobManager backgroundJobManager,
         ICurrentTenant currentTenant,
@@ -60,6 +63,7 @@ public class DuplicateBasisCleanupJob
         IDataFilter dataFilter)
     {
         _documentRepository = documentRepository;
+        _fieldDefinitionRepository = fieldDefinitionRepository;
         _pipelineRunManager = pipelineRunManager;
         _backgroundJobManager = backgroundJobManager;
         _currentTenant = currentTenant;
@@ -77,6 +81,21 @@ public class DuplicateBasisCleanupJob
 
             using (var uow = _unitOfWorkManager.Begin(requiresNew: true))
             {
+                // Decide against the active schema at execution time, not against a snapshot taken before the
+                // delete committed. Every unique-key deletion enqueues this job, which closes two races:
+                // - concurrent deletion of the final two keys cannot result in neither request enqueueing cleanup;
+                // - restoring/adding a key before cleanup cannot cause valid duplicate state to be erased.
+                // Recheck on every chained batch so a key restored between batches stops further clearing.
+                var activeDefinitions = await _fieldDefinitionRepository.GetListAsync(args.DocumentTypeId);
+                if (activeDefinitions.Exists(field => field.IsUniqueKey))
+                {
+                    await uow.CompleteAsync();
+                    Logger.LogInformation(
+                        "Duplicate basis cleanup skipped for type {DocumentTypeId}: the active schema still has a unique-key field.",
+                        args.DocumentTypeId);
+                    return;
+                }
+
                 ids = await _documentRepository.GetIdsWithDuplicateBasisAsync(
                     args.DocumentTypeId, args.AfterId, batchSize);
 

@@ -194,16 +194,6 @@ public class FieldDefinitionAppService : VaultExtractAppService, IFieldDefinitio
             throw new EntityNotFoundException(typeof(FieldDefinition), id);
         }
 
-        // #528: decided BEFORE the delete, while this row is still active and therefore still visible to
-        // GetListAsync. Losing the type's LAST unique-key field is the one case where deletion invalidates the
-        // duplicate basis outright: FieldFingerprint is the hash of the unique-key values (#411), so with none left
-        // every fingerprint should be null and any surviving DuplicateSuspected is a blocking false park. Deleting
-        // one of several unique-key fields only narrows the key, which keeps existing flags valid (#537).
-        var wasLastUniqueKeyField =
-            entity.IsUniqueKey &&
-            !(await _repository.GetListAsync(entity.DocumentTypeId))
-                .Any(f => f.Id != entity.Id && f.IsUniqueKey);
-
         await _repository.DeleteAsync(entity);
 
         await _backgroundJobManager.EnqueueAsync(
@@ -213,8 +203,12 @@ public class FieldDefinitionAppService : VaultExtractAppService, IFieldDefinitio
                 TenantId = entity.TenantId
             });
 
-        if (wasLastUniqueKeyField)
+        if (entity.IsUniqueKey)
         {
+            // Always enqueue for a deleted unique-key field; the job re-evaluates the FINAL active schema when it
+            // runs and only clears the duplicate basis when no unique-key field remains. Deciding "last key" here
+            // is racy: two concurrent deletes could each observe the other key and enqueue nothing, while a restore
+            // or a newly-created key before job execution could make an enqueue-time "last key" decision stale.
             await _backgroundJobManager.EnqueueAsync(
                 new DuplicateBasisCleanupArgs
                 {
