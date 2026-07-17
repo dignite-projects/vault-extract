@@ -129,9 +129,21 @@ public class DocumentTypeAppService : VaultExtractAppService, IDocumentTypeAppSe
         // GetAsync and document queries are both automatically filtered to the current layer.
         // Note: soft delete is an UPDATE and does not trigger FKs. Since this application-layer gate has no DocumentType -> Document FK,
         // explicitly block deletion of in-use types here.
-        var documentQueryable = await _documentRepository.GetQueryableAsync();
-        var inUse = await AsyncExecuter.AnyAsync(
-            documentQueryable.Where(d => d.DocumentTypeId == entity.Id));
+        //
+        // #531: the check runs with ISoftDelete disabled so RECYCLE-BIN documents count as references too. A document
+        // type is schema identity, not optional organization metadata (contrast CabinetAppService.DeleteAsync, which
+        // clears references instead of blocking), and a recycle-bin document is restorable — counting only live
+        // documents let an operator bin every referencing document, delete the type, then restore one back into a live
+        // document referencing a deleted type. IMultiTenant stays on, so the check never leaves this type's own layer.
+        // Permanently deleted documents are physically gone and correctly do not count.
+        bool inUse;
+        using (DataFilter.Disable<ISoftDelete>())
+        {
+            var documentQueryable = await _documentRepository.GetQueryableAsync();
+            inUse = await AsyncExecuter.AnyAsync(
+                documentQueryable.Where(d => d.DocumentTypeId == entity.Id));
+        }
+
         if (inUse)
         {
             throw new BusinessException(VaultExtractErrorCodes.DocumentType.InUse)

@@ -43,6 +43,14 @@ public static class VaultExtractErrorCodes
         // recycle-bin child is restorable. A distinct code because the remedy differs: the operator must look in
         // the recycle bin, not just the document list.
         public const string HasSubDocumentsPermanentDelete = "Extract:DocumentHasSubDocumentsPermanentDelete";
+        // #531: the document carries a DocumentTypeId whose type is no longer active in its layer, so restoring it
+        // would revive a live document referencing a deleted type — the UI can then only fall back to the raw type
+        // code, its fields cannot be edited, and field re-extraction silently skips it. DocumentType is schema
+        // identity, not optional metadata, so restore fails closed rather than reviving a partially usable document.
+        // DocumentTypeAppService.DeleteAsync's all-document guard makes this unreachable going forward; this is the
+        // defense-in-depth for legacy rows, manual DB edits, and a delete/classification race. Remedy: restore the
+        // type first, then the document.
+        public const string RestoreTypeDeleted = "Extract:DocumentRestoreTypeDeleted";
     }
 
     public static class DocumentType
