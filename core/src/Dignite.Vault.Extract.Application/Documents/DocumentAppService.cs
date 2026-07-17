@@ -468,10 +468,20 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// key; restoring the old, retracted child back to life while its successor is live would silently create a
     /// duplicate). This is the application-layer replacement for that fail-close.
     /// </para>
+    /// <para>
+    /// #531 fail-close: a document whose <see cref="Document.DocumentTypeId"/> references a type that is no longer
+    /// active in its layer is rejected with <see cref="VaultExtractErrorCodes.Document.RestoreTypeDeleted"/> rather
+    /// than revived as a live document carrying deleted schema identity (the UI could then only fall back to the raw
+    /// type code, its fields would not be editable, and field re-extraction would silently skip it).
+    /// <c>DocumentTypeAppService.DeleteAsync</c>'s guard — which since #531 counts recycle-bin documents too — makes
+    /// this unreachable going forward, so this is defense-in-depth for legacy rows, manual DB edits, and a
+    /// delete/classification race. The remedy is to restore the document type first.
+    /// </para>
     /// This whole method runs inside <see cref="DataFilter.Disable{TFilter}"/>(<see cref="ISoftDelete"/>) to load
-    /// the soft-deleted row itself, so that ambient disabled filter is ALSO in effect for the duplicate check
-    /// below — <see cref="IDocumentRepository.AnyLiveDerivedDuplicateAsync"/> therefore explicitly re-excludes
-    /// soft-deleted siblings itself rather than relying on the (here, disabled) global filter.
+    /// the soft-deleted row itself, so that ambient disabled filter is ALSO in effect for both checks below —
+    /// <see cref="IDocumentRepository.AnyLiveDerivedDuplicateAsync"/> therefore explicitly re-excludes soft-deleted
+    /// siblings itself rather than relying on the (here, disabled) global filter, and the #531 type check pins its
+    /// own <c>IsDeleted</c> test for the same reason.
     /// </summary>
     [Authorize(VaultExtractPermissions.Documents.Restore)]
     public virtual async Task RestoreAsync(Guid id)
@@ -492,6 +502,25 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
                 {
                     throw new BusinessException(VaultExtractErrorCodes.Document.RestoreConflict)
                         .WithData("DocumentId", id);
+                }
+            }
+
+            // #531: DocumentType is schema identity, so a document may only come back to life while the type it
+            // references is still active in its own layer. Note this runs inside the ISoftDelete-disabled scope above,
+            // so FindAsync resolves a soft-deleted type row too — the IsDeleted test is therefore pinned explicitly
+            // rather than delegated to the (here, disabled) global filter, mirroring how
+            // AnyLiveDerivedDuplicateAsync pins its own !IsDeleted predicate for the same reason. IMultiTenant stays
+            // on, so a type belonging to another layer never resolves and correctly fails closed. A null row means the
+            // type was physically removed (legacy data / manual DB edit), which fails closed the same way.
+            if (document.DocumentTypeId.HasValue)
+            {
+                var documentType = await _documentTypeRepository.FindAsync(document.DocumentTypeId.Value);
+                if (documentType is null || documentType.IsDeleted)
+                {
+                    // Null-safe like the RetryPipelineAsync diagnostic above: a physically removed type has no
+                    // TypeCode to name, and .WithData's value parameter is non-nullable.
+                    throw new BusinessException(VaultExtractErrorCodes.Document.RestoreTypeDeleted)
+                        .WithData("TypeCode", documentType?.TypeCode ?? string.Empty);
                 }
             }
 

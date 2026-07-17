@@ -410,6 +410,7 @@
     "Extract:DocumentUnsupportedFileType": "ファイル '{FileName}' のタイプ（'{ContentType}'）はサポートされていません。対応している画像、PDF、CSV/TSV、DOCX、PPTX、TXT、または XLSX ファイルをアップロードしてください。",
     "Extract:DocumentNoSourceBlob": "このドキュメントにはダウンロードできるソースファイルがありません。",
     "Extract:DocumentRestoreConflict": "ドキュメント '{DocumentId}' を復元できません：同じソース構成要素を共有する別のライブなサブドキュメントが既に存在します。重複を避けるため、復元は拒否されました。",
+    "Extract:DocumentRestoreTypeDeleted": "このドキュメントを復元できません：ドキュメントタイプ '{TypeCode}' は削除されています。先にそのドキュメントタイプを復元してから、このドキュメントを復元してください。",
     "Extract:DocumentHasSubDocuments": "このドキュメントには、まだそこから派生したサブドキュメントがあります。先にサブドキュメントを削除してから、このドキュメントを削除してください。",
     "Extract:DocumentHasSubDocumentsPermanentDelete": "このドキュメントには、まだそこから派生したサブドキュメントがあります（ごみ箱内のものを含む）。サブドキュメントは自身のソースファイルを持たず、このドキュメントを通じて参照するため、先にサブドキュメントを完全に削除してください。",
     "Extract:UnknownPipelineCode": "パイプライン '{PipelineCode}' は再試行できません。",
