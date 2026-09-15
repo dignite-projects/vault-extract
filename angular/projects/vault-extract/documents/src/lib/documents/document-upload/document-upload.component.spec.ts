@@ -130,3 +130,85 @@ describe('DocumentUploadComponent — declared document type (#623)', () => {
     expect(uploadSpy).toHaveBeenCalledWith(expect.any(File), undefined, undefined);
   });
 });
+
+// #629: an Upload-only caller (no ConfirmClassification) no longer gets an untyped fallback — the
+// backend now requires ConfirmClassification for untyped upload too, to keep the per-type ACL from
+// being bypassed by letting the LLM pick the type. Such a caller's declarable scope narrows to the
+// types DocumentTypeDto.resourcePermissions reports its own Upload grant on.
+const UPLOAD_RESOURCE_KEY = EXTRACT_PERMISSIONS.DocumentTypes.Resources.Upload;
+
+describe('DocumentUploadComponent — per-type upload grant (#629)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('offers only the granted type, hides LetAiClassify, and pre-selects it when exactly one type is granted', async () => {
+    const types = [
+      { id: 'type-1', displayName: 'Contract', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: true } },
+      { id: 'type-2', displayName: 'Invoice', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: false } },
+    ];
+    const { fixture, uploadSpy } = await setup(new Set([EXTRACT_PERMISSIONS.Documents.Upload]), types);
+    const component = fixture.componentInstance;
+
+    expect(component.canDeclareType).toBe(false);
+    expect(component.declarableTypes()).toEqual([types[0]]);
+
+    const select = fixture.nativeElement.querySelector('.document-type-select');
+    expect(select).not.toBeNull();
+    const options: HTMLOptionElement[] = Array.from(select.querySelectorAll('option'));
+    expect(options.length).toBe(1);
+    expect(options[0].value).toBe('type-1');
+
+    // Pre-selected: exactly one declarable type, nothing to actually pick.
+    expect(component.selectedDocumentTypeId()).toBe('type-1');
+
+    (component as any).uploadFiles([fakeFile('a.pdf')]);
+    expect(uploadSpy).toHaveBeenCalledWith(expect.any(File), undefined, 'type-1');
+  });
+
+  it('offers only the granted types among several and does not pre-select when more than one is granted', async () => {
+    const types = [
+      { id: 'type-1', displayName: 'Contract', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: true } },
+      { id: 'type-2', displayName: 'Invoice', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: true } },
+      { id: 'type-3', displayName: 'Resume', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: false } },
+    ];
+    const { fixture } = await setup(new Set([EXTRACT_PERMISSIONS.Documents.Upload]), types);
+    const component = fixture.componentInstance;
+
+    expect(component.declarableTypes()).toEqual([types[0], types[1]]);
+
+    const select = fixture.nativeElement.querySelector('.document-type-select');
+    expect(select).not.toBeNull();
+    const options: HTMLOptionElement[] = Array.from(select.querySelectorAll('option'));
+    // No LetAiClassify placeholder, only the two granted types — no preselection with more than one.
+    expect(options.map(o => o.value)).toEqual(['type-1', 'type-2']);
+    expect(component.selectedDocumentTypeId()).toBe('');
+  });
+
+  it('renders the empty state and keeps the file input out of reach when no type is granted', async () => {
+    const types = [
+      { id: 'type-1', displayName: 'Contract', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: false } },
+    ];
+    const { fixture } = await setup(new Set([EXTRACT_PERMISSIONS.Documents.Upload]), types);
+    const component = fixture.componentInstance;
+
+    expect(component.declarableTypes()).toEqual([]);
+    expect(component.hasNoGrantableTypes()).toBe(true);
+    expect(fixture.nativeElement.querySelector('.document-type-select')).toBeNull();
+    expect(fixture.nativeElement.querySelector('input[type="file"]')).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Document:Upload:NoGrantableTypes');
+  });
+
+  it('a ConfirmClassification caller still sees every type plus LetAiClassify (unchanged #623 behaviour)', async () => {
+    const { fixture } = await setup(
+      new Set([EXTRACT_PERMISSIONS.Documents.Upload, EXTRACT_PERMISSIONS.Documents.ConfirmClassification]),
+      DOCUMENT_TYPES,
+    );
+    const component = fixture.componentInstance;
+
+    expect(component.declarableTypes()).toEqual(DOCUMENT_TYPES);
+    const select = fixture.nativeElement.querySelector('.document-type-select');
+    const options = select.querySelectorAll('option');
+    expect(options.length).toBe(DOCUMENT_TYPES.length + 1);
+  });
+});

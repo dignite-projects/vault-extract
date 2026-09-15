@@ -56,9 +56,21 @@ Two narrower alternatives were considered and deferred rather than rejected outr
 
 Every returned `DocumentTypeDto` carries a `resourcePermissions` dictionary filled with the calling principal's own grants on that type, so the client does not have to guess. The upload dialog additionally treats `ConfirmClassification` as "all types".
 
+Concretely, the upload dialog (`DocumentUploadComponent`) builds its picker from that dictionary:
+
+- A `ConfirmClassification` holder sees every type of the layer plus a "Let AI classify" option, exactly as before #629.
+- A caller without it sees **only** the types where `resourcePermissions[Upload]` is `true`, there is no "Let AI classify" option, and a selection is required before the file picker or drop zone accepts anything — with exactly one grantable type it is pre-selected, since there is nothing left to choose.
+- A caller with **no** grantable type at all sees an empty-state message in place of the picker and drop zone.
+
+This is a UI-side convenience only; `UploadAsync` enforces the same rule server-side regardless of what the client sends.
+
+**Phase-1 limitation**: every documents route, including the upload page, still requires the module-wide `Documents.Default` to be reachable at all. An Upload-only caller with per-type grants and no `Documents.Default` therefore cannot reach the upload card today — routing is unchanged in this phase, only the picker inside it.
+
 ## Granting and revoking
 
 There is no Vault Extract API for managing these grants. They go through ABP's standard resource-permission endpoints (`/api/permission-management/permissions/resource…`), gated by `ManagePermissions`, and through ABP's `ResourcePermissionManagementComponent` dialog in the operator UI. User and role lookup comes from `Volo.Abp.PermissionManagement.Domain.Identity`, which the host already references.
+
+In the operator UI, the dialog is reached from **Document Types → row actions → Permissions**, visible only to a caller holding `ManagePermissions`.
 
 Grants are stored in **`AbpResourcePermissionGrants`**, an `IMultiTenant` table that has existed since the `Initial` migration — enabling this feature needs no schema change. A row is unique on `(TenantId, Name, ResourceName, ResourceKey, ProviderName, ProviderKey)` and is distributed-cache backed. The provider is `U` for a direct user grant, `R` for a role grant (and `C` for an OAuth client).
 

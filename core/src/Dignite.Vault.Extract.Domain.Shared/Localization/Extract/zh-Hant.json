@@ -128,6 +128,7 @@
     "Document:Upload:Complete": "上傳完成",
     "Document:Upload:CompletedWithErrors": "上傳完成，但有錯誤",
     "Document:Upload:Succeeded": "份已上傳",
+    "Document:Upload:NoGrantableTypes": "您尚未被授予任何文件類型的上傳權限，請聯絡管理員進行授權。",
     "Document:UnsupportedFileType": "不支援的檔案類型。請上傳支援的圖片、PDF、CSV/TSV、DOCX、PPTX、TXT 或 XLSX 檔案。",
     "Document:FileTooLarge": "檔案過大，上限為 20 MB。",
     "Document:DropOrClick": "將檔案拖放到此處，或點選選擇",
@@ -278,6 +279,7 @@
     "DocumentType:ConfidenceThresholdHint": "0–1。低於此值的分類將進入人工審核。",
     "DocumentType:Priority": "優先順序",
     "DocumentType:ManageFields": "管理欄位",
+    "DocumentType:Permissions": "權限",
     "DocumentType:Restore": "還原",
     "DocumentType:AreYouSureToDelete": "要刪除此文件類型嗎？其下的欄位定義會一併刪除。仍在使用它的文件需先重新分類。",
     "DocumentType:CreatedSuccessfully": "文件類型已建立。",
@@ -334,6 +336,7 @@
     "Document:SelectCabinet": "文件櫃（選填）",
     "Document:SelectDocumentType": "文件類型（選填）",
     "Document:SelectDocumentType:Hint": "略過 AI 分類，直接確認該類型。",
+    "Document:SelectDocumentType:Required": "選擇要上傳到的文件類型。僅列出您已被授權的類型。",
     "Document:LetAiClassify": "交由 AI 分類",
 
     "FieldDefinition:Title": "類型綁定欄位",

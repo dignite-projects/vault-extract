@@ -30,6 +30,16 @@ export const EXTRACT_PERMISSIONS = {
     Create: 'VaultExtract.DocumentTypes.Create',
     Update: 'VaultExtract.DocumentTypes.Update',
     Delete: 'VaultExtract.DocumentTypes.Delete',
+    // May open the per-type resource-permission dialog and grant/revoke the Resources.Upload
+    // grant below (#629).
+    ManagePermissions: 'VaultExtract.DocumentTypes.ManagePermissions',
+    // ABP resource-permission strings (#629) — frozen contracts mirrored from
+    // VaultExtractPermissions.DocumentTypes.Resources, NOT standard permissions: they are only
+    // ever checked against one DocumentType row (resourceKey = its Id), never by name alone.
+    Resources: {
+      Name: 'Dignite.Vault.Extract.Documents.DocumentTypes.DocumentType',
+      Upload: 'Dignite.Vault.Extract.Documents.DocumentTypes.DocumentType.Upload',
+    },
   },
   // Field-definition schema management (#217) — admin-level, independent of document CRUD.
   FieldDefinitions: {

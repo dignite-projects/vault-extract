@@ -3,6 +3,7 @@ import {
   Component,
   DestroyRef,
   OnInit,
+  effect,
   inject,
   signal,
 } from '@angular/core';
@@ -20,6 +21,7 @@ import {
   ePropType,
 } from '@abp/ng.components/extensible';
 import { Confirmation, ConfirmationService, ToasterService } from '@abp/ng.theme.shared';
+import { ResourcePermissionManagementComponent } from '@abp/ng.permission-management';
 import { NgbDropdownModule } from '@ng-bootstrap/ng-bootstrap';
 import { map, of } from 'rxjs';
 import {
@@ -72,6 +74,7 @@ const DOCUMENT_TYPE_SORTS: SortAccessors<DocumentTypeDto> = {
     FieldReextractionModalComponent,
     ReclassificationModalComponent,
     DocumentTypePackImportModalComponent,
+    ResourcePermissionManagementComponent,
   ],
   providers: [
     ListService,
@@ -117,9 +120,23 @@ export class DocumentTypeListComponent implements OnInit {
     EXTRACT_PERMISSIONS.Documents.Reprocessing.Reclassification,
   );
 
+  // Per-document-type upload permission dialog (#629): ABP's own resource-permission dialog,
+  // its endpoints and its user/role search — nothing here is Vault Extract's. Gated server-side
+  // by ManagePermissions, deliberately separate from the schema-editing DocumentTypes.Update.
+  readonly canManagePermissions = this.permissionService.getGrantedPolicy(
+    EXTRACT_PERMISSIONS.DocumentTypes.ManagePermissions,
+  );
+  readonly RESOURCE_NAME = EXTRACT_PERMISSIONS.DocumentTypes.Resources.Name;
+
   // Target for the open reprocessing modal; null means closed.
   reextractTarget = signal<DocumentTypeDto | null>(null);
   reclassifyTarget = signal<DocumentTypeDto | null>(null);
+
+  // Target + visibility for the ABP resource-permission dialog (#629). Two signals rather than
+  // one nullable, because the dialog owns [(visible)] two-way and needs somewhere writable that
+  // isn't the target itself.
+  permissionsTarget = signal<DocumentTypeDto | null>(null);
+  permissionsVisible = signal(false);
 
   allTypes = signal<DocumentTypeDto[]>([]);
   types = signal<ClientPagedResult<DocumentTypeDto>>({ totalCount: 0, items: [] });
@@ -185,6 +202,14 @@ export class DocumentTypeListComponent implements OnInit {
         columnWidth: 140,
       }),
     ]);
+
+    // Re-initialise the dialog when it closes (whether via our own close button or the dialog's
+    // own), so re-opening it for another row does not carry over the previous target.
+    effect(() => {
+      if (!this.permissionsVisible()) {
+        this.permissionsTarget.set(null);
+      }
+    });
   }
 
   ngOnInit(): void {
@@ -389,6 +414,14 @@ export class DocumentTypeListComponent implements OnInit {
 
   openReclassify(type: DocumentTypeDto): void {
     this.reclassifyTarget.set(type);
+  }
+
+  // #629: opens ABP's own resource-permission dialog for this type's Upload grant. The dialog,
+  // its endpoints (/api/permission-management/permissions/resource…) and its user/role search
+  // are all ABP's; gated server-side by DocumentTypes.ManagePermissions.
+  openPermissions(type: DocumentTypeDto): void {
+    this.permissionsTarget.set(type);
+    this.permissionsVisible.set(true);
   }
 
   openImport(): void {
