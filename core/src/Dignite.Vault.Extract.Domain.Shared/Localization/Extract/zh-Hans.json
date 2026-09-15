@@ -337,6 +337,8 @@
     "Document:SelectDocumentType": "文档类型（可选）",
     "Document:SelectDocumentType:Hint": "跳过 AI 分类，直接确认该类型。",
     "Document:SelectDocumentType:Required": "选择要上传到的文档类型。仅列出您已被授权的类型。",
+    "Document:SelectDocumentType:RequiredLabel": "文档类型",
+    "Document:SelectDocumentType:Placeholder": "请选择文档类型…",
     "Document:LetAiClassify": "交由 AI 分类",
 
     "FieldDefinition:Title": "类型绑定字段",

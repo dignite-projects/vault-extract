@@ -156,10 +156,14 @@ describe('DocumentUploadComponent — per-type upload grant (#629)', () => {
     const select = fixture.nativeElement.querySelector('.document-type-select');
     expect(select).not.toBeNull();
     const options: HTMLOptionElement[] = Array.from(select.querySelectorAll('option'));
-    expect(options.length).toBe(1);
-    expect(options[0].value).toBe('type-1');
+    // Disabled placeholder first (required mode), then the single granted type — no LetAiClassify.
+    expect(options.length).toBe(2);
+    expect(options[0].value).toBe('');
+    expect(options[0].disabled).toBe(true);
+    expect(options[1].value).toBe('type-1');
 
-    // Pre-selected: exactly one declarable type, nothing to actually pick.
+    // Pre-selected: exactly one declarable type, nothing to actually pick. The placeholder is never
+    // the visible choice here — selectedDocumentTypeId already points at the real option.
     expect(component.selectedDocumentTypeId()).toBe('type-1');
 
     (component as any).uploadFiles([fakeFile('a.pdf')]);
@@ -180,8 +184,11 @@ describe('DocumentUploadComponent — per-type upload grant (#629)', () => {
     const select = fixture.nativeElement.querySelector('.document-type-select');
     expect(select).not.toBeNull();
     const options: HTMLOptionElement[] = Array.from(select.querySelectorAll('option'));
-    // No LetAiClassify placeholder, only the two granted types — no preselection with more than one.
-    expect(options.map(o => o.value)).toEqual(['type-1', 'type-2']);
+    // No LetAiClassify — instead a disabled placeholder leads, since nothing is pre-selected when
+    // more than one type is granted; the two granted types follow it.
+    expect(options[0].value).toBe('');
+    expect(options[0].disabled).toBe(true);
+    expect(options.map(o => o.value)).toEqual(['', 'type-1', 'type-2']);
     expect(component.selectedDocumentTypeId()).toBe('');
   });
 

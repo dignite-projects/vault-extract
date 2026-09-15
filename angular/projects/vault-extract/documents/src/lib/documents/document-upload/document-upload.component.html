@@ -24,13 +24,24 @@
 
       @if (declarableTypes().length > 0 && canAcceptFiles()) {
         <div class="document-type-select">
-          <label class="form-label fw-semibold">{{ '::Document:SelectDocumentType' | abpLocalization }}</label>
+          <label class="form-label fw-semibold">
+            {{
+              (requiresTypeSelection
+                ? '::Document:SelectDocumentType:RequiredLabel'
+                : '::Document:SelectDocumentType'
+              ) | abpLocalization
+            }}
+          </label>
           <select
             class="form-select"
             [ngModel]="selectedDocumentTypeId()"
             (ngModelChange)="selectedDocumentTypeId.set($event)"
           >
-            @if (!requiresTypeSelection) {
+            @if (requiresTypeSelection) {
+              <!-- Only reachable while nothing is chosen yet — with a single declarable type the
+                   constructor effect pre-selects it, so this is never the visible choice there. -->
+              <option value="" disabled>{{ '::Document:SelectDocumentType:Placeholder' | abpLocalization }}</option>
+            } @else {
               <option value="">{{ '::Document:LetAiClassify' | abpLocalization }}</option>
             }
             @for (t of declarableTypes(); track t.id) {

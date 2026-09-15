@@ -337,6 +337,8 @@
     "Document:SelectDocumentType": "文件類型（選填）",
     "Document:SelectDocumentType:Hint": "略過 AI 分類，直接確認該類型。",
     "Document:SelectDocumentType:Required": "選擇要上傳到的文件類型。僅列出您已被授權的類型。",
+    "Document:SelectDocumentType:RequiredLabel": "文件類型",
+    "Document:SelectDocumentType:Placeholder": "請選擇文件類型…",
     "Document:LetAiClassify": "交由 AI 分類",
 
     "FieldDefinition:Title": "類型綁定欄位",

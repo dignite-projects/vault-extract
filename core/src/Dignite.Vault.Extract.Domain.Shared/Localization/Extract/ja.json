@@ -337,6 +337,8 @@
     "Document:SelectDocumentType": "ドキュメントタイプ（任意）",
     "Document:SelectDocumentType:Hint": "AIによる分類をスキップし、このタイプを直接確定します。",
     "Document:SelectDocumentType:Required": "アップロード先のドキュメントタイプを選択してください。表示されるのは付与されたタイプのみです。",
+    "Document:SelectDocumentType:RequiredLabel": "ドキュメントタイプ",
+    "Document:SelectDocumentType:Placeholder": "ドキュメントタイプを選択…",
     "Document:LetAiClassify": "AIに分類させる",
 
     "FieldDefinition:Title": "タイプ別フィールド",

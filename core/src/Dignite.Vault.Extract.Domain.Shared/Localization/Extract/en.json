@@ -337,6 +337,8 @@
     "Document:SelectDocumentType": "Document type (optional)",
     "Document:SelectDocumentType:Hint": "Skip AI classification and confirm this type directly.",
     "Document:SelectDocumentType:Required": "Choose the document type to upload into. Only the types you have been granted are listed.",
+    "Document:SelectDocumentType:RequiredLabel": "Document type",
+    "Document:SelectDocumentType:Placeholder": "Select a document type…",
     "Document:LetAiClassify": "Let AI classify",
 
     "FieldDefinition:Title": "Type-Bound Fields",
