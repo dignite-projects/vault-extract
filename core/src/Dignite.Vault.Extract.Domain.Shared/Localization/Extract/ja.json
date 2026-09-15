@@ -129,6 +129,7 @@
     "Document:Upload:CompletedWithErrors": "アップロードは完了しましたが、エラーがあります",
     "Document:Upload:Succeeded": "件アップロード済み",
     "Document:Upload:NoGrantableTypes": "まだどのドキュメントタイプへのアップロード権限も付与されていません。管理者に付与を依頼してください。",
+    "Document:Upload:TypesUnavailable": "ドキュメントタイプを読み込めませんでした。ページを再読み込みするか、後でもう一度お試しください。",
     "Document:UnsupportedFileType": "サポートされていないファイル形式です。対応している画像、PDF、CSV/TSV、DOCX、PPTX、TXT、または XLSX ファイルをアップロードしてください。",
     "Document:FileTooLarge": "ファイルが大きすぎます。最大サイズは 20 MB です。",
     "Document:DropOrClick": "ここにファイルをドラッグ＆ドロップ、またはクリックして選択",

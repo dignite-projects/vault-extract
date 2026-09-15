@@ -67,6 +67,9 @@ export class DocumentOverviewComponent implements OnInit {
   // Loading starts true only when a fetch will actually run, so the empty state never flashes first.
   readonly cabinetsLoading = signal(this.canViewCabinets);
   readonly typesLoading = signal(true);
+  // Distinct from an empty list: the fetch itself failed, so the upload picker must not read a
+  // failed load as "nothing granted" (#629 code review).
+  readonly typesUnavailable = signal(false);
 
   // Show a section while it is still loading (avoids a layout pop), when it has items, or when the
   // user can create the first one (actionable empty state). A plain viewer with neither items nor
@@ -168,6 +171,7 @@ export class DocumentOverviewComponent implements OnInit {
         },
         error: () => {
           this.documentTypes.set([]);
+          this.typesUnavailable.set(true);
           this.typesLoading.set(false);
         },
       });

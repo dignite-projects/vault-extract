@@ -81,6 +81,11 @@ export class DocumentUploadComponent implements OnInit {
     EXTRACT_PERMISSIONS.Documents.ConfirmClassification,
   );
   readonly documentTypes = input<DocumentTypeDto[]>([]);
+  // Whether the parent's own types fetch is still in flight / has failed (#629 code review): while
+  // loading, `documentTypes` still reads as its default `[]`, which is indistinguishable from "loaded,
+  // nothing granted" unless the parent tells us which state we are actually in.
+  readonly documentTypesLoading = input(false);
+  readonly documentTypesUnavailable = input(false);
   selectedDocumentTypeId = signal<string>('');
 
   // The types this caller may actually declare: every type of the layer for a ConfirmClassification
@@ -93,11 +98,28 @@ export class DocumentUploadComponent implements OnInit {
         ),
   );
   readonly requiresTypeSelection = !this.canDeclareType;
+  // Loading folds in here (not just into hasNoGrantableTypes): until the types fetch resolves, the
+  // declarable set cannot be trusted, so the picker/dropzone must stay disabled rather than briefly
+  // usable with a set that is about to change. Membership (not just non-empty) guards a stale selection
+  // that no longer names one of the caller's currently declarable types (#629 code review).
   readonly typeSelectionSatisfied = computed(
-    () => !this.requiresTypeSelection || !!this.selectedDocumentTypeId(),
+    () =>
+      !this.requiresTypeSelection ||
+      (!this.documentTypesLoading() &&
+        this.declarableTypes().some(t => t.id === this.selectedDocumentTypeId())),
   );
   readonly hasNoGrantableTypes = computed(
-    () => this.requiresTypeSelection && this.declarableTypes().length === 0,
+    () =>
+      this.requiresTypeSelection &&
+      !this.documentTypesLoading() &&
+      !this.documentTypesUnavailable() &&
+      this.declarableTypes().length === 0,
+  );
+  // Distinct from hasNoGrantableTypes: the fetch itself failed, so "no types" cannot be trusted as
+  // "nothing granted" — telling the operator to ask an admin for a grant they may already have would
+  // be actively misleading.
+  readonly showTypesUnavailable = computed(
+    () => this.requiresTypeSelection && !this.documentTypesLoading() && this.documentTypesUnavailable(),
   );
 
   // Picker `accept` filter, derived from the shared whitelist (mirrors backend, #221).
@@ -147,7 +169,13 @@ export class DocumentUploadComponent implements OnInit {
   onDragOver(event: DragEvent): void {
     event.preventDefault();
     event.stopPropagation();
-    if (!this.canAcceptFiles() || !this.typeSelectionSatisfied()) return;
+    if (!this.canAcceptFiles() || !this.typeSelectionSatisfied()) {
+      // Show the browser's not-allowed cursor instead of silently ignoring the drag (#629 code review).
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'none';
+      }
+      return;
+    }
 
     this.isDragOver.set(true);
   }
@@ -162,7 +190,16 @@ export class DocumentUploadComponent implements OnInit {
     event.preventDefault();
     event.stopPropagation();
     this.isDragOver.set(false);
-    if (!this.canAcceptFiles() || !this.typeSelectionSatisfied()) return;
+    if (!this.canAcceptFiles() || !this.typeSelectionSatisfied()) {
+      // Dropping files before a required type is selected was silently swallowed; tell the operator
+      // why nothing happened instead of leaving them to guess (#629 code review). Only this specific
+      // case warrants a toast — the other guard branch (uploading / showing results) is a timing
+      // window, not a mistake the operator needs to be told about.
+      if (this.canAcceptFiles() && !this.typeSelectionSatisfied()) {
+        this.toaster.warn('::Document:SelectDocumentType:Required');
+      }
+      return;
+    }
 
     const files = event.dataTransfer?.files;
     if (files && files.length > 0) {

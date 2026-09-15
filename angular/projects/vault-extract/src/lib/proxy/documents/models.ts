@@ -139,4 +139,5 @@ export interface UpdateMarkdownInput {
 export interface UploadDocumentInput {
   file: IRemoteStreamContent;
   cabinetId?: string | null;
+  documentTypeId?: string | null;
 }

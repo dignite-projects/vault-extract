@@ -15,7 +15,7 @@ It is built on ABP's [resource-based authorization](https://abp.io/docs/latest/f
 
 The resource is the `DocumentType` entity; the resource **key** is its immutable `Id`.
 
-`ManagePermissions` is deliberately **not** `DocumentTypes.Update`. Handing out access is a different responsibility from editing a type's schema, and this permission is the only gate ABP puts on the `/api/permission-management/permissions/resource*` endpoints, so it has to be a grant an administrator makes on purpose.
+`ManagePermissions` is deliberately **not** `DocumentTypes.Update`; the rationale is recorded in [#629](https://github.com/dignite-projects/vault-extract/issues/629).
 
 Both strings are **frozen contracts** once the first grant row exists — the same discipline the `Extract:*` error codes follow. They are persisted verbatim in `AbpResourcePermissionGrants`; renaming either one orphans every existing grant silently. In particular the resource name must stay equal to `typeof(DocumentType).FullName`, because ABP derives it from the runtime type of the object handed to the authorization service. A unit test asserts that equality so an entity rename fails the build instead of the ACL.
 
@@ -46,15 +46,15 @@ This is a **behaviour change**. An `Upload`-only caller used to be able to uploa
 
 Keeping that would make the per-type grant trivially bypassable: upload untyped, let the LLM classify the document into a type the caller was never granted, and the document still reaches the downstream consumers that subscribe by `(TenantId, DocumentTypeCode)`.
 
-**Migration:** any role that holds `Documents.Upload` without `Documents.ConfirmClassification` and relies on untyped upload must be granted `ConfirmClassification`.
+**Migration:** any role that holds `Documents.Upload` without `Documents.ConfirmClassification` and relies on untyped upload must be granted `ConfirmClassification`. The repo's seeded `DocumentManager` role already carries it: `VaultExtractHostRoleDataSeedContributor` adds `ConfirmClassification` to the role's permission set, applied idempotently on the next migration run — roles created by hand still need the manual grant.
 
-Two narrower alternatives were considered and deferred rather than rejected outright — constraining the classification candidate set to the uploader's scope, and forcing operator confirmation for uploads by callers without `ConfirmClassification`. Both need the uploader's scope captured and persisted at upload time, because the classification job runs without the uploader's principal.
+Two narrower alternatives were considered and deferred rather than rejected outright; the rationale is recorded in [#629](https://github.com/dignite-projects/vault-extract/issues/629).
 
 ## Picking a type in the UI
 
 `IDocumentTypeAppService.GetVisibleAsync` admits `Documents.Default`, `DocumentTypes.Default` **or** `Documents.Upload` holders — an upload-only caller has to see the list to pick from it.
 
-Every returned `DocumentTypeDto` carries a `resourcePermissions` dictionary filled with the calling principal's own grants on that type, so the client does not have to guess. The upload dialog additionally treats `ConfirmClassification` as "all types".
+On `GetVisibleAsync`, every returned `DocumentTypeDto` carries a `resourcePermissions` dictionary filled with the calling principal's own grants on that type, so the client does not have to guess; other endpoints return it empty. The upload dialog additionally treats `ConfirmClassification` as "all types".
 
 Concretely, the upload dialog (`DocumentUploadComponent`) builds its picker from that dictionary:
 
