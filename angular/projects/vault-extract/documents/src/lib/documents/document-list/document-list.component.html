@@ -293,13 +293,13 @@
           <p class="text-muted small mb-3">
             {{ doc.title || doc.fileOrigin?.originalFileName }}
           </p>
-          <label class="form-label fw-semibold">{{ '::Document:SelectDocumentType' | abpLocalization }}</label>
+          <label class="form-label fw-semibold">{{ '::Document:ConfirmClassification:SelectType' | abpLocalization }}</label>
           <select
             class="form-select"
             [ngModel]="selectedTypeId()"
             (ngModelChange)="selectedTypeId.set($event)"
           >
-            <option value="" disabled>{{ '::Document:SelectDocumentType' | abpLocalization }}</option>
+            <option value="" disabled>{{ '::Document:ConfirmClassification:SelectType' | abpLocalization }}</option>
             @for (t of documentTypes(); track t.id) {
               <option [value]="t.id">{{ t.displayName }} ({{ t.typeCode }})</option>
             }

@@ -210,7 +210,7 @@
 
 
     "Document:ConfirmClassification": "确认分类",
-    "Document:SelectDocumentType": "选择文档类型",
+    "Document:ConfirmClassification:SelectType": "选择文档类型",
     "Document:Confirm": "确认",
     "Document:ClassificationConfirmed": "分类已确认。",
     "Document:ConfirmFailed": "确认分类失败。",

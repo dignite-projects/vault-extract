@@ -210,7 +210,7 @@
 
 
     "Document:ConfirmClassification": "Confirm Classification",
-    "Document:SelectDocumentType": "Select Document Type",
+    "Document:ConfirmClassification:SelectType": "Select Document Type",
     "Document:Confirm": "Confirm",
     "Document:ClassificationConfirmed": "Classification confirmed.",
     "Document:ConfirmFailed": "Failed to confirm classification.",

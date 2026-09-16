@@ -210,7 +210,7 @@
 
 
     "Document:ConfirmClassification": "確認分類",
-    "Document:SelectDocumentType": "選擇文件類型",
+    "Document:ConfirmClassification:SelectType": "選擇文件類型",
     "Document:Confirm": "確認",
     "Document:ClassificationConfirmed": "分類已確認。",
     "Document:ConfirmFailed": "確認分類失敗。",

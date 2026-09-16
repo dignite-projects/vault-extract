@@ -210,7 +210,7 @@
 
 
     "Document:ConfirmClassification": "分類を確認",
-    "Document:SelectDocumentType": "ドキュメントタイプを選択",
+    "Document:ConfirmClassification:SelectType": "ドキュメントタイプを選択",
     "Document:Confirm": "確認",
     "Document:ClassificationConfirmed": "分類を確認しました。",
     "Document:ConfirmFailed": "分類の確認に失敗しました。",
