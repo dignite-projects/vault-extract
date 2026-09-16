@@ -402,6 +402,8 @@
     "Permission:DocumentTypes.Create": "ドキュメントタイプの作成",
     "Permission:DocumentTypes.Update": "ドキュメントタイプの編集",
     "Permission:DocumentTypes.Delete": "ドキュメントタイプの削除",
+    "Permission:DocumentTypes.ManagePermissions": "ドキュメントタイプの権限管理",
+    "Permission:DocumentTypes.Resources.Upload": "このドキュメントタイプへのアップロード",
     "Permission:FieldDefinitions": "フィールド定義",
     "Permission:FieldDefinitions.Create": "フィールド定義の作成",
     "Permission:FieldDefinitions.Update": "フィールド定義の編集",

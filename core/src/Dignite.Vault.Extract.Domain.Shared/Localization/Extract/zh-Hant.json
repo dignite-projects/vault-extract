@@ -402,6 +402,8 @@
     "Permission:DocumentTypes.Create": "建立文件類型",
     "Permission:DocumentTypes.Update": "編輯文件類型",
     "Permission:DocumentTypes.Delete": "刪除文件類型",
+    "Permission:DocumentTypes.ManagePermissions": "管理文件類型權限",
+    "Permission:DocumentTypes.Resources.Upload": "上傳到此文件類型",
     "Permission:FieldDefinitions": "欄位定義",
     "Permission:FieldDefinitions.Create": "建立欄位定義",
     "Permission:FieldDefinitions.Update": "編輯欄位定義",

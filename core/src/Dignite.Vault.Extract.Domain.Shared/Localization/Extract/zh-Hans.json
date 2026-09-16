@@ -402,6 +402,8 @@
     "Permission:DocumentTypes.Create": "创建文档类型",
     "Permission:DocumentTypes.Update": "编辑文档类型",
     "Permission:DocumentTypes.Delete": "删除文档类型",
+    "Permission:DocumentTypes.ManagePermissions": "管理文档类型权限",
+    "Permission:DocumentTypes.Resources.Upload": "上传到此文档类型",
     "Permission:FieldDefinitions": "字段定义",
     "Permission:FieldDefinitions.Create": "创建字段定义",
     "Permission:FieldDefinitions.Update": "编辑字段定义",

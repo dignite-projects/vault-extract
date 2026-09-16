@@ -34,6 +34,18 @@ public class VaultExtractPermissionDefinitionProvider : PermissionDefinitionProv
         documentTypes.AddChild(VaultExtractPermissions.DocumentTypes.Create, L("Permission:DocumentTypes.Create"));
         documentTypes.AddChild(VaultExtractPermissions.DocumentTypes.Update, L("Permission:DocumentTypes.Update"));
         documentTypes.AddChild(VaultExtractPermissions.DocumentTypes.Delete, L("Permission:DocumentTypes.Delete"));
+        documentTypes.AddChild(VaultExtractPermissions.DocumentTypes.ManagePermissions, L("Permission:DocumentTypes.ManagePermissions"));
+
+        // Per-document-type upload grant (#629), ABP resource-based authorization. Unlike the standard
+        // permissions above, this one is never checked by name alone: it is only meaningful against one
+        // DocumentType row, and its grants live in AbpResourcePermissionGrants keyed by that row's Id.
+        // MultiTenancySide stays at the default Both — document types exist on the Host layer and on every
+        // tenant layer, and a grant carries its own TenantId, so the two-layer model needs no extra code.
+        context.AddResourcePermission(
+            name: VaultExtractPermissions.DocumentTypes.Resources.Upload,
+            resourceName: VaultExtractPermissions.DocumentTypes.Resources.Name,
+            managementPermissionName: VaultExtractPermissions.DocumentTypes.ManagePermissions,
+            displayName: L("Permission:DocumentTypes.Resources.Upload"));
 
         var fieldDefinitions = group.AddPermission(VaultExtractPermissions.FieldDefinitions.Default, L("Permission:FieldDefinitions"));
         fieldDefinitions.AddChild(VaultExtractPermissions.FieldDefinitions.Create, L("Permission:FieldDefinitions.Create"));

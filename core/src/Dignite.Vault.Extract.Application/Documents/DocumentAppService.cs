@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
+using Volo.Abp.Authorization;
 using Volo.Abp.BlobStoring;
 using Volo.Abp.Content;
 using Volo.Abp.Data;
@@ -218,23 +219,57 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
             }
         }
 
-        // Declared-type validation (#623): fail-closed additive permission, symmetric with the CabinetId check
-        // above. Declaring a type at upload is equivalent to an operator ConfirmClassificationAsync call — it
-        // bypasses the classification LLM call and the UnresolvedClassification review queue entirely — so a
-        // caller holding only Documents.Upload must not be able to reach that outcome through the upload
-        // endpoint. Existence is validated the same way ApplyManualClassificationAsync validates it: an
+        // Declared-type authorization (#623, rewritten by #629): the caller's TYPE SCOPE for upload.
+        //
+        // Declaring a type at upload is equivalent to an operator ConfirmClassificationAsync call — it bypasses
+        // the classification LLM call and the UnresolvedClassification review queue entirely — so it is gated
+        // by an additive permission on top of the method-level Documents.Upload, symmetric with the CabinetId
+        // check above. #629 makes that gate per-type instead of all-or-nothing:
+        //
+        //   - Documents.ConfirmClassification  -> every type of the caller's own layer (the #623 rule, unchanged);
+        //   - resource grant Upload on ONE type -> that type only (ABP resource-based authorization, granted
+        //     per row in AbpResourcePermissionGrants and keyed by the type's immutable Id);
+        //   - no DocumentTypeId at all          -> requires ConfirmClassification (see the untyped branch below).
+        //
+        // The OR is written out by hand because ABP's ResourcePermissionChecker only consults the resource value
+        // providers and never falls back to the module-wide permission; the commercial File Management module
+        // does the same. Both halves are programmatic (IsGrantedAsync), not [Authorize], because MCP / reflection
+        // dispatch paths do not run the attribute.
+        //
+        // Existence is validated FIRST, the same way ApplyManualClassificationAsync validates it: an
         // IDocumentTypeRepository.FindAsync under the ambient IMultiTenant filter, so a cross-layer id resolves
-        // to null -> EntityNotFoundException, never a hand-written tenant predicate.
+        // to null -> EntityNotFoundException before any permission is consulted, never a hand-written tenant
+        // predicate. That ordering is also why a grant on a Host-layer type id cannot authorize a tenant caller.
+        // The entity itself is passed as the resource: the string policy name resolves to a
+        // ResourcePermissionRequirement through AbpAuthorizationPolicyProvider, and ABP's keyed-object handler
+        // takes the resource name from the runtime type and the key from Entity.GetObjectKey().
         DocumentType? declaredType = null;
         if (input.DocumentTypeId.HasValue)
         {
-            await CheckPolicyAsync(VaultExtractPermissions.Documents.ConfirmClassification);
-
             declaredType = await _documentTypeRepository.FindAsync(input.DocumentTypeId.Value);
             if (declaredType == null)
             {
                 throw new EntityNotFoundException(typeof(DocumentType), input.DocumentTypeId.Value);
             }
+
+            if (!await AuthorizationService.IsGrantedAsync(VaultExtractPermissions.Documents.ConfirmClassification) &&
+                !await AuthorizationService.IsGrantedAsync(declaredType, VaultExtractPermissions.DocumentTypes.Resources.Upload))
+            {
+                throw new AbpAuthorizationException();
+            }
+        }
+        else
+        {
+            // #629 decision 2, a deliberate behaviour change: an untyped upload now requires
+            // ConfirmClassification too. Leaving it open to any Documents.Upload holder would make the per-type
+            // ACL trivially bypassable — upload untyped, let the LLM classify the document into a type the
+            // caller was never granted, and it still reaches the downstream consumers that subscribe by
+            // (TenantId, DocumentTypeCode). Constraining the classification candidate set to the uploader's
+            // scope instead would require capturing and persisting that scope at upload, because the
+            // classification job runs without the uploader's principal; that is deferred to phase 2.
+            // Migration: a role holding Upload without ConfirmClassification that relies on untyped upload must
+            // be granted ConfirmClassification.
+            await CheckPolicyAsync(VaultExtractPermissions.Documents.ConfirmClassification);
         }
 
         var fileName = input.File.FileName ?? "document";

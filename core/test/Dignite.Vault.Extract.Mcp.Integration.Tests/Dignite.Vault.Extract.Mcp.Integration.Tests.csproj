@@ -27,6 +27,7 @@
          authenticated principal resolves grants through ABP's genuine permission pipeline — the MCP egress's
          fail-closed gate. Re-established in #516 after #514 removed the #432 project with the X-Api-Key channel. -->
     <PackageReference Include="Volo.Abp.PermissionManagement.EntityFrameworkCore" />
+    <PackageReference Include="Volo.Abp.PermissionManagement.Application" />
     <PackageReference Include="Volo.Abp.EntityFrameworkCore.Sqlite" />
   </ItemGroup>
 

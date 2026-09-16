@@ -26,6 +26,8 @@ namespace Dignite.Vault.Extract.Mcp;
 /// principal's user id — the seam the LLM tool-dispatch path depends on, which every AlwaysAllow-based suite
 /// short-circuits and cannot cover. Two DbContexts (Extract + PermissionManagement) share one in-memory SQLite
 /// connection so a granted user id and the searched documents live in the same database.
+/// <c>AbpPermissionManagementApplicationModule</c> is depended on as well (#629) so the smoke test can call ABP's
+/// real <c>IPermissionAppService.GetResourceDefinitionsAsync</c> gate against this same real permission store.
 /// </summary>
 [DependsOn(
     typeof(AbpAutofacModule),
@@ -34,7 +36,8 @@ namespace Dignite.Vault.Extract.Mcp;
     typeof(VaultExtractEntityFrameworkCoreModule),
     typeof(AbpEntityFrameworkCoreSqliteModule),
     typeof(AbpPermissionManagementDomainModule),
-    typeof(AbpPermissionManagementEntityFrameworkCoreModule)
+    typeof(AbpPermissionManagementEntityFrameworkCoreModule),
+    typeof(AbpPermissionManagementApplicationModule)
 )]
 public class McpPermissionPipelineTestModule : AbpModule
 {

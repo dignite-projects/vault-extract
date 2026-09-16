@@ -402,6 +402,8 @@
     "Permission:DocumentTypes.Create": "Create Document Types",
     "Permission:DocumentTypes.Update": "Edit Document Types",
     "Permission:DocumentTypes.Delete": "Delete Document Types",
+    "Permission:DocumentTypes.ManagePermissions": "Manage Document Type Permissions",
+    "Permission:DocumentTypes.Resources.Upload": "Upload into this Document Type",
     "Permission:FieldDefinitions": "Field Definitions",
     "Permission:FieldDefinitions.Create": "Create Field Definitions",
     "Permission:FieldDefinitions.Update": "Edit Field Definitions",

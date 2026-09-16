@@ -133,10 +133,19 @@ public partial class DocumentToDocumentListItemDtoMapper : MapperBase<Document, 
     public override partial void Map(Document source, DocumentListItemDto destination);
 }
 
+/// <summary>
+/// DocumentType -> DocumentTypeDto. <c>ResourcePermissions</c> (#629) has no counterpart on the entity — it is
+/// the calling principal's grants on this row, not state of the row — so it is ignored here and filled after
+/// mapping by <c>DocumentTypeAppService.GetVisibleAsync</c> via ABP's <c>ResourcePermissionPopulator</c>.
+/// Without the ignore, <see cref="RequiredMappingStrategy.Target"/> fails the build on the unmapped member.
+/// </summary>
 [Mapper(RequiredMappingStrategy = RequiredMappingStrategy.Target)]
 public partial class DocumentTypeToDtoMapper : MapperBase<DocumentType, DocumentTypeDto>
 {
+    [MapperIgnoreTarget(nameof(DocumentTypeDto.ResourcePermissions))]
     public override partial DocumentTypeDto Map(DocumentType source);
+
+    [MapperIgnoreTarget(nameof(DocumentTypeDto.ResourcePermissions))]
     public override partial void Map(DocumentType source, DocumentTypeDto destination);
 }
 

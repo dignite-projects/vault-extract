@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Per-document-type upload permissions** ([#629](https://github.com/dignite-projects/vault-extract/issues/629)), built on ABP's resource-based authorization rather than a hand-written grant table. Two names are introduced: the standard permission `VaultExtract.DocumentTypes.ManagePermissions`, which gates who may hand out access, and the resource permission `Dignite.Vault.Extract.Documents.DocumentTypes.DocumentType.Upload`, granted per document type to a user or a role. A caller's type scope for upload is now "every type of the layer if they hold `Documents.ConfirmClassification`, otherwise the types they hold the `Upload` grant on". Grants live in `AbpResourcePermissionGrants`, which has existed since the `Initial` migration — **no schema change and no EF migration is required**. `DocumentTypeDto` gains a `resourcePermissions` dictionary reporting the caller's own grants, and `IDocumentTypeAppService.GetVisibleAsync` additionally admits `Documents.Upload` holders so an upload-only caller can see the list to pick from. Managing the grants goes through ABP's own resource-permission endpoints and dialog; nothing is added to `IDocumentTypeAppService`. See [the configuration page](docs/en/configuration/document-type-upload-permissions.md). This release carries the backend half; the operator-UI half follows separately.
+
+  > **Both new strings are frozen contracts from the first grant row onwards**, the same discipline the `Extract:*` error codes follow — they are persisted verbatim in the grant table. The resource name must in particular stay equal to `typeof(DocumentType).FullName`, which a unit test asserts.
+
+### Changed
+
+- **BREAKING — an upload with no `DocumentTypeId` now requires `VaultExtract.Documents.ConfirmClassification`** ([#629](https://github.com/dignite-projects/vault-extract/issues/629)). Previously any `Documents.Upload` holder could upload untyped and let LLM classification assign the type. Leaving that open would make the new per-type grant trivially bypassable: upload untyped, let the classifier land the document in a type the caller was never granted, and it still reaches the downstream consumers that subscribe by `(TenantId, DocumentTypeCode)`.
+
+  > **Migration:** any role that holds `Documents.Upload` **without** `Documents.ConfirmClassification` and relies on untyped upload must be granted `Documents.ConfirmClassification`, or its uploads will start failing with `AbpAuthorizationException`. Roles that already hold both are unaffected, as are callers that always supply `DocumentTypeId`.
+
 ## [0.5.0-preview.4] - 2026-09-04
 
 Re-cuts `0.5.0-preview.3`, whose release run pushed the NuGet packages to GitHub Packages and then failed on the npm step, leaving no npm package and no GitHub Release. The content below is preview.3's, plus the workflow fix. **Nothing consumes `0.5.0-preview.3`; use this version.**

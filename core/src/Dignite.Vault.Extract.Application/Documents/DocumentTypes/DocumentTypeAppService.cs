@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging;
 using Volo.Abp;
 using Volo.Abp.Authorization;
+using Volo.Abp.Authorization.Permissions.Resources;
 using Volo.Abp.Domain.Entities;
 
 namespace Dignite.Vault.Extract.Documents.DocumentTypes;
@@ -23,6 +24,7 @@ public class DocumentTypeAppService : VaultExtractAppService, IDocumentTypeAppSe
     private readonly DocumentTypeManager _documentTypeManager;
     private readonly FieldDefinitionManager _fieldDefinitionManager;
     private readonly FieldSchemaPromptBudgetGuard _schemaPromptBudget;
+    private readonly ResourcePermissionPopulator _resourcePermissionPopulator;
 
     public DocumentTypeAppService(
         IDocumentTypeRepository repository,
@@ -30,7 +32,8 @@ public class DocumentTypeAppService : VaultExtractAppService, IDocumentTypeAppSe
         IFieldRepository fieldDefinitionRepository,
         DocumentTypeManager documentTypeManager,
         FieldDefinitionManager fieldDefinitionManager,
-        FieldSchemaPromptBudgetGuard schemaPromptBudget)
+        FieldSchemaPromptBudgetGuard schemaPromptBudget,
+        ResourcePermissionPopulator resourcePermissionPopulator)
     {
         _repository = repository;
         _documentRepository = documentRepository;
@@ -38,16 +41,21 @@ public class DocumentTypeAppService : VaultExtractAppService, IDocumentTypeAppSe
         _documentTypeManager = documentTypeManager;
         _fieldDefinitionManager = fieldDefinitionManager;
         _schemaPromptBudget = schemaPromptBudget;
+        _resourcePermissionPopulator = resourcePermissionPopulator;
     }
 
     public virtual async Task<List<DocumentTypeDto>> GetVisibleAsync()
     {
         // Schema reads are decoupled from schema management (#223): document operators (Documents.Default) need to read types
         // for type filters / classification assignment / dynamic field columns, while schema admins (DocumentTypes.Default)
-        // need to read their own management list. Either permission is enough: fail-closed OR assertion.
+        // need to read their own management list. #629 adds a third admitting permission, Documents.Upload: a caller whose
+        // only right is to upload still has to be shown the types to pick one to declare, and the per-type grants that decide
+        // which of them are actually declarable ride back on the DTO below.
+        // Any one of the three is enough: fail-closed OR assertion.
         // Programmatic because [Authorize] does not trigger on reflection / non-HTTP paths.
         if (!await AuthorizationService.IsGrantedAsync(VaultExtractPermissions.Documents.Default) &&
-            !await AuthorizationService.IsGrantedAsync(VaultExtractPermissions.DocumentTypes.Default))
+            !await AuthorizationService.IsGrantedAsync(VaultExtractPermissions.DocumentTypes.Default) &&
+            !await AuthorizationService.IsGrantedAsync(VaultExtractPermissions.Documents.Upload))
         {
             throw new AbpAuthorizationException();
         }
@@ -58,7 +66,18 @@ public class DocumentTypeAppService : VaultExtractAppService, IDocumentTypeAppSe
             .OrderByDescending(t => t.Priority)
             .ThenBy(t => t.TypeCode)
             .ToList();
-        return ObjectMapper.Map<List<DocumentType>, List<DocumentTypeDto>>(list);
+        var dtos = ObjectMapper.Map<List<DocumentType>, List<DocumentTypeDto>>(list);
+
+        // #629: fill DocumentTypeDto.ResourcePermissions for EVERY caller, not only upload-only ones, so the
+        // dictionary is the single source of truth the UI reads instead of inferring rights from which
+        // permission got the caller past the gate above. ResourcePermissionPopulator runs one cached
+        // multi-permission check per type against the caller's own principal (user + role + client providers);
+        // IResourcePermissionStore.GetGrantedResourceKeysAsync is deliberately NOT used here because it filters
+        // on resource + permission name only and is therefore not per-user — it would report every type that
+        // carries a grant for anyone. Types are tens, not thousands, so per-row is affordable.
+        await _resourcePermissionPopulator.PopulateAsync(dtos, VaultExtractPermissions.DocumentTypes.Resources.Name);
+
+        return dtos;
     }
 
     [Authorize(VaultExtractPermissions.DocumentTypes.Default)]

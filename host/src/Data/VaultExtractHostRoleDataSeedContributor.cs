@@ -30,6 +30,9 @@ public class VaultExtractHostRoleDataSeedContributor : IDataSeedContributor, ITr
             VaultExtractPermissions.Documents.Default,
             VaultExtractPermissions.Documents.Upload,
             VaultExtractPermissions.Documents.Export,
+            // #629 made Upload alone inert (untyped upload requires ConfirmClassification, typed upload requires a per-type resource grant), so the seeded operator role carries ConfirmClassification;
+            // SeedRoleAsync re-applies each listed permission idempotently, so existing deployments pick this up on their next migration run.
+            VaultExtractPermissions.Documents.ConfirmClassification,
         });
 
         await SeedRoleAsync("Viewer", new[]

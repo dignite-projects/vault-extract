@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using Dignite.Vault.Extract.Documents.DocumentTypes;
@@ -13,57 +12,11 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using NSubstitute;
 using Shouldly;
 using Volo.Abp.Authorization;
-using Volo.Abp.Authorization.Permissions;
+using Volo.Abp.Authorization.Permissions.Resources;
 using Volo.Abp.Modularity;
 using Xunit;
 
 namespace Dignite.Vault.Extract.Documents;
-
-/// <summary>
-/// Test authorization service that grants policies one by one by policy name, which is also the permission name.
-/// It implements <see cref="IAbpAuthorizationService"/> because ABP's <c>IsGrantedAsync</c> / <c>CheckAsync</c>
-/// extensions cast <see cref="IAuthorizationService"/> to that interface.
-/// All string / requirements overloads route to the same grant set and do not rely on framework-internal routing details.
-/// </summary>
-public sealed class GrantSetAuthorizationService : IAbpAuthorizationService
-{
-    public HashSet<string> Granted { get; set; } = new();
-
-    // Test stub: the IsGrantedAsync / CheckAsync extensions only call AuthorizeAsync and do not read these members.
-    public ClaimsPrincipal CurrentPrincipal => null!;
-    public IServiceProvider ServiceProvider => null!;
-
-    // IAbpAuthorizationService: the extension methods actually use these two 2-argument overloads.
-    public Task<AuthorizationResult> AuthorizeAsync(object? resource, IEnumerable<IAuthorizationRequirement> requirements)
-        => Task.FromResult(Evaluate(requirements));
-
-    public Task<AuthorizationResult> AuthorizeAsync(object? resource, string policyName)
-        => Task.FromResult(Evaluate(policyName));
-
-    // IAuthorizationService
-    public Task<AuthorizationResult> AuthorizeAsync(
-        ClaimsPrincipal user, object? resource, IEnumerable<IAuthorizationRequirement> requirements)
-        => Task.FromResult(Evaluate(requirements));
-
-    public Task<AuthorizationResult> AuthorizeAsync(ClaimsPrincipal user, object? resource, string policyName)
-        => Task.FromResult(Evaluate(policyName));
-
-    private AuthorizationResult Evaluate(string policyName)
-        => Granted.Contains(policyName) ? AuthorizationResult.Success() : AuthorizationResult.Failed();
-
-    private AuthorizationResult Evaluate(IEnumerable<IAuthorizationRequirement> requirements)
-    {
-        foreach (var requirement in requirements)
-        {
-            if (requirement is PermissionRequirement permission && Granted.Contains(permission.PermissionName))
-            {
-                return AuthorizationResult.Success();
-            }
-        }
-
-        return AuthorizationResult.Failed();
-    }
-}
 
 [DependsOn(typeof(VaultExtractApplicationTestModule))]
 public class SchemaReadAuthorizationTestModule : AbpModule
@@ -73,12 +26,19 @@ public class SchemaReadAuthorizationTestModule : AbpModule
         // Replace the always-allow IAuthorizationService with a controllable grant set. This is the only
         // decision source for GetVisibleAsync, the active-field GetListAsync programmatic OR gate, and the
         // trash-view CheckPolicyAsync call.
-        var authorizationService = new GrantSetAuthorizationService();
-        context.Services.AddSingleton(authorizationService);
+        context.Services.AddSingleton(sp => new GrantSetAuthorizationService(sp));
         context.Services.RemoveAll<IAuthorizationService>();
         context.Services.RemoveAll<IAbpAuthorizationService>();
-        context.Services.AddSingleton<IAuthorizationService>(authorizationService);
-        context.Services.AddSingleton<IAbpAuthorizationService>(authorizationService);
+        context.Services.AddSingleton<IAuthorizationService>(sp => sp.GetRequiredService<GrantSetAuthorizationService>());
+        context.Services.AddSingleton<IAbpAuthorizationService>(sp => sp.GetRequiredService<GrantSetAuthorizationService>());
+
+        // GetVisibleAsync fills DocumentTypeDto.ResourcePermissions through ABP's ResourcePermissionPopulator
+        // (#629), which resolves a real IResourcePermissionStore. NullResourcePermissionStore would answer
+        // "false" for everything, which is right for these #223 tests but silently untestable; register the
+        // in-memory one so the resource half is at least real and left empty here on purpose.
+        context.Services.AddSingleton<InMemoryResourcePermissionStore>();
+        context.Services.RemoveAll<IResourcePermissionStore>();
+        context.Services.AddSingleton<IResourcePermissionStore>(sp => sp.GetRequiredService<InMemoryResourcePermissionStore>());
 
         context.Services.AddSingleton(Substitute.For<IDocumentTypeRepository>());
         context.Services.AddSingleton(Substitute.For<IFieldRepository>());
@@ -144,6 +104,21 @@ public class SchemaReadAuthorization_Tests : VaultExtractApplicationTestBase<Sch
     {
         // Schema administrators without Documents.Default can still read their management list.
         Grant(VaultExtractPermissions.DocumentTypes.Default);
+        _documentTypeRepository.GetListAsync(Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(new List<DocumentType> { new(Guid.NewGuid(), null, "host.general", "General") });
+
+        var result = await _documentTypeAppService.GetVisibleAsync();
+
+        result.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task GetVisibleAsync_Succeeds_For_Documents_Upload_Only()
+    {
+        // #629 third admitting permission: an upload-only caller has to see the list to pick a type to declare.
+        // Which of those types the caller may actually declare rides back on DocumentTypeDto.ResourcePermissions,
+        // covered in DocumentTypeResourcePermissions_Tests; the gate itself is what this asserts.
+        Grant(VaultExtractPermissions.Documents.Upload);
         _documentTypeRepository.GetListAsync(Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(new List<DocumentType> { new(Guid.NewGuid(), null, "host.general", "General") });
 
