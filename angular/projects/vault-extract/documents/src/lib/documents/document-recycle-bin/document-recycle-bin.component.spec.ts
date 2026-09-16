@@ -91,7 +91,7 @@ function setup(grantedPolicies: Set<string>, types: DocumentTypeDto[] = [TYPE_A,
 
   const fixture = TestBed.createComponent(DocumentRecycleBinComponent);
   const component = fixture.componentInstance;
-  return { component, getList };
+  return { component, fixture, getList };
 }
 
 describe('DocumentRecycleBinComponent — per-row restore rights (#632)', () => {
@@ -174,5 +174,33 @@ describe('DocumentRecycleBinComponent — page admission (#632)', () => {
     expect(component.canRestoreAnything()).toBe(false);
     expect(getList).not.toHaveBeenCalled();
     expect(component.isLoading()).toBe(false);
+  });
+});
+
+// The empty-state template must tell these two cases apart: a caller who may restore nothing never
+// queried the server at all (page-admission block above), so reporting "recycle bin is empty" would be
+// false — the bin may hold rows, this caller just cannot restore any of them.
+describe('DocumentRecycleBinComponent — empty-state message (#632)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('renders NoRestoreRights, not RecycleBinEmpty, for a caller who may restore nothing', () => {
+    const { fixture, getList } = setup(ENTRY_ONLY, [TYPE_B]);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.canRestoreAnything()).toBe(false);
+    expect(getList).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.textContent).toContain('Document:RecycleBin:NoRestoreRights');
+    expect(fixture.nativeElement.textContent).not.toContain('Document:RecycleBinEmpty');
+  });
+
+  it('renders RecycleBinEmpty for a caller who may restore something but gets zero rows', () => {
+    const { fixture } = setup(ENTRY_ONLY);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.canRestoreAnything()).toBe(true);
+    expect(fixture.nativeElement.textContent).toContain('Document:RecycleBinEmpty');
+    expect(fixture.nativeElement.textContent).not.toContain('Document:RecycleBin:NoRestoreRights');
   });
 });

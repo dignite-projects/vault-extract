@@ -60,12 +60,19 @@
     </div>
   }
 
-  <!-- Empty state -->
+  <!-- Empty state: distinguish "you may restore nothing" (#632 — a per-type Delete grant cannot
+       be expressed as a route policy, so the route admits every documents user, including one who
+       cannot restore a single row) from the genuine "queried the server, no rows" case. -->
   @if (!isLoading() && documents().totalCount === 0) {
     <div class="card shadow-sm">
       <div class="card-body text-center py-5">
-        <i class="fas fa-trash-can fa-3x text-muted mb-3 d-block"></i>
-        <p class="text-muted mb-0">{{ '::Document:RecycleBinEmpty' | abpLocalization }}</p>
+        @if (!canRestoreAnything()) {
+          <i class="fas fa-lock fa-3x text-muted mb-3 d-block"></i>
+          <p class="text-muted mb-0">{{ '::Document:RecycleBin:NoRestoreRights' | abpLocalization }}</p>
+        } @else {
+          <i class="fas fa-trash-can fa-3x text-muted mb-3 d-block"></i>
+          <p class="text-muted mb-0">{{ '::Document:RecycleBinEmpty' | abpLocalization }}</p>
+        }
       </div>
     </div>
   }
