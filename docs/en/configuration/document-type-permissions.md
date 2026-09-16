@@ -98,6 +98,27 @@ On `GetVisibleAsync`, every returned `DocumentTypeDto` carries a `resourcePermis
 
 Client-side rights are a convenience only; the server enforces the same rule regardless of what the client sends.
 
+## What the operator UI shows
+
+The lists themselves are narrowed on the server, so the UI never hides a row it was sent. What it does gate is the per-row actions, from the same `resourcePermissions` dictionary combined with the caller's module-wide permissions — one shared helper (`documentRights`) answers "may read / may edit / may delete this document", and both pages ask it instead of checking a module-wide permission directly.
+
+| Surface | Shown when |
+| --- | --- |
+| Document list → row actions → Confirm classification | Edit on that row's type |
+| Document list → row actions → Delete | Delete on that row's type |
+| Document list → selection checkboxes and bulk delete | Delete on at least one row of the page; rows the caller may not delete drop out of the selection |
+| Document list → **Needs review** toggle, overview → **Needs review** quick link | Edit module-wide, or an Edit grant on at least one visible type |
+| Document list → review-count badge | `Documents.ReadAll` (the count is a whole-layer statistic) |
+| Document detail → Delete | Delete on that document's type |
+| Document detail → confirm / reclassify / re-recognize / re-extract fields / edit fields / correct Markdown / reject / allow duplicate / resolve warnings | Edit on that document's type |
+| Confirm / Reclassify → the type picker | lists only the types the caller may **assign**: `ConfirmClassification`, or an `Upload` grant on that type |
+| Overview → statistics card | `Documents.ReadAll` |
+| Document list → Export, Upload; overview → recycle bin | unchanged: `Documents.Export`, `Documents.Upload`, `Documents.Restore` |
+
+An **untyped** document (unclassified, failed classification, container) offers its actions only to a caller holding the module-wide permission — the same fail-closed rule the server applies, so the affordance and the endpoint agree.
+
+The **overview's statistics card** is hidden without `Documents.ReadAll`, and the request behind it is not made at all: these are whole-layer aggregates and the endpoint requires `ReadAll`, so an entry-only caller would only collect a 403. Routes are unchanged — `Documents` still gates entry to the documents area.
+
 ## Granting and revoking
 
 There is no Vault Extract API for managing these grants. They go through ABP's standard resource-permission endpoints (`/api/permission-management/permissions/resource…`), gated by `ManagePermissions`, and through ABP's `ResourcePermissionManagementComponent` dialog in the operator UI — which renders one checkbox per definition, so the four grants need no dialog work. User and role lookup comes from `Volo.Abp.PermissionManagement.Domain.Identity`, which the host already references.
