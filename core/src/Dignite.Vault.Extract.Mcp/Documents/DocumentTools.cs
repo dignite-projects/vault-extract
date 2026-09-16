@@ -6,6 +6,7 @@ using Dignite.Vault.Extract.Ai;
 using Dignite.Vault.Extract.Documents;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
+using Volo.Abp.Authorization;
 using Volo.Abp.Domain.Entities;
 
 namespace Dignite.Vault.Extract.Mcp.Documents;
@@ -56,11 +57,11 @@ public sealed class DocumentTools
             // DocumentTypeCode resolution through soft-delete are all centralized in the AppService.
             document = await documentAppService.GetAsync(documentId);
         }
-        catch (EntityNotFoundException)
+        catch (Exception ex) when (ex is EntityNotFoundException or AbpAuthorizationException)
         {
-            // Cross-tenant IDs are filtered out by IMultiTenant and cause GetAsync to throw
-            // EntityNotFound, just like truly nonexistent IDs. Treat both as "not found" to avoid
-            // leaking document existence.
+            // Same remap as DocumentResources.ReadCoreAsync, and for the same reason: nonexistent, cross-tenant
+            // (filtered by IMultiTenant into EntityNotFound) and — since #632 — in-tenant-but-outside-the-read-scope
+            // must all answer identically, or the error itself reports whether a document exists.
             throw new McpException($"Document not found: {id}");
         }
 

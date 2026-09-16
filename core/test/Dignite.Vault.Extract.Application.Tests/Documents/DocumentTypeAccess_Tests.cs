@@ -516,12 +516,157 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
             })));
     }
 
+    // ===================== Entry (Documents.Default) is a precondition of every rule =====================
+
+    /// <summary>
+    /// The combination ordinary administration makes reachable and nothing asserted before: handing out a resource
+    /// grant is gated by <c>DocumentTypes.ManagePermissions</c> alone, which is unrelated to <c>Documents.*</c>, so
+    /// an admin can grant "Delete on Invoices" to a principal holding no <c>Documents</c> permission at all. Before
+    /// #632's entry assertion that produced a caller who could soft-delete, restore and rewrite the Markdown of a
+    /// document it could not read — every mutating family had swapped its <c>[Authorize]</c> for a bare per-type
+    /// check and asserted entry nowhere.
+    /// <para>
+    /// Each fact grants entry at the end and shows the same call then succeeds. Without that half it would pass for
+    /// any reason the call happened to fail, rather than for the missing entry permission.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task An_edit_needs_entry_even_with_an_Edit_grant_on_the_documents_own_type()
+    {
+        var document = StubDocument(_typeA.Id);
+        GrantNothing();
+        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Edit, _typeA.Id);
+
+        await Should.ThrowAsync<AbpAuthorizationException>(() => AsPrincipalAsync(() =>
+            _appService.RejectReviewAsync(document.Id, new RejectReviewInput { Reason = "x" })));
+
+        GrantEntryOnly();
+
+        var dto = await AsPrincipalAsync(() =>
+            _appService.RejectReviewAsync(document.Id, new RejectReviewInput { Reason = "x" }));
+        dto.Id.ShouldBe(document.Id);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_needs_entry_even_with_a_Delete_grant_on_the_documents_own_type()
+    {
+        var document = StubDocument(_typeA.Id);
+        GrantNothing();
+        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+
+        await Should.ThrowAsync<AbpAuthorizationException>(
+            () => AsPrincipalAsync(() => _appService.DeleteAsync(document.Id)));
+        await _documentRepository.DidNotReceive().DeleteAsync(
+            document.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>());
+
+        GrantEntryOnly();
+
+        await AsPrincipalAsync(() => _appService.DeleteAsync(document.Id));
+        await _documentRepository.Received(1).DeleteAsync(
+            document.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RestoreAsync_needs_entry_even_with_a_Delete_grant_on_the_documents_own_type()
+    {
+        var document = StubDocument(_typeA.Id, deleted: true);
+        GrantNothing();
+        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+
+        await Should.ThrowAsync<AbpAuthorizationException>(
+            () => AsPrincipalAsync(() => _appService.RestoreAsync(document.Id)));
+        document.IsDeleted.ShouldBeTrue();
+
+        GrantEntryOnly();
+
+        await AsPrincipalAsync(() => _appService.RestoreAsync(document.Id));
+        document.IsDeleted.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// Entry gates the MODULE-WIDE half too, not only the per-type half. Such a principal can only be assembled
+    /// programmatically — ABP's dialog grants the parent with the child, and <c>PermissionChecker</c> never
+    /// consults <c>Parent</c> at check time — but #632 decision 1 says a caller who may not enter the documents
+    /// area may not mutate documents in it either. Read already behaved this way (<c>GetAsync</c> asserts entry
+    /// before the Read rule, whose module-wide half is <c>ReadAll</c>); this is the mutate families catching up.
+    /// </summary>
+    [Fact]
+    public async Task The_module_wide_half_needs_entry_too()
+    {
+        var document = StubDocument(_typeA.Id);
+        Grant(VaultExtractPermissions.Documents.Delete);
+
+        await Should.ThrowAsync<AbpAuthorizationException>(
+            () => AsPrincipalAsync(() => _appService.DeleteAsync(document.Id)));
+
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Delete);
+
+        await AsPrincipalAsync(() => _appService.DeleteAsync(document.Id));
+        await _documentRepository.Received(1).DeleteAsync(
+            document.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// The recycle bin refuses a caller with no entry permission, and admits the same caller once entry is added.
+    /// <para>
+    /// <b>Honest about what this pins:</b> mutation-testing #632's entry assertion showed this fact stays green
+    /// with the assertion removed, because <c>GetListAsync</c> asserts <c>Documents.Default</c> itself before it
+    /// ever reaches <c>IsGrantedOnAnyTypeAsync</c> — the layer-scope gate's own copy of the assertion is currently
+    /// unreachable, and exists so a future caller of that shape cannot skip entry. So this is a statement about the
+    /// endpoint's behaviour, not a guard on the checker; the four facts above are the ones that guard it.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task The_recycle_bin_refuses_a_caller_with_no_entry_permission()
+    {
+        StubQueryable(NewDocument(_typeA.Id, deleted: true));
+        GrantNothing();
+        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+
+        await Should.ThrowAsync<AbpAuthorizationException>(() => AsPrincipalAsync(
+            () => _appService.GetListAsync(new GetDocumentListInput { IsDeleted = true })));
+
+        GrantEntryOnly();
+
+        var page = await AsPrincipalAsync(
+            () => _appService.GetListAsync(new GetDocumentListInput { IsDeleted = true }));
+        page.TotalCount.ShouldBe(0);
+    }
+
+    // The declare-a-type family's entry fact lives in DocumentAppService_UploadDeclaredType_Tests, on
+    // UploadAsync's declared-type branch — the rule's original call site, and the one with a working positive
+    // half to contrast the refusal against.
+
+    // ===================== Authorization outranks the business guards =====================
+
+    /// <summary>
+    /// #632: both authorization halves of Confirm / Reclassify now run before the <c>NotTextExtracted</c> business
+    /// guard. This caller may edit type A but holds nothing on target type B, and the document has no Markdown — so
+    /// while the guard sat between the two checks it answered <c>NotTextExtracted</c> here, reporting this
+    /// document's processing state to a caller with no right on the type it is being assigned to. The same
+    /// reordering <c>RestoreAsync</c> and <c>ResolveFieldValidationWarningsAsync</c> already carry.
+    /// </summary>
+    [Fact]
+    public async Task Reclassify_denies_on_the_target_type_before_the_NotTextExtracted_guard_can_answer()
+    {
+        var document = StubDocument(_typeA.Id);
+        document.Markdown.ShouldBeNullOrEmpty();
+        GrantEntryOnly();
+        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Edit, _typeA.Id);
+
+        await Should.ThrowAsync<AbpAuthorizationException>(() => AsPrincipalAsync(() =>
+            _appService.ReclassifyAsync(document.Id, new ReclassifyDocumentInput { DocumentTypeId = _typeB.Id })));
+    }
+
     // ===================== helpers =====================
 
     private void Grant(params string[] permissions) => _authorization.Granted = new HashSet<string>(permissions);
 
     /// <summary>Entry only: the post-#632 shape of a caller narrowed to its per-type grants.</summary>
     private void GrantEntryOnly() => Grant(VaultExtractPermissions.Documents.Default);
+
+    /// <summary>No standard permission at all — only whatever resource grants the fact adds on top.</summary>
+    private void GrantNothing() => Grant();
 
     private void GrantResource(string permissionName, Guid documentTypeId)
     {

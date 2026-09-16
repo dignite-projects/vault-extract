@@ -9,6 +9,7 @@ using ModelContextProtocol;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
+using Volo.Abp.Authorization;
 using Volo.Abp.Domain.Entities;
 using Volo.Abp.Modularity;
 using Volo.Abp.MultiTenancy;
@@ -247,6 +248,32 @@ public class DocumentTools_Tests : VaultExtractTestBase<DocumentToolsTestModule>
             await DocumentTools.GetAsync(docId.ToString(), _documentAppService));
 
         ex.Message.ShouldContain(docId.ToString());
+    }
+
+    /// <summary>
+    /// #632: a document that exists in the caller's own tenant but sits outside the caller's read scope — no
+    /// <c>Documents.ReadAll</c> and no per-type <c>Read</c> grant on its type — makes <c>GetAsync</c> throw
+    /// <see cref="AbpAuthorizationException"/> rather than <see cref="EntityNotFoundException"/>. It must answer
+    /// with the SAME message as a nonexistent id: otherwise the error distinguishes "exists but not yours" from
+    /// "does not exist", which is the existence disclosure the not-found remap exists to prevent. Per-type Read is
+    /// the first rule that can produce an authorization failure for an id the tenant filter admits.
+    /// </summary>
+    [Fact]
+    public async Task Throws_the_same_not_found_when_the_document_is_outside_the_callers_read_scope()
+    {
+        var missingId = Guid.NewGuid();
+        var forbiddenId = Guid.NewGuid();
+        _documentAppService.GetAsync(missingId).Throws(new EntityNotFoundException());
+        _documentAppService.GetAsync(forbiddenId).Throws(new AbpAuthorizationException());
+
+        var missing = await Should.ThrowAsync<McpException>(async () =>
+            await DocumentTools.GetAsync(missingId.ToString(), _documentAppService));
+        var forbidden = await Should.ThrowAsync<McpException>(async () =>
+            await DocumentTools.GetAsync(forbiddenId.ToString(), _documentAppService));
+
+        // Identical apart from the id the caller already knows it asked for.
+        forbidden.Message.Replace(forbiddenId.ToString(), string.Empty)
+            .ShouldBe(missing.Message.Replace(missingId.ToString(), string.Empty));
     }
 
     [Fact]

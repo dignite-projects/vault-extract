@@ -473,7 +473,9 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// #632: the method-level <c>[Authorize(Documents.Delete)]</c> is gone, replaced by the programmatic
     /// <c>Documents.Delete</c> OR <c>Delete</c>-grant-on-this-type check below. It had to go rather than be kept
     /// alongside: the attribute would deny a per-type grant holder before the body could offer the other half of
-    /// the OR. <c>RestoreAsync</c> and <c>PermanentDeleteAsync</c> stay module-wide only, by decision.
+    /// the OR. <c>RestoreAsync</c> reuses this very <c>Delete</c> grant — whoever may delete may undo — and lost
+    /// its attribute for the same reason; <c>PermanentDeleteAsync</c> is the one that stays module-wide only, by
+    /// decision.
     /// </para>
     /// </summary>
     public virtual async Task DeleteAsync(Guid id)
@@ -1161,18 +1163,6 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // the pre-#632 behaviour.
         await _documentTypeAccess.CheckAsync(DocumentAccessRule.Edit, document);
 
-        // A type can only be confirmed on a document that has text -- mirrors RerecognizeAsync / ReextractFieldsAsync.
-        // Without this guard the cascade field extraction below would run over an empty body, and since
-        // MissingRequiredFields is non-blocking, the document could reach Ready with no fields at all. This guard is
-        // also what makes the Parse-cascade declared-type branch (DocumentParseBackgroundJob.CompleteRunAsync)
-        // race-free: no path can create a Classification run before Parse writes Markdown -- bulk reprocessing
-        // requires Markdown, RerecognizeAsync carries this same guard, and derived sub-documents are always created
-        // typeless -- so by the time Parse completes, no operator action could have gotten here first.
-        if (string.IsNullOrEmpty(document.Markdown))
-        {
-            throw new BusinessException(VaultExtractErrorCodes.Document.NotTextExtracted);
-        }
-
         // Type validation responsibility lives in AppService and no longer goes through manager-internal EnsureRegisteredTypeCodeAsync:
         // resolve by immutable Id (#207), with tenant isolation delegated to ABP IMultiTenant global filters for exact single-layer matching.
         // Missing type fails fast, avoiding writes of a type that business-module subscribers cannot recognize.
@@ -1184,8 +1174,28 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
 
         // #632, half two: the TARGET type. Deciding a document's type is the same act UploadAsync's declared type
         // performs, so it rides the same #629 rule — ConfirmClassification, or an Upload grant on the type being
-        // assigned. Existence is validated first, above, so a cross-layer id is a 404 before permission.
+        // assigned. Existence is validated first, above, so a cross-layer id is a 404 before permission — the
+        // #629 existence-before-permission ordering, which is why the FindAsync had to move up with the check
+        // rather than the check moving up alone.
+        //
+        // Both authorization halves now run BEFORE the NotTextExtracted guard below. They used to straddle it, so
+        // a caller holding Edit on the document's current type but nothing on the target type learned this
+        // document's processing state from the business error before the target-type permission was ever
+        // consulted. Same reordering RestoreAsync and ResolveFieldValidationWarningsAsync already carry:
+        // authorization outranks a fast-fail, because a business error is an oracle.
         await _documentTypeAccess.CheckTargetTypeAsync(DocumentAccessRule.DeclareType, typeDef);
+
+        // A type can only be confirmed on a document that has text -- mirrors RerecognizeAsync / ReextractFieldsAsync.
+        // Without this guard the cascade field extraction below would run over an empty body, and since
+        // MissingRequiredFields is non-blocking, the document could reach Ready with no fields at all. This guard is
+        // also what makes the Parse-cascade declared-type branch (DocumentParseBackgroundJob.CompleteRunAsync)
+        // race-free: no path can create a Classification run before Parse writes Markdown -- bulk reprocessing
+        // requires Markdown, RerecognizeAsync carries this same guard, and derived sub-documents are always created
+        // typeless -- so by the time Parse completes, no operator action could have gotten here first.
+        if (string.IsNullOrEmpty(document.Markdown))
+        {
+            throw new BusinessException(VaultExtractErrorCodes.Document.NotTextExtracted);
+        }
 
         // #623: the run-queue / cascade-schedule / manual-complete / publish sequence is shared with the
         // Parse-cascade branch for an upload-declared document type (DocumentParseBackgroundJob), which

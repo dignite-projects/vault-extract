@@ -36,7 +36,9 @@ ABP documents `PermissionDefinition.Parent` as "this permission can be granted o
 
 ## The rule every enforcement point applies
 
-**An operation on a document is authorized by the module-wide permission for that operation, OR by the matching grant on the document's current type.** The module-wide permission remains sufficient on its own; the grant is the narrower alternative.
+**An operation on a document is authorized by `VaultExtract.Documents` (entry) AND either the module-wide permission for that operation OR the matching grant on the document's current type.** Within the OR, the module-wide permission remains sufficient on its own; the grant is the narrower alternative.
+
+Entry is a precondition of the whole rule, not only of the read endpoints, and it gates the module-wide half as well as the per-type half: a principal who may not open the documents area may not mutate documents in it either. Every principal assembled through ABP's permission dialog carries it, because each of these module-wide permissions is a child of `VaultExtract.Documents` and the dialog grants the parent with the child; only a programmatic `IPermissionManager` grant can separate them, since `PermissionChecker` never consults `Parent` at check time. It matters most for the per-type half: handing out a resource grant is gated by `DocumentTypes.ManagePermissions`, which says nothing about `Documents.*`, so without this precondition granting "Delete on Invoices" to a principal holding no `Documents` permission at all would produce a caller that could soft-delete, restore and rewrite the Markdown of a document it could not read.
 
 | Operation family | Module-wide | Per-type grant on the document's type |
 | --- | --- | --- |
