@@ -16,7 +16,7 @@ They are built on ABP's [resource-based authorization](https://abp.io/docs/lates
 | Resource permission | `…DocumentType.Upload` | May upload a document declaring **one specific** document type. |
 | Resource permission | `…DocumentType.Read` | May read the documents of **one specific** document type. |
 | Resource permission | `…DocumentType.Edit` | May run the operator edit family on **one specific** type's documents. |
-| Resource permission | `…DocumentType.Delete` | May soft-delete **one specific** type's documents. |
+| Resource permission | `…DocumentType.Delete` | May soft-delete **one specific** type's documents, and restore them again. |
 
 The four resource permission names are prefixed with the resource name `Dignite.Vault.Extract.Documents.DocumentTypes.DocumentType`. The resource is the `DocumentType` entity; the resource **key** is its immutable `Id`.
 
@@ -28,7 +28,9 @@ Every one of those strings is a **frozen contract** once the first grant row exi
 
 `VaultExtract.Documents` used to mean both "may enter the documents area" and "may read every document". Those are now two names.
 
-The split is what makes a per-type `Read` grant expressible at all. ABP's `PermissionDefinition.Parent` contract is "this permission can be granted only if the parent is granted", and the permission-management dialog enforces it. `Documents` is the parent of `Upload`, `Delete`, `ConfirmClassification`, `Export`, `Restore`, `PermanentDelete`, `Pipelines.*` and `Reprocessing.*` — so every principal that can open the documents area or upload anything already holds it. A per-type `Read` hung off that alone would never narrow anyone.
+The split is what makes a per-type `Read` grant expressible at all. `Documents` was the gate on every read endpoint and on every SPA documents route, so **every principal that can open the documents area holds it and therefore sees every document of the layer** — a per-type `Read` hung off that alone would never narrow anyone.
+
+ABP documents `PermissionDefinition.Parent` as "this permission can be granted only if the parent is granted", and the permission-management dialog enforces it by checking the parent with the child — but `PermissionChecker` does **not** consult `Parent` at check time, so a permission granted programmatically through `IPermissionManager` can exist without its parent. That nuance does not weaken the paragraph above, which rests on the route guard and the read gates rather than on the parent rule.
 
 > **Breaking change.** A role holding `VaultExtract.Documents` without `ReadAll` now sees only the types it holds a `Read` grant on. The seeded `DocumentManager` and `Viewer` roles gain `ReadAll` automatically on the next migration run (`VaultExtractHostRoleDataSeedContributor` applies it idempotently), and `admin` receives it from the migrator's permission seed. **Hand-made roles and MCP OAuth clients need a manual `ReadAll` grant** or their document lists go empty.
 
@@ -41,11 +43,14 @@ The split is what makes a per-type `Read` grant expressible at all. ABP's `Permi
 | **Read** — `GetAsync`, `GetBlobAsync`, `GetListAsync` rows, `DocumentPipelineRunAppService.GetListAsync`, MCP `get_document` / `search_documents` / document resources, export rows | `Documents.ReadAll` | `Read` |
 | **Edit** — `ConfirmClassificationAsync`, `ReclassifyAsync`, `RerecognizeAsync`, `ReextractFieldsAsync`, `UpdateExtractedFieldsAsync`, `UpdateMarkdownAsync`, `RejectReviewAsync`, `AllowDuplicateAsync`, `ResolveFieldValidationWarningsAsync` | `Documents.ConfirmClassification` | `Edit` |
 | **Delete** — `DeleteAsync` (soft delete) | `Documents.Delete` | `Delete` |
+| **Restore** — `RestoreAsync`, and reaching the recycle bin at all | `Documents.Restore` | `Delete` — **whoever may delete may undo** |
 | **Declare / assign a type** — `UploadAsync` with `DocumentTypeId`, and the **target** type of `ConfirmClassificationAsync` / `ReclassifyAsync` | `Documents.ConfirmClassification` | `Upload` on the **target** type |
 
 Reclassifying a document from type A to type B therefore needs both halves: `Edit` on A (it is an edit of that document) and `Upload` on B (it is a decision about B), or the module-wide permission in place of either.
 
-Stays module-wide only, by decision: `RestoreAsync` (`Restore`), `PermanentDeleteAsync` (`PermanentDelete`), `RetryPipelineAsync` (`Pipelines.Retry`), everything under `Reprocessing.*`, and the overview statistics (`ReadAll` — a whole-layer aggregate has no per-type meaning). `UpdateCabinetAsync` needs entry plus Read on the document, plus `Cabinets.Default` when a cabinet is assigned. Cabinet reads, field-definition reads and `GetVisibleAsync` keep their existing gates, in which `Documents` now reads as entry.
+Restore is the one row whose per-type half is not its own resource permission: it reuses `Delete`. Undoing an operation is not a wider right than the operation, and a per-type deleter who could not restore would have to escalate a mistake of their own making to an admin. Reaching the recycle bin follows the same rule, asked of the layer rather than of one document — `Documents.Restore`, or a `Delete` grant on **at least one** type. Admission is all that decides: the rows inside are still narrowed by the read scope, so a caller who may delete a type but not read it is admitted to an empty recycle bin.
+
+Stays module-wide only, by decision: `PermanentDeleteAsync` (`PermanentDelete`), `RetryPipelineAsync` (`Pipelines.Retry`), everything under `Reprocessing.*`, and the overview statistics (`ReadAll` — a whole-layer aggregate has no per-type meaning). `UpdateCabinetAsync` needs entry plus Read on the document, plus `Cabinets.Default` when a cabinet is assigned. Cabinet reads, field-definition reads and `GetVisibleAsync` keep their existing gates, in which `Documents` now reads as entry.
 
 ### Untyped documents are fail-closed
 

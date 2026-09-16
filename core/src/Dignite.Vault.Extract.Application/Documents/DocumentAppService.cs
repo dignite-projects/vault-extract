@@ -141,10 +141,17 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // returning empty. No FieldFilters -> null (metadata-only retrieval).
         var fieldQueries = await ResolveFieldQueriesAsync(input, documentTypeId);
 
-        // Trash-bin view: requires Restore permission, and the entire query pipeline must run inside DataFilter.Disable<ISoftDelete>.
+        // Trash-bin view: requires the right to restore something, and the entire query pipeline must run inside
+        // DataFilter.Disable<ISoftDelete>.
         if (input.IsDeleted == true)
         {
-            await CheckPolicyAsync(VaultExtractPermissions.Documents.Restore);
+            // #632: module-wide Documents.Restore, OR a Delete grant on at least one type of the layer — "whoever
+            // may delete may undo". A bare CheckPolicyAsync(Documents.Restore) would shut a per-type deleter out of
+            // the recycle bin entirely, which would make the per-type half of RestoreAsync's rule unreachable from
+            // the UI. This gate decides ADMISSION only: the rows are still narrowed by the read scope inside
+            // ExecuteListQueryAsync, so a caller who may delete type A but may not read it is admitted to an empty
+            // recycle bin. That is the intended fail-closed answer, not a case to special-case.
+            await _documentTypeAccess.CheckOnAnyTypeAsync(DocumentAccessRule.Restore);
             using (DataFilter.Disable<ISoftDelete>())
             {
                 return await ExecuteListQueryAsync(input, documentTypeId, onlyDeleted: true, fieldQueries);
@@ -596,12 +603,29 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// siblings itself rather than relying on the (here, disabled) global filter, and the #531 type check pins its
     /// own <c>IsDeleted</c> test for the same reason.
     /// </summary>
-    [Authorize(VaultExtractPermissions.Documents.Restore)]
     public virtual async Task RestoreAsync(Guid id)
     {
         using (DataFilter.Disable<ISoftDelete>())
         {
             var document = await _documentRepository.GetAsync(id);
+
+            // #632: Documents.Restore, OR a Delete grant on this document's own type — "whoever may delete may
+            // undo". The method-level [Authorize(Documents.Restore)] had to go rather than stay alongside: the
+            // attribute fires before the body and would deny a per-type Delete-grant holder before the OR could
+            // offer its other half, the same reason the edit family and DeleteAsync lost theirs.
+            //
+            // Placement, deliberately, is immediately after the load and BEFORE everything else in this method:
+            //   * before the two business guards (RestoreConflict / RestoreTypeDeleted), so an unauthorized caller
+            //     cannot use their error messages as an oracle for what else exists in the layer — the ordering
+            //     ResolveFieldValidationWarningsAsync already adopted for its in-progress guard;
+            //   * before the !IsDeleted early return, because that return is observable: a caller with no right on
+            //     this type would otherwise get a silent success for a live document and AbpAuthorizationException
+            //     for a soft-deleted one, i.e. a probe for whether a document is in the recycle bin. Restoring is
+            //     either permitted for this type or it is not, whatever state the row happens to be in.
+            // Existence still comes first: GetAsync above throws EntityNotFoundException for an id that does not
+            // resolve under the ambient IMultiTenant filter, keeping #629's existence-before-permission ordering.
+            await _documentTypeAccess.CheckAsync(DocumentAccessRule.Restore, document);
+
             if (!document.IsDeleted)
             {
                 return;

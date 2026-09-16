@@ -233,15 +233,15 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     }
 
     /// <summary>
-    /// The edit family had to LOSE its <c>[Authorize(ConfirmClassification)]</c> attributes, not merely gain a body
-    /// check: the attribute fires before the body and would deny a per-type Edit holder outright, making the OR
-    /// unreachable. Re-adding one would break exactly one grant path and nothing else, which is the kind of
-    /// regression a behavioural test on one method does not catch.
+    /// Every method whose rule has a per-type half had to LOSE its module-wide <c>[Authorize]</c> attribute, not
+    /// merely gain a body check: the attribute fires before the body and would deny a per-type grant holder
+    /// outright, making the OR unreachable. Re-adding one would break exactly one grant path and nothing else,
+    /// which is the kind of regression a behavioural test on one method does not catch.
     /// </summary>
     [Fact]
-    public void Every_edit_family_method_lost_its_module_wide_Authorize_attribute()
+    public void Every_per_type_checked_method_lost_its_module_wide_Authorize_attribute()
     {
-        string[] editFamily =
+        string[] perTypeChecked =
         [
             nameof(IDocumentAppService.ConfirmClassificationAsync),
             nameof(IDocumentAppService.ReclassifyAsync),
@@ -252,21 +252,23 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
             nameof(IDocumentAppService.RejectReviewAsync),
             nameof(IDocumentAppService.AllowDuplicateAsync),
             nameof(IDocumentAppService.ResolveFieldValidationWarningsAsync),
-            nameof(IDocumentAppService.DeleteAsync)
+            nameof(IDocumentAppService.DeleteAsync),
+            // #632 change 2: Restore reuses the Delete grant, so it needs the body check for the same reason.
+            nameof(IDocumentAppService.RestoreAsync)
         ];
 
-        foreach (var name in editFamily)
+        foreach (var name in perTypeChecked)
         {
             var method = typeof(DocumentAppService).GetMethod(name).ShouldNotBeNull();
             method.GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true)
                 .ShouldBeEmpty($"{name} must not carry [Authorize]: it would short-circuit the per-type OR.");
         }
 
-        // The counter-case, so this test cannot pass by the attribute type simply never being found: the
+        // The counter-cases, so this test cannot pass by the attribute type simply never being found: the
         // module-wide-only operations still carry theirs.
-        typeof(DocumentAppService).GetMethod(nameof(IDocumentAppService.RestoreAsync))!
-            .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true).ShouldNotBeEmpty();
         typeof(DocumentAppService).GetMethod(nameof(IDocumentAppService.PermanentDeleteAsync))!
+            .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true).ShouldNotBeEmpty();
+        typeof(DocumentAppService).GetMethod(nameof(IDocumentAppService.RetryPipelineAsync))!
             .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true).ShouldNotBeEmpty();
     }
 
@@ -297,6 +299,150 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
         await AsPrincipalAsync(() => _appService.DeleteAsync(untyped.Id));
 
         await _documentRepository.Received(1).DeleteAsync(untyped.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>());
+    }
+
+    // ===================== Restore =====================
+
+    /// <summary>
+    /// #632 change 2, "whoever may delete may undo": the SAME <c>Delete</c> grant that admits
+    /// <c>DeleteAsync</c> admits <c>RestoreAsync</c>. No <c>Documents.Restore</c> is held here, so the
+    /// module-wide half of the OR contributes nothing.
+    /// </summary>
+    [Fact]
+    public async Task RestoreAsync_is_admitted_by_a_Delete_grant_on_the_documents_own_type_and_denied_on_another()
+    {
+        var granted = StubDocument(_typeA.Id, deleted: true);
+        var denied = StubDocument(_typeB.Id, deleted: true);
+        GrantEntryOnly();
+        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+
+        await AsPrincipalAsync(() => _appService.RestoreAsync(granted.Id));
+        granted.IsDeleted.ShouldBeFalse();
+
+        await Should.ThrowAsync<AbpAuthorizationException>(
+            () => AsPrincipalAsync(() => _appService.RestoreAsync(denied.Id)));
+        denied.IsDeleted.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task RestoreAsync_is_unchanged_for_a_module_wide_Restore_holder_including_untyped_documents()
+    {
+        var untyped = StubDocument(documentTypeId: null, deleted: true);
+        GrantEntryOnly();
+        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+
+        // Untyped: no grant can name it, so the per-type half cannot reach it.
+        await Should.ThrowAsync<AbpAuthorizationException>(
+            () => AsPrincipalAsync(() => _appService.RestoreAsync(untyped.Id)));
+        untyped.IsDeleted.ShouldBeTrue();
+
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Restore);
+
+        await AsPrincipalAsync(() => _appService.RestoreAsync(untyped.Id));
+        untyped.IsDeleted.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The check sits before the <c>!IsDeleted</c> early return on purpose. That return is observable — a silent
+    /// success — so checking after it would let a caller with no right on this type learn whether a document is in
+    /// the recycle bin from whether the call throws.
+    /// </summary>
+    [Fact]
+    public async Task RestoreAsync_denies_a_live_document_too_rather_than_returning_silently()
+    {
+        var live = StubDocument(_typeB.Id, deleted: false);
+        GrantEntryOnly();
+        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+
+        await Should.ThrowAsync<AbpAuthorizationException>(
+            () => AsPrincipalAsync(() => _appService.RestoreAsync(live.Id)));
+    }
+
+    /// <summary>
+    /// And before the two business guards, so their error messages cannot be used as an oracle: here the #531
+    /// archived-type guard would answer <c>RestoreTypeDeleted</c> — a statement about the layer's schema — to a
+    /// caller who may not restore this type at all.
+    /// </summary>
+    [Fact]
+    public async Task RestoreAsync_denies_before_a_business_guard_can_answer_anything()
+    {
+        var document = StubDocument(_typeB.Id, deleted: true);
+        _typeB.IsDeleted = true;
+        GrantEntryOnly();
+        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+
+        await Should.ThrowAsync<AbpAuthorizationException>(
+            () => AsPrincipalAsync(() => _appService.RestoreAsync(document.Id)));
+    }
+
+    // ===================== Recycle-bin admission =====================
+
+    /// <summary>
+    /// The entry gate is the layer-scoped form of the same rule. Without it the per-type deleter could never
+    /// reach the restore action and change 2 would be cosmetic.
+    /// </summary>
+    [Fact]
+    public async Task The_recycle_bin_admits_a_caller_holding_only_a_Delete_grant()
+    {
+        StubQueryable(
+            NewDocument(_typeA.Id, deleted: true),
+            NewDocument(_typeB.Id, deleted: true),
+            NewDocument(_typeA.Id));
+        GrantEntryOnly();
+        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Read, _typeA.Id);
+
+        var page = await AsPrincipalAsync(
+            () => _appService.GetListAsync(new GetDocumentListInput { IsDeleted = true }));
+
+        page.TotalCount.ShouldBe(1);
+        page.Items.ShouldAllBe(i => i.DocumentTypeCode == _typeA.TypeCode);
+    }
+
+    [Fact]
+    public async Task The_recycle_bin_is_refused_to_a_caller_who_may_read_but_not_delete()
+    {
+        StubQueryable(NewDocument(_typeA.Id, deleted: true));
+        GrantEntryOnly();
+        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Read, _typeA.Id);
+
+        await Should.ThrowAsync<AbpAuthorizationException>(() => AsPrincipalAsync(
+            () => _appService.GetListAsync(new GetDocumentListInput { IsDeleted = true })));
+    }
+
+    /// <summary>
+    /// Admission and visibility are two different questions, and the delete grant only answers the first: a
+    /// caller who may delete type A but not read it is admitted to an EMPTY recycle bin. Fail-closed, asserted
+    /// rather than special-cased.
+    /// </summary>
+    [Fact]
+    public async Task The_recycle_bin_rows_stay_narrowed_by_the_read_scope_not_by_the_delete_grant()
+    {
+        StubQueryable(NewDocument(_typeA.Id, deleted: true), NewDocument(_typeB.Id, deleted: true));
+        GrantEntryOnly();
+        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+
+        var page = await AsPrincipalAsync(
+            () => _appService.GetListAsync(new GetDocumentListInput { IsDeleted = true }));
+
+        page.TotalCount.ShouldBe(0);
+        page.Items.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task The_recycle_bin_is_unchanged_for_a_module_wide_Restore_holder()
+    {
+        StubQueryable(
+            NewDocument(_typeA.Id, deleted: true), NewDocument(documentTypeId: null, deleted: true));
+        Grant(
+            VaultExtractPermissions.Documents.Default,
+            VaultExtractPermissions.Documents.Restore,
+            VaultExtractPermissions.Documents.ReadAll);
+
+        var page = await AsPrincipalAsync(
+            () => _appService.GetListAsync(new GetDocumentListInput { IsDeleted = true }));
+
+        page.TotalCount.ShouldBe(2);
     }
 
     // ===================== List / export read scope =====================
@@ -387,7 +533,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
             UserId.ToString());
     }
 
-    private static Document NewDocument(Guid? documentTypeId)
+    private static Document NewDocument(Guid? documentTypeId, bool deleted = false)
     {
         var document = new Document(
             Guid.NewGuid(),
@@ -407,13 +553,17 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
             typeof(Document).GetProperty(nameof(Document.DocumentTypeId))!.SetValue(document, documentTypeId.Value);
         }
 
+        // ISoftDelete's setter is public (RestoreAsync itself clears it), so the recycle-bin state needs no
+        // reflection.
+        document.IsDeleted = deleted;
+
         return document;
     }
 
     /// <summary>Registers a document on both loaders the enforcement points use (lean and field-stage).</summary>
-    private Document StubDocument(Guid? documentTypeId)
+    private Document StubDocument(Guid? documentTypeId, bool deleted = false)
     {
-        var document = NewDocument(documentTypeId);
+        var document = NewDocument(documentTypeId, deleted);
         _documentRepository.GetAsync(document.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(document);
         _documentRepository.FindWithFieldValuesAsync(document.Id, Arg.Any<CancellationToken>()).Returns(document);
         return document;

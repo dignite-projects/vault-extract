@@ -16,10 +16,13 @@ public class VaultExtractPermissions
         /// implies, and the SPA route gate. The module-wide "read every type of the layer" half is
         /// <see cref="ReadAll"/>.
         /// <para>
-        /// The split exists because a per-type Read grant is unexpressible without it: ABP's
-        /// <c>PermissionDefinition.Parent</c> contract is "a child can only be granted if the parent is", so every
-        /// principal that can reach the documents area or upload anything already holds this name — a per-type
-        /// Read would never narrow anyone.
+        /// The split exists because a per-type Read grant is unexpressible without it: this name was the gate on
+        /// every read endpoint and on every SPA documents route, so every principal that can open the documents
+        /// area holds it and therefore sees every document of the layer — a per-type Read would never narrow
+        /// anyone. (ABP's <c>PermissionDefinition.Parent</c> is enforced by the permission-management dialog, which
+        /// checks the parent with the child; <c>PermissionChecker</c> never consults it, so a permission granted
+        /// programmatically through <c>IPermissionManager</c> can exist without its parent. The split rests on the
+        /// route guard and the read gates, not on the parent rule.)
         /// </para>
         /// </summary>
         public const string Default = GroupName + ".Documents";

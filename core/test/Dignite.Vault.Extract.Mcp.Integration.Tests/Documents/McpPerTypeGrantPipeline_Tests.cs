@@ -18,7 +18,7 @@ namespace Dignite.Vault.Extract.Mcp.Documents;
 /// <summary>
 /// #632 acceptance, the real-chain half: one fact per per-document-type grant — <c>Upload</c> on
 /// <c>UploadAsync</c>, <c>Read</c> on <c>GetAsync</c>, <c>Edit</c> on <c>ConfirmClassificationAsync</c>,
-/// <c>Delete</c> on <c>DeleteAsync</c> — each driven by a real row in the SQLite
+/// <c>Delete</c> on <c>DeleteAsync</c> and on <c>RestoreAsync</c> — each driven by a real row in the SQLite
 /// <c>AbpResourcePermissionGrants</c> table, through ABP's real <c>IResourcePermissionChecker</c> and its real
 /// user value provider.
 /// <para>
@@ -41,6 +41,7 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
     private static readonly Guid ReaderId = Guid.Parse("22222222-0000-0000-0000-000000000632");
     private static readonly Guid EditorId = Guid.Parse("33333333-0000-0000-0000-000000000632");
     private static readonly Guid DeleterId = Guid.Parse("44444444-0000-0000-0000-000000000632");
+    private static readonly Guid RestorerId = Guid.Parse("55555555-0000-0000-0000-000000000632");
 
     private const string UserProviderName = "U";
 
@@ -201,6 +202,48 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
         {
             (await _documentRepository.FindAsync(documentA)).ShouldBeNull();
             (await _documentRepository.FindAsync(documentB)).ShouldNotBeNull();
+        });
+    }
+
+    /// <summary>
+    /// #632 change 2, through the real chain: the same <c>Delete</c> grant that admits <c>DeleteAsync</c> admits
+    /// <c>RestoreAsync</c> — whoever may delete may undo. There is no <c>Restore</c> resource permission to grant,
+    /// and this caller holds no module-wide <c>Documents.Restore</c>, so the grant row is doing all the work.
+    /// </summary>
+    [Fact]
+    public async Task Delete_grant_on_a_type_admits_RestoreAsync_for_that_type_only()
+    {
+        Guid documentA = default, documentB = default;
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var typeA = await SeedTypeAsync("per.type.restore.a");
+            var typeB = await SeedTypeAsync("per.type.restore.b");
+            documentA = await SeedDocumentAsync(typeA);
+            documentB = await SeedDocumentAsync(typeB);
+
+            await GrantAsync(RestorerId, VaultExtractPermissions.Documents.Default);
+            await GrantResourceAsync(RestorerId, VaultExtractPermissions.DocumentTypes.Resources.Delete, typeA);
+        });
+
+        // Both land in the recycle bin out of band, so the fact below is about Restore alone.
+        await WithUnitOfWorkAsync(async () =>
+        {
+            await _documentRepository.DeleteAsync(documentA, autoSave: true);
+            await _documentRepository.DeleteAsync(documentB, autoSave: true);
+        });
+
+        using (_principalAccessor.Change(Principal(RestorerId)))
+        {
+            await WithUnitOfWorkAsync(() => _documentAppService.RestoreAsync(documentA));
+
+            await Should.ThrowAsync<AbpAuthorizationException>(() =>
+                WithUnitOfWorkAsync(() => _documentAppService.RestoreAsync(documentB)));
+        }
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            (await _documentRepository.FindAsync(documentA)).ShouldNotBeNull();
+            (await _documentRepository.FindAsync(documentB)).ShouldBeNull();
         });
     }
 

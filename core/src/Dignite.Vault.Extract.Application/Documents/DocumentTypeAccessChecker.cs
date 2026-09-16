@@ -33,9 +33,20 @@ public sealed record DocumentAccessRule(string ModuleWidePermission, string Reso
         VaultExtractPermissions.Documents.ConfirmClassification,
         VaultExtractPermissions.DocumentTypes.Resources.Edit);
 
-    /// <summary>Soft delete. Restore and permanent delete stay module-wide only, by decision.</summary>
+    /// <summary>Soft delete. Permanent delete stays module-wide only, by decision.</summary>
     public static readonly DocumentAccessRule Delete = new(
         VaultExtractPermissions.Documents.Delete,
+        VaultExtractPermissions.DocumentTypes.Resources.Delete);
+
+    /// <summary>
+    /// Restore from the recycle bin, and reaching the recycle bin at all. <b>Whoever may delete may undo:</b> the
+    /// per-type half is deliberately <see cref="VaultExtractPermissions.DocumentTypes.Resources.Delete"/> — the
+    /// same grant <see cref="Delete"/> uses — rather than a fifth resource permission. Undoing an operation is not
+    /// a wider right than the operation; a per-type deleter who could not restore would have to escalate a mistake
+    /// of their own making to an admin, and a fifth frozen string buys nothing (#632).
+    /// </summary>
+    public static readonly DocumentAccessRule Restore = new(
+        VaultExtractPermissions.Documents.Restore,
         VaultExtractPermissions.DocumentTypes.Resources.Delete);
 
     /// <summary>
@@ -152,6 +163,49 @@ public class DocumentTypeAccessChecker : ITransientDependency
     }
 
     /// <summary>
+    /// Layer-scope shape: does the caller hold this rule's module-wide permission, or its resource permission on
+    /// <b>at least one</b> type of the layer? That is the question an entry gate asks — "may this caller do this
+    /// at all?" — as opposed to <see cref="IsGrantedAsync(DocumentAccessRule, Guid?)"/>'s "may they do it to this
+    /// one document?".
+    /// <para>
+    /// It exists for the recycle bin (#632): that branch of the list used to assert the module-wide
+    /// <c>Documents.Restore</c> outright, which would shut a per-type deleter out of the page and leave the
+    /// Restore rule unreachable from the UI. It decides admission only — the rows inside stay narrowed by
+    /// <see cref="GetReadableDocumentTypeIdsAsync"/>, so a caller who may delete type A but not read it is
+    /// admitted to an empty recycle bin, which is the intended fail-closed answer rather than a special case.
+    /// </para>
+    /// </summary>
+    public virtual async Task<bool> IsGrantedOnAnyTypeAsync(DocumentAccessRule rule)
+    {
+        if (await _authorizationService.IsGrantedAsync(rule.ModuleWidePermission))
+        {
+            return true;
+        }
+
+        foreach (var type in await GetLayerTypesAsync())
+        {
+            if (await _resourcePermissionChecker.IsGrantedAsync(
+                    rule.ResourcePermission,
+                    VaultExtractPermissions.DocumentTypes.Resources.Name,
+                    type.Id.ToString()))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Asserts <see cref="IsGrantedOnAnyTypeAsync"/>, throwing <see cref="AbpAuthorizationException"/>.</summary>
+    public virtual async Task CheckOnAnyTypeAsync(DocumentAccessRule rule)
+    {
+        if (!await IsGrantedOnAnyTypeAsync(rule))
+        {
+            throw new AbpAuthorizationException();
+        }
+    }
+
+    /// <summary>
     /// List-scope shape (#632 decision 3): the document types the caller may read, or <c>null</c> when the caller
     /// holds <c>Documents.ReadAll</c> and the scope is therefore unrestricted.
     /// <para>
@@ -174,20 +228,7 @@ public class DocumentTypeAccessChecker : ITransientDependency
             return null;
         }
 
-        // Soft delete is traversed on purpose, the same way DocumentAppService.ResolveReferenceMapsAsync traverses
-        // it: a document classified to a since-archived type is still in the list of a Documents.ReadAll holder, so
-        // a caller holding an explicit Read grant on that type must see it too — otherwise the narrow caller and the
-        // module-wide caller disagree about which rows exist. It also makes the scope independent of whether the
-        // CALLER happens to be inside DataFilter.Disable<ISoftDelete>() (the recycle-bin branch of the list is),
-        // which would otherwise silently widen or narrow it depending on the call site.
-        //
-        // This can only ever ADD a type the caller was explicitly granted; the IMultiTenant filter is untouched, so
-        // the enumeration stays inside the caller's own layer.
-        List<DocumentType> types;
-        using (_dataFilter.Disable<ISoftDelete>())
-        {
-            types = await _documentTypeRepository.GetListAsync();
-        }
+        var types = await GetLayerTypesAsync();
 
         var readable = new List<Guid>(types.Count);
         foreach (var type in types)
@@ -202,5 +243,29 @@ public class DocumentTypeAccessChecker : ITransientDependency
         }
 
         return readable;
+    }
+
+    /// <summary>
+    /// The layer's own document types — the set both per-type sweeps enumerate.
+    /// <para>
+    /// Soft delete is traversed on purpose, the same way <c>DocumentAppService.ResolveReferenceMapsAsync</c>
+    /// traverses it: a document classified to a since-archived type is still in the list of a
+    /// <c>Documents.ReadAll</c> holder, so a caller holding an explicit Read grant on that type must see it too —
+    /// otherwise the narrow caller and the module-wide caller disagree about which rows exist. It also makes the
+    /// sweep independent of whether the CALLER happens to be inside <c>DataFilter.Disable&lt;ISoftDelete&gt;()</c>
+    /// (the recycle-bin branch of the list is), which would otherwise silently widen or narrow it depending on the
+    /// call site.
+    /// </para>
+    /// <para>
+    /// This can only ever ADD a type the caller was explicitly granted; the <c>IMultiTenant</c> filter is
+    /// untouched, so the enumeration stays inside the caller's own layer.
+    /// </para>
+    /// </summary>
+    protected virtual async Task<List<DocumentType>> GetLayerTypesAsync()
+    {
+        using (_dataFilter.Disable<ISoftDelete>())
+        {
+            return await _documentTypeRepository.GetListAsync();
+        }
     }
 }
