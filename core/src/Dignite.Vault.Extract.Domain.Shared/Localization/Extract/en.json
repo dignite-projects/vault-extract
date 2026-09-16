@@ -105,6 +105,7 @@
     "Document:Bulk:DeleteFailed": "None of the {0} selected document(s) could be deleted.",
     "Document:RecycleBin": "Recycle Bin",
     "Document:RecycleBinEmpty": "Recycle bin is empty.",
+    "Document:RecycleBin:NoRestoreRights": "You have not been granted restore access to any document type. Ask an administrator to grant it.",
     "Document:DeletedAt": "Deleted At",
     "Document:Restore": "Restore",
     "Document:PermanentDelete": "Permanently Delete",
