@@ -281,13 +281,11 @@ export class DocumentListComponent implements OnInit {
     // filters.
     this.applyQueryParamPaging();
     this.hookListQuery();
-    // Review-queue badge total — only fetched/shown for operators who can open the queue (#284).
-    this.loadReviewQueueCount();
-    // Document types drive the type filter, the dynamic extracted-field columns, and
-    // the confirm-classification picker. Every Documents.Default user needs them, and
-    // the read is now decoupled from schema-admin permission (#223 — GetVisible no longer
-    // requires DocumentTypes.Default), so load unconditionally; the error fallback keeps
-    // the list usable if it ever 403s.
+    // Document types drive the type filter, the dynamic extracted-field columns, the confirm-classification
+    // picker — and, since #632, the review-queue badge's own gate. Every Documents.Default user needs them,
+    // and the read is decoupled from schema-admin permission (#223 — GetVisible no longer requires
+    // DocumentTypes.Default), so load unconditionally; the error fallback keeps the list usable if it ever
+    // 403s. loadDocumentTypes triggers the badge fetch on BOTH of its branches; see loadReviewQueueCount.
     this.loadDocumentTypes();
     // Cabinet getList is gated by Cabinets.Default; only fetch when granted to
     // avoid a 403 for users without cabinet access (cabinet filter/labels hidden).
@@ -699,6 +697,11 @@ export class DocumentListComponent implements OnInit {
       .subscribe({
         next: types => {
           this.documentTypes.set(types);
+          // #632 code review: the badge's gate is a function of this very signal, so its fetch is a
+          // continuation of this load rather than a separate statement in ngOnInit that happened to run
+          // first. The error branch calls it too, on the empty type list, which is the module-wide-only
+          // answer — the same answer the gate gave before #632.
+          this.loadReviewQueueCount();
           if (this.typeFilter()) {
             this.loadExtractedFieldColumns(this.typeFilter());
             return;
@@ -707,6 +710,7 @@ export class DocumentListComponent implements OnInit {
         },
         error: () => {
           this.documentTypes.set([]);
+          this.loadReviewQueueCount();
           this.applyExtractedFieldColumns([]);
         },
       });
@@ -934,6 +938,13 @@ export class DocumentListComponent implements OnInit {
   // RequiresAttention predicate (#333), so the badge and the queue never drift.
   // #632: additionally gated on Documents.ReadAll. These are whole-layer aggregates and the endpoint now
   // requires ReadAll, so a caller narrowed to a few types gets the toggle but no badge rather than a 403.
+  // #632 code review: the second half of this gate, canReviewAnyType(), reads the documentTypes signal, so
+  // it cannot answer anything but "module-wide only" until getVisible has resolved. ngOnInit used to call
+  // this synchronously ahead of that fetch, so a caller holding Documents.ReadAll plus per-type Edit grants
+  // but no module-wide ConfirmClassification was gated out on an empty type list and never asked again —
+  // a permanent 0 on the badge for exactly the persona #632 exists for. The initial call is therefore made
+  // from loadDocumentTypes' own handlers; the refresh calls after delete / bulk delete / confirm still come
+  // from their own call sites, by which time the types are long since loaded.
   private loadReviewQueueCount(): void {
     if (!this.canReadAll || !this.canReviewAnyType()) return;
     this.statisticsService.get()

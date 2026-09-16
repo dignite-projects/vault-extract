@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { LIST_QUERY_DEBOUNCE_TIME, LocalizationService, PermissionService } from '@abp/ng.core';
 import { ConfirmationService, ToasterService } from '@abp/ng.theme.shared';
-import { of } from 'rxjs';
+import { Observable, of, throwError } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DocumentListItemDto,
@@ -68,7 +68,13 @@ const MODULE_WIDE = new Set<string>([
 /** The persona #632 exists for: entry only, everything else through per-type grants. */
 const ENTRY_ONLY = new Set<string>([EXTRACT_PERMISSIONS.Documents.Default]);
 
-function setup(grantedPolicies: Set<string>, types: DocumentTypeDto[] = [TYPE_A, TYPE_B]) {
+function setup(
+  grantedPolicies: Set<string>,
+  types: DocumentTypeDto[] = [TYPE_A, TYPE_B],
+  // A getVisible stub built per call, so a fact can make the first attempt fail and a later one succeed —
+  // which is the only way to exercise the retry.
+  getVisible: () => Observable<DocumentTypeDto[]> = () => of(types),
+) {
   const getList = vi.fn().mockReturnValue(of({ totalCount: 0, items: [] }));
 
   TestBed.configureTestingModule({
@@ -85,7 +91,7 @@ function setup(grantedPolicies: Set<string>, types: DocumentTypeDto[] = [TYPE_A,
       { provide: ToasterService, useValue: { success: vi.fn(), error: vi.fn(), warn: vi.fn() } },
       { provide: ConfirmationService, useValue: { warn: vi.fn().mockReturnValue(of(null)) } },
       { provide: DocumentService, useValue: { getList } },
-      { provide: DocumentTypeService, useValue: { getVisible: () => of(types) } },
+      { provide: DocumentTypeService, useValue: { getVisible } },
     ],
   });
 
@@ -202,5 +208,72 @@ describe('DocumentRecycleBinComponent — empty-state message (#632)', () => {
     expect(fixture.componentInstance.canRestoreAnything()).toBe(true);
     expect(fixture.nativeElement.textContent).toContain('Document:RecycleBinEmpty');
     expect(fixture.nativeElement.textContent).not.toContain('Document:RecycleBin:NoRestoreRights');
+  });
+});
+
+// #632 code review: a FAILED types fetch is a third state. It used to collapse into the second one — the
+// error handler emptied the type list and started listing anyway, so canRestoreAnything() said false and the
+// page told a caller who does hold a Delete grant to go ask an administrator for one, on a transient network
+// error. The list query was never hooked in that state either, which left Refresh inert, so nothing could
+// recover it. Both halves are asserted here, because the wrong message and the dead-end are separate defects.
+describe('DocumentRecycleBinComponent — the types fetch failing is its own state (#632)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  const failing = () => throwError(() => new Error('offline'));
+
+  it('reports the fetch failure instead of claiming the caller may restore nothing', () => {
+    const { fixture, getList } = setup(ENTRY_ONLY, [TYPE_A, TYPE_B], failing);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.typesUnavailable()).toBe(true);
+    expect(fixture.nativeElement.textContent).toContain('Document:Upload:TypesUnavailable');
+    // The two wrong answers: a denial the page cannot actually know, and a claim about the bin's contents
+    // made without ever having asked the server.
+    expect(fixture.nativeElement.textContent).not.toContain('Document:RecycleBin:NoRestoreRights');
+    expect(fixture.nativeElement.textContent).not.toContain('Document:RecycleBinEmpty');
+    expect(getList).not.toHaveBeenCalled();
+    expect(fixture.componentInstance.isLoading()).toBe(false);
+  });
+
+  it('recovers through Refresh once the fetch succeeds', () => {
+    // First attempt fails, the retry succeeds — so the assertion is about the retry path and not about a
+    // stub that was always going to work.
+    const getVisible = vi
+      .fn()
+      .mockReturnValueOnce(throwError(() => new Error('offline')))
+      .mockReturnValue(of([TYPE_A, TYPE_B]));
+    const { fixture, component, getList } = setup(ENTRY_ONLY, [TYPE_A, TYPE_B], getVisible);
+    fixture.detectChanges();
+
+    expect(component.typesUnavailable()).toBe(true);
+    expect(getList).not.toHaveBeenCalled();
+
+    component.refresh();
+    fixture.detectChanges();
+
+    expect(getVisible).toHaveBeenCalledTimes(2);
+    expect(component.typesUnavailable()).toBe(false);
+    expect(component.canRestoreAnything()).toBe(true);
+    expect(getList).toHaveBeenCalled();
+    expect(fixture.nativeElement.textContent).not.toContain('Document:Upload:TypesUnavailable');
+  });
+
+  it('retries the rights fetch from the no-rights state too, rather than doing nothing', () => {
+    // Same dead end, other cause: this caller really may restore nothing, so the list was never hooked and
+    // Refresh had no query to re-run. Re-reading the types is what picks up a grant an administrator adds.
+    const getVisible = vi.fn().mockReturnValueOnce(of([TYPE_B])).mockReturnValue(of([TYPE_A, TYPE_B]));
+    const { fixture, component, getList } = setup(ENTRY_ONLY, [TYPE_B], getVisible);
+    fixture.detectChanges();
+
+    expect(component.canRestoreAnything()).toBe(false);
+    expect(getList).not.toHaveBeenCalled();
+
+    component.refresh();
+    fixture.detectChanges();
+
+    expect(component.canRestoreAnything()).toBe(true);
+    expect(getList).toHaveBeenCalled();
   });
 });

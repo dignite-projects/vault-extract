@@ -1,8 +1,8 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { LocalizationService, PermissionService } from '@abp/ng.core';
+import { LIST_QUERY_DEBOUNCE_TIME, LocalizationService, PermissionService } from '@abp/ng.core';
 import { ConfirmationService, ToasterService } from '@abp/ng.theme.shared';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CabinetService,
@@ -88,6 +88,43 @@ function setup(grantedPolicies: Set<string>) {
   const component = fixture.componentInstance;
   component.documentTypes.set([TYPE_A, TYPE_B]);
   return { component, statisticsSpy };
+}
+
+/**
+ * Same wiring as setup(), minus the documentTypes seed — so the component starts in the state ngOnInit
+ * really starts in, with an empty type list and a getVisible call still in flight. Anything that depends on
+ * the types has to get them from that call, which is the point of the facts that use this.
+ */
+function setupUnseeded(grantedPolicies: Set<string>, types: DocumentTypeDto[] | 'error' = [TYPE_A, TYPE_B]) {
+  const statisticsSpy = vi.fn().mockReturnValue(of({ needsReviewCount: 3 }));
+  const getVisible = () => (types === 'error' ? throwError(() => new Error('offline')) : of(types));
+
+  TestBed.configureTestingModule({
+    imports: [DocumentListComponent],
+    providers: [
+      provideRouter([]),
+      // ListService debounces its query stream by 300ms by default; ngOnInit hooks it, and the request
+      // should land during the call rather than after the assertions.
+      { provide: LIST_QUERY_DEBOUNCE_TIME, useValue: 0 },
+      {
+        provide: PermissionService,
+        useValue: { getGrantedPolicy: (key: string) => grantedPolicies.has(key) },
+      },
+      { provide: LocalizationService, useValue: { instant: (key: string) => key } },
+      { provide: ToasterService, useValue: { success: vi.fn(), error: vi.fn(), warn: vi.fn() } },
+      { provide: ConfirmationService, useValue: { warn: vi.fn().mockReturnValue(of(null)) } },
+      { provide: DocumentService, useValue: {} },
+      { provide: DocumentListQueryService, useValue: { getList: () => of({ totalCount: 0, items: [] }) } },
+      { provide: DocumentStatisticsService, useValue: { get: statisticsSpy } },
+      { provide: DocumentTypeService, useValue: { getVisible } },
+      { provide: FieldDefinitionService, useValue: { getFieldTypes: () => of([]) } },
+      { provide: CabinetService, useValue: { getList: () => of([]) } },
+      { provide: DocumentExportService, useValue: {} },
+    ],
+  });
+
+  const fixture = TestBed.createComponent(DocumentListComponent);
+  return { component: fixture.componentInstance, statisticsSpy };
 }
 
 /** Pre-#632 operator: every module-wide permission. */
@@ -274,5 +311,65 @@ describe('DocumentListComponent — needs-review affordances (#632)', () => {
     component['loadReviewQueueCount']();
     expect(statisticsSpy).toHaveBeenCalled();
     expect(component.reviewQueueCount()).toBe(3);
+  });
+});
+
+// The two facts above call loadReviewQueueCount() by hand, on a component whose documentTypes signal setup()
+// has already seeded — so neither of them can see WHEN ngOnInit calls it, which is where the badge was
+// actually broken: the call sat ahead of the types fetch, and its gate reads the type list. These facts drive
+// ngOnInit instead, on an unseeded component, so the gate answers from whatever the real load sequence
+// produced.
+describe('DocumentListComponent — the badge is fetched once its gate can answer (#632)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  /** ReadAll, but the only EDIT right is a per-type grant — the caller the ordering bug silenced. */
+  const READ_ALL_GRANTS_ONLY = new Set<string>([
+    EXTRACT_PERMISSIONS.Documents.Default,
+    EXTRACT_PERMISSIONS.Documents.ReadAll,
+  ]);
+
+  it('fetches it for a caller whose only edit right is a per-type Edit grant', () => {
+    const { component, statisticsSpy } = setupUnseeded(READ_ALL_GRANTS_ONLY);
+
+    // The state ngOnInit starts from, and the whole difficulty: with no types loaded the gate is false, so a
+    // fetch issued at this instant is skipped and — since nothing asks again — the badge stays at 0 forever.
+    expect(component.canReviewAnyType()).toBe(false);
+
+    component.ngOnInit();
+
+    expect(component.canReviewAnyType()).toBe(true);
+    expect(statisticsSpy).toHaveBeenCalled();
+    expect(component.reviewQueueCount()).toBe(3);
+  });
+
+  it('still fetches it for a module-wide holder, whose gate never needed the types', () => {
+    const { component, statisticsSpy } = setupUnseeded(MODULE_WIDE);
+
+    component.ngOnInit();
+
+    expect(statisticsSpy).toHaveBeenCalled();
+    expect(component.reviewQueueCount()).toBe(3);
+  });
+
+  it('skips it for a caller with no edit right on any visible type', () => {
+    const { component, statisticsSpy } = setupUnseeded(READ_ALL_GRANTS_ONLY, [TYPE_B]);
+
+    component.ngOnInit();
+
+    expect(component.canReviewAnyType()).toBe(false);
+    expect(statisticsSpy).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the module-wide answer when the types fetch fails', () => {
+    // The error branch has to reach the fetch too: an empty type list reduces the gate to its module-wide
+    // half, which is exactly the pre-#632 answer, and a module-wide reviewer must still get their badge.
+    const { component, statisticsSpy } = setupUnseeded(MODULE_WIDE, 'error');
+
+    component.ngOnInit();
+
+    expect(component.documentTypes()).toEqual([]);
+    expect(statisticsSpy).toHaveBeenCalled();
   });
 });

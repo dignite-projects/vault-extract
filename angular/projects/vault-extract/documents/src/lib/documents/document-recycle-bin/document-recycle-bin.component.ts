@@ -61,6 +61,19 @@ export class DocumentRecycleBinComponent implements OnInit {
   documentTypes = signal<DocumentTypeDto[]>([]);
   readonly selectedCount = computed(() => this.selectedDocuments().length);
 
+  // #632 code review: the types fetch FAILING is a third state, distinct from both "no rows" and "you may
+  // restore nothing". Without it a transient network error read as an empty grant dictionary, so
+  // canRestoreAnything() answered false and the page told a caller who does hold a Delete grant to go ask an
+  // administrator for one — a wrong and unactionable instruction, and the list query was never hooked, which
+  // left the Refresh button inert so nothing could recover it. DocumentUploadComponent already separates these
+  // two states for the same fetch (#629); this is the same separation on this page.
+  readonly typesUnavailable = signal(false);
+
+  // Whether hookToQuery has run. hookToQuery must happen exactly once per component — a second call would
+  // add a second subscription and issue every request twice — and until it has, ListService.getWithoutPageReset
+  // has no query to re-run, which is what made refresh() a no-op in the two states that skip the hook.
+  private listHooked = false;
+
   // #632: the module-wide half of the rules, snapshotted once. "May restore" is now module-wide
   // Documents.Restore OR a Delete grant on the row's own document type — whoever may delete may undo — so it
   // is no longer one boolean field, and this page needs the visible types to answer it at all.
@@ -149,6 +162,9 @@ export class DocumentRecycleBinComponent implements OnInit {
   // list query is hooked only afterwards, and only when the answer is yes — the server refuses the recycle-bin
   // list to a caller who may restore nothing, and the route now admits every documents user.
   private loadDocumentTypes(): void {
+    this.isLoading.set(true);
+    this.typesUnavailable.set(false);
+
     this.documentTypeService
       .getVisible()
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -158,9 +174,11 @@ export class DocumentRecycleBinComponent implements OnInit {
           this.startListing();
         },
         error: () => {
-          // Fail closed on the per-type half only: a module-wide Documents.Restore holder still lists.
+          // NOT "you may restore nothing": this call failed, so the caller's grants are unknown, and the page
+          // says so and offers the retry rather than reporting the absence of an answer as a denial.
           this.documentTypes.set([]);
-          this.startListing();
+          this.typesUnavailable.set(true);
+          this.isLoading.set(false);
         },
       });
   }
@@ -174,11 +192,21 @@ export class DocumentRecycleBinComponent implements OnInit {
     this.hookListQuery();
   }
 
+  // The header's Refresh button, and the retry offered by the unavailable state. In both states that skip the
+  // hook — the fetch failed, or the caller may restore nothing — there is no query to re-run, so it re-runs the
+  // types fetch instead: that is what recovers a transient failure, and it also re-reads a grant an
+  // administrator may have added since the page loaded. Once the list is hooked it is the list that refreshes.
   refresh(): void {
-    this.list.getWithoutPageReset();
+    if (this.listHooked) {
+      this.list.getWithoutPageReset();
+      return;
+    }
+    this.loadDocumentTypes();
   }
 
   private hookListQuery(): void {
+    this.listHooked = true;
+
     this.list.requestStatus$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(status => {
