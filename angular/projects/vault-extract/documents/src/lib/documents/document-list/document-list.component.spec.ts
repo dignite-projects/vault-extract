@@ -96,6 +96,7 @@ const MODULE_WIDE = new Set<string>([
   EXTRACT_PERMISSIONS.Documents.ReadAll,
   EXTRACT_PERMISSIONS.Documents.ConfirmClassification,
   EXTRACT_PERMISSIONS.Documents.Delete,
+  EXTRACT_PERMISSIONS.Documents.Restore,
 ]);
 
 /** The persona #632 exists for: entry only, everything else through per-type grants. */
@@ -109,21 +110,43 @@ describe('DocumentListComponent — per-row rights (#632)', () => {
   it('gives a module-wide holder every action on every row, typed or not', () => {
     const { component } = setup(MODULE_WIDE);
 
-    expect(component.rightsFor(A_ROW)).toEqual({ canRead: true, canEdit: true, canDelete: true });
-    expect(component.rightsFor(B_ROW)).toEqual({ canRead: true, canEdit: true, canDelete: true });
+    expect(component.rightsFor(A_ROW)).toEqual({
+      canRead: true,
+      canEdit: true,
+      canDelete: true,
+      canRestore: true,
+    });
+    expect(component.rightsFor(B_ROW)).toEqual({
+      canRead: true,
+      canEdit: true,
+      canDelete: true,
+      canRestore: true,
+    });
     expect(component.rightsFor(UNTYPED_ROW)).toEqual({
       canRead: true,
       canEdit: true,
       canDelete: true,
+      canRestore: true,
     });
   });
 
   it('gives a grant-only holder actions on the granted type only', () => {
     const { component } = setup(ENTRY_ONLY);
 
-    expect(component.rightsFor(A_ROW)).toEqual({ canRead: true, canEdit: true, canDelete: true });
+    // canRestore rides on the same Delete grant (#632 change 2): whoever may delete may undo.
+    expect(component.rightsFor(A_ROW)).toEqual({
+      canRead: true,
+      canEdit: true,
+      canDelete: true,
+      canRestore: true,
+    });
     // Type B carries Read but neither Edit nor Delete — the row is visible, its actions are not.
-    expect(component.rightsFor(B_ROW)).toEqual({ canRead: true, canEdit: false, canDelete: false });
+    expect(component.rightsFor(B_ROW)).toEqual({
+      canRead: true,
+      canEdit: false,
+      canDelete: false,
+      canRestore: false,
+    });
   });
 
   it('gives a grant-only holder nothing on an untyped row', () => {
@@ -133,6 +156,7 @@ describe('DocumentListComponent — per-row rights (#632)', () => {
       canRead: false,
       canEdit: false,
       canDelete: false,
+      canRestore: false,
     });
   });
 

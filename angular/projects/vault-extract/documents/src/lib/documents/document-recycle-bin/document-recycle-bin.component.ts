@@ -15,11 +15,18 @@ import { finalize, of } from 'rxjs';
 import {
   DocumentListItemDto,
   DocumentService,
+  DocumentTypeDto,
+  DocumentTypeService,
   EXTRACT_PERMISSIONS,
 } from '@dignite/ng.vault-extract';
 import { ClientPagedResult, configureEntityTable, EXTRACT_TABLES } from '../../shared/extensible-table';
 import { executeBulkOperations } from '../../shared/bulk-operation';
 import { formatBytes } from '../../shared/format-bytes';
+import {
+  canRestoreAnyDocumentType,
+  documentRightsAccessor,
+  readDocumentModuleWidePolicies,
+} from '../../shared/document-rights';
 
 @Component({
   selector: 'lib-document-recycle-bin',
@@ -37,6 +44,7 @@ import { formatBytes } from '../../shared/format-bytes';
 })
 export class DocumentRecycleBinComponent implements OnInit {
   private readonly documentService = inject(DocumentService);
+  private readonly documentTypeService = inject(DocumentTypeService);
   private readonly confirmation = inject(ConfirmationService);
   private readonly toaster = inject(ToasterService);
   private readonly permissionService = inject(PermissionService);
@@ -50,15 +58,35 @@ export class DocumentRecycleBinComponent implements OnInit {
   isLoading = signal(true);
   selectedDocuments = signal<DocumentListItemDto[]>([]);
   isBulkDeleting = signal(false);
+  documentTypes = signal<DocumentTypeDto[]>([]);
   readonly selectedCount = computed(() => this.selectedDocuments().length);
 
-  readonly canRestore = this.permissionService.getGrantedPolicy(
-    EXTRACT_PERMISSIONS.Documents.Restore,
-  );
+  // #632: the module-wide half of the rules, snapshotted once. "May restore" is now module-wide
+  // Documents.Restore OR a Delete grant on the row's own document type — whoever may delete may undo — so it
+  // is no longer one boolean field, and this page needs the visible types to answer it at all.
+  private readonly moduleWideRights = readDocumentModuleWidePolicies(this.permissionService);
+
+  // #632: per-row restore right. Reads the documentTypes signal on every call, so rows re-evaluate as soon as
+  // the type list (and its grant dictionary) lands.
+  readonly rightsFor = documentRightsAccessor(this.documentTypes, this.moduleWideRights);
+
+  // Permanent delete stays module-wide, by decision: no per-type grant reaches it.
   readonly canPermanentDelete = this.permissionService.getGrantedPolicy(
     EXTRACT_PERMISSIONS.Documents.PermanentDelete,
   );
-  readonly hasRecycleActions = this.canRestore || this.canPermanentDelete;
+
+  // #632: "may this caller restore anything at all" — the client twin of the server's CheckOnAnyTypeAsync
+  // gate on the recycle-bin list. The route is now the entry permission (a per-type grant cannot be expressed
+  // as a route policy), so this is what decides whether the page queries the server at all; asking without it
+  // would earn a 403 toast the caller can do nothing about.
+  readonly canRestoreAnything = computed(() =>
+    canRestoreAnyDocumentType(this.documentTypes(), this.moduleWideRights),
+  );
+
+  // The actions column exists when some row on the page actually carries an action.
+  readonly hasRecycleActions = computed(
+    () => this.canPermanentDelete || this.documents().items.some(d => this.rightsFor(d).canRestore),
+  );
 
   constructor() {
     configureEntityTable<DocumentListItemDto>(this.extensions, EXTRACT_TABLES.DocumentRecycleBin, [
@@ -114,6 +142,35 @@ export class DocumentRecycleBinComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    this.loadDocumentTypes();
+  }
+
+  // The visible types carry this caller's own per-type grant dictionary, which is half of "may restore". The
+  // list query is hooked only afterwards, and only when the answer is yes — the server refuses the recycle-bin
+  // list to a caller who may restore nothing, and the route now admits every documents user.
+  private loadDocumentTypes(): void {
+    this.documentTypeService
+      .getVisible()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: types => {
+          this.documentTypes.set(types);
+          this.startListing();
+        },
+        error: () => {
+          // Fail closed on the per-type half only: a module-wide Documents.Restore holder still lists.
+          this.documentTypes.set([]);
+          this.startListing();
+        },
+      });
+  }
+
+  private startListing(): void {
+    if (!this.canRestoreAnything()) {
+      // Nothing to show and nothing to ask for: the page falls through to its own empty state.
+      this.isLoading.set(false);
+      return;
+    }
     this.hookListQuery();
   }
 

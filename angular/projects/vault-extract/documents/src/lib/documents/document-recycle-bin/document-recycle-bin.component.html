@@ -75,13 +75,14 @@
     <div class="card shadow-sm document-recycle-table">
       <div class="card-body p-0">
         <ng-template #actionsTemplate let-doc>
-          @if (hasRecycleActions) {
+          @if (rightsFor(doc).canRestore || canPermanentDelete) {
             <div ngbDropdown container="body" class="d-inline-block">
               <button type="button" class="btn btn-sm btn-primary" ngbDropdownToggle>
                 {{ 'AbpUi::Actions' | abpLocalization }}
               </button>
               <div ngbDropdownMenu>
-                @if (canRestore) {
+                <!-- #632: module-wide Documents.Restore, or a Delete grant on THIS row's own type. -->
+                @if (rightsFor(doc).canRestore) {
                   <button type="button" ngbDropdownItem (click)="restore(doc)" [disabled]="isBulkDeleting()">
                     <i class="fas fa-rotate-left me-2"></i>
                     {{ '::Document:Restore' | abpLocalization }}
@@ -98,7 +99,7 @@
           }
         </ng-template>
 
-        @if (hasRecycleActions) {
+        @if (hasRecycleActions()) {
           <abp-extensible-table
             [data]="documents().items"
             [recordsTotal]="documents().totalCount"

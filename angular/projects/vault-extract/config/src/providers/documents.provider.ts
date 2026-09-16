@@ -61,7 +61,11 @@ export function provideExtract(): EnvironmentProviders {
           name: '::Menu:DocumentRecycleBin',
           iconClass: 'fas fa-trash-can',
           parentName: '::Menu:Documents',
-          requiredPolicy: EXTRACT_PERMISSIONS.Documents.Restore,
+          // #632: must match the route guard, for the same reason — a per-type Delete grant is not a policy
+          // name, so a menu entry on `Documents.Restore` would leave the per-type deleter with no way into a
+          // page they are now allowed to use. The page itself reports "nothing you may restore" rather than
+          // firing a request the server would refuse.
+          requiredPolicy: EXTRACT_PERMISSIONS.Documents.Default,
           order: 6,
           layout: eLayoutType.application,
         },

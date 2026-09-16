@@ -17,8 +17,8 @@ import { DocumentTypeDto, EXTRACT_PERMISSIONS } from '@dignite/ng.vault-extract'
  * neither side hand-writes the OR at its call sites.
  */
 
-/** The operation families of the rule table. Mirrors `DocumentAccessRule`'s four static members. */
-export type DocumentAccessRule = 'read' | 'edit' | 'delete' | 'declareType';
+/** The operation families of the rule table. Mirrors `DocumentAccessRule`'s five static members. */
+export type DocumentAccessRule = 'read' | 'edit' | 'delete' | 'restore' | 'declareType';
 
 /**
  * The module-wide permissions this rule table consults, snapshotted once per component.
@@ -35,6 +35,8 @@ export interface DocumentModuleWidePolicies {
   readonly edit: boolean;
   /** `Documents.Delete` — module-wide soft delete. */
   readonly delete: boolean;
+  /** `Documents.Restore` — module-wide restore from the recycle bin. */
+  readonly restore: boolean;
 }
 
 /** The module-wide permission name behind each field of {@link DocumentModuleWidePolicies}. */
@@ -42,12 +44,15 @@ const MODULE_WIDE_PERMISSION_NAMES: Record<keyof DocumentModuleWidePolicies, str
   readAll: EXTRACT_PERMISSIONS.Documents.ReadAll,
   edit: EXTRACT_PERMISSIONS.Documents.ConfirmClassification,
   delete: EXTRACT_PERMISSIONS.Documents.Delete,
+  restore: EXTRACT_PERMISSIONS.Documents.Restore,
 };
 
 /**
  * The rule table itself — the single place the two halves of each OR are paired. `declareType` deliberately
  * shares `edit`'s module-wide permission (`ConfirmClassification`) while carrying the *Upload* grant, exactly
  * as #629 defined it: deciding a document's type is the same act an upload-time declared type performs.
+ * `restore` likewise shares `delete`'s *resource* permission while carrying its own module-wide one: whoever
+ * may delete may undo, so there is no fifth resource grant to hold.
  */
 const DOCUMENT_ACCESS_RULES: Record<
   DocumentAccessRule,
@@ -56,6 +61,7 @@ const DOCUMENT_ACCESS_RULES: Record<
   read: { moduleWide: 'readAll', resource: EXTRACT_PERMISSIONS.DocumentTypes.Resources.Read },
   edit: { moduleWide: 'edit', resource: EXTRACT_PERMISSIONS.DocumentTypes.Resources.Edit },
   delete: { moduleWide: 'delete', resource: EXTRACT_PERMISSIONS.DocumentTypes.Resources.Delete },
+  restore: { moduleWide: 'restore', resource: EXTRACT_PERMISSIONS.DocumentTypes.Resources.Delete },
   declareType: { moduleWide: 'edit', resource: EXTRACT_PERMISSIONS.DocumentTypes.Resources.Upload },
 };
 
@@ -74,12 +80,19 @@ export interface DocumentRights {
   readonly canRead: boolean;
   readonly canEdit: boolean;
   readonly canDelete: boolean;
+  /** Restore from the recycle bin — the `Delete` grant again, never a grant of its own. */
+  readonly canRestore: boolean;
 }
 
 /** Everything denied — the fail-closed answer for "no document in hand". */
-const NO_RIGHTS: DocumentRights = { canRead: false, canEdit: false, canDelete: false };
+const NO_RIGHTS: DocumentRights = {
+  canRead: false,
+  canEdit: false,
+  canDelete: false,
+  canRestore: false,
+};
 
-/** Snapshots the three module-wide permissions the rule table needs. */
+/** Snapshots the four module-wide permissions the rule table needs. */
 export function readDocumentModuleWidePolicies(
   permissionService: GrantedPolicyReader,
 ): DocumentModuleWidePolicies {
@@ -87,6 +100,7 @@ export function readDocumentModuleWidePolicies(
     readAll: permissionService.getGrantedPolicy(MODULE_WIDE_PERMISSION_NAMES.readAll),
     edit: permissionService.getGrantedPolicy(MODULE_WIDE_PERMISSION_NAMES.edit),
     delete: permissionService.getGrantedPolicy(MODULE_WIDE_PERMISSION_NAMES.delete),
+    restore: permissionService.getGrantedPolicy(MODULE_WIDE_PERMISSION_NAMES.restore),
   };
 }
 
@@ -145,6 +159,7 @@ export function documentRights(
     canRead: isDocumentAccessGranted('read', type, policies),
     canEdit: isDocumentAccessGranted('edit', type, policies),
     canDelete: isDocumentAccessGranted('delete', type, policies),
+    canRestore: isDocumentAccessGranted('restore', type, policies),
   };
 }
 
@@ -171,6 +186,19 @@ export function canEditAnyDocumentType(
   policies: DocumentModuleWidePolicies,
 ): boolean {
   return policies.edit || types.some(t => isDocumentAccessGranted('edit', t, policies));
+}
+
+/**
+ * Whether the caller may restore *anything* reachable: module-wide `Documents.Restore`, or a `Delete` grant on
+ * at least one visible type. The client twin of `DocumentTypeAccessChecker.IsGrantedOnAnyTypeAsync`, and the
+ * only question the recycle-bin page can ask before it has a row in hand — a per-type grant is not a name in
+ * `grantedPolicies`, so it cannot be a route policy either. Per-row actions use {@link documentRights}.
+ */
+export function canRestoreAnyDocumentType(
+  types: readonly DocumentTypeDto[],
+  policies: DocumentModuleWidePolicies,
+): boolean {
+  return policies.restore || types.some(t => isDocumentAccessGranted('restore', t, policies));
 }
 
 /**

@@ -3,6 +3,7 @@ import { DocumentTypeDto, EXTRACT_PERMISSIONS } from '@dignite/ng.vault-extract'
 import {
   assignableDocumentTypes,
   canEditAnyDocumentType,
+  canRestoreAnyDocumentType,
   documentRights,
   documentRightsAccessor,
   isDocumentAccessGranted,
@@ -59,6 +60,7 @@ const MODULE_WIDE = policiesFrom(
   EXTRACT_PERMISSIONS.Documents.ReadAll,
   EXTRACT_PERMISSIONS.Documents.ConfirmClassification,
   EXTRACT_PERMISSIONS.Documents.Delete,
+  EXTRACT_PERMISSIONS.Documents.Restore,
 );
 
 /** Holds only entry (which this helper never consults) — everything must come from the per-type grants. */
@@ -70,35 +72,47 @@ describe('readDocumentModuleWidePolicies', () => {
       readAll: true,
       edit: false,
       delete: false,
+      restore: false,
     });
     expect(policiesFrom(EXTRACT_PERMISSIONS.Documents.ConfirmClassification)).toEqual({
       readAll: false,
       edit: true,
       delete: false,
+      restore: false,
     });
     expect(policiesFrom(EXTRACT_PERMISSIONS.Documents.Delete)).toEqual({
       readAll: false,
       edit: false,
       delete: true,
+      restore: false,
+    });
+    // Restore is its own module-wide name even though it shares Delete's per-type grant.
+    expect(policiesFrom(EXTRACT_PERMISSIONS.Documents.Restore)).toEqual({
+      readAll: false,
+      edit: false,
+      delete: false,
+      restore: true,
     });
   });
 
   it('does not treat the entry permission as any of them (#632 decision 1)', () => {
-    expect(GRANT_ONLY).toEqual({ readAll: false, edit: false, delete: false });
+    expect(GRANT_ONLY).toEqual({ readAll: false, edit: false, delete: false, restore: false });
   });
 });
 
 describe('documentRights — module-wide holder', () => {
-  it('may read / edit / delete every type', () => {
+  it('may read / edit / delete / restore every type', () => {
     expect(documentRights(A_DOCUMENT, TYPES, MODULE_WIDE)).toEqual({
       canRead: true,
       canEdit: true,
       canDelete: true,
+      canRestore: true,
     });
     expect(documentRights(B_DOCUMENT, TYPES, MODULE_WIDE)).toEqual({
       canRead: true,
       canEdit: true,
       canDelete: true,
+      canRestore: true,
     });
   });
 
@@ -107,6 +121,7 @@ describe('documentRights — module-wide holder', () => {
       canRead: true,
       canEdit: true,
       canDelete: true,
+      canRestore: true,
     });
   });
 });
@@ -117,6 +132,7 @@ describe('documentRights — grant-only holder', () => {
       canRead: true,
       canEdit: true,
       canDelete: true,
+      canRestore: true,
     });
   });
 
@@ -125,6 +141,7 @@ describe('documentRights — grant-only holder', () => {
       canRead: false,
       canEdit: false,
       canDelete: false,
+      canRestore: false,
     });
   });
 
@@ -133,6 +150,7 @@ describe('documentRights — grant-only holder', () => {
       canRead: false,
       canEdit: false,
       canDelete: false,
+      canRestore: false,
     });
     // An absent code is the same case as an explicit null (the DTO field is optional).
     expect(documentRights({}, TYPES, GRANT_ONLY).canRead).toBe(false);
@@ -148,6 +166,8 @@ describe('documentRights — grant-only holder', () => {
       canRead: true,
       canEdit: false,
       canDelete: false,
+      // A Read grant is not a Delete grant, so it is not a restore right either.
+      canRestore: false,
     });
   });
 
@@ -170,8 +190,63 @@ describe('documentRights — no document in hand', () => {
       canRead: false,
       canEdit: false,
       canDelete: false,
+      canRestore: false,
     });
     expect(documentRights(undefined, TYPES, MODULE_WIDE).canDelete).toBe(false);
+  });
+});
+
+describe('isDocumentAccessGranted — restore (#632 change 2: whoever may delete may undo)', () => {
+  /** Holds module-wide Restore and nothing else — the classic recycle-bin operator. */
+  const RESTORE_ONLY = policiesFrom(EXTRACT_PERMISSIONS.Documents.Restore);
+
+  it('is admitted by module-wide Documents.Restore on any type', () => {
+    expect(isDocumentAccessGranted('restore', TYPE_B, RESTORE_ONLY)).toBe(true);
+    expect(documentRights(B_DOCUMENT, TYPES, RESTORE_ONLY).canRestore).toBe(true);
+  });
+
+  it('is admitted by the Delete grant on the document own type — no Restore grant exists', () => {
+    expect(documentRights(A_DOCUMENT, TYPES, GRANT_ONLY).canRestore).toBe(true);
+  });
+
+  it('is denied on a type the caller holds no Delete grant on', () => {
+    expect(documentRights(B_DOCUMENT, TYPES, GRANT_ONLY).canRestore).toBe(false);
+  });
+
+  it('is denied on an untyped document, which no grant can name', () => {
+    expect(documentRights(UNTYPED_DOCUMENT, TYPES, GRANT_ONLY).canRestore).toBe(false);
+    // ...and admitted for the same document once the module-wide half is held.
+    expect(documentRights(UNTYPED_DOCUMENT, TYPES, RESTORE_ONLY).canRestore).toBe(true);
+  });
+
+  it('does not borrow the module-wide Delete permission', () => {
+    // Documents.Delete is soft delete; it says nothing about undoing one. Only the per-type grant is shared.
+    const deleteOnly = policiesFrom(EXTRACT_PERMISSIONS.Documents.Delete);
+    expect(isDocumentAccessGranted('restore', TYPE_B, deleteOnly)).toBe(false);
+    expect(isDocumentAccessGranted('delete', TYPE_B, deleteOnly)).toBe(true);
+  });
+});
+
+describe('canRestoreAnyDocumentType', () => {
+  it('is true module-wide even before the type list has landed', () => {
+    expect(canRestoreAnyDocumentType([], policiesFrom(EXTRACT_PERMISSIONS.Documents.Restore))).toBe(
+      true,
+    );
+  });
+
+  it('is true for a grant-only holder with a Delete grant on at least one visible type', () => {
+    expect(canRestoreAnyDocumentType(TYPES, GRANT_ONLY)).toBe(true);
+  });
+
+  it('is false for a grant-only holder with no Delete grant anywhere', () => {
+    expect(canRestoreAnyDocumentType([TYPE_B], GRANT_ONLY)).toBe(false);
+    // A Read grant is not a Delete grant.
+    expect(
+      canRestoreAnyDocumentType(
+        [{ ...TYPE_A, resourcePermissions: { [RESOURCES.Read]: true } }],
+        GRANT_ONLY,
+      ),
+    ).toBe(false);
   });
 });
 

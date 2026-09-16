@@ -23,9 +23,14 @@ export const DOCUMENTS_ROUTES: Routes = [
       import('./documents/document-list/document-list.component').then(c => c.DocumentListComponent),
   },
   {
+    // #632: the entry permission, like every other documents route. A per-type Delete grant — which is now
+    // half of "may restore" — is not a name in `grantedPolicies`, so it cannot be expressed as a route policy
+    // at all; leaving the guard on `Documents.Restore` would keep the per-type deleter out of the page
+    // entirely and make the new rule unreachable from the UI. The page's own content gate
+    // (`canRestoreAnything`) and the server's `CheckOnAnyTypeAsync` are the authority.
     path: 'recycle',
     canActivate: [authGuard, permissionGuard],
-    data: { requiredPolicy: EXTRACT_PERMISSIONS.Documents.Restore },
+    data: { requiredPolicy: EXTRACT_PERMISSIONS.Documents.Default },
     loadComponent: () =>
       import('./documents/document-recycle-bin/document-recycle-bin.component').then(
         c => c.DocumentRecycleBinComponent,
