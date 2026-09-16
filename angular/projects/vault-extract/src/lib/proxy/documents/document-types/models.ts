@@ -15,6 +15,7 @@ export interface DocumentTypeDto extends EntityDto<string> {
   description?: string | null;
   confidenceThreshold?: number;
   priority?: number;
+  resourcePermissions?: Record<string, boolean>;
 }
 
 export interface UpdateDocumentTypeDto {

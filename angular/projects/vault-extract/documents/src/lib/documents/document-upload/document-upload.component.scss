@@ -24,7 +24,8 @@
   }
 
   &.uploading,
-  &.has-results {
+  &.has-results,
+  &.type-required {
     cursor: not-allowed;
   }
 }

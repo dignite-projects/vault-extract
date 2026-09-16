@@ -6774,6 +6774,21 @@
                   "summary": null,
                   "description": null,
                   "displayName": null
+                },
+                {
+                  "nameOnMethod": "input",
+                  "name": "DocumentTypeId",
+                  "jsonName": null,
+                  "type": "System.Guid?",
+                  "typeSimple": "string?",
+                  "isOptional": false,
+                  "defaultValue": null,
+                  "constraintTypes": null,
+                  "bindingSourceId": "ModelBinding",
+                  "descriptorName": "input",
+                  "summary": null,
+                  "description": null,
+                  "displayName": null
                 }
               ],
               "returnValue": {
@@ -10914,6 +10929,22 @@
           "summary": null,
           "description": null,
           "displayName": null
+        },
+        {
+          "name": "ResourcePermissions",
+          "jsonName": null,
+          "type": "{System.String:System.Boolean}",
+          "typeSimple": "{string:boolean}",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": false,
+          "summary": null,
+          "description": null,
+          "displayName": null
         }
       ],
       "summary": null,
@@ -13815,6 +13846,22 @@
         },
         {
           "name": "CabinetId",
+          "jsonName": null,
+          "type": "System.Guid?",
+          "typeSimple": "string?",
+          "isRequired": false,
+          "minLength": null,
+          "maxLength": null,
+          "minimum": null,
+          "maximum": null,
+          "regex": null,
+          "isNullable": true,
+          "summary": null,
+          "description": null,
+          "displayName": null
+        },
+        {
+          "name": "DocumentTypeId",
           "jsonName": null,
           "type": "System.Guid?",
           "typeSimple": "string?",

@@ -22,151 +22,202 @@
         </div>
       }
 
-      @if (canDeclareType && documentTypes().length > 0 && canAcceptFiles()) {
+      @if (declarableTypes().length > 0 && canAcceptFiles()) {
         <div class="document-type-select">
-          <label class="form-label fw-semibold">{{ '::Document:SelectDocumentType' | abpLocalization }}</label>
+          <label class="form-label fw-semibold">
+            {{
+              (requiresTypeSelection
+                ? '::Document:SelectDocumentType:RequiredLabel'
+                : '::Document:SelectDocumentType'
+              ) | abpLocalization
+            }}
+          </label>
           <select
             class="form-select"
             [ngModel]="selectedDocumentTypeId()"
             (ngModelChange)="selectedDocumentTypeId.set($event)"
           >
-            <option value="">{{ '::Document:LetAiClassify' | abpLocalization }}</option>
-            @for (t of documentTypes(); track t.id) {
+            @if (requiresTypeSelection) {
+              <!-- Only reachable while nothing is chosen yet — with a single declarable type the
+                   constructor effect pre-selects it, so this is never the visible choice there. -->
+              <option value="" disabled>{{ '::Document:SelectDocumentType:Placeholder' | abpLocalization }}</option>
+            } @else {
+              <option value="">{{ '::Document:LetAiClassify' | abpLocalization }}</option>
+            }
+            @for (t of declarableTypes(); track t.id) {
               <option [value]="t.id">{{ t.displayName }}</option>
             }
           </select>
           <small class="text-muted d-block mt-1">
-            {{ '::Document:SelectDocumentType:Hint' | abpLocalization }}
+            {{
+              (requiresTypeSelection
+                ? '::Document:SelectDocumentType:Required'
+                : '::Document:SelectDocumentType:Hint'
+              ) | abpLocalization
+            }}
           </small>
         </div>
       }
     </div>
 
-    <input
-      #filePicker
-      type="file"
-      [attr.accept]="acceptAttribute"
-      multiple
-      class="d-none"
-      (change)="onFileSelected($event)"
-    />
-    <input
-      #cameraPicker
-      type="file"
-      accept="image/*"
-      capture="environment"
-      class="d-none"
-      (change)="onFileSelected($event)"
-    />
+    <!-- #629: an Upload-only caller who has been granted no type at all has nothing to declare
+         and nothing it could legally upload, so the picker/dropzone is replaced with an empty
+         state rather than left showing a dead-end control. -->
+    @if (hasNoGrantableTypes()) {
+      <div class="text-center py-5">
+        <span class="upload-icon mb-3">
+          <i class="fas fa-ban"></i>
+        </span>
+        <h3 class="h5 mb-2">{{ '::Document:Upload:NoGrantableTypes' | abpLocalization }}</h3>
+      </div>
+    } @else if (showTypesUnavailable()) {
+      <!-- Distinct from the empty state above: the types fetch itself failed, so "no types" cannot
+           be reported as "nothing granted" — the caller may hold grants we simply failed to load. -->
+      <div class="text-center py-5">
+        <span class="upload-icon mb-3">
+          <i class="fas fa-exclamation-triangle"></i>
+        </span>
+        <h3 class="h5 mb-2">{{ '::Document:Upload:TypesUnavailable' | abpLocalization }}</h3>
+      </div>
+    } @else {
+      <input
+        #filePicker
+        type="file"
+        [attr.accept]="acceptAttribute"
+        multiple
+        class="d-none"
+        (change)="onFileSelected($event)"
+      />
+      <input
+        #cameraPicker
+        type="file"
+        accept="image/*"
+        capture="environment"
+        class="d-none"
+        (change)="onFileSelected($event)"
+      />
 
-    <div
-      class="drop-zone"
-      [class.drag-over]="isDragOver()"
-      [class.uploading]="isUploading()"
-      [class.has-results]="hasUploadResults()"
-      (dragover)="onDragOver($event)"
-      (dragleave)="onDragLeave($event)"
-      (drop)="onDrop($event)"
-    >
-      @if (isUploading() || hasUploadResults()) {
-        <div class="upload-results w-100">
-          <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
-            <div>
-              <p class="fw-semibold mb-1">
-                @if (isUploading()) {
-                  {{ '::Document:Uploading' | abpLocalization }}
-                } @else if (hasUploadErrors()) {
-                  {{ '::Document:Upload:CompletedWithErrors' | abpLocalization }}
-                } @else {
-                  {{ '::Document:Upload:Complete' | abpLocalization }}
-                }
-              </p>
-              <small class="text-muted">
-                {{ successfulUploadCount() }} / {{ uploadingFiles().length }}
-                {{ '::Document:Upload:Succeeded' | abpLocalization }}
-              </small>
-            </div>
-          </div>
-
-          <ul class="list-group upload-queue">
-            @for (f of uploadingFiles(); track f.key) {
-              <li class="list-group-item py-3">
-                <div class="d-flex align-items-start gap-3">
-                  @if (f.done) {
-                    <span class="status-icon text-bg-success"><i class="fas fa-check"></i></span>
-                  } @else if (f.error) {
-                    <span class="status-icon text-bg-danger"><i class="fas fa-times"></i></span>
+      <div
+        class="drop-zone"
+        [class.drag-over]="isDragOver()"
+        [class.uploading]="isUploading()"
+        [class.has-results]="hasUploadResults()"
+        [class.type-required]="!typeSelectionSatisfied()"
+        (dragover)="onDragOver($event)"
+        (dragleave)="onDragLeave($event)"
+        (drop)="onDrop($event)"
+      >
+        @if (isUploading() || hasUploadResults()) {
+          <div class="upload-results w-100">
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+              <div>
+                <p class="fw-semibold mb-1">
+                  @if (isUploading()) {
+                    {{ '::Document:Uploading' | abpLocalization }}
+                  } @else if (hasUploadErrors()) {
+                    {{ '::Document:Upload:CompletedWithErrors' | abpLocalization }}
                   } @else {
-                    <span class="spinner-border spinner-border-sm text-primary mt-1" role="status"></span>
+                    {{ '::Document:Upload:Complete' | abpLocalization }}
                   }
+                </p>
+                <small class="text-muted">
+                  {{ successfulUploadCount() }} / {{ uploadingFiles().length }}
+                  {{ '::Document:Upload:Succeeded' | abpLocalization }}
+                </small>
+              </div>
+            </div>
 
-                  <div class="min-width-0 flex-grow-1">
-                    <div class="fw-semibold text-truncate">{{ f.name }}</div>
-                    @if (f.errorMessage) {
-                      <small class="text-danger d-block mt-1">{{ f.errorMessage }}</small>
+            <ul class="list-group upload-queue">
+              @for (f of uploadingFiles(); track f.key) {
+                <li class="list-group-item py-3">
+                  <div class="d-flex align-items-start gap-3">
+                    @if (f.done) {
+                      <span class="status-icon text-bg-success"><i class="fas fa-check"></i></span>
                     } @else if (f.error) {
-                      <small class="text-danger">{{ '::Document:UploadFailed' | abpLocalization }}</small>
-                    } @else if (f.done) {
-                      <small class="text-muted">{{ '::Document:UploadedSuccessfully' | abpLocalization }}</small>
+                      <span class="status-icon text-bg-danger"><i class="fas fa-times"></i></span>
                     } @else {
-                      <small class="text-muted">{{ '::Document:Uploading' | abpLocalization }}</small>
+                      <span class="spinner-border spinner-border-sm text-primary mt-1" role="status"></span>
+                    }
+
+                    <div class="min-width-0 flex-grow-1">
+                      <div class="fw-semibold text-truncate">{{ f.name }}</div>
+                      @if (f.errorMessage) {
+                        <small class="text-danger d-block mt-1">{{ f.errorMessage }}</small>
+                      } @else if (f.error) {
+                        <small class="text-danger">{{ '::Document:UploadFailed' | abpLocalization }}</small>
+                      } @else if (f.done) {
+                        <small class="text-muted">{{ '::Document:UploadedSuccessfully' | abpLocalization }}</small>
+                      } @else {
+                        <small class="text-muted">{{ '::Document:Uploading' | abpLocalization }}</small>
+                      }
+                    </div>
+
+                    @if (hasUploadResults() && f.done && f.documentId) {
+                      <a
+                        class="btn btn-sm btn-outline-primary flex-shrink-0"
+                        [routerLink]="['/documents', f.documentId]"
+                      >
+                        <i class="fas fa-external-link-alt me-1"></i>
+                        {{ '::Document:OpenDocument' | abpLocalization }}
+                      </a>
                     }
                   </div>
+                </li>
+              }
+            </ul>
 
-                  @if (hasUploadResults() && f.done && f.documentId) {
-                    <a
-                      class="btn btn-sm btn-outline-primary flex-shrink-0"
-                      [routerLink]="['/documents', f.documentId]"
-                    >
-                      <i class="fas fa-external-link-alt me-1"></i>
-                      {{ '::Document:OpenDocument' | abpLocalization }}
-                    </a>
-                  }
-                </div>
-              </li>
+            @if (hasUploadResults()) {
+              <div class="d-flex flex-wrap justify-content-end gap-2 mt-3">
+                <button type="button" class="btn btn-outline-secondary" (click)="resetQueue()">
+                  <i class="fas fa-plus me-1"></i>
+                  {{ '::Document:ContinueUploading' | abpLocalization }}
+                </button>
+                <a class="btn btn-primary" routerLink="/documents/list">
+                  <i class="fas fa-list me-1"></i>
+                  {{ '::Document:ContinueToDocuments' | abpLocalization }}
+                </a>
+              </div>
             }
-          </ul>
-
-          @if (hasUploadResults()) {
-            <div class="d-flex flex-wrap justify-content-end gap-2 mt-3">
-              <button type="button" class="btn btn-outline-secondary" (click)="resetQueue()">
-                <i class="fas fa-plus me-1"></i>
-                {{ '::Document:ContinueUploading' | abpLocalization }}
-              </button>
-              <a class="btn btn-primary" routerLink="/documents/list">
-                <i class="fas fa-list me-1"></i>
-                {{ '::Document:ContinueToDocuments' | abpLocalization }}
-              </a>
-            </div>
-          }
-        </div>
-      } @else {
-        <div class="text-center py-5">
-          <span class="upload-icon mb-3">
-            <i class="fas fa-cloud-upload-alt"></i>
-          </span>
-          <h3 class="h5 mb-2">{{ '::Document:DropOrClick' | abpLocalization }}</h3>
-          <p class="text-muted mb-4">{{ '::Document:SupportedFormats' | abpLocalization }}</p>
-
-          <div class="d-flex flex-wrap justify-content-center gap-2">
-            <button #browseButton type="button" class="btn btn-primary" (click)="openFilePicker(filePicker)">
-              <i class="fas fa-folder-open me-1"></i>
-              {{ '::Document:BrowseFiles' | abpLocalization }}
-            </button>
-            <button type="button" class="btn btn-outline-secondary" (click)="openFilePicker(cameraPicker)">
-              <i class="fas fa-camera me-1"></i>
-              {{ '::Document:TakePhoto' | abpLocalization }}
-            </button>
           </div>
-        </div>
-      }
-    </div>
+        } @else {
+          <div class="text-center py-5">
+            <span class="upload-icon mb-3">
+              <i class="fas fa-cloud-upload-alt"></i>
+            </span>
+            <h3 class="h5 mb-2">{{ '::Document:DropOrClick' | abpLocalization }}</h3>
+            <p class="text-muted mb-4">{{ '::Document:SupportedFormats' | abpLocalization }}</p>
 
-    <div class="mt-3 text-center">
-      <small class="text-muted">
-        <i class="fas fa-info-circle me-1"></i>
-        {{ '::Document:MaxFileSize' | abpLocalization }}
-      </small>
-    </div>
+            <div class="d-flex flex-wrap justify-content-center gap-2">
+              <button
+                #browseButton
+                type="button"
+                class="btn btn-primary"
+                [disabled]="!typeSelectionSatisfied()"
+                (click)="openFilePicker(filePicker)"
+              >
+                <i class="fas fa-folder-open me-1"></i>
+                {{ '::Document:BrowseFiles' | abpLocalization }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-outline-secondary"
+                [disabled]="!typeSelectionSatisfied()"
+                (click)="openFilePicker(cameraPicker)"
+              >
+                <i class="fas fa-camera me-1"></i>
+                {{ '::Document:TakePhoto' | abpLocalization }}
+              </button>
+            </div>
+          </div>
+        }
+      </div>
+
+      <div class="mt-3 text-center">
+        <small class="text-muted">
+          <i class="fas fa-info-circle me-1"></i>
+          {{ '::Document:MaxFileSize' | abpLocalization }}
+        </small>
+      </div>
+    }
   </div>
 </div>

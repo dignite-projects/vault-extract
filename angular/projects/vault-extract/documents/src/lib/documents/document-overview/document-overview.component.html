@@ -112,7 +112,11 @@
     <div class="row g-4 align-items-stretch">
       <div class="col-xl-8">
         @if (canUpload) {
-          <lib-document-upload [documentTypes]="documentTypes()" />
+          <lib-document-upload
+            [documentTypes]="documentTypes()"
+            [documentTypesLoading]="typesLoading()"
+            [documentTypesUnavailable]="typesUnavailable()"
+          />
         } @else {
           <div class="card shadow-sm h-100">
             <div class="card-body p-4 p-lg-5 d-flex flex-column justify-content-center text-center">

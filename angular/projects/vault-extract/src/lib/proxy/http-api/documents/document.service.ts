@@ -161,7 +161,7 @@ export class DocumentService {
     this.restService.request<any, DocumentDto>({
       method: 'POST',
       url: '/api/vault-extract/documents/upload',
-      params: { cabinetId: input.cabinetId },
+      params: { cabinetId: input.cabinetId, documentTypeId: input.documentTypeId },
       body: input.file,
     },
     { apiName: this.apiName,...config });

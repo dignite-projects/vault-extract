@@ -106,6 +106,14 @@
                     {{ '::Delete' | abpLocalization }}
                   </button>
                 }
+                @if (canManagePermissions) {
+                  <!-- #629: opens ABP's own resource-permission dialog (endpoints + user/role search
+                       are all ABP's), gated server-side by DocumentTypes.ManagePermissions. -->
+                  <button type="button" ngbDropdownItem (click)="openPermissions(type)">
+                    <i class="fas fa-user-shield me-2"></i>
+                    {{ '::DocumentType:Permissions' | abpLocalization }}
+                  </button>
+                }
                 @if (canReextractFields || canReclassify) {
                   <div class="dropdown-divider"></div>
                 }
@@ -261,5 +269,16 @@
   <lib-document-type-pack-import-modal
     (imported)="refresh()"
     (closed)="importOpen.set(false)"
+  />
+}
+
+<!-- Per-document-type upload permission dialog (#629): ABP's own dialog, endpoints and
+     user/role search; gated server-side by DocumentTypes.ManagePermissions. -->
+@if (permissionsTarget(); as t) {
+  <abp-resource-permission-management
+    [resourceName]="RESOURCE_NAME"
+    [resourceKey]="t.id!"
+    [resourceDisplayName]="t.displayName ?? t.typeCode ?? ''"
+    [(visible)]="permissionsVisible"
   />
 }
