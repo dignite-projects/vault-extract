@@ -54,6 +54,12 @@ import { FieldValueFilterComponent } from '../../shared/field-value-filter/field
 import { isFilterableField } from '../../shared/field-value-filter/field-value-filter.model';
 import { exportFileName, readBlobErrorMessage, triggerBlobDownload } from '../../shared/blob-download';
 import { executeBulkOperations } from '../../shared/bulk-operation';
+import {
+  assignableDocumentTypes,
+  canEditAnyDocumentType,
+  documentRightsAccessor,
+  readDocumentModuleWidePolicies,
+} from '../../shared/document-rights';
 import { DocumentListFilter, toExportDocumentsInput } from './export-current-view';
 
 interface TableActivateEvent {
@@ -115,12 +121,9 @@ export class DocumentListComponent implements OnInit {
 
   readonly list = inject(ListService);
 
-  readonly canDelete = this.permissionService.getGrantedPolicy(
-    EXTRACT_PERMISSIONS.Documents.Delete,
-  );
-  readonly canConfirm = this.permissionService.getGrantedPolicy(
-    EXTRACT_PERMISSIONS.Documents.ConfirmClassification,
-  );
+  // #632: the module-wide half of the Read / Edit / Delete rules, snapshotted once. Per-row rights come
+  // from rightsFor() below, which ORs these with the row type's own grant.
+  private readonly moduleWideRights = readDocumentModuleWidePolicies(this.permissionService);
   readonly canUpload = this.permissionService.getGrantedPolicy(
     EXTRACT_PERMISSIONS.Documents.Upload,
   );
@@ -128,8 +131,12 @@ export class DocumentListComponent implements OnInit {
     EXTRACT_PERMISSIONS.Cabinets.Default,
   );
   // #496 / #499: "download current view" is now the only download surface, gated on Documents.Export.
+  // The rows inside the file are narrowed server-side by the caller's read scope (#632 decision 3), so the
+  // button itself stays module-wide.
   readonly canExport = this.permissionService.getGrantedPolicy(EXTRACT_PERMISSIONS.Documents.Export);
-  readonly hasDocumentActions = this.canConfirm || this.canDelete;
+  // #632: whole-layer statistics (DocumentStatisticsAppService) now require Documents.ReadAll, so the
+  // needs-review badge count must not be fetched without it — the call would 403.
+  readonly canReadAll = this.moduleWideRights.readAll;
 
   documents = signal<ClientPagedResult<DocumentListItemDto>>({ totalCount: 0, items: [] });
   isLoading = signal(true);
@@ -187,11 +194,43 @@ export class DocumentListComponent implements OnInit {
   // #333), not a page-local count, so it stays correct across pagination and once the list is unfiltered.
   reviewQueueCount = signal(0);
 
-  // #354: render the row actions column when the user has confirm/delete actions OR any row is a container
-  // (exposes "view sub-documents") OR any row is a sub-document (exposes "view parent / view siblings") —
-  // these provenance actions are available regardless of confirm/delete permissions.
-  readonly showActionsColumn = computed(
-    () => this.hasDocumentActions || this.documents().items.some(d => d.isContainer || d.originDocumentId),
+  // #632: per-row rights — "the module-wide permission for the operation, OR the matching grant on this
+  // row's document type", with untyped rows reduced to the module-wide half. One shared implementation
+  // (shared/document-rights.ts) serves this component, the detail page and their specs; the accessor reads
+  // the documentTypes signal, so rows re-evaluate as soon as the type list (and its grant dictionary) lands.
+  readonly rightsFor = documentRightsAccessor(this.documentTypes, this.moduleWideRights);
+
+  // #632: only the types this caller may ASSIGN may appear in the confirm picker — ConfirmClassification
+  // module-wide, or an Upload grant on that particular type (the #629 rule, unchanged). Offering any other
+  // type would build a request the server refuses.
+  readonly assignableTypes = computed(() =>
+    assignableDocumentTypes(this.documentTypes(), this.moduleWideRights),
+  );
+
+  // #632: the needs-review toggle is a FILTER, not a per-document action, so there is no single document to
+  // judge it against — it is offered when the caller may run the edit family on anything at all (module-wide,
+  // or through an Edit grant on at least one visible type). The badge beside it is a whole-layer statistic and
+  // is gated separately on ReadAll (loadReviewQueueCount).
+  readonly canReviewAnyType = computed(() =>
+    canEditAnyDocumentType(this.documentTypes(), this.moduleWideRights),
+  );
+
+  // #632: any row on the current page the caller may delete. Drives the selection checkboxes, which
+  // abp-extensible-table only exposes as a single table-wide flag — the per-row narrowing happens in
+  // onSelectionChange instead.
+  readonly canDeleteAnyRow = computed(() =>
+    this.documents().items.some(d => this.rightsFor(d).canDelete),
+  );
+
+  // #354: render the row actions column when the user has confirm/delete actions on some row OR any row is a
+  // container (exposes "view sub-documents") OR any row is a sub-document (exposes "view parent / view
+  // siblings") — these provenance actions are available regardless of confirm/delete permissions.
+  // #632: "has confirm/delete actions" is now decided per row rather than by a module-wide permission pair.
+  readonly showActionsColumn = computed(() =>
+    this.documents().items.some(d => {
+      const rights = this.rightsFor(d);
+      return rights.canEdit || rights.canDelete || d.isContainer || d.originDocumentId;
+    }),
   );
 
   readonly DocumentLifecycleStatus = DocumentLifecycleStatus;
@@ -242,13 +281,11 @@ export class DocumentListComponent implements OnInit {
     // filters.
     this.applyQueryParamPaging();
     this.hookListQuery();
-    // Review-queue badge total — only fetched/shown for operators who can open the queue (#284).
-    this.loadReviewQueueCount();
-    // Document types drive the type filter, the dynamic extracted-field columns, and
-    // the confirm-classification picker. Every Documents.Default user needs them, and
-    // the read is now decoupled from schema-admin permission (#223 — GetVisible no longer
-    // requires DocumentTypes.Default), so load unconditionally; the error fallback keeps
-    // the list usable if it ever 403s.
+    // Document types drive the type filter, the dynamic extracted-field columns, the confirm-classification
+    // picker — and, since #632, the review-queue badge's own gate. Every Documents.Default user needs them,
+    // and the read is decoupled from schema-admin permission (#223 — GetVisible no longer requires
+    // DocumentTypes.Default), so load unconditionally; the error fallback keeps the list usable if it ever
+    // 403s. loadDocumentTypes triggers the badge fetch on BOTH of its branches; see loadReviewQueueCount.
     this.loadDocumentTypes();
     // Cabinet getList is gated by Cabinets.Default; only fetch when granted to
     // avoid a 403 for users without cabinet access (cabinet filter/labels hidden).
@@ -660,6 +697,11 @@ export class DocumentListComponent implements OnInit {
       .subscribe({
         next: types => {
           this.documentTypes.set(types);
+          // #632 code review: the badge's gate is a function of this very signal, so its fetch is a
+          // continuation of this load rather than a separate statement in ngOnInit that happened to run
+          // first. The error branch calls it too, on the empty type list, which is the module-wide-only
+          // answer — the same answer the gate gave before #632.
+          this.loadReviewQueueCount();
           if (this.typeFilter()) {
             this.loadExtractedFieldColumns(this.typeFilter());
             return;
@@ -668,6 +710,7 @@ export class DocumentListComponent implements OnInit {
         },
         error: () => {
           this.documentTypes.set([]);
+          this.loadReviewQueueCount();
           this.applyExtractedFieldColumns([]);
         },
       });
@@ -794,8 +837,14 @@ export class DocumentListComponent implements OnInit {
     this.openDetail(event.row);
   }
 
+  // #632: the bulk-delete selection is narrowed to rows the caller may actually delete. abp-extensible-table
+  // exposes selection as one table-wide `selectable` flag and forwards neither ngx-datatable's `selectCheck`
+  // nor `disableRowCheck`, so a per-row checkbox cannot be disabled — the selection is filtered on the way in
+  // instead. Because `[selected]` is bound back to this signal, a row the caller may not delete visibly
+  // refuses to stay checked (including via the header "select all"), and the bulk bar's count never promises
+  // a deletion the server would refuse.
   onSelectionChange(selected: DocumentListItemDto[]): void {
-    this.selectedDocuments.set([...selected]);
+    this.selectedDocuments.set(selected.filter(doc => this.rightsFor(doc).canDelete));
   }
 
   clearSelection(): void {
@@ -884,11 +933,20 @@ export class DocumentListComponent implements OnInit {
     this.selectedDocuments.set(items.filter(doc => !!doc.id && selectedIds.has(doc.id)));
   }
 
-  // Canonical needs-review total for the toolbar badge. Gated on canConfirm so non-reviewers (who don't
-  // see the gateway button) never fire the call. The statistics endpoint shares the review queue's
+  // Canonical needs-review total for the toolbar badge. Gated on canReviewAnyType so non-reviewers (who
+  // don't see the gateway button) never fire the call. The statistics endpoint shares the review queue's
   // RequiresAttention predicate (#333), so the badge and the queue never drift.
+  // #632: additionally gated on Documents.ReadAll. These are whole-layer aggregates and the endpoint now
+  // requires ReadAll, so a caller narrowed to a few types gets the toggle but no badge rather than a 403.
+  // #632 code review: the second half of this gate, canReviewAnyType(), reads the documentTypes signal, so
+  // it cannot answer anything but "module-wide only" until getVisible has resolved. ngOnInit used to call
+  // this synchronously ahead of that fetch, so a caller holding Documents.ReadAll plus per-type Edit grants
+  // but no module-wide ConfirmClassification was gated out on an empty type list and never asked again —
+  // a permanent 0 on the badge for exactly the persona #632 exists for. The initial call is therefore made
+  // from loadDocumentTypes' own handlers; the refresh calls after delete / bulk delete / confirm still come
+  // from their own call sites, by which time the types are long since loaded.
   private loadReviewQueueCount(): void {
-    if (!this.canConfirm) return;
+    if (!this.canReadAll || !this.canReviewAnyType()) return;
     this.statisticsService.get()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -921,8 +979,10 @@ export class DocumentListComponent implements OnInit {
     // so the operator usually just confirms; otherwise force an explicit choice. The
     // confirm command is keyed by immutable DocumentTypeId (#207), so resolve the
     // document's exit-contract typeCode → id via the already-loaded visible types.
+    // #632: resolved against the ASSIGNABLE types, not every visible one — a pre-selection the caller may
+    // not assign would arm the submit button with a request the server refuses.
     this.selectedTypeId.set(
-      this.documentTypes().find(t => t.typeCode === doc.documentTypeCode)?.id ?? '',
+      this.assignableTypes().find(t => t.typeCode === doc.documentTypeCode)?.id ?? '',
     );
   }
 

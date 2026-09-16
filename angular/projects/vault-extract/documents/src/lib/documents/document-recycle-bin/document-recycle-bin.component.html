@@ -60,14 +60,45 @@
     </div>
   }
 
-  <!-- Empty state -->
+  <!-- Three distinct states behind "no rows", not two. "You may restore nothing" (#632 — a per-type
+       Delete grant cannot be expressed as a route policy, so the route admits every documents user,
+       including one who cannot restore a single row); "the document types fetch failed", where the
+       caller's grants are simply unknown and telling them to ask an administrator would be wrong;
+       and the genuine "queried the server, no rows". The unavailable branch comes first because it
+       is the only one that is not an answer about rights. -->
   @if (!isLoading() && documents().totalCount === 0) {
-    <div class="card shadow-sm">
-      <div class="card-body text-center py-5">
-        <i class="fas fa-trash-can fa-3x text-muted mb-3 d-block"></i>
-        <p class="text-muted mb-0">{{ '::Document:RecycleBinEmpty' | abpLocalization }}</p>
+    @if (typesUnavailable()) {
+      <div
+        class="alert alert-warning d-flex flex-wrap align-items-center justify-content-between gap-2 mb-0"
+        role="alert"
+      >
+        <span>
+          <!-- Reused rather than duplicated: this key's text ("The document types could not be
+               loaded. Refresh the page or try again later.") names the fetch that failed and says
+               nothing about uploading — only its key carries the Upload: segment, from the page
+               that first needed it. Promoting it to ::Document:TypesUnavailable would touch the
+               four localization files in core, so it is left as a follow-up rather than a rename
+               smuggled in here. -->
+          <i class="fas fa-exclamation-triangle me-2"></i>
+          {{ '::Document:Upload:TypesUnavailable' | abpLocalization }}
+        </span>
+        <button type="button" class="btn btn-sm btn-outline-secondary" (click)="refresh()">
+          {{ '::Refresh' | abpLocalization }}
+        </button>
       </div>
-    </div>
+    } @else {
+      <div class="card shadow-sm">
+        <div class="card-body text-center py-5">
+          @if (!canRestoreAnything()) {
+            <i class="fas fa-lock fa-3x text-muted mb-3 d-block"></i>
+            <p class="text-muted mb-0">{{ '::Document:RecycleBin:NoRestoreRights' | abpLocalization }}</p>
+          } @else {
+            <i class="fas fa-trash-can fa-3x text-muted mb-3 d-block"></i>
+            <p class="text-muted mb-0">{{ '::Document:RecycleBinEmpty' | abpLocalization }}</p>
+          }
+        </div>
+      </div>
+    }
   }
 
   <!-- List -->
@@ -75,13 +106,14 @@
     <div class="card shadow-sm document-recycle-table">
       <div class="card-body p-0">
         <ng-template #actionsTemplate let-doc>
-          @if (hasRecycleActions) {
+          @if (rightsFor(doc).canRestore || canPermanentDelete) {
             <div ngbDropdown container="body" class="d-inline-block">
               <button type="button" class="btn btn-sm btn-primary" ngbDropdownToggle>
                 {{ 'AbpUi::Actions' | abpLocalization }}
               </button>
               <div ngbDropdownMenu>
-                @if (canRestore) {
+                <!-- #632: module-wide Documents.Restore, or a Delete grant on THIS row's own type. -->
+                @if (rightsFor(doc).canRestore) {
                   <button type="button" ngbDropdownItem (click)="restore(doc)" [disabled]="isBulkDeleting()">
                     <i class="fas fa-rotate-left me-2"></i>
                     {{ '::Document:Restore' | abpLocalization }}
@@ -98,7 +130,7 @@
           }
         </ng-template>
 
-        @if (hasRecycleActions) {
+        @if (hasRecycleActions()) {
           <abp-extensible-table
             [data]="documents().items"
             [recordsTotal]="documents().totalCount"

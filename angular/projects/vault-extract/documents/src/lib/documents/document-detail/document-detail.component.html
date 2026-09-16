@@ -53,7 +53,7 @@
           }
         </button>
       }
-      @if (canDelete && document()) {
+      @if (canDelete()) {
         <button
           class="btn btn-outline-danger btn-sm"
           (click)="delete()"
@@ -131,7 +131,7 @@
               {{ reviewReasonLabel(detail.reason) | abpLocalization }}
             </span>
           }
-          @if (canEditFields) {
+          @if (canEditFields()) {
             <div class="ms-auto d-flex gap-2">
               @if (needsClassification()) {
                 <button type="button" class="btn btn-sm btn-warning" (click)="openClassifyDialog()">
@@ -495,7 +495,7 @@
                   <i class="fas fa-table-list me-2"></i>
                   {{ '::Document:ExtractedFields' | abpLocalization }}
                 </h6>
-                @if (canEditFields && fieldDefinitions().length > 0 && !isEditingFields()) {
+                @if (canEditFields() && fieldDefinitions().length > 0 && !isEditingFields()) {
                   <button class="btn btn-outline-primary btn-sm" (click)="startEditFields()">
                     <i class="fas fa-pen me-1"></i>{{ '::Edit' | abpLocalization }}
                   </button>
@@ -664,7 +664,10 @@
             (ngModelChange)="selectedTypeId.set($event)"
           >
             <option value="" disabled>{{ '::Document:ConfirmClassification:SelectType' | abpLocalization }}</option>
-            @for (t of documentTypes(); track t.id) {
+            <!-- #632: only the types this caller may ASSIGN (ConfirmClassification module-wide, or an Upload
+                 grant on that type). The backend judges the target type of confirm / reclassify by the same
+                 rule, so anything else here would be an offer the server refuses. -->
+            @for (t of assignableTypes(); track t.id) {
               <option [value]="t.id">{{ t.displayName }} ({{ t.typeCode }})</option>
             }
           </select>

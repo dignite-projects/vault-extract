@@ -5,7 +5,11 @@
       <p class="text-muted mb-0">{{ '::Document:Home:Subtitle' | abpLocalization }}</p>
     </div>
 
-    <!-- Overview statistics (#333): loading / error / empty / data states. -->
+    <!-- Overview statistics (#333): loading / error / empty / data states.
+         #632: whole-layer aggregates, so the card renders only with Documents.ReadAll — the endpoint now
+         requires it and an entry-only caller would get a 403. The section disappears entirely rather than
+         leaving an empty shell; the quick-links column below is unaffected. -->
+    @if (canReadAll) {
     <section class="mb-4">
       <h2 class="h5 mb-3">{{ '::Document:Home:Statistics:Title' | abpLocalization }}</h2>
 
@@ -108,6 +112,7 @@
         </div>
       }
     </section>
+    }
 
     <div class="row g-4 align-items-stretch">
       <div class="col-xl-8">
@@ -151,7 +156,7 @@
                   </span>
                 </a>
 
-                @if (canReview) {
+                @if (canReviewAnyType()) {
                   <a class="home-action" routerLink="/documents/list" [queryParams]="{ review: 1 }">
                     <span class="home-action-icon text-bg-warning"><i class="fas fa-clipboard-check"></i></span>
                     <span>
