@@ -35,6 +35,11 @@ import {
   EXTRACT_PERMISSIONS,
   PipelineRunStatus,
 } from '@dignite/ng.vault-extract';
+import {
+  assignableDocumentTypes,
+  documentRightsAccessor,
+  readDocumentModuleWidePolicies,
+} from '../../shared/document-rights';
 import { stripMarkdownCodeFences } from '../../shared/strip-code-fences';
 import { DocumentFileBlobService } from '../../shared/document-file-blob.service';
 import { isImageContentType, isPdfContentType } from '../../shared/content-type';
@@ -104,12 +109,17 @@ export class DocumentDetailComponent implements OnInit {
   // Original-file blob load / sanitize / revoke lifecycle (#277), shared with the file-preview page.
   protected readonly fileBlob = inject(DocumentFileBlobService);
 
-  readonly canDelete = this.permissionService.getGrantedPolicy(
-    EXTRACT_PERMISSIONS.Documents.Delete,
-  );
-  readonly canEditFields = this.permissionService.getGrantedPolicy(
-    EXTRACT_PERMISSIONS.Documents.ConfirmClassification,
-  );
+  // #632: the module-wide half of the Delete / Edit rules, snapshotted once. The per-document answer is
+  // rightsFor(document()) below — the module-wide permission OR the matching grant on THIS document's type.
+  private readonly moduleWideRights = readDocumentModuleWidePolicies(this.permissionService);
+  // #632: was a plain Documents.Delete boolean; now judged against the loaded document's own type, so a
+  // caller holding only a per-type Delete grant sees the button on its own types and nowhere else.
+  readonly canDelete = computed(() => this.rightsFor(this.document()).canDelete);
+  // #632: was a plain Documents.ConfirmClassification boolean. Every edit-family affordance on this page
+  // (confirm / reclassify / re-recognize / re-extract / field editing / Markdown correction / reject / allow
+  // duplicate / resolve warnings) already derives from this one gate, so making it per-document carries the
+  // whole family over at once — matching the backend, where all nine endpoints share DocumentAccessRule.Edit.
+  readonly canEditFields = computed(() => this.rightsFor(this.document()).canEdit);
   readonly canViewCabinets = this.permissionService.getGrantedPolicy(
     EXTRACT_PERMISSIONS.Cabinets.Default,
   );
@@ -160,6 +170,17 @@ export class DocumentDetailComponent implements OnInit {
   // Document types visible in the current layer, used for typeCode-to-displayName mapping and the
   // confirm-classification picker. Populated together with field definition loading.
   documentTypes = signal<DocumentTypeDto[]>([]);
+
+  // #632: the shared rule (shared/document-rights.ts) bound to this page's type list. Declared after
+  // documentTypes so the accessor captures the initialized signal; the gates above read it lazily.
+  readonly rightsFor = documentRightsAccessor(this.documentTypes, this.moduleWideRights);
+
+  // #632: the types this caller may ASSIGN — ConfirmClassification module-wide, or an Upload grant on that
+  // particular type. Confirming and reclassifying both go through the one picker below, and both are judged
+  // against the TARGET type by the backend, so offering a type outside this set only builds a 403.
+  readonly assignableTypes = computed(() =>
+    assignableDocumentTypes(this.documentTypes(), this.moduleWideRights),
+  );
 
   // #395: manual confirm/assign classification — the authoritative override for UnresolvedClassification,
   // relocated here from the removed review-queue page.
@@ -244,7 +265,7 @@ export class DocumentDetailComponent implements OnInit {
   // CTA. Mirrors the list's needsConfirmation; the blocking UnresolvedClassification reason is the only one
   // a manual type assignment resolves.
   needsClassification = computed(() =>
-    this.canEditFields &&
+    this.canEditFields() &&
     (((this.document()?.reviewReasons ?? DocumentReviewReasons.None) & DocumentReviewReasons.UnresolvedClassification)
       !== DocumentReviewReasons.None),
   );
@@ -252,7 +273,7 @@ export class DocumentDetailComponent implements OnInit {
   // #411: a suspected duplicate AND the operator may act — drives the "Allow" CTA (release as not a duplicate).
   // The opposite resolution (confirm the duplicate) is the existing Delete action.
   needsDuplicateReview = computed(() =>
-    this.canEditFields &&
+    this.canEditFields() &&
     (((this.document()?.reviewReasons ?? DocumentReviewReasons.None) & DocumentReviewReasons.DuplicateSuspected)
       !== DocumentReviewReasons.None),
   );
@@ -264,7 +285,7 @@ export class DocumentDetailComponent implements OnInit {
   // manual entry is likewise its only remedy. Unlike MissingRequiredFields this one is blocking, so filling the
   // fields is what releases the document to Ready.
   needsFieldCompletion = computed(() =>
-    this.canEditFields &&
+    this.canEditFields() &&
     (((this.document()?.reviewReasons ?? DocumentReviewReasons.None) &
       (DocumentReviewReasons.MissingRequiredFields | DocumentReviewReasons.FieldExtractionIncomplete))
       !== DocumentReviewReasons.None),
@@ -275,7 +296,7 @@ export class DocumentDetailComponent implements OnInit {
   // it against the source (left column) and either re-extracts or resolves. Resolving clears the bit and releases the
   // document; editing a field value on its own does NOT clear a warning (#527 §9).
   needsFieldValidationResolution = computed(() =>
-    this.canEditFields &&
+    this.canEditFields() &&
     (((this.document()?.reviewReasons ?? DocumentReviewReasons.None) & DocumentReviewReasons.FieldValidationWarning)
       !== DocumentReviewReasons.None),
   );
@@ -319,7 +340,7 @@ export class DocumentDetailComponent implements OnInit {
   // true, which would still expose the button on a pending-review document while reclassification is in
   // progress (review #5). The in-flight POST is covered by button [disabled]="isRerecognizing()".
   canRerecognize = computed(() =>
-    this.canEditFields &&
+    this.canEditFields() &&
     !!this.document()?.markdown &&
     !this.pipelineInProgress() &&
     !this.isLoading()
@@ -331,7 +352,7 @@ export class DocumentDetailComponent implements OnInit {
   // classified with documentTypeCode. Field extraction is attached to a type, so unclassified documents
   // have nothing to extract from; this mirrors the backend NotClassified guard.
   canReextractFields = computed(() =>
-    this.canEditFields &&
+    this.canEditFields() &&
     !!this.document()?.documentTypeCode &&
     !!this.document()?.markdown &&
     !this.pipelineInProgress() &&
@@ -344,7 +365,7 @@ export class DocumentDetailComponent implements OnInit {
   // CannotCorrectContainerMarkdown, so the affordance is hidden here rather than exposing an action that is
   // guaranteed to fail.
   canEditMarkdown = computed(() =>
-    this.canEditFields &&
+    this.canEditFields() &&
     !!this.document()?.markdown &&
     !this.document()?.isContainer &&
     !this.pipelineInProgress() &&
@@ -460,7 +481,7 @@ export class DocumentDetailComponent implements OnInit {
   // definitions on this type so empty fields can be completed.
   showFieldsCard = computed(() =>
     this.extractedFieldEntries().length > 0 ||
-    (this.canEditFields && this.fieldDefinitions().length > 0)
+    (this.canEditFields() && this.fieldDefinitions().length > 0)
   );
 
   // Snapshot of the document being edited, captured once by startEditFields() and held fixed until
@@ -1052,8 +1073,10 @@ export class DocumentDetailComponent implements OnInit {
   openClassifyDialog(): void {
     const doc = this.document();
     if (!doc) return;
+    // #632: resolved against the ASSIGNABLE types, not every visible one — a pre-selection the caller may
+    // not assign would arm the submit button with a request the server refuses.
     this.selectedTypeId.set(
-      this.documentTypes().find(t => t.typeCode === doc.documentTypeCode)?.id ?? '',
+      this.assignableTypes().find(t => t.typeCode === doc.documentTypeCode)?.id ?? '',
     );
     this.showClassifyDialog.set(true);
   }
@@ -1254,7 +1277,7 @@ export class DocumentDetailComponent implements OnInit {
   // #412: "Complete fields" CTA — jump to the extracted-fields card and open the edit form so the missing
   // required values can be filled. Filling them clears MissingRequiredFields server-side on the next save.
   completeFields(): void {
-    if (this.canEditFields && this.fieldDefinitions().length > 0 && !this.isEditingFields()) {
+    if (this.canEditFields() && this.fieldDefinitions().length > 0 && !this.isEditingFields()) {
       this.startEditFields();
     }
     document.getElementById('extracted-fields-card')

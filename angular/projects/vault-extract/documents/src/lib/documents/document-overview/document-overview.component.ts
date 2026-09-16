@@ -23,6 +23,7 @@ import {
 import { EMPTY, Subject } from 'rxjs';
 import { catchError, switchMap, tap } from 'rxjs/operators';
 import { DocumentUploadComponent } from '../document-upload/document-upload.component';
+import { canEditAnyDocumentType, readDocumentModuleWidePolicies } from '../../shared/document-rights';
 import { formatBytes } from '../../shared/format-bytes';
 
 @Component({
@@ -39,9 +40,21 @@ export class DocumentOverviewComponent implements OnInit {
   private readonly documentTypeService = inject(DocumentTypeService);
   private readonly destroyRef = inject(DestroyRef);
 
+  // #632: the module-wide half of the rules this page needs. The overview has no per-document actions —
+  // its only per-type concern is which affordances to offer at all.
+  private readonly moduleWideRights = readDocumentModuleWidePolicies(this.permissionService);
   readonly canUpload = this.permissionService.getGrantedPolicy(
     EXTRACT_PERMISSIONS.Documents.Upload,
   );
+  // #632: the statistics card is a WHOLE-LAYER aggregate (per-lifecycle counts, needs-review count, total
+  // upload size) and DocumentStatisticsAppService now requires Documents.ReadAll — recomputing it inside one
+  // caller's type scope would be a different statistic wearing the same name. Without ReadAll the card is
+  // hidden and, crucially, the GET is never fired: it would 403.
+  readonly canReadAll = this.moduleWideRights.readAll;
+  // Module-wide "may review". #632 leaves it as the gate for the needs-review TILE inside the statistics
+  // card: that count is a whole-layer aggregate and belongs with the card's whole-layer character (and it
+  // keeps skeletonSlots below able to size the skeleton before the type list lands). The navigational quick
+  // link uses canReviewAnyType instead — see below.
   readonly canReview = this.permissionService.getGrantedPolicy(
     EXTRACT_PERMISSIONS.Documents.ConfirmClassification,
   );
@@ -83,8 +96,19 @@ export class DocumentOverviewComponent implements OnInit {
     () => this.typesLoading() || this.documentTypes().length > 0 || this.canCreateType,
   );
 
+  // #632: the needs-review quick link is a navigational filter into the document list, not a per-document
+  // action, so it is offered when the caller may run the edit family on anything at all — module-wide, or
+  // through an Edit grant on at least one visible type. Without this, the persona #632 exists for (entry +
+  // per-type grants, no module-wide permission) would keep the per-row Confirm action but lose every
+  // shortcut to the queue it is meant to work. Mirrors DocumentListComponent.canReviewAnyType.
+  readonly canReviewAnyType = computed(() =>
+    canEditAnyDocumentType(this.documentTypes(), this.moduleWideRights),
+  );
+
   readonly stats = signal<DocumentStatisticsDto | null>(null);
-  readonly statsLoading = signal(true);
+  // #632: starts true only when a fetch will actually run (same rule as cabinetsLoading above), so a
+  // narrowed caller never renders a skeleton for a card that will never arrive.
+  readonly statsLoading = signal(this.canReadAll);
   readonly statsError = signal(false);
 
   // The loading skeleton must render the same number of tiles the data grid will, otherwise non-reviewers
@@ -133,7 +157,9 @@ export class DocumentOverviewComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.loadStatistics();
+    if (this.canReadAll) {
+      this.loadStatistics();
+    }
     if (this.canViewCabinets) {
       this.loadCabinets();
     }
