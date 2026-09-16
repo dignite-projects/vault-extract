@@ -24,9 +24,14 @@ public class DocumentStatisticsAppService : VaultExtractAppService, IDocumentSta
     public virtual async Task<DocumentStatisticsDto> GetAsync()
     {
         // Programmatic assertion (not an [Authorize] attribute) to match the read-path convention of
-        // DocumentAppService.GetListAsync / GetAsync. Same permission as the document list: if you can see the
-        // list, you can see its aggregate counts.
-        await CheckPolicyAsync(VaultExtractPermissions.Documents.Default);
+        // DocumentAppService.GetListAsync / GetAsync.
+        //
+        // #632 decision 2: this is Documents.ReadAll, NOT the entry permission and NOT a per-type rule. These are
+        // whole-layer aggregates — per-lifecycle counts, the needs-review count, the total upload size — and a
+        // whole-layer overview has no per-type meaning; recomputing them inside one caller's type scope would be a
+        // different statistic wearing the same name. A caller narrowed to some types sees the list, not the
+        // overview. (The operator UI's statistics card follows, gated on ReadAll.)
+        await CheckPolicyAsync(VaultExtractPermissions.Documents.ReadAll);
 
         var statistics = await _documentRepository.GetStatisticsAsync();
         return ObjectMapper.Map<DocumentStatisticsModel, DocumentStatisticsDto>(statistics);

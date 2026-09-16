@@ -35,7 +35,7 @@ The live egress channels that expose outputs to downstream consumers.
 ## Configuration
 
 - [AI provider](configuration/ai-provider.md) — provider wiring for the keyed chat clients (title generator + structured, plus the optional vision client)
-- [Per-document-type upload permissions](configuration/document-type-upload-permissions.md) — granting "may upload into these types and no others" per user or role, and the `ConfirmClassification` rule for untyped upload
+- [Per-document-type permissions](configuration/document-type-permissions.md) — granting read / edit / delete / upload per document type to a user or role, the `Documents` vs `Documents.ReadAll` split, and the untyped-document rule
 
 ## Deployment & operations
 

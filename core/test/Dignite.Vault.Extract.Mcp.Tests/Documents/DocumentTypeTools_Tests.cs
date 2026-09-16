@@ -83,7 +83,7 @@ public class DocumentTypeTools_Tests : VaultExtractTestBase<DocumentTypeToolsTes
         var tenantId = Guid.NewGuid();
         var typeId = Guid.NewGuid();
         var currentTenant = GetRequiredService<ICurrentTenant>();
-        _documentTypeAppService.GetVisibleAsync().Returns(_ =>
+        _documentTypeAppService.GetVisibleAsync(Arg.Any<bool>()).Returns(_ =>
         {
             currentTenant.Id.ShouldBe(tenantId);
             return Task.FromResult<List<DocumentTypeDto>>(
@@ -114,12 +114,33 @@ public class DocumentTypeTools_Tests : VaultExtractTestBase<DocumentTypeToolsTes
         // asserts the scope was actually applied during the call.
     }
 
+    /// <summary>
+    /// #632 closes the #629 leftover "populator cost on MCP paths". The MCP surface lists types for an LLM and
+    /// never reads <c>DocumentTypeDto.ResourcePermissions</c>, so it must ask <c>GetVisibleAsync</c> to skip ABP's
+    /// <c>ResourcePermissionPopulator</c> — one multi-permission check per type, paid for nothing. Asserted once,
+    /// here, rather than pinned into every setup in this file: the other tests only need the call to resolve.
+    /// </summary>
+    [Fact]
+    public async Task List_tool_skips_the_resource_permission_populator()
+    {
+        _documentTypeAppService.GetVisibleAsync(Arg.Any<bool>()).Returns(new List<DocumentTypeDto>());
+
+        await DocumentTypeTools.ListAsync(
+            _documentTypeAppService,
+            _fieldDefinitionAppService,
+            _fieldTypeResolver,
+            _fieldTypeExtensionRegistry);
+
+        await _documentTypeAppService.Received(1).GetVisibleAsync(false);
+        await _documentTypeAppService.DidNotReceive().GetVisibleAsync(true);
+    }
+
     [Fact]
     public async Task Returns_types_with_fields_and_wraps_display_names()
     {
         var typeId = Guid.NewGuid();
         _documentTypeAppService
-            .GetVisibleAsync()
+            .GetVisibleAsync(Arg.Any<bool>())
             .Returns(new List<DocumentTypeDto>
             {
                 new()
@@ -187,7 +208,7 @@ public class DocumentTypeTools_Tests : VaultExtractTestBase<DocumentTypeToolsTes
     [Fact]
     public async Task Returns_empty_list_when_no_visible_types()
     {
-        _documentTypeAppService.GetVisibleAsync().Returns(new List<DocumentTypeDto>());
+        _documentTypeAppService.GetVisibleAsync(Arg.Any<bool>()).Returns(new List<DocumentTypeDto>());
 
         var result = await DocumentTypeTools.ListAsync(
             _documentTypeAppService, _fieldDefinitionAppService, _fieldTypeResolver, _fieldTypeExtensionRegistry);
@@ -204,7 +225,7 @@ public class DocumentTypeTools_Tests : VaultExtractTestBase<DocumentTypeToolsTes
         // Exactly at the limit: return all results with no truncation signal; within-limit behavior is
         // unchanged.
         var total = VaultExtractMcpConsts.MaxDocumentTypeResults;
-        _documentTypeAppService.GetVisibleAsync().Returns(BuildTypes(total));
+        _documentTypeAppService.GetVisibleAsync(Arg.Any<bool>()).Returns(BuildTypes(total));
         _fieldDefinitionAppService
             .GetListAsync(Arg.Any<GetFieldDefinitionListInput>())
             .Returns(new List<FieldDefinitionDto>());
@@ -224,7 +245,7 @@ public class DocumentTypeTools_Tests : VaultExtractTestBase<DocumentTypeToolsTes
         // create arbitrarily many types. Over-limit results must be truncated and explicitly tell the LLM
         // there are more via truncated + totalCount.
         var total = VaultExtractMcpConsts.MaxDocumentTypeResults + 5;
-        _documentTypeAppService.GetVisibleAsync().Returns(BuildTypes(total));
+        _documentTypeAppService.GetVisibleAsync(Arg.Any<bool>()).Returns(BuildTypes(total));
         _fieldDefinitionAppService
             .GetListAsync(Arg.Any<GetFieldDefinitionListInput>())
             .Returns(new List<FieldDefinitionDto>());

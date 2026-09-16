@@ -58,7 +58,7 @@ JSON file export is intentionally **not** offered — programmatic consumers sho
 - **Tenant isolation** is enforced by ABP's ambient `IMultiTenant` global filter on the `Documents` query, per the `CLAUDE.md` security conventions.
 - **Per-export document cap** (`DocumentExportConsts.MaxExportDocumentCount`, default 10000): if the filters match more rows than the cap, the export **fails** (`Extract:ExportDocumentLimitExceeded`) rather than silently truncating — for accounting data, dropping vouchers is more dangerous than an error. Narrow the filter.
 - **Per-export column cap** (`DocumentExportConsts.MaxColumnCount`, default 100): if the requested type declares more live field definitions than the cap, the export **fails** (`Extract:ExportColumnLimitExceeded`). The file is built synchronously and held in memory as one cell per (row, column), so the columns are bounded like the rows. The four fixed system columns do not count against it. Archive the fields the type no longer needs.
-- **Permission**: `VaultExtract.Documents.Export`. (The old `VaultExtract.Documents.Templates.*` keys were removed with the template layer; grants naming them are inert.)
+- **Permission**: `VaultExtract.Documents.Export`, plus read access to the exported type — `VaultExtract.Documents.ReadAll`, or a per-type `Read` grant on that one type. An `Export` holder who may not read the requested type is refused with an authorization error rather than handed a header-only file. See [per-document-type permissions](../configuration/document-type-permissions.md). (The old `VaultExtract.Documents.Templates.*` keys were removed with the template layer; grants naming them are inert.)
 
 ## Example: composing a freee-style import CSV
 

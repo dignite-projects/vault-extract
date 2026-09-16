@@ -43,8 +43,13 @@ public class ResourcePermissionDefinitionsGate_Tests : McpPermissionPipelineTest
         _principalAccessor = GetRequiredService<ICurrentPrincipalAccessor>();
     }
 
+    /// <summary>
+    /// #632 acceptance ("the definition test lists all four"): the dialog's checkbox set is exactly
+    /// Upload / Read / Edit / Delete, all four managed by <c>ManagePermissions</c>. The exact count is asserted on
+    /// purpose — a fifth definition appearing here without a decision is the failure mode worth catching.
+    /// </summary>
     [Fact]
-    public async Task ManagePermissions_holder_sees_the_Upload_definition()
+    public async Task ManagePermissions_holder_sees_all_four_definitions()
     {
         await WithUnitOfWorkAsync(async () =>
         {
@@ -58,14 +63,17 @@ public class ResourcePermissionDefinitionsGate_Tests : McpPermissionPipelineTest
                 var result = await _permissionAppService.GetResourceDefinitionsAsync(
                     VaultExtractPermissions.DocumentTypes.Resources.Name);
 
-                result.Permissions.Count.ShouldBe(1);
+                result.Permissions.Count.ShouldBe(4);
                 result.Permissions.ShouldContain(p => p.Name == VaultExtractPermissions.DocumentTypes.Resources.Upload);
+                result.Permissions.ShouldContain(p => p.Name == VaultExtractPermissions.DocumentTypes.Resources.Read);
+                result.Permissions.ShouldContain(p => p.Name == VaultExtractPermissions.DocumentTypes.Resources.Edit);
+                result.Permissions.ShouldContain(p => p.Name == VaultExtractPermissions.DocumentTypes.Resources.Delete);
             });
         }
     }
 
     // This is the assertion that proves the gate is ManagePermissions, not the schema-editing permission: a
-    // holder of the sibling standard permission Update (schema CRUD) must NOT see the Upload resource definition.
+    // holder of the sibling standard permission Update (schema CRUD) must NOT see any resource definition.
     [Fact]
     public async Task Update_holder_without_ManagePermissions_sees_nothing()
     {

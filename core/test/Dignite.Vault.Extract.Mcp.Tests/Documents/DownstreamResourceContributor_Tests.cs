@@ -69,7 +69,7 @@ public class DownstreamResourceContributor_Tests : VaultExtractTestBase<Downstre
         {
             VaultExtractPermissions.DocumentTypes.Default
         };
-        _documentTypeAppService.GetVisibleAsync().Returns(new List<DocumentTypeDto>
+        _documentTypeAppService.GetVisibleAsync(Arg.Any<bool>()).Returns(new List<DocumentTypeDto>
         {
             new()
             {
@@ -98,6 +98,6 @@ public class DownstreamResourceContributor_Tests : VaultExtractTestBase<Downstre
 
         result.Resources.Count.ShouldBe(1);
         result.Resources[0].Uri.ShouldBe(FakeLedgerResourceListContributor.LedgerUri);
-        await _documentTypeAppService.DidNotReceive().GetVisibleAsync();
+        await _documentTypeAppService.DidNotReceive().GetVisibleAsync(Arg.Any<bool>());
     }
 }

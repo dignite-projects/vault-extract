@@ -183,11 +183,23 @@ public class McpPermissionResolution_Tests : McpPermissionPipelineTestBase<McpPe
 
     private async Task GrantDocumentsDefaultAsync(Guid userId)
     {
-        // Direct user-level grant (provider "U", no roles) — exactly the least-privilege model the egress requires.
+        // Direct user-level grants (provider "U", no roles) — exactly the least-privilege model the egress requires.
+        //
+        // #632: Documents.Default is now ENTRY only. ReadAll is what makes a caller see every type of the layer,
+        // which is what these #516 facts are about — they assert that a store grant resolves from the user-id
+        // claim, not that the read is narrowed. Granting both keeps them testing what they were written to test;
+        // the per-type narrowing has its own facts in McpPerTypeGrantPipeline_Tests. This pair is also exactly
+        // the migration an existing deployment owes a hand-made role or MCP client.
+        await GrantAsync(userId, VaultExtractPermissions.Documents.Default);
+        await GrantAsync(userId, VaultExtractPermissions.Documents.ReadAll);
+    }
+
+    private async Task GrantAsync(Guid userId, string permissionName)
+    {
         await _permissionGrantRepository.InsertAsync(
             new PermissionGrant(
                 _guidGenerator.Create(),
-                VaultExtractPermissions.Documents.Default,
+                permissionName,
                 UserProviderName,
                 userId.ToString(),
                 tenantId: null),

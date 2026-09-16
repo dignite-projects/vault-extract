@@ -10,7 +10,29 @@ public class VaultExtractPermissions
 
     public static class Documents
     {
+        /// <summary>
+        /// <b>Entry</b>, not "read everything" (#632 decision 1). Holding this means only "may enter the documents
+        /// area and work inside the caller's own type scope"; it is also the group parent every child below
+        /// implies, and the SPA route gate. The module-wide "read every type of the layer" half is
+        /// <see cref="ReadAll"/>.
+        /// <para>
+        /// The split exists because a per-type Read grant is unexpressible without it: ABP's
+        /// <c>PermissionDefinition.Parent</c> contract is "a child can only be granted if the parent is", so every
+        /// principal that can reach the documents area or upload anything already holds this name — a per-type
+        /// Read would never narrow anyone.
+        /// </para>
+        /// </summary>
         public const string Default = GroupName + ".Documents";
+
+        /// <summary>
+        /// The module-wide read (#632): every document of the caller's layer, whatever its type. It is to Read
+        /// what <see cref="ConfirmClassification"/> is to Edit and <see cref="Delete"/> is to Delete — the
+        /// module-wide half of the "module-wide permission OR the matching per-type grant" rule. Without it a
+        /// caller sees only the types it holds a <see cref="DocumentTypes.Resources.Read"/> grant on, and never
+        /// sees untyped documents at all.
+        /// </summary>
+        public const string ReadAll = Default + ".ReadAll";
+
         public const string Upload = Default + ".Upload";
         public const string Delete = Default + ".Delete";
         public const string PermanentDelete = Default + ".PermanentDelete";
@@ -67,7 +89,7 @@ public class VaultExtractPermissions
         public const string ManagePermissions = Default + ".ManagePermissions";
 
         /// <summary>
-        /// ABP resource-based authorization (#629): grants attached to one <c>DocumentType</c> row rather
+        /// ABP resource-based authorization (#629, completed by #632): grants attached to one <c>DocumentType</c> row rather
         /// than to the module as a whole. These are <b>not</b> standard permissions — they are never
         /// checked by name alone, only as <c>AuthorizationService.IsGrantedAsync(documentType, name)</c>,
         /// and they are stored in <c>AbpResourcePermissionGrants</c> keyed by the type's immutable Id.
@@ -96,6 +118,28 @@ public class VaultExtractPermissions
             /// admits every type of the layer.
             /// </summary>
             public const string Upload = Name + ".Upload";
+
+            /// <summary>
+            /// May read the documents of <b>this</b> document type — detail, blob download, list / export rows,
+            /// pipeline runs, and every MCP path that delegates to them (#632). The module-wide equivalent that
+            /// admits every type of the layer is <see cref="Documents.ReadAll"/>.
+            /// </summary>
+            public const string Read = Name + ".Read";
+
+            /// <summary>
+            /// May run the operator edit family on documents of <b>this</b> document type: confirm / reclassify /
+            /// re-recognize / re-extract fields / update fields / correct Markdown / reject review / allow
+            /// duplicate / resolve field validation warnings (#632). Module-wide equivalent:
+            /// <see cref="Documents.ConfirmClassification"/>. Reclassifying to another type additionally needs
+            /// <see cref="Upload"/> (or the module-wide permission) on the <b>target</b> type.
+            /// </summary>
+            public const string Edit = Name + ".Edit";
+
+            /// <summary>
+            /// May soft-delete documents of <b>this</b> document type (#632). Module-wide equivalent:
+            /// <see cref="Documents.Delete"/>. Restore and permanent delete stay module-wide only, by decision.
+            /// </summary>
+            public const string Delete = Name + ".Delete";
         }
     }
 

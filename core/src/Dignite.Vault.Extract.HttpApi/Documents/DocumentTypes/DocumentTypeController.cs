@@ -18,9 +18,9 @@ public class DocumentTypeController : VaultExtractController, IDocumentTypeAppSe
     }
 
     [HttpGet]
-    public virtual Task<List<DocumentTypeDto>> GetVisibleAsync()
+    public virtual Task<List<DocumentTypeDto>> GetVisibleAsync([FromQuery] bool includeResourcePermissions = true)
     {
-        return _documentTypeAppService.GetVisibleAsync();
+        return _documentTypeAppService.GetVisibleAsync(includeResourcePermissions);
     }
 
     [HttpGet("deleted")]

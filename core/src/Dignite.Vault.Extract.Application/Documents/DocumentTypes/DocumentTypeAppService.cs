@@ -44,7 +44,7 @@ public class DocumentTypeAppService : VaultExtractAppService, IDocumentTypeAppSe
         _resourcePermissionPopulator = resourcePermissionPopulator;
     }
 
-    public virtual async Task<List<DocumentTypeDto>> GetVisibleAsync()
+    public virtual async Task<List<DocumentTypeDto>> GetVisibleAsync(bool includeResourcePermissions = true)
     {
         // Schema reads are decoupled from schema management (#223): document operators (Documents.Default) need to read types
         // for type filters / classification assignment / dynamic field columns, while schema admins (DocumentTypes.Default)
@@ -75,7 +75,14 @@ public class DocumentTypeAppService : VaultExtractAppService, IDocumentTypeAppSe
         // IResourcePermissionStore.GetGrantedResourceKeysAsync is deliberately NOT used here because it filters
         // on resource + permission name only and is therefore not per-user — it would report every type that
         // carries a grant for anyone. Types are tens, not thousands, so per-row is affordable.
-        await _resourcePermissionPopulator.PopulateAsync(dtos, VaultExtractPermissions.DocumentTypes.Resources.Name);
+        //
+        // #632 closes the #629 leftover: the MCP tools and resources list types for an LLM and never read the
+        // dictionary, so they pass includeResourcePermissions:false and skip the populator entirely. The UI keeps
+        // the default. An empty dictionary from the skipped path is "not asked", not "no grants".
+        if (includeResourcePermissions)
+        {
+            await _resourcePermissionPopulator.PopulateAsync(dtos, VaultExtractPermissions.DocumentTypes.Resources.Name);
+        }
 
         return dtos;
     }

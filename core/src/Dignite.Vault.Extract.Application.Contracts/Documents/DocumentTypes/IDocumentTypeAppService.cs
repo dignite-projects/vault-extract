@@ -12,7 +12,18 @@ namespace Dignite.Vault.Extract.Documents.DocumentTypes;
 /// </summary>
 public interface IDocumentTypeAppService : IApplicationService
 {
-    Task<List<DocumentTypeDto>> GetVisibleAsync();
+    /// <summary>
+    /// The caller's own layer's active document types.
+    /// </summary>
+    /// <param name="includeResourcePermissions">
+    /// When <c>true</c> (the default, what the operator UI wants), every returned DTO carries the caller's own
+    /// per-type grants in <see cref="DocumentTypeDto.ResourcePermissions"/>, filled by ABP's
+    /// <c>ResourcePermissionPopulator</c> — one multi-permission check per type. Pass <c>false</c> where the
+    /// dictionary is not read: the MCP tools and resources list types for an LLM and throw it away, so they pay
+    /// the populator for nothing (#629 leftover, closed by #632). The dictionary then comes back empty, which is
+    /// not the same statement as "no grants" — never branch on it after passing <c>false</c>.
+    /// </param>
+    Task<List<DocumentTypeDto>> GetVisibleAsync(bool includeResourcePermissions = true);
 
     /// <summary>Soft-deleted document types in the caller's layer (recycle-bin view).</summary>
     Task<List<DocumentTypeDto>> GetDeletedAsync();
