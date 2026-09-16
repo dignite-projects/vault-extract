@@ -7819,7 +7819,19 @@
               "methods": [
                 {
                   "name": "GetVisibleAsync",
-                  "parametersOnMethod": [],
+                  "parametersOnMethod": [
+                    {
+                      "name": "includeResourcePermissions",
+                      "typeAsString": "System.Boolean, System.Private.CoreLib",
+                      "type": "System.Boolean",
+                      "typeSimple": "boolean",
+                      "isOptional": true,
+                      "defaultValue": true,
+                      "summary": null,
+                      "description": null,
+                      "displayName": null
+                    }
+                  ],
                   "returnValue": {
                     "type": "System.Collections.Generic.List<Dignite.Vault.Extract.Documents.DocumentTypes.DocumentTypeDto>",
                     "typeSimple": "[Dignite.Vault.Extract.Documents.DocumentTypes.DocumentTypeDto]",
@@ -7934,14 +7946,42 @@
             }
           ],
           "actions": {
-            "GetVisibleAsync": {
-              "uniqueName": "GetVisibleAsync",
+            "GetVisibleAsyncByIncludeResourcePermissions": {
+              "uniqueName": "GetVisibleAsyncByIncludeResourcePermissions",
               "name": "GetVisibleAsync",
               "httpMethod": "GET",
               "url": "api/vault-extract/document-types",
               "supportedVersions": [],
-              "parametersOnMethod": [],
-              "parameters": [],
+              "parametersOnMethod": [
+                {
+                  "name": "includeResourcePermissions",
+                  "typeAsString": "System.Boolean, System.Private.CoreLib",
+                  "type": "System.Boolean",
+                  "typeSimple": "boolean",
+                  "isOptional": true,
+                  "defaultValue": true,
+                  "summary": null,
+                  "description": null,
+                  "displayName": null
+                }
+              ],
+              "parameters": [
+                {
+                  "nameOnMethod": "includeResourcePermissions",
+                  "name": "includeResourcePermissions",
+                  "jsonName": null,
+                  "type": "System.Boolean",
+                  "typeSimple": "boolean",
+                  "isOptional": false,
+                  "defaultValue": null,
+                  "constraintTypes": null,
+                  "bindingSourceId": "Query",
+                  "descriptorName": "",
+                  "summary": null,
+                  "description": null,
+                  "displayName": null
+                }
+              ],
               "returnValue": {
                 "type": "System.Collections.Generic.List<Dignite.Vault.Extract.Documents.DocumentTypes.DocumentTypeDto>",
                 "typeSimple": "[Dignite.Vault.Extract.Documents.DocumentTypes.DocumentTypeDto]",
