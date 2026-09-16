@@ -10,6 +10,7 @@ using Dignite.Vault.Extract.FlexFields;
 using Dignite.Vault.Extract.Permissions;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
+using Volo.Abp.Authorization;
 using Volo.Abp.Content;
 using Volo.Abp.Domain.Entities;
 
@@ -36,6 +37,7 @@ public class DocumentExportAppService : VaultExtractAppService, IDocumentExportA
     private readonly IFieldTypeResolver _fieldTypeResolver;
     private readonly IFlexFieldQueryExecutor<Document> _flexFieldQueryExecutor;
     private readonly IVaultExtractFieldTypeRegistry _fieldTypeExtensionRegistry;
+    private readonly DocumentTypeAccessChecker _documentTypeAccess;
 
     public DocumentExportAppService(
         IDocumentRepository documentRepository,
@@ -43,7 +45,8 @@ public class DocumentExportAppService : VaultExtractAppService, IDocumentExportA
         IFieldRepository fieldRepository,
         IFieldTypeResolver fieldTypeResolver,
         IFlexFieldQueryExecutor<Document> flexFieldQueryExecutor,
-        IVaultExtractFieldTypeRegistry fieldTypeExtensionRegistry)
+        IVaultExtractFieldTypeRegistry fieldTypeExtensionRegistry,
+        DocumentTypeAccessChecker documentTypeAccess)
     {
         _documentRepository = documentRepository;
         _documentTypeRepository = documentTypeRepository;
@@ -51,6 +54,7 @@ public class DocumentExportAppService : VaultExtractAppService, IDocumentExportA
         _fieldTypeResolver = fieldTypeResolver;
         _flexFieldQueryExecutor = flexFieldQueryExecutor;
         _fieldTypeExtensionRegistry = fieldTypeExtensionRegistry;
+        _documentTypeAccess = documentTypeAccess;
     }
 
     public virtual async Task<IRemoteStreamContent> ExportAsync(ExportDocumentsInput input)
@@ -62,6 +66,19 @@ public class DocumentExportAppService : VaultExtractAppService, IDocumentExportA
         if (documentType == null)
         {
             throw new EntityNotFoundException(typeof(DocumentType), input.DocumentTypeCode);
+        }
+
+        // #632: the caller's read scope, resolved ONCE and used twice below — as the loud gate here, and as the
+        // filter handed to the shared query chain. Null means the caller holds the module-wide Documents.ReadAll.
+        //
+        // The gate is deliberate rather than leaving the narrowing to the filter alone: an export is single-type by
+        // contract, so "the caller may not read this type" has an exact answer at this point, and this service's own
+        // doctrine is that a header-only file "is a silent lie about what the layer contains" — which is just as
+        // true when the rows are missing because the caller may not read them as when the type is empty.
+        var readableTypeIds = await _documentTypeAccess.GetReadableDocumentTypeIdsAsync();
+        if (readableTypeIds is { } readable && !readable.Contains(documentType.Id))
+        {
+            throw new AbpAuthorizationException();
         }
 
         // #499 decision (a): columns come from the type's LIVE field definitions, ordered by DisplayOrder — the
@@ -92,6 +109,12 @@ public class DocumentExportAppService : VaultExtractAppService, IDocumentExportA
         query = query.ApplyMetadataFilter(new DocumentMetadataFilter
         {
             DocumentTypeId = documentType.Id,
+            // #632: the same read scope, carried into the same shared chain the operator list runs, so "download
+            // the current view" keeps meaning the view. Behind the single-type gate above this predicate is
+            // provably a no-op today — deleting it reddens nothing, and that is recorded rather than hidden. It
+            // stays because the scope belongs in the chain, not at one call site: the day the export contract
+            // takes more than one type, the narrowing is already correct instead of being re-derived here.
+            ReadableDocumentTypeIds = readableTypeIds,
             LifecycleStatus = input.LifecycleStatus,
             CabinetId = input.CabinetId,
             OriginDocumentId = input.OriginDocumentId,

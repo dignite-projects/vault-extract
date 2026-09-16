@@ -48,7 +48,9 @@ public sealed class DocumentTypeTools
 
         // Delegate to GetVisibleAsync. Fail-closed authorization assertions and ambient tenant
         // isolation (two-layer independent single-layer model) execute inside the AppService.
-        var types = await documentTypeAppService.GetVisibleAsync();
+        // #632: the populator is skipped — this path lists types for an LLM and never reads the per-type grant
+        // dictionary, so filling it would be one multi-permission check per type paid for nothing.
+        var types = await documentTypeAppService.GetVisibleAsync(includeResourcePermissions: false);
 
         // Hard result cap (llm-call-anti-patterns counterexample B point 3): full enumeration can
         // blow up LLM context and create a cost-attack surface. Sort stably by TypeCode before

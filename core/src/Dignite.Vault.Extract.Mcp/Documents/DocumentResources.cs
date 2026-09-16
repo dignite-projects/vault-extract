@@ -8,6 +8,7 @@ using Dignite.Vault.Extract.Documents;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
+using Volo.Abp.Authorization;
 using Volo.Abp.Domain.Entities;
 
 namespace Dignite.Vault.Extract.Mcp.Documents;
@@ -91,11 +92,17 @@ public sealed class DocumentResources
             // DocumentTypeCode resolution through soft-delete.
             document = await documentAppService.GetAsync(documentId);
         }
-        catch (EntityNotFoundException)
+        catch (Exception ex) when (ex is EntityNotFoundException or AbpAuthorizationException)
         {
-            // Cross-tenant IDs are filtered out by IMultiTenant and cause GetAsync to throw
-            // EntityNotFound, just like truly nonexistent IDs. Treat both as "not found" to avoid
-            // leaking document existence.
+            // Every id the caller may not read answers identically, so the error cannot be used to probe what
+            // exists. Three distinct causes collapse here:
+            //   * a truly nonexistent id;
+            //   * a cross-tenant id, filtered out by IMultiTenant so GetAsync throws EntityNotFound;
+            //   * #632: an IN-TENANT document outside the caller's read scope — no Documents.ReadAll and no Read
+            //     grant on this document's type, or no Documents.Default at all — which GetAsync answers with
+            //     AbpAuthorizationException. Letting that propagate would have made "exists but not yours"
+            //     distinguishable from "does not exist", which is exactly the disclosure this remap prevents;
+            //     per-type Read is the first rule that can produce it for an id the tenant filter admits.
             throw new McpException($"Document not found: {id}");
         }
 

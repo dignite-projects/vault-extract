@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace Dignite.Vault.Extract.Documents;
@@ -63,6 +64,26 @@ public static class DocumentQueries
         if (filter.HasReviewReasons == true)
             query = query.Where(DocumentReviewQueries.RequiresAttention);
 
+        // Per-document-type READ SCOPE (#632 decision 3). Null means "unrestricted" — the caller holds the
+        // module-wide Documents.ReadAll — and is the only way this predicate is absent. A non-null set is the
+        // caller's own readable types, so an EMPTY set is a real answer ("may read nothing") and must narrow to
+        // nothing rather than degrade into an absent filter; the explicit branch below says so instead of
+        // relying on how a provider happens to translate an empty Contains.
+        //
+        // Untyped rows (DocumentTypeId == null: unclassified, failed classification, containers) are excluded by
+        // construction — they belong to no type, so no grant can name them. That is the same fail-closed rule
+        // DocumentTypeAccessChecker applies to a single document, expressed as a predicate.
+        //
+        // Placing it in the SHARED chain rather than in the list is the point: the operator list, the export and
+        // the MCP search all reach rows through here, so "download the current view" and "search over MCP" cannot
+        // see rows the screen may not (#501 item 1, one layer down).
+        if (filter.ReadableDocumentTypeIds is { } readable)
+        {
+            query = readable.Count == 0
+                ? query.Where(d => false)
+                : query.Where(d => d.DocumentTypeId.HasValue && readable.Contains(d.DocumentTypeId.Value));
+        }
+
         if (filter.CreationTimeMin.HasValue)
             query = query.Where(d => d.CreationTime >= filter.CreationTimeMin.Value.Date);
         // The upper bound includes the whole Max date (< Max + 1 day), matching date-picker intuition.
@@ -98,6 +119,15 @@ public class DocumentMetadataFilter
 {
     /// <summary>Internal type id (#207), already resolved from the caller's external <c>DocumentTypeCode</c>.</summary>
     public Guid? DocumentTypeId { get; set; }
+
+    /// <summary>
+    /// Per-type read scope (#632): the document types the caller may read, or <c>null</c> when the caller holds
+    /// the module-wide <c>Documents.ReadAll</c> and the scope is unrestricted. Unlike every other member here,
+    /// an <b>empty</b> value is not "absent filter" but "may read nothing" — see
+    /// <see cref="DocumentQueries.ApplyMetadataFilter"/>. It is resolved by
+    /// <c>DocumentTypeAccessChecker.GetReadableDocumentTypeIdsAsync</c>, never by a caller's DTO.
+    /// </summary>
+    public IReadOnlyCollection<Guid>? ReadableDocumentTypeIds { get; set; }
 
     public DocumentLifecycleStatus? LifecycleStatus { get; set; }
 

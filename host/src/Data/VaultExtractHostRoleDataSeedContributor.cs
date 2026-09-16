@@ -28,6 +28,12 @@ public class VaultExtractHostRoleDataSeedContributor : IDataSeedContributor, ITr
         await SeedRoleAsync("DocumentManager", new[]
         {
             VaultExtractPermissions.Documents.Default,
+            // #632 split Documents.Default into ENTRY (Default) and READ EVERY TYPE (ReadAll). Without ReadAll a
+            // role sees only the types it holds a per-type Read grant on, so both seeded roles carry it and read
+            // exactly as they did before the change. SeedRoleAsync re-applies each permission idempotently, so
+            // existing deployments pick it up on their next migration run; hand-made roles and MCP OAuth clients
+            // need a manual grant (CHANGELOG migration note).
+            VaultExtractPermissions.Documents.ReadAll,
             VaultExtractPermissions.Documents.Upload,
             VaultExtractPermissions.Documents.Export,
             // #629 made Upload alone inert (untyped upload requires ConfirmClassification, typed upload requires a per-type resource grant), so the seeded operator role carries ConfirmClassification;
@@ -38,6 +44,8 @@ public class VaultExtractHostRoleDataSeedContributor : IDataSeedContributor, ITr
         await SeedRoleAsync("Viewer", new[]
         {
             VaultExtractPermissions.Documents.Default,
+            // A Viewer that can enter the area but read nothing would be an empty list (#632).
+            VaultExtractPermissions.Documents.ReadAll,
         });
     }
 

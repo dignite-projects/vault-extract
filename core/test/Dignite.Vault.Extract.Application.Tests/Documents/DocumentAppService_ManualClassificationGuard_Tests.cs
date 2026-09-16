@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Dignite.Vault.Extract.Abstractions.Documents;
+using Dignite.Vault.Extract.Documents.DocumentTypes;
 using Dignite.Vault.Extract.Documents.Pipelines;
 using Dignite.Vault.Extract.Documents.Pipelines.FieldExtraction;
 using NSubstitute;
@@ -34,6 +35,7 @@ public class DocumentAppService_ManualClassificationGuard_Tests
 {
     private readonly IDocumentAppService _appService;
     private readonly IDocumentRepository _documentRepository;
+    private readonly IDocumentTypeRepository _documentTypeRepository;
     private readonly IDocumentPipelineRunRepository _runRepository;
     private readonly IBackgroundJobManager _backgroundJobManager;
     private readonly IDistributedEventBus _eventBus;
@@ -42,6 +44,7 @@ public class DocumentAppService_ManualClassificationGuard_Tests
     {
         _appService = GetRequiredService<IDocumentAppService>();
         _documentRepository = GetRequiredService<IDocumentRepository>();
+        _documentTypeRepository = GetRequiredService<IDocumentTypeRepository>();
         _runRepository = GetRequiredService<IDocumentPipelineRunRepository>();
         _backgroundJobManager = GetRequiredService<IBackgroundJobManager>();
         _eventBus = GetRequiredService<IDistributedEventBus>();
@@ -52,9 +55,10 @@ public class DocumentAppService_ManualClassificationGuard_Tests
     {
         var doc = CreateDocument();
         StubGet(doc);
+        var targetType = StubType();
 
         var ex = await Should.ThrowAsync<BusinessException>(async () =>
-            await _appService.ConfirmClassificationAsync(doc.Id, new ConfirmClassificationInput { DocumentTypeId = Guid.NewGuid() }));
+            await _appService.ConfirmClassificationAsync(doc.Id, new ConfirmClassificationInput { DocumentTypeId = targetType.Id }));
 
         ex.Code.ShouldBe(VaultExtractErrorCodes.Document.NotTextExtracted);
 
@@ -66,9 +70,10 @@ public class DocumentAppService_ManualClassificationGuard_Tests
     {
         var doc = CreateDocument();
         StubGet(doc);
+        var targetType = StubType();
 
         var ex = await Should.ThrowAsync<BusinessException>(async () =>
-            await _appService.ReclassifyAsync(doc.Id, new ReclassifyDocumentInput { DocumentTypeId = Guid.NewGuid() }));
+            await _appService.ReclassifyAsync(doc.Id, new ReclassifyDocumentInput { DocumentTypeId = targetType.Id }));
 
         ex.Code.ShouldBe(VaultExtractErrorCodes.Document.NotTextExtracted);
 
@@ -88,6 +93,20 @@ public class DocumentAppService_ManualClassificationGuard_Tests
 
         // No DocumentClassifiedEto was published.
         await _eventBus.DidNotReceive().PublishAsync(Arg.Any<DocumentClassifiedEto>(), Arg.Any<bool>());
+    }
+
+    /// <summary>
+    /// The target type has to RESOLVE for these facts to still be about the Markdown guard. #632 moved the
+    /// target-type permission check ahead of that guard, so the target lookup that feeds it moved with it —
+    /// existence is still validated before permission, which now means an unknown target id answers
+    /// EntityNotFound before NotTextExtracted rather than after. An unresolvable id is an invalid request
+    /// whatever the document's processing state; these two facts are about the state, so they supply a real one.
+    /// </summary>
+    private DocumentType StubType()
+    {
+        var type = new DocumentType(Guid.NewGuid(), tenantId: null, "guard.target", "Guard Target");
+        _documentTypeRepository.FindAsync(type.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(type);
+        return type;
     }
 
     private void StubGet(Document doc)

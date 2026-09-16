@@ -8,8 +8,9 @@ namespace Dignite.Vault.Extract.Documents.Pipelines;
 
 /// <summary>
 /// Implementation of <see cref="IDocumentPipelineRunAppService"/> (#216).
-/// Authorization: explicit <c>CheckPolicyAsync(Documents.Default)</c>, matching
-/// <c>DocumentAppService</c>, because <c>[Authorize]</c> does not fire on reflection / LLM tool paths.
+/// Authorization: explicit <c>CheckPolicyAsync(Documents.Default)</c> for entry, then the #632 per-type Read rule
+/// against the document itself — matching <c>DocumentAppService.GetAsync</c>, and programmatic because
+/// <c>[Authorize]</c> does not fire on reflection / LLM tool paths.
 /// Tenant isolation: ABP <c>IMultiTenant</c> global filter applies automatically.
 /// </summary>
 public class DocumentPipelineRunAppService : VaultExtractAppService, IDocumentPipelineRunAppService
@@ -17,15 +18,18 @@ public class DocumentPipelineRunAppService : VaultExtractAppService, IDocumentPi
     private readonly IDocumentRepository _documentRepository;
     private readonly IDocumentPipelineRunRepository _runRepository;
     private readonly DocumentPipelineRunToDocumentPipelineRunDtoMapper _runMapper;
+    private readonly DocumentTypeAccessChecker _documentTypeAccess;
 
     public DocumentPipelineRunAppService(
         IDocumentRepository documentRepository,
         IDocumentPipelineRunRepository runRepository,
-        DocumentPipelineRunToDocumentPipelineRunDtoMapper runMapper)
+        DocumentPipelineRunToDocumentPipelineRunDtoMapper runMapper,
+        DocumentTypeAccessChecker documentTypeAccess)
     {
         _documentRepository = documentRepository;
         _runRepository = runRepository;
         _runMapper = runMapper;
+        _documentTypeAccess = documentTypeAccess;
     }
 
     public virtual async Task<List<DocumentPipelineRunDto>> GetListAsync(Guid documentId)
@@ -40,7 +44,13 @@ public class DocumentPipelineRunAppService : VaultExtractAppService, IDocumentPi
         // soft-deleted or hidden by future visibility rules could read its orchestration metadata from
         // this endpoint (orphan disclosure). GetAsync applies both ISoftDelete and IMultiTenant
         // filters: not found -> EntityNotFoundException -> 404, matching the contract.
-        _ = await _documentRepository.GetAsync(documentId, includeDetails: false);
+        var document = await _documentRepository.GetAsync(documentId, includeDetails: false);
+
+        // #632: orchestration state is part of reading the document, so it rides the same rule as
+        // DocumentAppService.GetAsync — Documents.ReadAll, or a Read grant on this document's own type; an
+        // untyped document is reachable only through the module-wide permission. Without this, a caller narrowed
+        // to one type could read the pipeline history of every document in the layer by id.
+        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Read, document);
 
         var runs = await _runRepository.GetListByDocumentAsync(documentId);
         // Call the child mapper Map(source) directly instead of ObjectMapper so AfterMap decodes

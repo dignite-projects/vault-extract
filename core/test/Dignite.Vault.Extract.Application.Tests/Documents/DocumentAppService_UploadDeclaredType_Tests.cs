@@ -40,6 +40,11 @@ public class DocumentAppServiceUploadDeclaredTypeTestModule : AbpModule
         {
             Granted = new HashSet<string>
             {
+                // #632: Documents.Default is ENTRY, and DocumentTypeAccessChecker now asserts it before either
+                // half of the OR is evaluated. Every real caller carries it (ABP's dialog grants the parent
+                // with the child), so this default set carries it too — otherwise every declared-type upload
+                // below would fail for a reason none of these facts is about.
+                VaultExtractPermissions.Documents.Default,
                 VaultExtractPermissions.Documents.Upload,
                 VaultExtractPermissions.Documents.ConfirmClassification
             }
@@ -205,7 +210,9 @@ public class DocumentAppService_UploadDeclaredType_Tests
         // resolve for this test to still be about the permission. Before #629 the id resolved to null and the
         // permission check ran first, so no stub was needed.
         var type = StubType("invoice.general");
-        Grant(VaultExtractPermissions.Documents.Upload); // Upload only, no ConfirmClassification, no resource grant.
+        // Entry + Upload, and nothing else: no ConfirmClassification and no resource grant, so the denial is
+        // attributable to the missing type scope rather than to #632's entry gate.
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Upload);
 
         var input = CreateUploadInput([1, 2, 3]);
         input.DocumentTypeId = type.Id;
@@ -257,7 +264,7 @@ public class DocumentAppService_UploadDeclaredType_Tests
     public async Task UploadAsync_With_A_User_Resource_Grant_Declares_The_Type_Without_ConfirmClassification()
     {
         var type = StubType("invoice.general");
-        Grant(VaultExtractPermissions.Documents.Upload);
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Upload);
         GrantResource(UserResourcePermissionValueProvider.ProviderName, UserId.ToString(), type.Id);
 
         var input = CreateUploadInput([1, 2, 3]);
@@ -280,11 +287,49 @@ public class DocumentAppService_UploadDeclaredType_Tests
             Arg.Any<CancellationToken>());
     }
 
+    /// <summary>
+    /// #632: the declare-a-type family's entry fact. <c>Documents.Default</c> is a precondition of the rule, not
+    /// only of the read endpoints, so an <c>Upload</c> grant on the type does not by itself let a caller declare
+    /// it. The grant is unchanged between the two halves below — only entry is added — so the refusal is
+    /// attributable to entry and to nothing else.
+    /// <para>
+    /// The combination is reachable by ordinary administration: the resource-permission dialog is gated by
+    /// <c>DocumentTypes.ManagePermissions</c>, which says nothing about <c>Documents.*</c>.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task UploadAsync_With_A_Resource_Grant_But_No_Entry_Permission_Is_Refused()
+    {
+        var type = StubType("invoice.general");
+        Grant(VaultExtractPermissions.Documents.Upload);
+        GrantResource(UserResourcePermissionValueProvider.ProviderName, UserId.ToString(), type.Id);
+
+        var input = CreateUploadInput([1, 2, 3]);
+        input.DocumentTypeId = type.Id;
+
+        using (_principalAccessor.Change(PrincipalWithUser()))
+        {
+            await Should.ThrowAsync<AbpAuthorizationException>(() => _appService.UploadAsync(input));
+
+            await _documentRepository.DidNotReceive().InsertAsync(
+                Arg.Any<Document>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+            await _blobContainer.DidNotReceive().SaveAsync(
+                Arg.Any<string>(), Arg.Any<Stream>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+
+            Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Upload);
+
+            await _appService.UploadAsync(input);
+        }
+
+        await _documentRepository.Received(1).InsertAsync(
+            Arg.Is<Document>(d => d.DocumentTypeId == type.Id), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task UploadAsync_With_A_Role_Resource_Grant_Declares_The_Type()
     {
         var type = StubType("invoice.general");
-        Grant(VaultExtractPermissions.Documents.Upload);
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Upload);
         GrantResource(RoleResourcePermissionValueProvider.ProviderName, RoleName, type.Id);
 
         var input = CreateUploadInput([1, 2, 3]);
@@ -306,7 +351,7 @@ public class DocumentAppService_UploadDeclaredType_Tests
     {
         var declared = StubType("invoice.general");
         var granted = StubType("contract.general");
-        Grant(VaultExtractPermissions.Documents.Upload);
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Upload);
         GrantResource(UserResourcePermissionValueProvider.ProviderName, UserId.ToString(), granted.Id);
 
         var input = CreateUploadInput([1, 2, 3]);
@@ -329,7 +374,7 @@ public class DocumentAppService_UploadDeclaredType_Tests
         // #629 decision 2, the deliberate behaviour change: leaving DocumentTypeId null used to be the
         // unprivileged path. It now requires ConfirmClassification, because otherwise the per-type ACL is
         // bypassable by letting the LLM pick the type.
-        Grant(VaultExtractPermissions.Documents.Upload);
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Upload);
 
         using (_principalAccessor.Change(PrincipalWithUser()))
         {
@@ -350,7 +395,7 @@ public class DocumentAppService_UploadDeclaredType_Tests
         // the "bypass by uploading untyped" hole would reopen for exactly the callers the grant was meant to
         // constrain.
         var type = StubType("invoice.general");
-        Grant(VaultExtractPermissions.Documents.Upload);
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Upload);
         GrantResource(UserResourcePermissionValueProvider.ProviderName, UserId.ToString(), type.Id);
 
         using (_principalAccessor.Change(PrincipalWithUser()))
@@ -368,7 +413,7 @@ public class DocumentAppService_UploadDeclaredType_Tests
         // first, so the permission layer is never reached. Asserting the store was untouched is what proves the
         // ordering rather than merely the outcome.
         var hostTypeId = Guid.NewGuid();
-        Grant(VaultExtractPermissions.Documents.Upload);
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Upload);
         GrantResource(UserResourcePermissionValueProvider.ProviderName, UserId.ToString(), hostTypeId);
         _resourcePermissionStore.ResetLookupCount();
 

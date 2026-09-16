@@ -46,6 +46,12 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     private readonly IDistributedEventBus _distributedEventBus;
     private readonly ReviewStateEvaluator _reviewEvaluator;
     private readonly ManualClassificationApplier _manualClassificationApplier;
+    /// <summary>
+    /// #632: the single implementation of "module-wide permission OR the matching grant on the document's
+    /// current type". Every enforcement point in this service calls it; none re-implements the OR inline
+    /// (<see cref="UploadAsync"/>, which did, was moved onto it).
+    /// </summary>
+    private readonly DocumentTypeAccessChecker _documentTypeAccess;
 
     public DocumentAppService(
         IDocumentRepository documentRepository,
@@ -61,7 +67,8 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         IDistributedEventBus distributedEventBus,
         ReviewStateEvaluator reviewEvaluator,
         ManualClassificationApplier manualClassificationApplier,
-        Dignite.Vault.Extract.FlexFields.IVaultExtractFieldTypeRegistry fieldTypeExtensionRegistry)
+        Dignite.Vault.Extract.FlexFields.IVaultExtractFieldTypeRegistry fieldTypeExtensionRegistry,
+        DocumentTypeAccessChecker documentTypeAccess)
     {
         _documentRepository = documentRepository;
         _documentTypeRepository = documentTypeRepository;
@@ -77,6 +84,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         _reviewEvaluator = reviewEvaluator;
         _manualClassificationApplier = manualClassificationApplier;
         _fieldTypeExtensionRegistry = fieldTypeExtensionRegistry;
+        _documentTypeAccess = documentTypeAccess;
     }
 
     public virtual async Task<DocumentDto> GetAsync(Guid id)
@@ -84,6 +92,8 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // Programmatic authorization assertion inside the method body. This is also the authorization guard for MCP exports
         // because DocumentResources delegates to this method (#222). MCP / reflection / tool-dispatch paths do not pass through HTTP [Authorize],
         // so this assertion must not be rewritten as a class-level or method-level [Authorize] attribute.
+        // Documents.Default is ENTRY since #632 ("may enter the documents area"), not "read everything" — the
+        // read itself is the per-type check below.
         await CheckPolicyAsync(VaultExtractPermissions.Documents.Default);
         // #527: load the field-stage children (values + validation warnings) so the detail DTO can project the
         // warnings. FindWithFieldValuesAsync returns null when missing, so preserve GetAsync's fast-fail semantics.
@@ -92,6 +102,13 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         {
             throw new EntityNotFoundException(typeof(Document), id);
         }
+
+        // #632: Documents.ReadAll, or a Read grant on this document's own type. Untyped documents (unclassified /
+        // failed classification / containers) belong to no type and are therefore reachable only through the
+        // module-wide permission. Existence is validated first, keeping #629's ordering: a cross-layer id is a
+        // 404 from the ambient IMultiTenant filter before the permission layer is consulted.
+        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Read, document);
+
         return await MapToDtoAsync(document);
     }
 
@@ -124,10 +141,17 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // returning empty. No FieldFilters -> null (metadata-only retrieval).
         var fieldQueries = await ResolveFieldQueriesAsync(input, documentTypeId);
 
-        // Trash-bin view: requires Restore permission, and the entire query pipeline must run inside DataFilter.Disable<ISoftDelete>.
+        // Trash-bin view: requires the right to restore something, and the entire query pipeline must run inside
+        // DataFilter.Disable<ISoftDelete>.
         if (input.IsDeleted == true)
         {
-            await CheckPolicyAsync(VaultExtractPermissions.Documents.Restore);
+            // #632: module-wide Documents.Restore, OR a Delete grant on at least one type of the layer — "whoever
+            // may delete may undo". A bare CheckPolicyAsync(Documents.Restore) would shut a per-type deleter out of
+            // the recycle bin entirely, which would make the per-type half of RestoreAsync's rule unreachable from
+            // the UI. This gate decides ADMISSION only: the rows are still narrowed by the read scope inside
+            // ExecuteListQueryAsync, so a caller who may delete type A but may not read it is admitted to an empty
+            // recycle bin. That is the intended fail-closed answer, not a case to special-case.
+            await _documentTypeAccess.CheckOnAnyTypeAsync(DocumentAccessRule.Restore);
             using (DataFilter.Disable<ISoftDelete>())
             {
                 return await ExecuteListQueryAsync(input, documentTypeId, onlyDeleted: true, fieldQueries);
@@ -169,7 +193,12 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
             query = await _flexFieldQueryExecutor.ApplyFilterAsync(query, fieldQueries);
         }
 
-        query = ApplyFilter(query, input, documentTypeId);
+        // #632: resolve the caller's read scope ONCE per request (null == holds Documents.ReadAll == unrestricted)
+        // and hand it to the shared metadata chain, so the page rows and the totalCount below are narrowed by the
+        // same predicate. The export and the MCP search reach rows through that same chain and inherit it.
+        var readableTypeIds = await _documentTypeAccess.GetReadableDocumentTypeIdsAsync();
+
+        query = ApplyFilter(query, input, documentTypeId, readableTypeIds);
         if (onlyDeleted)
         {
             query = query.Where(d => d.IsDeleted);
@@ -231,18 +260,18 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         //     per row in AbpResourcePermissionGrants and keyed by the type's immutable Id);
         //   - no DocumentTypeId at all          -> requires ConfirmClassification (see the untyped branch below).
         //
-        // The OR is written out by hand because ABP's ResourcePermissionChecker only consults the resource value
-        // providers and never falls back to the module-wide permission; the commercial File Management module
-        // does the same. Both halves are programmatic (IsGrantedAsync), not [Authorize], because MCP / reflection
-        // dispatch paths do not run the attribute.
+        // The OR itself lives in DocumentTypeAccessChecker (#632): ABP's ResourcePermissionChecker only consults
+        // the resource value providers and never falls back to the module-wide permission, so the fallback has to
+        // be written by hand — but exactly once, for all four grants, instead of inline here as #629 left it.
+        // Both halves are programmatic, not [Authorize], because MCP / reflection dispatch paths do not run the
+        // attribute.
         //
         // Existence is validated FIRST, the same way ApplyManualClassificationAsync validates it: an
         // IDocumentTypeRepository.FindAsync under the ambient IMultiTenant filter, so a cross-layer id resolves
         // to null -> EntityNotFoundException before any permission is consulted, never a hand-written tenant
         // predicate. That ordering is also why a grant on a Host-layer type id cannot authorize a tenant caller.
-        // The entity itself is passed as the resource: the string policy name resolves to a
-        // ResourcePermissionRequirement through AbpAuthorizationPolicyProvider, and ABP's keyed-object handler
-        // takes the resource name from the runtime type and the key from Entity.GetObjectKey().
+        // The resolved entity is what is handed to the checker, precisely so the signature cannot be satisfied
+        // by an unvalidated id off the wire.
         DocumentType? declaredType = null;
         if (input.DocumentTypeId.HasValue)
         {
@@ -252,11 +281,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
                 throw new EntityNotFoundException(typeof(DocumentType), input.DocumentTypeId.Value);
             }
 
-            if (!await AuthorizationService.IsGrantedAsync(VaultExtractPermissions.Documents.ConfirmClassification) &&
-                !await AuthorizationService.IsGrantedAsync(declaredType, VaultExtractPermissions.DocumentTypes.Resources.Upload))
-            {
-                throw new AbpAuthorizationException();
-            }
+            await _documentTypeAccess.CheckTargetTypeAsync(DocumentAccessRule.DeclareType, declaredType);
         }
         else
         {
@@ -407,6 +432,10 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // Only fetch the blob stream: scalar fields + owned FileOrigin are loaded with the entity, and no child collection is needed.
         var document = await _documentRepository.GetAsync(id, includeDetails: false);
 
+        // #632: the original file is the document's own content, so it rides the same Read rule as GetAsync —
+        // Documents.ReadAll or a Read grant on this document's type, and untyped documents module-wide only.
+        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Read, document);
+
         // #485: FileOrigin is required on every Document going forward (#481), but a legacy pre-#481 derived row
         // (persisted before that migration's backfill ran) is still reachable during the documented binaries-first
         // deploy window. Fail with a clean, mapped exception instead of an NRE/500 on FileOrigin.BlobName below.
@@ -440,11 +469,20 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// <see cref="Document.OriginDocumentId"/>). The #349 / #364 container→type reclassify retraction is unaffected:
     /// it soft-deletes children through <see cref="IDocumentRepository"/> directly, not through this service.
     /// </para>
+    /// <para>
+    /// #632: the method-level <c>[Authorize(Documents.Delete)]</c> is gone, replaced by the programmatic
+    /// <c>Documents.Delete</c> OR <c>Delete</c>-grant-on-this-type check below. It had to go rather than be kept
+    /// alongside: the attribute would deny a per-type grant holder before the body could offer the other half of
+    /// the OR. <c>RestoreAsync</c> reuses this very <c>Delete</c> grant — whoever may delete may undo — and lost
+    /// its attribute for the same reason; <c>PermanentDeleteAsync</c> is the one that stays module-wide only, by
+    /// decision.
+    /// </para>
     /// </summary>
-    [Authorize(VaultExtractPermissions.Documents.Delete)]
     public virtual async Task DeleteAsync(Guid id)
     {
         var document = await _documentRepository.GetAsync(id);
+
+        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Delete, document);
 
         if (await _documentRepository.AnyByOriginAsync(id))
         {
@@ -567,12 +605,29 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// siblings itself rather than relying on the (here, disabled) global filter, and the #531 type check pins its
     /// own <c>IsDeleted</c> test for the same reason.
     /// </summary>
-    [Authorize(VaultExtractPermissions.Documents.Restore)]
     public virtual async Task RestoreAsync(Guid id)
     {
         using (DataFilter.Disable<ISoftDelete>())
         {
             var document = await _documentRepository.GetAsync(id);
+
+            // #632: Documents.Restore, OR a Delete grant on this document's own type — "whoever may delete may
+            // undo". The method-level [Authorize(Documents.Restore)] had to go rather than stay alongside: the
+            // attribute fires before the body and would deny a per-type Delete-grant holder before the OR could
+            // offer its other half, the same reason the edit family and DeleteAsync lost theirs.
+            //
+            // Placement, deliberately, is immediately after the load and BEFORE everything else in this method:
+            //   * before the two business guards (RestoreConflict / RestoreTypeDeleted), so an unauthorized caller
+            //     cannot use their error messages as an oracle for what else exists in the layer — the ordering
+            //     ResolveFieldValidationWarningsAsync already adopted for its in-progress guard;
+            //   * before the !IsDeleted early return, because that return is observable: a caller with no right on
+            //     this type would otherwise get a silent success for a live document and AbpAuthorizationException
+            //     for a soft-deleted one, i.e. a probe for whether a document is in the recycle bin. Restoring is
+            //     either permitted for this type or it is not, whatever state the row happens to be in.
+            // Existence still comes first: GetAsync above throws EntityNotFoundException for an id that does not
+            // resolve under the ambient IMultiTenant filter, keeping #629's existence-before-permission ordering.
+            await _documentTypeAccess.CheckAsync(DocumentAccessRule.Restore, document);
+
             if (!document.IsDeleted)
             {
                 return;
@@ -665,11 +720,14 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// (operator-specified type, synchronous persistence) and <see cref="RetryPipelineAsync"/> (only Failed runs are retryable).
     /// </para>
     /// </summary>
-    [Authorize(VaultExtractPermissions.Documents.ConfirmClassification)]
     public virtual async Task RerecognizeAsync(Guid id)
     {
         // Need only scalar fields (IsDeleted / Markdown / FileOrigin); field values are not touched. Tenant isolation is enforced by the ambient IMultiTenant filter.
         var document = await _documentRepository.GetAsync(id, includeDetails: false);
+
+        // #632 Edit rule (replaces the method-level [Authorize(ConfirmClassification)], which would have denied a
+        // per-type Edit holder before this body could offer the other half of the OR).
+        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Edit, document);
 
         EnsureNotDeleted(document);
 
@@ -695,11 +753,13 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// without reclassification or OCR. Reuses the same background job and shared extraction engine as bulk field re-extraction.
     /// #411: <c>field-extraction</c> is now a key pipeline, so re-extracting an already-Ready document bounces it Ready -&gt; Processing -&gt; Ready (re-firing DocumentReadyEto, absorbed downstream via EventTime), and a newly-detected duplicate parks it in the review queue instead of returning to Ready.
     /// </summary>
-    [Authorize(VaultExtractPermissions.Documents.ConfirmClassification)]
     public virtual async Task ReextractFieldsAsync(Guid id)
     {
         // Need only scalar fields (IsDeleted / DocumentTypeId / Markdown); field values are not touched. Tenant isolation is enforced by the ambient IMultiTenant filter.
         var document = await _documentRepository.GetAsync(id, includeDetails: false);
+
+        // #632 Edit rule (see RerecognizeAsync for why the attribute is gone).
+        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Edit, document);
 
         EnsureNotDeleted(document);
 
@@ -773,7 +833,6 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// keys must be field names defined under this document's layer and DocumentType. After completion, reuses FieldsExtractedEto
     /// to notify downstream consumers to synchronize.
     /// </summary>
-    [Authorize(VaultExtractPermissions.Documents.ConfirmClassification)]
     public virtual async Task<DocumentDto> UpdateExtractedFieldsAsync(Guid id, UpdateExtractedFieldsInput input)
     {
         // Tenant isolation is enforced by the ambient IMultiTenant filter (a cross-tenant id resolves to null below).
@@ -785,6 +844,9 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         {
             throw new EntityNotFoundException(typeof(Document), id);
         }
+
+        // #632 Edit rule (see RerecognizeAsync for why the attribute is gone).
+        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Edit, document);
 
         // Field definitions hang off DocumentType; unclassified documents have no basis for validating field names.
         EnsureClassified(document);
@@ -898,7 +960,6 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// same reasoning as <see cref="ResolveFieldValidationWarningsAsync"/>.
     /// </para>
     /// </summary>
-    [Authorize(VaultExtractPermissions.Documents.ConfirmClassification)]
     public virtual async Task<DocumentDto> UpdateMarkdownAsync(Guid id, UpdateMarkdownInput input)
     {
         // #527: FindWithFieldValuesAsync (not the lean includeDetails) so the returned DTO carries the warning details.
@@ -907,6 +968,9 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         {
             throw new EntityNotFoundException(typeof(Document), id);
         }
+
+        // #632 Edit rule (see RerecognizeAsync for why the attribute is gone).
+        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Edit, document);
 
         EnsureNotDeleted(document);
 
@@ -942,19 +1006,21 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         return await MapToDtoAsync(document);
     }
 
-    [Authorize(VaultExtractPermissions.Documents.ConfirmClassification)]
+    /// <summary>
+    /// #632: both the document's current type (Edit) and the target type being assigned (DeclareType) are checked,
+    /// inside <see cref="ApplyManualClassificationAsync"/>.
+    /// </summary>
     public virtual async Task<DocumentDto> ConfirmClassificationAsync(Guid id, ConfirmClassificationInput input)
     {
         return await ApplyManualClassificationAsync(id, input.DocumentTypeId);
     }
 
-    [Authorize(VaultExtractPermissions.Documents.ConfirmClassification)]
+    /// <inheritdoc cref="ConfirmClassificationAsync"/>
     public virtual async Task<DocumentDto> ReclassifyAsync(Guid id, ReclassifyDocumentInput input)
     {
         return await ApplyManualClassificationAsync(id, input.DocumentTypeId);
     }
 
-    [Authorize(VaultExtractPermissions.Documents.ConfirmClassification)]
     public virtual async Task<DocumentDto> RejectReviewAsync(Guid id, RejectReviewInput input)
     {
         // #527: FindWithFieldValuesAsync (not the lean includeDetails) so the returned DTO carries the warning details.
@@ -963,6 +1029,10 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         {
             throw new EntityNotFoundException(typeof(Document), id);
         }
+
+        // #632 Edit rule (see RerecognizeAsync for why the attribute is gone).
+        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Edit, document);
+
         document.RejectReview(input.Reason);
         await _documentRepository.UpdateAsync(document, autoSave: true);
         return await MapToDtoAsync(document);
@@ -975,7 +1045,6 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// Reuses the review-resolution permission (same as Confirm / Reclassify / Reject). The opposite resolution —
     /// confirming the duplicate — is the existing <see cref="DeleteAsync"/>.
     /// </summary>
-    [Authorize(VaultExtractPermissions.Documents.ConfirmClassification)]
     public virtual async Task<DocumentDto> AllowDuplicateAsync(Guid id)
     {
         // #527: FindWithFieldValuesAsync (not the lean includeDetails) so the returned DTO carries the warning details.
@@ -984,6 +1053,10 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         {
             throw new EntityNotFoundException(typeof(Document), id);
         }
+
+        // #632 Edit rule (see RerecognizeAsync for why the attribute is gone).
+        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Edit, document);
+
         document.AllowDuplicate();
         await _pipelineRunManager.ReDeriveLifecycleAsync(document);
         await _documentRepository.UpdateAsync(document, autoSave: true);
@@ -1000,14 +1073,9 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// (user, time, document, selected fields) is captured by ABP audit logging, and the warning-row removals by entity
     /// change tracking — no parallel warning-history table (#527 §9).
     /// </summary>
-    [Authorize(VaultExtractPermissions.Documents.ConfirmClassification)]
     public virtual async Task<DocumentDto> ResolveFieldValidationWarningsAsync(
         Guid id, ResolveFieldValidationWarningsInput input)
     {
-        // Reject while field extraction is in progress: a pending/running run would replace the whole warning set on
-        // completion and overwrite the operator's decision. Fast-fail before loading (throws RetryInProgress).
-        await _pipelineRunManager.EnsureNotInProgressAsync(id, VaultExtractPipelines.FieldExtraction);
-
         // Load the field-stage children (values + warnings) so removing a warning deletes the persisted row, not just
         // clears the bit (#527 load-path contract).
         var document = await _documentRepository.FindWithFieldValuesAsync(id);
@@ -1015,6 +1083,16 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         {
             throw new EntityNotFoundException(typeof(Document), id);
         }
+
+        // #632 Edit rule (see RerecognizeAsync for why the attribute is gone). Deliberately BEFORE the
+        // in-progress guard, which #527 had first as a fast-fail: with the attribute gone, running that guard
+        // first would tell a caller with no edit right whether this document has a field-extraction run in
+        // flight. Authorization outranks the fast-fail.
+        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Edit, document);
+
+        // Reject while field extraction is in progress: a pending/running run would replace the whole warning set on
+        // completion and overwrite the operator's decision (throws RetryInProgress).
+        await _pipelineRunManager.EnsureNotInProgressAsync(id, VaultExtractPipelines.FieldExtraction);
 
         document.ResolveFieldValidationWarnings(input.FieldDefinitionIds);
 
@@ -1038,6 +1116,11 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         {
             throw new EntityNotFoundException(typeof(Document), id);
         }
+
+        // #632: today's shape with Read substituted for what Documents.Default used to mean. The attribute above
+        // still gates ENTRY; reaching this particular document additionally needs Documents.ReadAll or a Read
+        // grant on its type. Filing is a read-side organization action, not an edit of the document's content.
+        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Read, document);
 
         if (input.CabinetId.HasValue)
         {
@@ -1074,6 +1157,34 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
             throw new EntityNotFoundException(typeof(Document), id);
         }
 
+        // #632, half one: the CURRENT type. Assigning a type is an edit of this document, so it needs
+        // Documents.ConfirmClassification or an Edit grant on whatever type it carries today. An unclassified
+        // document carries none, so Confirm on a fresh document reduces to the module-wide permission — exactly
+        // the pre-#632 behaviour.
+        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Edit, document);
+
+        // Type validation responsibility lives in AppService and no longer goes through manager-internal EnsureRegisteredTypeCodeAsync:
+        // resolve by immutable Id (#207), with tenant isolation delegated to ABP IMultiTenant global filters for exact single-layer matching.
+        // Missing type fails fast, avoiding writes of a type that business-module subscribers cannot recognize.
+        var typeDef = await _documentTypeRepository.FindAsync(documentTypeId);
+        if (typeDef == null)
+        {
+            throw new EntityNotFoundException(typeof(DocumentType), documentTypeId);
+        }
+
+        // #632, half two: the TARGET type. Deciding a document's type is the same act UploadAsync's declared type
+        // performs, so it rides the same #629 rule — ConfirmClassification, or an Upload grant on the type being
+        // assigned. Existence is validated first, above, so a cross-layer id is a 404 before permission — the
+        // #629 existence-before-permission ordering, which is why the FindAsync had to move up with the check
+        // rather than the check moving up alone.
+        //
+        // Both authorization halves now run BEFORE the NotTextExtracted guard below. They used to straddle it, so
+        // a caller holding Edit on the document's current type but nothing on the target type learned this
+        // document's processing state from the business error before the target-type permission was ever
+        // consulted. Same reordering RestoreAsync and ResolveFieldValidationWarningsAsync already carry:
+        // authorization outranks a fast-fail, because a business error is an oracle.
+        await _documentTypeAccess.CheckTargetTypeAsync(DocumentAccessRule.DeclareType, typeDef);
+
         // A type can only be confirmed on a document that has text -- mirrors RerecognizeAsync / ReextractFieldsAsync.
         // Without this guard the cascade field extraction below would run over an empty body, and since
         // MissingRequiredFields is non-blocking, the document could reach Ready with no fields at all. This guard is
@@ -1084,15 +1195,6 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         if (string.IsNullOrEmpty(document.Markdown))
         {
             throw new BusinessException(VaultExtractErrorCodes.Document.NotTextExtracted);
-        }
-
-        // Type validation responsibility lives in AppService and no longer goes through manager-internal EnsureRegisteredTypeCodeAsync:
-        // resolve by immutable Id (#207), with tenant isolation delegated to ABP IMultiTenant global filters for exact single-layer matching.
-        // Missing type fails fast, avoiding writes of a type that business-module subscribers cannot recognize.
-        var typeDef = await _documentTypeRepository.FindAsync(documentTypeId);
-        if (typeDef == null)
-        {
-            throw new EntityNotFoundException(typeof(DocumentType), documentTypeId);
         }
 
         // #623: the run-queue / cascade-schedule / manual-complete / publish sequence is shared with the
@@ -1113,12 +1215,19 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// applied by <see cref="ExecuteListQueryAsync"/> inside <c>DataFilter.Disable&lt;ISoftDelete&gt;()</c>.
     /// </summary>
     protected virtual IQueryable<Document> ApplyFilter(
-        IQueryable<Document> query, GetDocumentListInput input, Guid? documentTypeId)
+        IQueryable<Document> query,
+        GetDocumentListInput input,
+        Guid? documentTypeId,
+        IReadOnlyCollection<Guid>? readableDocumentTypeIds)
     {
         return query.ApplyMetadataFilter(new DocumentMetadataFilter
         {
             // Type filtering uses the resolved internal DocumentTypeId (#207), not input.DocumentTypeCode.
             DocumentTypeId = documentTypeId,
+            // #632 read scope: null when the caller holds Documents.ReadAll, otherwise exactly the types the
+            // caller holds a Read grant on (possibly none). Never derived from the input DTO — a client cannot
+            // widen it.
+            ReadableDocumentTypeIds = readableDocumentTypeIds,
             LifecycleStatus = input.LifecycleStatus,
             CabinetId = input.CabinetId,
             OriginDocumentId = input.OriginDocumentId,

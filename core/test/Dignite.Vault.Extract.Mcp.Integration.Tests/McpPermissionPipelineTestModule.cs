@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Volo.Abp;
 using Volo.Abp.Autofac;
+using Volo.Abp.BackgroundJobs;
 using Volo.Abp.BlobStoring;
 using Volo.Abp.EntityFrameworkCore;
 using Volo.Abp.EntityFrameworkCore.Sqlite;
@@ -60,6 +61,11 @@ public class McpPermissionPipelineTestModule : AbpModule
         // (it only searches), so substitute it rather than wiring a real provider — same pattern as the
         // Application/EF tests. The real repositories + real DB stay in place for the search path.
         context.Services.AddSingleton(Substitute.For<IBlobContainer<VaultExtractDocumentContainer>>());
+
+        // #632 added an UploadAsync fact here (the real-chain Upload grant), and upload ends by enqueuing the
+        // Parse pipeline job. Substituting the manager keeps the fact about the permission chain rather than about
+        // background execution; nothing in this project asserts on enqueued jobs.
+        context.Services.AddSingleton(Substitute.For<IBackgroundJobManager>());
 
         context.Services.AddAlwaysDisableUnitOfWorkTransaction();
 

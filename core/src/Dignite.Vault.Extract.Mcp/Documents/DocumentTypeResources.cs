@@ -97,7 +97,8 @@ public sealed class DocumentTypeResources
         // isolation internally, to obtain active types in the current layer. Match by exact code.
         // Cross-tenant or nonexistent codes are absent from the collection and are treated as not
         // found.
-        var documentTypes = await documentTypeAppService.GetVisibleAsync();
+        // #632: populator skipped (see list_document_types) — only TypeCode / Id are used below.
+        var documentTypes = await documentTypeAppService.GetVisibleAsync(includeResourcePermissions: false);
         var documentType = documentTypes.FirstOrDefault(t => t.TypeCode == code);
         if (documentType is null)
         {
@@ -144,7 +145,9 @@ public sealed class DocumentTypeResources
     /// </summary>
     public static async Task<ListResourcesResult> ListVisibleAsync(IDocumentTypeAppService documentTypeAppService)
     {
-        var types = await documentTypeAppService.GetVisibleAsync();
+        // #632: the populator is skipped — this path lists types for an LLM and never reads the per-type grant
+        // dictionary, so filling it would be one multi-permission check per type paid for nothing.
+        var types = await documentTypeAppService.GetVisibleAsync(includeResourcePermissions: false);
 
         return new ListResourcesResult
         {
