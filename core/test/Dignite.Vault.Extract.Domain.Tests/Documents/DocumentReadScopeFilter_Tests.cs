@@ -181,7 +181,7 @@ public class DocumentReadScopeFilter_Tests
     public void AllowsAnyOfType_admits_an_ungranted_type_for_an_owner_armed_scope()
     {
         Scope(Owner).AllowsAnyOfType(TypeB).ShouldBeTrue();
-        Scope(Owner).Allows(new DocumentAccessSubject(TypeB, CreatorId: null)).ShouldBeFalse();
+        Scope(Owner).Allows(new DocumentAccessSubject(TypeB, CreatorId: null, UnderReview: false)).ShouldBeFalse();
 
         Scope(ownerId: null, TypeA).AllowsAnyOfType(TypeB).ShouldBeFalse();
         Scope(ownerId: null, TypeA).AllowsAnyOfType(TypeA).ShouldBeTrue();

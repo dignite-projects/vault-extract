@@ -7,6 +7,7 @@ using Dignite.Vault.Extract.Permissions;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Shouldly;
+using Volo.Abp;
 using Volo.Abp.Authorization;
 using Volo.Abp.Content;
 using Xunit;
@@ -330,6 +331,37 @@ public class DocumentAccessEntryGate_Tests : DocumentAccessTestBase
         var retry = await GetRequiredService<IDocumentPipelineRunRepository>()
             .FindLatestByDocumentAndCodeAsync(document.Id, VaultExtractPipelines.Parse);
         retry!.Status.ShouldBe(PipelineRunStatus.Pending);
+    }
+
+    // ===================== A conditional owner arm has no scope =====================
+
+    /// <summary>
+    /// A scope is a row predicate and has no term for "is this document under review" — the review state is on
+    /// the row, not on the caller. Resolving a scope for a rule whose owner arm is
+    /// <see cref="DocumentOwnerArm.UnlessUnderReview"/> would therefore silently widen it to every document the
+    /// caller uploaded, locked ones included, which is precisely the hole the arm exists to close. It throws
+    /// instead of answering.
+    /// <para>
+    /// Only <see cref="DocumentAccessRule.Read"/> is ever asked in production, and its arm is unconditional by
+    /// design; this fact is what keeps a future caller from reaching for the wrong one.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task ResolveScopeAsync_refuses_a_rule_whose_owner_arm_depends_on_the_documents_review_state()
+    {
+        var checker = GetRequiredService<DocumentAccessChecker>();
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.ReadAll);
+
+        foreach (var rule in new[] { DocumentAccessRule.Edit, DocumentAccessRule.Retry })
+        {
+            var exception = await Should.ThrowAsync<AbpException>(
+                () => AsStrangerAsync(() => checker.ResolveScopeAsync(rule)));
+            exception.Message.ShouldContain(nameof(DocumentOwnerArm.UnlessUnderReview));
+        }
+
+        // The counter-case: the rule the production paths actually resolve still answers.
+        (await AsStrangerAsync(() => checker.ResolveScopeAsync(DocumentAccessRule.Read)))
+            .IsUnrestricted.ShouldBeTrue();
     }
 
     // ===================== The per-request cost of the grant map =====================

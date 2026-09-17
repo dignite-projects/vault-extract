@@ -28,17 +28,19 @@ namespace Dignite.Vault.Extract.Documents;
 /// arm: a <c>null</c> here is the statement "this operation is module-wide only, by decision", and it is stated
 /// on the row rather than by the operation's absence from the table.
 /// </param>
-/// <param name="OwnerMayPerform">
-/// Whether the document's own uploader may perform it without any grant (#635 decision 1). True for exactly
-/// Read / Edit / Delete / Restore / Retry — the operations an uploader needs to see, correct and withdraw their
-/// own work. <b>Review is deliberately false</b>: its three methods clear a blocking review reason, which exists
-/// precisely so that someone other than the uploader checks the uploader's work before the document reaches a
-/// downstream consumer. A suspected duplicate invoice is the adversarial case the review queue is for.
+/// <param name="OwnerArm">
+/// How far the document's own uploader gets without any grant (#635 decision 1). <c>Always</c> for Read /
+/// Delete / Restore — an uploader must be able to see and withdraw their own work whatever state it is in.
+/// <c>UnlessUnderReview</c> for Edit and Retry: both clear blocking review reasons as a <i>side effect</i>
+/// (see <see cref="ReviewReasonPolicy.OwnerLocking"/>), so an owner is locked out of modifying a document that
+/// is blocked on anything but its classification. <c>Never</c> for Review — its three methods exist to be the
+/// second pair of eyes, and a suspected duplicate invoice is the adversarial case the review queue is for — for
+/// DeclareType, and for every row with no per-type arm.
 /// </param>
 public sealed record DocumentAccessRule(
     string ModuleWidePermission,
     string? ResourcePermission,
-    bool OwnerMayPerform)
+    DocumentOwnerArm OwnerArm)
 {
     /// <summary>
     /// Detail, blob, list / recycle-bin / export rows, pipeline runs, and the MCP paths that delegate to them.
@@ -48,7 +50,7 @@ public sealed record DocumentAccessRule(
     public static readonly DocumentAccessRule Read = new(
         VaultExtractPermissions.Documents.ReadAll,
         VaultExtractResourcePermissions.Read,
-        OwnerMayPerform: true);
+        OwnerArm: DocumentOwnerArm.Always);
 
     /// <summary>
     /// The operator edit family: confirm / reclassify (whose <b>target</b> type is judged separately by
@@ -60,7 +62,7 @@ public sealed record DocumentAccessRule(
     public static readonly DocumentAccessRule Edit = new(
         VaultExtractPermissions.Documents.ConfirmClassification,
         VaultExtractResourcePermissions.Edit,
-        OwnerMayPerform: true);
+        OwnerArm: DocumentOwnerArm.UnlessUnderReview);
 
     /// <summary>
     /// <c>AllowDuplicateAsync</c>, <c>ResolveFieldValidationWarningsAsync</c>, <c>RejectReviewAsync</c> — the same
@@ -76,13 +78,13 @@ public sealed record DocumentAccessRule(
     public static readonly DocumentAccessRule Review = new(
         VaultExtractPermissions.Documents.ConfirmClassification,
         VaultExtractResourcePermissions.Edit,
-        OwnerMayPerform: false);
+        OwnerArm: DocumentOwnerArm.Never);
 
     /// <summary>Soft delete (<c>DeleteAsync</c>). An uploader may withdraw a mistaken upload of their own.</summary>
     public static readonly DocumentAccessRule Delete = new(
         VaultExtractPermissions.Documents.Delete,
         VaultExtractResourcePermissions.Delete,
-        OwnerMayPerform: true);
+        OwnerArm: DocumentOwnerArm.Always);
 
     /// <summary>
     /// Restore from the recycle bin. <b>Whoever may delete may undo:</b> the per-type arm is deliberately
@@ -93,7 +95,7 @@ public sealed record DocumentAccessRule(
     public static readonly DocumentAccessRule Restore = new(
         VaultExtractPermissions.Documents.Restore,
         VaultExtractResourcePermissions.Delete,
-        OwnerMayPerform: true);
+        OwnerArm: DocumentOwnerArm.Always);
 
     /// <summary>
     /// <c>RetryPipelineAsync</c>. #635 revisits #632's "module-wide only, by decision": retry is a single-document
@@ -107,7 +109,9 @@ public sealed record DocumentAccessRule(
     public static readonly DocumentAccessRule Retry = new(
         VaultExtractPermissions.Documents.Pipelines.Retry,
         VaultExtractResourcePermissions.Edit,
-        OwnerMayPerform: true);
+        // UnlessUnderReview, like Edit: a retried field-extraction run replaces the whole validation-warning set
+        // and recomputes the duplicate fingerprint from the new values, exactly as re-extraction does.
+        OwnerArm: DocumentOwnerArm.UnlessUnderReview);
 
     /// <summary>
     /// Declaring / assigning a type: <c>UploadAsync</c>'s <c>DocumentTypeId</c> and the <b>target</b> type of
@@ -119,7 +123,7 @@ public sealed record DocumentAccessRule(
     public static readonly DocumentAccessRule DeclareType = new(
         VaultExtractPermissions.Documents.ConfirmClassification,
         VaultExtractResourcePermissions.Upload,
-        OwnerMayPerform: false);
+        OwnerArm: DocumentOwnerArm.Never);
 
     /// <summary>
     /// <c>UploadAsync</c>'s admission, checked before <see cref="DeclareType"/>. Creating a document is not an
@@ -128,7 +132,7 @@ public sealed record DocumentAccessRule(
     public static readonly DocumentAccessRule Upload = new(
         VaultExtractPermissions.Documents.Upload,
         ResourcePermission: null,
-        OwnerMayPerform: false);
+        OwnerArm: DocumentOwnerArm.Never);
 
     /// <summary>
     /// <c>PermanentDeleteAsync</c>. Module-wide only, by decision: it is irreversible, and it destroys the blob a
@@ -138,7 +142,7 @@ public sealed record DocumentAccessRule(
     public static readonly DocumentAccessRule PermanentDelete = new(
         VaultExtractPermissions.Documents.PermanentDelete,
         ResourcePermission: null,
-        OwnerMayPerform: false);
+        OwnerArm: DocumentOwnerArm.Never);
 
     /// <summary>
     /// <c>DocumentReprocessingAppService.PreviewFieldExtractionAsync</c> / <c>StartFieldExtractionAsync</c>.
@@ -147,7 +151,7 @@ public sealed record DocumentAccessRule(
     public static readonly DocumentAccessRule ReprocessFieldExtraction = new(
         VaultExtractPermissions.Documents.Reprocessing.FieldExtraction,
         ResourcePermission: null,
-        OwnerMayPerform: false);
+        OwnerArm: DocumentOwnerArm.Never);
 
     /// <summary>
     /// <c>DocumentReprocessingAppService.PreviewReclassificationAsync</c> / <c>StartReclassificationAsync</c>.
@@ -156,7 +160,7 @@ public sealed record DocumentAccessRule(
     public static readonly DocumentAccessRule ReprocessReclassification = new(
         VaultExtractPermissions.Documents.Reprocessing.Reclassification,
         ResourcePermission: null,
-        OwnerMayPerform: false);
+        OwnerArm: DocumentOwnerArm.Never);
 
     /// <summary>
     /// <c>ExportAsync</c>'s admission. The rows inside are narrowed by the <see cref="Read"/> scope, so an
@@ -165,7 +169,7 @@ public sealed record DocumentAccessRule(
     public static readonly DocumentAccessRule Export = new(
         VaultExtractPermissions.Documents.Export,
         ResourcePermission: null,
-        OwnerMayPerform: false);
+        OwnerArm: DocumentOwnerArm.Never);
 
     /// <summary>
     /// The overview statistics (<c>DocumentStatisticsAppService.GetAsync</c>), which is also the source of the
@@ -176,5 +180,5 @@ public sealed record DocumentAccessRule(
     public static readonly DocumentAccessRule Statistics = new(
         VaultExtractPermissions.Documents.ReadAll,
         ResourcePermission: null,
-        OwnerMayPerform: false);
+        OwnerArm: DocumentOwnerArm.Never);
 }

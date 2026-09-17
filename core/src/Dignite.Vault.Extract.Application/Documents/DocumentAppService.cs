@@ -948,6 +948,11 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // #632 Edit rule (see RerecognizeAsync for why the attribute is gone).
         await _documentAccess.CheckAsync(DocumentAccessRule.Edit, DocumentAccessSubject.Of(document));
 
+        // #635: with the ownership arm, an uploader reaches their own document while it sits in their own recycle
+        // bin. The edit and review families assert this explicitly now; before, they relied on the module-wide
+        // permission holders who could reach them having no reason to.
+        EnsureNotDeleted(document);
+
         // Field definitions hang off DocumentType; unclassified documents have no basis for validating field names.
         EnsureClassified(document);
 
@@ -1135,6 +1140,8 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // other than the uploader passes judgment on the uploader's work.
         await _documentAccess.CheckAsync(DocumentAccessRule.Review, DocumentAccessSubject.Of(document));
 
+        EnsureNotDeleted(document);
+
         document.RejectReview(input.Reason);
         await _documentRepository.UpdateAsync(document, autoSave: true);
         return await MapToDtoAsync(document);
@@ -1160,6 +1167,8 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // invoice is precisely the case the review queue exists for — so the uploader's own ownership arm does
         // not open it. Granting Edit on the type, or ConfirmClassification, admits a reviewer as before.
         await _documentAccess.CheckAsync(DocumentAccessRule.Review, DocumentAccessSubject.Of(document));
+
+        EnsureNotDeleted(document);
 
         document.AllowDuplicate();
         await _pipelineRunManager.ReDeriveLifecycleAsync(document);
@@ -1195,6 +1204,8 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // outranks the fast-fail.
         await _documentAccess.CheckAsync(DocumentAccessRule.Review, DocumentAccessSubject.Of(document));
 
+        EnsureNotDeleted(document);
+
         // Reject while field extraction is in progress: a pending/running run would replace the whole warning set on
         // completion and overwrite the operator's decision (throws RetryInProgress).
         await _pipelineRunManager.EnsureNotInProgressAsync(id, VaultExtractPipelines.FieldExtraction);
@@ -1226,6 +1237,8 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // it on Read meant a Read grant was no longer read-only. The owner arm comes with the Edit rule, so an
         // uploader may file their own document.
         await _documentAccess.CheckAsync(DocumentAccessRule.Edit, DocumentAccessSubject.Of(document));
+
+        EnsureNotDeleted(document);
 
         if (input.CabinetId.HasValue)
         {
@@ -1267,6 +1280,8 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // document carries none, so Confirm on a fresh document reduces to the module-wide permission — exactly
         // the pre-#632 behaviour.
         await _documentAccess.CheckAsync(DocumentAccessRule.Edit, DocumentAccessSubject.Of(document));
+
+        EnsureNotDeleted(document);
 
         // Type validation responsibility lives in AppService and no longer goes through manager-internal EnsureRegisteredTypeCodeAsync:
         // resolve by immutable Id (#207), with tenant isolation delegated to ABP IMultiTenant global filters for exact single-layer matching.
@@ -1415,11 +1430,11 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
 
         var (typeCodes, fieldsByType) = await ResolveReferenceMapsAsync(documents);
 
-        // #635 decision 5: one rights answer per distinct (type, is-owner) pair on this page, mapped onto the
-        // rows. The rule reads exactly those two facts about a document, so two rows sharing both share their
-        // answer — the cost is bounded by the page's distinct types (plus two, for own / not own), not by its row
-        // count, and every one of them reads the grant map the list's own scope already loaded.
-        var rightsBySubject = new Dictionary<(Guid? DocumentTypeId, bool IsOwner), DocumentRightsDto>();
+        // #635 decision 5: one rights answer per distinct (type, is-owner, owner-locked) triple on this page,
+        // mapped onto the rows. Those are exactly the facts the rule table reads about a document, so the cost is
+        // bounded by the page's distinct types (times four, for the two booleans) rather than by its row count,
+        // and every answer reads the memoised permission answers the list's own scope already loaded.
+        var rightsBySubject = new Dictionary<(Guid? DocumentTypeId, bool IsOwner, bool UnderReview), DocumentRightsDto>();
 
         for (var i = 0; i < documents.Count; i++)
         {
@@ -1430,17 +1445,28 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
 
             var creatorId = documents[i].CreatorId;
             var isOwner = creatorId.HasValue && creatorId == CurrentUser.Id;
-            var key = (documents[i].DocumentTypeId, isOwner);
+            // The key is every fact the rule table reads about a document: its type, whether this caller owns it,
+            // and whether its review state closes the ownership arm of the edit family. Two rows agreeing on all
+            // three get the same answer, and no other field of the document can change it.
+            var key = (documents[i].DocumentTypeId, isOwner, ReviewReasonPolicy.LocksOwnerEdits(documents[i].ReviewReasons));
             if (!rightsBySubject.TryGetValue(key, out var rights))
             {
-                // The subject is rebuilt from the key rather than taken from the row, so two rows that map to the
-                // same key cannot get different answers through some other field of the document.
-                rights = await ResolveRightsAsync(
-                    new DocumentAccessSubject(key.DocumentTypeId, isOwner ? CurrentUser.Id : null));
+                rights = await ResolveRightsAsync(new DocumentAccessSubject(
+                    key.DocumentTypeId, isOwner ? CurrentUser.Id : null, key.Item3));
                 rightsBySubject[key] = rights;
             }
 
-            dtos[i].Rights = rights;
+            // A fresh instance per row: sharing one DTO across rows lets a client (or a later server-side
+            // projection) mutate every row at once by touching one of them.
+            dtos[i].Rights = new DocumentRightsDto
+            {
+                CanRead = rights.CanRead,
+                CanEdit = rights.CanEdit,
+                CanReview = rights.CanReview,
+                CanDelete = rights.CanDelete,
+                CanRestore = rights.CanRestore,
+                CanRetry = rights.CanRetry
+            };
         }
     }
 
