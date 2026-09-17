@@ -113,10 +113,21 @@ public class VaultExtractSampleDataSeedContributor : IDataSeedContributor, ITran
             return;
         }
 
-        // Host layer only (#627 decision 3). The Host DbMigrator's own seed call already carries no
-        // TenantId, but this mirrors VaultExtractDataSeedContributor's own explicit-Change pattern so the
-        // scoping is not merely an accident of how this contributor happens to be invoked today.
-        using (_currentTenant.Change(context?.TenantId))
+        // Host layer only (#627 decision 3) — actually enforced, not just documented. A tenant-scoped
+        // seed (ABP's TenantAppService.CreateAsync runs every IDataSeedContributor, this one included,
+        // under CurrentTenant.Change(tenant.Id)) used to fall through to the block below: the
+        // tenant-filtered FindAsync(SampleDocumentId) can never see the Host-layer row, so the seed
+        // inserted a second Document under the same fixed SampleDocumentId — a primary-key collision, or
+        // worse, silent duplication for the type/fields lookups above it (#640). Returning early keeps
+        // this contributor a Host-only fixture in fact, not only in comment.
+        if (context?.TenantId != null)
+        {
+            return;
+        }
+
+        // Explicit Host scope, not merely "context carried no TenantId": this must not depend on every
+        // caller happening to pass a Host-scoped context.
+        using (_currentTenant.Change(null))
         {
             var documentType = await GetOrCreateSampleDocumentTypeAsync();
             var definitions = BuildFieldDefinitions();
