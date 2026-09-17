@@ -35,11 +35,10 @@ export class DocumentTypeService {
     { apiName: this.apiName,...config });
   
 
-  getVisible = (includeResourcePermissions: boolean = true, config?: Partial<Rest.Config>) =>
+  getVisible = (config?: Partial<Rest.Config>) =>
     this.restService.request<any, DocumentTypeDto[]>({
       method: 'GET',
       url: '/api/vault-extract/document-types',
-      params: { includeResourcePermissions },
     },
     { apiName: this.apiName,...config });
   

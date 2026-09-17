@@ -6029,6 +6029,27 @@
                   }
                 },
                 {
+                  "name": "FindForCallerAsync",
+                  "parametersOnMethod": [
+                    {
+                      "name": "id",
+                      "typeAsString": "System.Guid, System.Private.CoreLib",
+                      "type": "System.Guid",
+                      "typeSimple": "string",
+                      "isOptional": false,
+                      "defaultValue": null,
+                      "summary": null,
+                      "description": null,
+                      "displayName": null
+                    }
+                  ],
+                  "returnValue": {
+                    "type": "Dignite.Vault.Extract.Documents.DocumentDto",
+                    "typeSimple": "Dignite.Vault.Extract.Documents.DocumentDto",
+                    "summary": null
+                  }
+                },
+                {
                   "name": "GetListAsync",
                   "parametersOnMethod": [
                     {
@@ -7819,22 +7840,19 @@
               "methods": [
                 {
                   "name": "GetVisibleAsync",
-                  "parametersOnMethod": [
-                    {
-                      "name": "includeResourcePermissions",
-                      "typeAsString": "System.Boolean, System.Private.CoreLib",
-                      "type": "System.Boolean",
-                      "typeSimple": "boolean",
-                      "isOptional": true,
-                      "defaultValue": true,
-                      "summary": null,
-                      "description": null,
-                      "displayName": null
-                    }
-                  ],
+                  "parametersOnMethod": [],
                   "returnValue": {
                     "type": "System.Collections.Generic.List<Dignite.Vault.Extract.Documents.DocumentTypes.DocumentTypeDto>",
                     "typeSimple": "[Dignite.Vault.Extract.Documents.DocumentTypes.DocumentTypeDto]",
+                    "summary": null
+                  }
+                },
+                {
+                  "name": "GetVisibleSummariesAsync",
+                  "parametersOnMethod": [],
+                  "returnValue": {
+                    "type": "System.Collections.Generic.List<Dignite.Vault.Extract.Documents.DocumentTypes.DocumentTypeSummaryDto>",
+                    "typeSimple": "[Dignite.Vault.Extract.Documents.DocumentTypes.DocumentTypeSummaryDto]",
                     "summary": null
                   }
                 },
@@ -7946,42 +7964,14 @@
             }
           ],
           "actions": {
-            "GetVisibleAsyncByIncludeResourcePermissions": {
-              "uniqueName": "GetVisibleAsyncByIncludeResourcePermissions",
+            "GetVisibleAsync": {
+              "uniqueName": "GetVisibleAsync",
               "name": "GetVisibleAsync",
               "httpMethod": "GET",
               "url": "api/vault-extract/document-types",
               "supportedVersions": [],
-              "parametersOnMethod": [
-                {
-                  "name": "includeResourcePermissions",
-                  "typeAsString": "System.Boolean, System.Private.CoreLib",
-                  "type": "System.Boolean",
-                  "typeSimple": "boolean",
-                  "isOptional": true,
-                  "defaultValue": true,
-                  "summary": null,
-                  "description": null,
-                  "displayName": null
-                }
-              ],
-              "parameters": [
-                {
-                  "nameOnMethod": "includeResourcePermissions",
-                  "name": "includeResourcePermissions",
-                  "jsonName": null,
-                  "type": "System.Boolean",
-                  "typeSimple": "boolean",
-                  "isOptional": false,
-                  "defaultValue": null,
-                  "constraintTypes": null,
-                  "bindingSourceId": "Query",
-                  "descriptorName": "",
-                  "summary": null,
-                  "description": null,
-                  "displayName": null
-                }
-              ],
+              "parametersOnMethod": [],
+              "parameters": [],
               "returnValue": {
                 "type": "System.Collections.Generic.List<Dignite.Vault.Extract.Documents.DocumentTypes.DocumentTypeDto>",
                 "typeSimple": "[Dignite.Vault.Extract.Documents.DocumentTypes.DocumentTypeDto]",

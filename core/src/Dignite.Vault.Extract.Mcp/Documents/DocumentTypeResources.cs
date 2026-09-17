@@ -27,7 +27,7 @@ namespace Dignite.Vault.Extract.Mcp.Documents;
 /// automatically routed through this class's UriTemplate.
 /// <para>
 /// The outbound adapter is a thin shell. It delegates to
-/// <see cref="IDocumentTypeAppService.GetVisibleAsync"/> (current-layer type visibility, filtered by
+/// <see cref="IDocumentTypeAppService.GetVisibleSummariesAsync"/> (current-layer type visibility, filtered by
 /// code here) and <see cref="IFieldDefinitionAppService.GetListAsync"/> (field definitions for that
 /// type). Authorization assertions and tenant isolation are both centralized inside the AppServices.
 /// This class only owns MCP transport concerns: JSON projection and <c>PromptBoundary</c> wrapping for
@@ -93,12 +93,13 @@ public sealed class DocumentTypeResources
         IVaultExtractFieldTypeRegistry fieldTypeExtensionRegistry,
         Guid? tenantId)
     {
-        // Delegate to GetVisibleAsync, which enforces fail-closed authorization and ambient tenant
+        // Delegate to GetVisibleSummariesAsync, which enforces fail-closed authorization and ambient tenant
         // isolation internally, to obtain active types in the current layer. Match by exact code.
         // Cross-tenant or nonexistent codes are absent from the collection and are treated as not
         // found.
-        // #632: populator skipped (see list_document_types) — only TypeCode / Id are used below.
-        var documentTypes = await documentTypeAppService.GetVisibleAsync(includeResourcePermissions: false);
+        // #636: this path lists types for an LLM and never reads a caller's per-type grants, so it uses the
+        // narrow summary read (see list_document_types) — only TypeCode / Id are used below.
+        var documentTypes = await documentTypeAppService.GetVisibleSummariesAsync();
         var documentType = documentTypes.FirstOrDefault(t => t.TypeCode == code);
         if (documentType is null)
         {
@@ -135,7 +136,7 @@ public sealed class DocumentTypeResources
     /// Dynamic enumeration projection for <c>resources/list</c>, called by the list handler in
     /// <c>VaultExtractMcpModule</c>. It has no <c>[McpServerResource]</c> attribute and does not
     /// participate in read-template scanning. It delegates to
-    /// <see cref="IDocumentTypeAppService.GetVisibleAsync"/>: fail-closed authorization and ambient
+    /// <see cref="IDocumentTypeAppService.GetVisibleSummariesAsync"/>: fail-closed authorization and ambient
     /// tenant isolation are both centralized inside the AppService. Results are stably ordered by
     /// TypeCode and truncated to <see cref="VaultExtractMcpConsts.MaxDocumentTypeResults"/>, a hard
     /// result cap from llm-call-anti-patterns counterexample B point 3 because tenant admins can
@@ -145,9 +146,9 @@ public sealed class DocumentTypeResources
     /// </summary>
     public static async Task<ListResourcesResult> ListVisibleAsync(IDocumentTypeAppService documentTypeAppService)
     {
-        // #632: the populator is skipped — this path lists types for an LLM and never reads the per-type grant
-        // dictionary, so filling it would be one multi-permission check per type paid for nothing.
-        var types = await documentTypeAppService.GetVisibleAsync(includeResourcePermissions: false);
+        // #636: this path lists types for an LLM and never reads a caller's per-type grants, so it uses the
+        // narrow summary read, which skips ABP's ResourcePermissionPopulator entirely.
+        var types = await documentTypeAppService.GetVisibleSummariesAsync();
 
         return new ListResourcesResult
         {
