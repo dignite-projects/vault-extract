@@ -19,6 +19,16 @@ namespace Dignite.Vault.Extract.Documents;
 /// <c>CheckAsync(DocumentAccessRule.Edit, subject)</c> and cannot pair "edit" with the read permission, which is
 /// what hand-writing the AND/OR at a dozen enforcement points invites.
 /// </para>
+/// <para>
+/// <b>One document write is deliberately not a row here: the cabinet cascade.</b>
+/// <c>CabinetAppService.DeleteAsync</c> clears <c>CabinetId</c> on every document of the cabinet it deletes,
+/// recycle-bin ones included, and asserts only <b>entry</b> on top of its own <c>Cabinets.Delete</c>. Unassigning
+/// on cabinet deletion is the cabinet's lifecycle, not an operation on any document: it exists so documents do
+/// not dangle at a deleted row. Narrowing it by a read scope would be worse than leaving it — the documents the
+/// caller could not reach would keep pointing at a cabinet that no longer exists, which is the exact state #530
+/// removed. Entry is asserted so "may not open the documents area" still means "may not bulk-unfile documents in
+/// it".
+/// </para>
 /// </summary>
 /// <param name="ModuleWidePermission">
 /// The standard permission that admits every type of the caller's layer, and untyped documents with it.

@@ -17,15 +17,18 @@ public class CabinetAppService : VaultExtractAppService, ICabinetAppService
     private readonly ICabinetRepository _repository;
     private readonly IDocumentRepository _documentRepository;
     private readonly CabinetManager _cabinetManager;
+    private readonly DocumentAccessChecker _documentAccess;
 
     public CabinetAppService(
         ICabinetRepository repository,
         IDocumentRepository documentRepository,
-        CabinetManager cabinetManager)
+        CabinetManager cabinetManager,
+        DocumentAccessChecker documentAccess)
     {
         _repository = repository;
         _documentRepository = documentRepository;
         _cabinetManager = cabinetManager;
+        _documentAccess = documentAccess;
     }
 
     public virtual async Task<List<CabinetDto>> GetListAsync()
@@ -72,6 +75,14 @@ public class CabinetAppService : VaultExtractAppService, ICabinetAppService
     [Authorize(VaultExtractPermissions.Cabinets.Delete)]
     public virtual async Task DeleteAsync(Guid id)
     {
+        // #635: this method writes to DOCUMENTS — the cascade below clears CabinetId on every document of this
+        // cabinet, recycle-bin ones included — while everything above it is cabinet-domain authorization. One
+        // entry assertion, so "may not open the documents area" also means "may not bulk-unfile documents in it".
+        //
+        // Entry and nothing more, deliberately: see DocumentAccessRule's class doc for why the cascade is not a
+        // row on the rule table.
+        await _documentAccess.CheckEntryAsync();
+
         var entity = await _repository.GetAsync(id);
         if (entity.TenantId != CurrentTenant.Id)
         {

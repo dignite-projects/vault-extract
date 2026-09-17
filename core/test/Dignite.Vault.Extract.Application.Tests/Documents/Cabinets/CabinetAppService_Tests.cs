@@ -17,6 +17,10 @@ public class CabinetAppServiceTestModule : AbpModule
     {
         context.Services.AddSingleton(Substitute.For<ICabinetRepository>());
         context.Services.AddSingleton(Substitute.For<IDocumentRepository>());
+        // #635: DeleteAsync cascades into documents, so it asserts entry through DocumentAccessChecker, whose
+        // grant map reads the layer`s document types. This suite grants everything, so the map is never
+        // consulted -- it still has to be constructible.
+        context.Services.AddSingleton(Substitute.For<DocumentTypes.IDocumentTypeRepository>());
     }
 }
 

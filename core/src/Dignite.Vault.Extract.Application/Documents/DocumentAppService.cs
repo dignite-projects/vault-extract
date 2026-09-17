@@ -11,7 +11,6 @@ using Dignite.Vault.Extract.Documents.Pipelines;
 using Dignite.Vault.Extract.Documents.Pipelines.Classification;
 using Dignite.Vault.Extract.Documents.Review;
 using Dignite.Vault.Extract.Permissions;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -1226,10 +1225,19 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     }
 
     /// <summary>
-    /// Reassigns the document's cabinet (#257). Symmetric with <see cref="UploadAsync"/> cabinet ownership validation:
-    /// assigning to a cabinet asserts <see cref="VaultExtractPermissions.Cabinets.Default"/> and validates that the cabinet exists in the current layer
-    /// (tenant isolation is enforced by the ambient IMultiTenant filter, so cross-tenant FindAsync returns null). Removing from a cabinet (CabinetId == null)
-    /// only needs method-level <see cref="VaultExtractPermissions.Documents.Default"/>. Cabinets are orthogonal to pipelines, so this triggers no later Run and emits no export event.
+    /// Reassigns the document's cabinet (#257).
+    /// <para>
+    /// #635: filing is a <b>write</b> — <c>SetCabinet</c> + <c>UpdateAsync</c> — so this is the Edit rule, both
+    /// directions. Removing from a cabinet is no longer the cheaper case: it used to need only entry, which meant
+    /// a <c>Read</c>-grant holder could unfile any document they could see.
+    /// </para>
+    /// <para>
+    /// Symmetric with <see cref="UploadAsync"/>'s cabinet ownership validation: <b>assigning</b> to a cabinet
+    /// additionally asserts <see cref="VaultExtractPermissions.Cabinets.Default"/> and validates that the cabinet
+    /// exists in the current layer (tenant isolation is enforced by the ambient IMultiTenant filter, so a
+    /// cross-tenant FindAsync returns null). Cabinets are orthogonal to pipelines, so this triggers no later Run
+    /// and emits no export event.
+    /// </para>
     /// </summary>
     public virtual async Task<DocumentDto> UpdateCabinetAsync(Guid id, UpdateDocumentCabinetInput input)
     {
