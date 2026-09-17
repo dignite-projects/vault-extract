@@ -1376,7 +1376,32 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // details are cleared too, avoiding contradictory "rejected + pending review" presentation.
         dto.RequiresReview = ReviewReasonPolicy.RequiresAttention(document.ReviewReasons, document.ReviewDisposition);
         dto.ReviewReasonDetails = await BuildReviewReasonDetailsAsync(document);
+        // #635 decision 5: the six answers the client used to re-derive from the caller's grants, decided here by
+        // the same checker the endpoints enforce with, over the same per-request grant map.
+        dto.Rights = await ResolveRightsAsync(DocumentAccessSubject.Of(document));
         return dto;
+    }
+
+    /// <summary>
+    /// The six per-document answers of <see cref="DocumentRightsDto"/>, from the one checker.
+    /// <para>
+    /// Six <c>IsGrantedAsync</c> calls rather than a bespoke evaluation on purpose: a second implementation of the
+    /// rule — even one sitting next to the first — is exactly the divergence #635 removed from the browser. All
+    /// six read <see cref="DocumentTypeGrantMap"/>, already loaded by whatever gate admitted this request, so they
+    /// cost no grant check at all.
+    /// </para>
+    /// </summary>
+    protected virtual async Task<DocumentRightsDto> ResolveRightsAsync(DocumentAccessSubject subject)
+    {
+        return new DocumentRightsDto
+        {
+            CanRead = await _documentTypeAccess.IsGrantedAsync(DocumentAccessRule.Read, subject),
+            CanEdit = await _documentTypeAccess.IsGrantedAsync(DocumentAccessRule.Edit, subject),
+            CanReview = await _documentTypeAccess.IsGrantedAsync(DocumentAccessRule.Review, subject),
+            CanDelete = await _documentTypeAccess.IsGrantedAsync(DocumentAccessRule.Delete, subject),
+            CanRestore = await _documentTypeAccess.IsGrantedAsync(DocumentAccessRule.Restore, subject),
+            CanRetry = await _documentTypeAccess.IsGrantedAsync(DocumentAccessRule.Retry, subject)
+        };
     }
 
     /// <summary>Batch-fills list DTO DocumentTypeCode + ExtractedFields, resolving both mapping tables once after pagination, with no N+1.</summary>
@@ -1389,12 +1414,33 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         }
 
         var (typeCodes, fieldsByType) = await ResolveReferenceMapsAsync(documents);
+
+        // #635 decision 5: one rights answer per distinct (type, is-owner) pair on this page, mapped onto the
+        // rows. The rule reads exactly those two facts about a document, so two rows sharing both share their
+        // answer — the cost is bounded by the page's distinct types (plus two, for own / not own), not by its row
+        // count, and every one of them reads the grant map the list's own scope already loaded.
+        var rightsBySubject = new Dictionary<(Guid? DocumentTypeId, bool IsOwner), DocumentRightsDto>();
+
         for (var i = 0; i < documents.Count; i++)
         {
             dtos[i].DocumentTypeCode = ResolveTypeCode(documents[i].DocumentTypeId, typeCodes);
             dtos[i].ExtractedFields = AssembleExtractedFields(documents[i], fieldsByType);
             // #284: thin list: expose only RequiresReview for badges and do not assemble details. Details are for the detail page to avoid list N+1.
             dtos[i].RequiresReview = ReviewReasonPolicy.RequiresAttention(documents[i].ReviewReasons, documents[i].ReviewDisposition);
+
+            var creatorId = documents[i].CreatorId;
+            var isOwner = creatorId.HasValue && creatorId == CurrentUser.Id;
+            var key = (documents[i].DocumentTypeId, isOwner);
+            if (!rightsBySubject.TryGetValue(key, out var rights))
+            {
+                // The subject is rebuilt from the key rather than taken from the row, so two rows that map to the
+                // same key cannot get different answers through some other field of the document.
+                rights = await ResolveRightsAsync(
+                    new DocumentAccessSubject(key.DocumentTypeId, isOwner ? CurrentUser.Id : null));
+                rightsBySubject[key] = rights;
+            }
+
+            dtos[i].Rights = rights;
         }
     }
 

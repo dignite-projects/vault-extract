@@ -92,6 +92,14 @@ public class DocumentDto : EntityDto<Guid>
 
     public DateTime CreationTime { get; set; }
 
+    /// <summary>
+    /// What the calling principal may do with this document (#635 decision 5), decided on the server by the same
+    /// checker the endpoints enforce with. The detail page binds every action to it — including the retry button,
+    /// which used to check only whether the run was retryable. No <c>CreatorId</c> is exposed: the client never
+    /// needs to know <i>who</i> owns a document, only what it may do with it.
+    /// </summary>
+    public DocumentRightsDto Rights { get; set; } = new();
+
     // Run records are exposed through IDocumentPipelineRunAppService.GetListAsync(documentId) after
     // #216 split them into an independent aggregate root.
 }

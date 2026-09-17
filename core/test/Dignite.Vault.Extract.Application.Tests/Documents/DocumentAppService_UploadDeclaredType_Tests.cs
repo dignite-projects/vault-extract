@@ -178,15 +178,11 @@ public class DocumentAppService_UploadDeclaredType_Tests
     [Fact]
     public async Task UploadAsync_With_Valid_DocumentTypeId_Declares_The_Type_As_Confirmed()
     {
-        var type = new DocumentType(Guid.NewGuid(), null, "invoice.general", "Invoice");
-        _documentTypeRepository.FindAsync(type.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(type);
-        // MapToDtoAsync's ResolveReferenceMapsAsync resolves DocumentTypeCode for the returned DTO once
-        // DocumentTypeId is set; stub the predicate-based lookup it uses.
-        _documentTypeRepository.GetListAsync(
-                Arg.Any<System.Linq.Expressions.Expression<Func<DocumentType, bool>>>(),
-                Arg.Any<bool>(),
-                Arg.Any<CancellationToken>())
-            .Returns([type]);
+        // StubType registers the type on FindAsync, on the predicate lookup MapToDtoAsync's
+        // ResolveReferenceMapsAsync uses, and on the layer sweep DocumentTypeGrantMap performs — the last of
+        // which #635 made reachable from every DTO mapping, because the returned DTO now carries the caller's
+        // per-document rights.
+        var type = StubType("invoice.general");
 
         var input = CreateUploadInput([1, 2, 3]);
         input.DocumentTypeId = type.Id;
