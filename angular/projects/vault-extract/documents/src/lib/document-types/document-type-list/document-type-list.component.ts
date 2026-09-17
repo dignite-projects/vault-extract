@@ -3,7 +3,6 @@ import {
   Component,
   DestroyRef,
   OnInit,
-  effect,
   inject,
   signal,
 } from '@angular/core';
@@ -41,6 +40,7 @@ import {
   SortAccessors,
 } from '../../shared/extensible-table';
 import { SlugSuggestionHandle, wireSlugSuggestion } from '../../shared/slug-suggestion';
+import { DocumentTypesStore } from '../../shared/document-types.store';
 import { FieldReextractionModalComponent } from '../../reprocessing/field-reextraction-modal/field-reextraction-modal.component';
 import { ReclassificationModalComponent } from '../../reprocessing/reclassification-modal/reclassification-modal.component';
 import { DocumentTypePackImportModalComponent } from '../packs/document-type-pack-import-modal.component';
@@ -96,6 +96,9 @@ export class DocumentTypeListComponent implements OnInit {
   private readonly permissionService = inject(PermissionService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly extensions = inject(ExtensionsService);
+  // #635: this page is the only place in the SPA that WRITES the document-type layer, so it is the
+  // invalidation site for the shared store the reading pages hold. See onDocumentTypesChanged.
+  private readonly documentTypes = inject(DocumentTypesStore);
 
   readonly list = inject(ListService);
 
@@ -203,13 +206,6 @@ export class DocumentTypeListComponent implements OnInit {
       }),
     ]);
 
-    // Re-initialise the dialog when it closes (whether via our own close button or the dialog's
-    // own), so re-opening it for another row does not carry over the previous target.
-    effect(() => {
-      if (!this.permissionsVisible()) {
-        this.permissionsTarget.set(null);
-      }
-    });
   }
 
   ngOnInit(): void {
@@ -372,7 +368,23 @@ export class DocumentTypeListComponent implements OnInit {
     this.isSubmitting.set(false);
     this.closeModal();
     this.toaster.success(messageKey, '::Success');
+    this.onDocumentTypesChanged();
+  }
+
+  /**
+   * A write landed on the document-type layer (#635). Two things follow: this page re-reads its own list,
+   * and the shared {@link DocumentTypesStore} — which the document list, the detail page, the overview and
+   * the upload card read for the rest of the session — is invalidated.
+   *
+   * The invalidation lives at the write sites rather than on each reader's init on purpose. Before #635
+   * every reading page re-fetched the visible types on navigation, which hid this problem behind four
+   * redundant requests; the store's whole point is that the answer does not change on its own. It changes
+   * here, and nowhere else in this SPA, so this is where it is announced. Only a SUCCESSFUL write calls
+   * this: a failed create leaves the layer exactly as the store already has it.
+   */
+  private onDocumentTypesChanged(): void {
     this.load();
+    this.documentTypes.reload();
   }
 
   delete(type: DocumentTypeDto): void {
@@ -386,7 +398,7 @@ export class DocumentTypeListComponent implements OnInit {
           .subscribe({
             next: () => {
               this.toaster.success('::DocumentType:DeletedSuccessfully', '::Success');
-              this.load();
+              this.onDocumentTypesChanged();
             },
             error: () => this.toaster.error('::DocumentType:DeleteFailed', '::Error'),
           });
@@ -399,9 +411,18 @@ export class DocumentTypeListComponent implements OnInit {
       .subscribe({
         next: () => {
           this.toaster.success('::DocumentType:RestoredSuccessfully', '::Success');
-          this.load();
+          this.onDocumentTypesChanged();
         },
       });
+  }
+
+  /**
+   * #635: a config-pack import creates and updates document types, so it invalidates the shared store for
+   * the same reason the four CRUD writes do — it is simply a bulk one. It has its own handler rather than
+   * reusing {@link refresh}, because Refresh is a READ and must not reload the store.
+   */
+  onPackImported(): void {
+    this.onDocumentTypesChanged();
   }
 
   manageFields(type: DocumentTypeDto): void {
@@ -419,6 +440,28 @@ export class DocumentTypeListComponent implements OnInit {
   // #629: opens ABP's own resource-permission dialog for this type's Upload grant. The dialog,
   // its endpoints (/api/permission-management/permissions/resource…) and its user/role search
   // are all ABP's; gated server-side by DocumentTypes.ManagePermissions.
+  /**
+   * The dialog's own visibility, relayed rather than two-way bound, because a close has two consequences
+   * beyond the flag.
+   *
+   * Re-initialising the target means re-opening the dialog for another row does not carry over the
+   * previous one. And a close is the only signal this page gets that the grants may have changed: ABP's
+   * `ResourcePermissionManagementComponent` exposes `visible` and nothing else — no "saved" output,
+   * `savePermission()` is internal — so a save cannot be told from a cancel. Reloading on every close is
+   * the conservative reading (#635): one wasted `GetVisibleAsync` when the operator cancels, against an
+   * `Upload` grant that would otherwise silently fail to reach the upload picker and the type pickers for
+   * the rest of the session. Only a transition out of "open" counts, so nothing fires on page load.
+   */
+  onPermissionsVisibleChange(visible: boolean): void {
+    const wasOpen = this.permissionsVisible();
+    this.permissionsVisible.set(visible);
+    if (visible || !wasOpen) {
+      return;
+    }
+    this.permissionsTarget.set(null);
+    this.documentTypes.reload();
+  }
+
   openPermissions(type: DocumentTypeDto): void {
     this.permissionsTarget.set(type);
     this.permissionsVisible.set(true);

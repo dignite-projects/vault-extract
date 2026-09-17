@@ -23,9 +23,13 @@ export type DocumentTypesStatus = 'loading' | 'ready' | 'error';
  * Four copies of one three-state problem, each with its own bugs.
  *
  * `providedIn: 'root'` rather than per-route: the answer is the same for every page of a session, so
- * navigating list → detail → list asks once. The trade-off is that a type created elsewhere is not picked up
- * until {@link reload} is called or the app is reloaded; the type-management page owns its own list and is not
- * a consumer of this store, so the stale window is only about *other* sessions' edits.
+ * navigating list → detail → list asks once. The answer only changes when someone writes the document-type
+ * layer, and in this SPA exactly one page does — `DocumentTypeListComponent`, which creates, updates,
+ * archives, restores, bulk-imports types and hosts ABP's resource-permission dialog. **That page is this
+ * store's invalidation site**: it calls {@link reload} after each successful write and when the permission
+ * dialog closes, so a type or a grant changed in this session is picked up without every reading page
+ * re-fetching on navigation. What remains stale is another session's edits, until a reload or an app
+ * restart — the same window the config-state-backed module-wide permissions already have.
  *
  * `isLoading()` starts true so a consumer never reads the initial empty list as "nothing is granted to you" —
  * that specific misreading is what the upload card's deleted loading input existed to prevent.
@@ -66,7 +70,10 @@ export class DocumentTypesStore {
    */
   readonly error = computed(() => this.state().status === 'error');
 
-  /** Re-asks the server. Used by the retry offered alongside the {@link error} state. */
+  /**
+   * Re-asks the server. Called by the type-management page after every successful write to the layer (and
+   * when the resource-permission dialog closes), and by the retry offered alongside the {@link error} state.
+   */
   reload(): void {
     this.fetch();
   }
