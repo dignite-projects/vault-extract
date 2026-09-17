@@ -93,10 +93,12 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // read paths because they delegate here (#222); MCP / reflection / tool-dispatch paths do not run
         // [Authorize], so this must not be rewritten as a class-level or method-level attribute.
         //
-        // #635: the Read scope is resolved BEFORE the load, and resolving it is what asserts entry — a caller with
-        // no Documents.Default is refused before existence is disclosed, which is why the read paths gate ahead of
-        // the entity load while the mutating families (whose rule needs the document in hand) gate after it.
-        var scope = await _documentAccess.ResolveScopeAsync(DocumentAccessRule.Read);
+        // #635: entry is asserted BEFORE the load — a caller with no Documents.Default is refused before
+        // existence is disclosed, which is why the read paths gate ahead of the entity load while the mutating
+        // families (whose rule needs the document in hand) gate after it. It is a bare entry check rather than a
+        // resolved scope: judging ONE document needs at most one grant check, and resolving a scope would sweep
+        // the layer's types to answer it.
+        await _documentAccess.CheckEntryAsync();
 
         // #527: load the field-stage children (values + validation warnings) so the detail DTO can project the
         // warnings. FindWithFieldValuesAsync returns null when missing, so preserve GetAsync's fast-fail semantics.
@@ -111,10 +113,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // reach them — but their uploader can, which is the #635 half that makes a failed classification
         // visible to the one person who can fix it. Existence is validated first, keeping #629's ordering: a
         // cross-layer id is a 404 from the ambient IMultiTenant filter before the permission layer is consulted.
-        if (!scope.Allows(DocumentAccessSubject.Of(document)))
-        {
-            throw new AbpAuthorizationException();
-        }
+        await _documentAccess.CheckAsync(DocumentAccessRule.Read, DocumentAccessSubject.Of(document));
 
         return await MapToDtoAsync(document);
     }
@@ -130,9 +129,9 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// </summary>
     public virtual async Task<DocumentDto?> FindForCallerAsync(Guid id)
     {
-        // #635: the same scope GetAsync resolves, and the same entry assertion inside it — entry is a caller-wide
-        // fact and still throws. Only the two id-specific answers fold to null.
-        var scope = await _documentAccess.ResolveScopeAsync(DocumentAccessRule.Read);
+        // #635: the same entry assertion GetAsync makes, before the load — entry is a caller-wide fact and still
+        // throws. Only the two id-specific answers fold to null.
+        await _documentAccess.CheckEntryAsync();
 
         var document = await _documentRepository.FindWithFieldValuesAsync(id);
         if (document == null)
@@ -140,7 +139,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
             return null;
         }
 
-        if (!scope.Allows(DocumentAccessSubject.Of(document)))
+        if (!await _documentAccess.IsGrantedAsync(DocumentAccessRule.Read, DocumentAccessSubject.Of(document)))
         {
             return null;
         }
@@ -510,17 +509,14 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
 
     public virtual async Task<IRemoteStreamContent> GetBlobAsync(Guid id)
     {
-        // #635: entry asserted by resolving the scope, before the load — see GetAsync.
-        var scope = await _documentAccess.ResolveScopeAsync(DocumentAccessRule.Read);
+        // #635: entry asserted before the load — see GetAsync.
+        await _documentAccess.CheckEntryAsync();
 
         // Only fetch the blob stream: scalar fields + owned FileOrigin are loaded with the entity, and no child collection is needed.
         var document = await _documentRepository.GetAsync(id, includeDetails: false);
 
         // The original file is the document's own content, so it rides the same Read rule as GetAsync.
-        if (!scope.Allows(DocumentAccessSubject.Of(document)))
-        {
-            throw new AbpAuthorizationException();
-        }
+        await _documentAccess.CheckAsync(DocumentAccessRule.Read, DocumentAccessSubject.Of(document));
 
         // #485: FileOrigin is required on every Document going forward (#481), but a legacy pre-#481 derived row
         // (persisted before that migration's backfill ran) is still reachable during the documented binaries-first
@@ -566,6 +562,10 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// </summary>
     public virtual async Task DeleteAsync(Guid id)
     {
+        // #635: entry before the load, so an unauthenticated caller cannot tell a real id from an
+        // unknown one by whether it gets 404 or 403. The rule itself needs the document in hand and runs below.
+        await _documentAccess.CheckEntryAsync();
+
         var document = await _documentRepository.GetAsync(id);
 
         await _documentAccess.CheckAsync(DocumentAccessRule.Delete, DocumentAccessSubject.Of(document));
@@ -698,6 +698,10 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// </summary>
     public virtual async Task RestoreAsync(Guid id)
     {
+        // #635: entry before the load, so an unauthenticated caller cannot tell a real id from an
+        // unknown one by whether it gets 404 or 403. The rule itself needs the document in hand and runs below.
+        await _documentAccess.CheckEntryAsync();
+
         using (DataFilter.Disable<ISoftDelete>())
         {
             var document = await _documentRepository.GetAsync(id);
@@ -778,6 +782,10 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// </summary>
     public virtual async Task RetryPipelineAsync(Guid id, RetryPipelineInput input)
     {
+        // #635: entry before the load, so an unauthenticated caller cannot tell a real id from an unknown one by
+        // whether it gets 404 or 403. The rule itself needs the document in hand and runs below.
+        await _documentAccess.CheckEntryAsync();
+
         // Pure input validation, decided entirely from the request: it discloses nothing about this document or
         // this layer, so it stays ahead of the authorization check below.
         if (!VaultExtractPipelines.RetryablePipelines.Contains(input.PipelineCode))
@@ -822,6 +830,10 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// </summary>
     public virtual async Task RerecognizeAsync(Guid id)
     {
+        // #635: entry before the load, so an unauthenticated caller cannot tell a real id from an
+        // unknown one by whether it gets 404 or 403. The rule itself needs the document in hand and runs below.
+        await _documentAccess.CheckEntryAsync();
+
         // Need only scalar fields (IsDeleted / Markdown / FileOrigin); field values are not touched. Tenant isolation is enforced by the ambient IMultiTenant filter.
         var document = await _documentRepository.GetAsync(id, includeDetails: false);
 
@@ -855,6 +867,10 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// </summary>
     public virtual async Task ReextractFieldsAsync(Guid id)
     {
+        // #635: entry before the load, so an unauthenticated caller cannot tell a real id from an
+        // unknown one by whether it gets 404 or 403. The rule itself needs the document in hand and runs below.
+        await _documentAccess.CheckEntryAsync();
+
         // Need only scalar fields (IsDeleted / DocumentTypeId / Markdown); field values are not touched. Tenant isolation is enforced by the ambient IMultiTenant filter.
         var document = await _documentRepository.GetAsync(id, includeDetails: false);
 
@@ -935,6 +951,10 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// </summary>
     public virtual async Task<DocumentDto> UpdateExtractedFieldsAsync(Guid id, UpdateExtractedFieldsInput input)
     {
+        // #635: entry before the load, so an unauthenticated caller cannot tell a real id from an
+        // unknown one by whether it gets 404 or 403. The rule itself needs the document in hand and runs below.
+        await _documentAccess.CheckEntryAsync();
+
         // Tenant isolation is enforced by the ambient IMultiTenant filter (a cross-tenant id resolves to null below).
         // #527: load the field-stage children (values + warnings), not the lean includeDetails set — otherwise the returned
         // DTO omits warning details while the blocking bit stays set, so the operator's page loses the warnings (and the
@@ -1067,6 +1087,10 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// </summary>
     public virtual async Task<DocumentDto> UpdateMarkdownAsync(Guid id, UpdateMarkdownInput input)
     {
+        // #635: entry before the load, so an unauthenticated caller cannot tell a real id from an
+        // unknown one by whether it gets 404 or 403. The rule itself needs the document in hand and runs below.
+        await _documentAccess.CheckEntryAsync();
+
         // #527: FindWithFieldValuesAsync (not the lean includeDetails) so the returned DTO carries the warning details.
         var document = await _documentRepository.FindWithFieldValuesAsync(id);
         if (document == null)
@@ -1128,6 +1152,10 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
 
     public virtual async Task<DocumentDto> RejectReviewAsync(Guid id, RejectReviewInput input)
     {
+        // #635: entry before the load, so an unauthenticated caller cannot tell a real id from an
+        // unknown one by whether it gets 404 or 403. The rule itself needs the document in hand and runs below.
+        await _documentAccess.CheckEntryAsync();
+
         // #527: FindWithFieldValuesAsync (not the lean includeDetails) so the returned DTO carries the warning details.
         var document = await _documentRepository.FindWithFieldValuesAsync(id);
         if (document == null)
@@ -1156,6 +1184,10 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// </summary>
     public virtual async Task<DocumentDto> AllowDuplicateAsync(Guid id)
     {
+        // #635: entry before the load, so an unauthenticated caller cannot tell a real id from an
+        // unknown one by whether it gets 404 or 403. The rule itself needs the document in hand and runs below.
+        await _documentAccess.CheckEntryAsync();
+
         // #527: FindWithFieldValuesAsync (not the lean includeDetails) so the returned DTO carries the warning details.
         var document = await _documentRepository.FindWithFieldValuesAsync(id);
         if (document == null)
@@ -1189,6 +1221,10 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     public virtual async Task<DocumentDto> ResolveFieldValidationWarningsAsync(
         Guid id, ResolveFieldValidationWarningsInput input)
     {
+        // #635: entry before the load, so an unauthenticated caller cannot tell a real id from an
+        // unknown one by whether it gets 404 or 403. The rule itself needs the document in hand and runs below.
+        await _documentAccess.CheckEntryAsync();
+
         // Load the field-stage children (values + warnings) so removing a warning deletes the persisted row, not just
         // clears the bit (#527 load-path contract).
         var document = await _documentRepository.FindWithFieldValuesAsync(id);
@@ -1225,6 +1261,10 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// </summary>
     public virtual async Task<DocumentDto> UpdateCabinetAsync(Guid id, UpdateDocumentCabinetInput input)
     {
+        // #635: entry before the load, so an unauthenticated caller cannot tell a real id from an
+        // unknown one by whether it gets 404 or 403. The rule itself needs the document in hand and runs below.
+        await _documentAccess.CheckEntryAsync();
+
         // #527: FindWithFieldValuesAsync (not the lean includeDetails) so the returned DTO carries the warning details.
         var document = await _documentRepository.FindWithFieldValuesAsync(id);
         if (document == null)
@@ -1265,6 +1305,10 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// </summary>
     protected virtual async Task<DocumentDto> ApplyManualClassificationAsync(Guid id, Guid documentTypeId)
     {
+        // #635: entry before the load, so an unauthenticated caller cannot tell a real id from an
+        // unknown one by whether it gets 404 or 403. The rule itself needs the document in hand and runs below.
+        await _documentAccess.CheckEntryAsync();
+
         // #527: load via the field-stage loader (fields + FieldValidationWarnings) rather than the generic
         // includeDetails path, because CompleteManualClassificationAsync -> ConfirmClassification -> §7
         // ClearFieldValidationWarnings must reconcile/delete the persisted warning rows, not just clear the blocking bit
@@ -1420,9 +1464,14 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// The six per-document answers of <see cref="DocumentRightsDto"/>, from the one checker.
     /// <para>
     /// Six <c>IsGrantedAsync</c> calls rather than a bespoke evaluation on purpose: a second implementation of the
-    /// rule — even one sitting next to the first — is exactly the divergence #635 removed from the browser. All
-    /// six read <see cref="DocumentTypeGrantMap"/>, already loaded by whatever gate admitted this request, so they
-    /// cost no grant check at all.
+    /// rule — even one sitting next to the first — is exactly the divergence #635 removed from the browser.
+    /// </para>
+    /// <para>
+    /// The six share one <see cref="DocumentTypeGrantMap"/>, so between them they cost <b>at most</b> one
+    /// multi-name grant check (on the subject's type, if it has one and no earlier arm already answered) and one
+    /// check of each distinct permission name they name — <c>Documents.Default</c> once rather than six times,
+    /// <c>ConfirmClassification</c> once rather than twice. For a subject with no type, or one the caller owns
+    /// outright, they cost nothing beyond what the gate that admitted the request already paid.
     /// </para>
     /// </summary>
     protected virtual async Task<DocumentRightsDto> ResolveRightsAsync(DocumentAccessSubject subject)

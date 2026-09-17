@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Dignite.Vault.Extract.Permissions;
-using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Authorization;
 using Volo.Abp.DependencyInjection;
@@ -56,16 +55,13 @@ namespace Dignite.Vault.Extract.Documents;
 /// </summary>
 public class DocumentAccessChecker : ITransientDependency
 {
-    private readonly IAuthorizationService _authorizationService;
     private readonly ICurrentUser _currentUser;
     private readonly DocumentTypeGrantMap _grantMap;
 
     public DocumentAccessChecker(
-        IAuthorizationService authorizationService,
         ICurrentUser currentUser,
         DocumentTypeGrantMap grantMap)
     {
-        _authorizationService = authorizationService;
         _currentUser = currentUser;
         _grantMap = grantMap;
     }
@@ -94,7 +90,7 @@ public class DocumentAccessChecker : ITransientDependency
     /// </summary>
     protected virtual Task<bool> IsEntryGrantedAsync()
     {
-        return _authorizationService.IsGrantedAsync(VaultExtractPermissions.Documents.Default);
+        return _grantMap.IsPermissionGrantedAsync(VaultExtractPermissions.Documents.Default);
     }
 
     /// <summary>
@@ -130,7 +126,7 @@ public class DocumentAccessChecker : ITransientDependency
             return false;
         }
 
-        if (await _authorizationService.IsGrantedAsync(rule.ModuleWidePermission))
+        if (await _grantMap.IsPermissionGrantedAsync(rule.ModuleWidePermission))
         {
             return true;
         }
@@ -198,7 +194,7 @@ public class DocumentAccessChecker : ITransientDependency
             throw new AbpAuthorizationException();
         }
 
-        if (await _authorizationService.IsGrantedAsync(rule.ModuleWidePermission))
+        if (await _grantMap.IsPermissionGrantedAsync(rule.ModuleWidePermission))
         {
             return DocumentAccessScope.Unrestricted;
         }

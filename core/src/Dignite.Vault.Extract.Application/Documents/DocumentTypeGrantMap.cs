@@ -3,36 +3,51 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Dignite.Vault.Extract.Documents.DocumentTypes;
 using Dignite.Vault.Extract.Permissions;
+using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Authorization.Permissions;
 using Volo.Abp.Authorization.Permissions.Resources;
 using Volo.Abp.Data;
 using Volo.Abp.DependencyInjection;
+using Volo.Abp.MultiTenancy;
+using Volo.Abp.Users;
 
 namespace Dignite.Vault.Extract.Documents;
 
 /// <summary>
-/// <b>Every per-type grant this caller holds, resolved once per request</b> (#635 decision 4). One read of the
-/// layer's document types, then one <b>multi-name</b> <see cref="IResourcePermissionChecker"/> call per type —
-/// the same overload ABP's own <c>ResourcePermissionPopulator</c> uses — and the answers are kept for the rest of
-/// the request.
+/// <b>Every permission answer this request has already paid for</b> (#635 decision 4) — the per-type grants and
+/// the standard permission names alike, each asked once and then remembered for the rest of the request.
 /// <para>
-/// It replaces two hand-written serial sweeps (one per permission name, one per type) plus the second full sweep
-/// the recycle-bin path used to do. The checker's single-document shape, its scope shape and the per-page rights
-/// map all read this one map, so a list, its rights column and the detail page behind it cannot disagree, and a
-/// request costs one grant check per type however many questions it asks.
+/// Per type, it asks ABP's <b>multi-name</b> <see cref="IResourcePermissionChecker"/> overload — the same one
+/// ABP's own <c>ResourcePermissionPopulator</c> uses — so all four grants on that type cost one round trip.
 /// </para>
 /// <para>
-/// <see cref="IScopedDependency"/>, not a cache with a key: the lifetime <i>is</i> the request, so there is no
-/// invalidation to get wrong. Loading is lazy — a caller holding a module-wide permission short-circuits before
-/// ever touching this map, and then no type sweep happens at all.
+/// <b>Lazy per type, not per layer.</b> Asking about one document asks about one type;
+/// <see cref="TypesWithAsync"/> is the only thing that sweeps the layer, and it reuses whatever per-type answers
+/// are already in hand. That is what makes <b>reaching</b> one's own document cost zero grant checks, a whole
+/// detail page (which projects six rights, one of which an owner cannot answer) cost exactly one, and neither of
+/// them read the type table at all — the sweep exists for the list, the recycle bin, the export and the duplicate
+/// panel, which genuinely need to know the whole set.
+/// </para>
+/// <para>
+/// <b>No parallel resolution.</b> The sweep is a sequential loop on purpose: a cache miss can reach the EF-backed
+/// permission store, which shares this unit of work's <c>DbContext</c>, and a <c>Task.WhenAll</c> over those
+/// would use it concurrently.
+/// </para>
+/// <para>
+/// <see cref="IScopedDependency"/>, so the lifetime <i>is</i> the request and there is no invalidation to get
+/// wrong — except one: ABP's ambient tenant and principal can both be changed <b>inside</b> a scope
+/// (<c>ICurrentTenant.Change</c> on the MCP explicit-tenant path, <c>ICurrentPrincipalAccessor.Change</c> in a
+/// background job or a test). Every answer therefore records the identity it was resolved for, and the memo
+/// resets when the ambient identity differs. Without that, a switched principal would inherit the first one's
+/// grants.
 /// </para>
 /// </summary>
 public class DocumentTypeGrantMap : IScopedDependency
 {
     /// <summary>
     /// The four names asked per type, in one call. Asking for all four regardless of which rule prompted the load
-    /// is the point: the second question of the request is free, and it is what lets the per-row rights (six
+    /// is the point: the second question about that type is free, and it is what lets the per-row rights (six
     /// answers over three grants) cost nothing beyond the first.
     /// </summary>
     private static readonly string[] AllGrants =
@@ -44,38 +59,76 @@ public class DocumentTypeGrantMap : IScopedDependency
     ];
 
     private readonly IResourcePermissionChecker _resourcePermissionChecker;
+    private readonly IAuthorizationService _authorizationService;
     private readonly IDocumentTypeRepository _documentTypeRepository;
     private readonly IDataFilter _dataFilter;
+    private readonly ICurrentTenant _currentTenant;
+    private readonly ICurrentUser _currentUser;
 
-    private Dictionary<Guid, HashSet<string>>? _granted;
+    private readonly Dictionary<Guid, HashSet<string>> _grantsByType = new();
+    private readonly Dictionary<string, bool> _standardPermissions = new(StringComparer.Ordinal);
+    private bool _layerSwept;
+    private (Guid? TenantId, Guid? UserId, string? ClientId)? _identity;
 
     public DocumentTypeGrantMap(
         IResourcePermissionChecker resourcePermissionChecker,
+        IAuthorizationService authorizationService,
         IDocumentTypeRepository documentTypeRepository,
-        IDataFilter dataFilter)
+        IDataFilter dataFilter,
+        ICurrentTenant currentTenant,
+        ICurrentUser currentUser)
     {
         _resourcePermissionChecker = resourcePermissionChecker;
+        _authorizationService = authorizationService;
         _documentTypeRepository = documentTypeRepository;
         _dataFilter = dataFilter;
+        _currentTenant = currentTenant;
+        _currentUser = currentUser;
     }
 
-    /// <summary>Does the caller hold <paramref name="grant"/> on this one type?</summary>
+    /// <summary>
+    /// Whether the caller holds one <b>standard</b> permission — entry, or a rule's module-wide name. Memoised
+    /// for the same reason the grants are: resolving a document's six rights would otherwise ask
+    /// <c>Documents.Default</c> six times and <c>ConfirmClassification</c> twice, and a list page multiplies that
+    /// by its distinct subjects.
+    /// </summary>
+    public virtual async Task<bool> IsPermissionGrantedAsync(string permissionName)
+    {
+        ResetIfIdentityChanged();
+
+        if (_standardPermissions.TryGetValue(permissionName, out var granted))
+        {
+            return granted;
+        }
+
+        granted = await _authorizationService.IsGrantedAsync(permissionName);
+        _standardPermissions[permissionName] = granted;
+        return granted;
+    }
+
+    /// <summary>
+    /// Does the caller hold <paramref name="grant"/> on this one type? Resolves <b>that type only</b> on a miss.
+    /// </summary>
     public virtual async Task<bool> HasAsync(Guid documentTypeId, string grant)
     {
-        var granted = await EnsureLoadedAsync();
-        return granted.TryGetValue(documentTypeId, out var names) && names.Contains(grant);
+        var names = await EnsureTypeLoadedAsync(documentTypeId);
+        return names.Contains(grant);
     }
 
     /// <summary>
     /// Every type of the layer the caller holds <paramref name="grant"/> on — the set a
     /// <see cref="DocumentAccessScope"/> is built from. Empty is a real answer, not a missing one.
+    /// <para>
+    /// This is the one shape that reads the type table, and it does so once per request however many grants are
+    /// asked about afterwards.
+    /// </para>
     /// </summary>
     public virtual async Task<IReadOnlySet<Guid>> TypesWithAsync(string grant)
     {
-        var granted = await EnsureLoadedAsync();
+        await EnsureLayerSweptAsync();
 
         var result = new HashSet<Guid>();
-        foreach (var (typeId, names) in granted)
+        foreach (var (typeId, names) in _grantsByType)
         {
             if (names.Contains(grant))
             {
@@ -86,49 +139,111 @@ public class DocumentTypeGrantMap : IScopedDependency
         return result;
     }
 
-    /// <summary>
-    /// Loads the map on first use and keeps it for the rest of the scope. A second question in the same request
-    /// reads the dictionary and touches neither the type table nor the permission store.
-    /// </summary>
-    protected virtual async Task<Dictionary<Guid, HashSet<string>>> EnsureLoadedAsync()
+    /// <summary>One type's four answers, from the memo or from one multi-name check.</summary>
+    protected virtual async Task<HashSet<string>> EnsureTypeLoadedAsync(Guid documentTypeId)
     {
-        if (_granted is not null)
+        ResetIfIdentityChanged();
+
+        if (_grantsByType.TryGetValue(documentTypeId, out var cached))
         {
-            return _granted;
+            return cached;
         }
 
-        var granted = new Dictionary<Guid, HashSet<string>>();
-
-        foreach (var type in await GetLayerTypesAsync())
-        {
-            // ABP's multi-name overload: one store round trip (and one distributed-cache read) answers all four
-            // grants for this type, instead of four. MultiplePermissionGrantResult reports Undefined for a miss,
-            // which is not Granted -- fail-closed without an explicit else.
-            var result = await _resourcePermissionChecker.IsGrantedAsync(
-                AllGrants,
-                VaultExtractResourcePermissions.Name,
-                type.Id.ToString());
-
-            HashSet<string>? names = null;
-            foreach (var (name, grantResult) in result.Result)
-            {
-                if (grantResult == PermissionGrantResult.Granted)
-                {
-                    (names ??= new HashSet<string>(StringComparer.Ordinal)).Add(name);
-                }
-            }
-
-            if (names is not null)
-            {
-                granted[type.Id] = names;
-            }
-        }
-
-        return _granted = granted;
+        var names = await CheckAllGrantsAsync(documentTypeId);
+        _grantsByType[documentTypeId] = names;
+        return names;
     }
 
     /// <summary>
-    /// The layer's own document types — the set the sweep enumerates.
+    /// Sweeps the layer once: the types not already resolved get one multi-name check each, sequentially.
+    /// </summary>
+    protected virtual async Task EnsureLayerSweptAsync()
+    {
+        ResetIfIdentityChanged();
+
+        if (_layerSwept)
+        {
+            return;
+        }
+
+        foreach (var type in await GetLayerTypesAsync())
+        {
+            if (!_grantsByType.ContainsKey(type.Id))
+            {
+                _grantsByType[type.Id] = await CheckAllGrantsAsync(type.Id);
+            }
+        }
+
+        _layerSwept = true;
+    }
+
+    /// <summary>
+    /// ABP's multi-name overload: one store round trip (and one distributed-cache read) answers all four grants
+    /// for this type. <c>MultiplePermissionGrantResult</c> reports <c>Undefined</c> for a miss, which is not
+    /// <c>Granted</c> — fail-closed without an explicit else.
+    /// </summary>
+    protected virtual async Task<HashSet<string>> CheckAllGrantsAsync(Guid documentTypeId)
+    {
+        var result = await _resourcePermissionChecker.IsGrantedAsync(
+            AllGrants,
+            VaultExtractResourcePermissions.Name,
+            documentTypeId.ToString());
+
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (name, grantResult) in result.Result)
+        {
+            if (grantResult == PermissionGrantResult.Granted)
+            {
+                names.Add(name);
+            }
+        }
+
+        return names;
+    }
+
+    /// <summary>
+    /// Drops every memoised answer when the ambient tenant or principal is not the one they were resolved for.
+    /// <para>
+    /// A scoped service normally needs no invalidation, but both of these <b>are</b> changed inside a scope in
+    /// this codebase: <c>McpTenantScope</c> changes the tenant for an explicit-tenant MCP call, background jobs
+    /// and tests change the principal. Answers memoised for one identity must not be read by another, and
+    /// "reset on difference" is the only rule that cannot be forgotten at a new call site.
+    /// </para>
+    /// </summary>
+    protected virtual void ResetIfIdentityChanged()
+    {
+        var current = (_currentTenant.Id, _currentUser.Id, _currentUser.FindClaimValue(AbpClaimTypesClientId));
+        if (_identity is { } identity && identity == current)
+        {
+            return;
+        }
+
+        ResetMemo();
+        _identity = current;
+    }
+
+    /// <summary>
+    /// Forgets every answer. Separated from <see cref="ResetIfIdentityChanged"/> so a subclass can add a reason
+    /// of its own to reset — the test host changes what a principal is granted <b>inside</b> one scope, which no
+    /// request ever does.
+    /// </summary>
+    protected virtual void ResetMemo()
+    {
+        _grantsByType.Clear();
+        _standardPermissions.Clear();
+        _layerSwept = false;
+    }
+
+    /// <summary>
+    /// <c>Volo.Abp.Security.Claims.AbpClaimTypes.ClientId</c>'s value. Referenced as a literal so this project
+    /// does not take a dependency on the claim-type constants for one string; the frozen-string discipline does
+    /// not apply (it is ABP's own claim name, not a persisted contract of ours), but a rename upstream would show
+    /// up as a machine identity never resetting, so it is named here rather than inlined at the call site.
+    /// </summary>
+    private const string AbpClaimTypesClientId = "client_id";
+
+    /// <summary>
+    /// The layer's own document types — the set <see cref="TypesWithAsync"/> enumerates.
     /// <para>
     /// Soft delete is traversed on purpose, the same way <c>DocumentAppService.ResolveReferenceMapsAsync</c>
     /// traverses it: a document classified to a since-archived type is still in the list of a

@@ -160,7 +160,23 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
             {
                 var dto = await _documentAppService.ConfirmClassificationAsync(
                     documentA, new ConfirmClassificationInput { DocumentTypeId = typeA });
-                dto.DocumentTypeCode.ShouldBe("per.type.edit.a");
+
+                // #635: this caller holds Edit and Upload on the type but no Read grant and no ReadAll, so the
+                // edit succeeds and the response body is redacted to the id and the rights — through the REAL
+                // permission chain, not a fake. Reading the type code off the response would have been the read
+                // GetAsync refuses this principal.
+                dto.Id.ShouldBe(documentA);
+                dto.Rights.CanEdit.ShouldBeTrue();
+                dto.Rights.CanRead.ShouldBeFalse();
+                dto.DocumentTypeCode.ShouldBeNull();
+                dto.FileOrigin.ShouldBeNull();
+            });
+
+            // The write itself landed, which is what the Edit grant is for.
+            await WithUnitOfWorkAsync(async () =>
+            {
+                var reloaded = await _documentRepository.GetAsync(documentA);
+                reloaded.DocumentTypeId.ShouldBe(typeA);
             });
 
             // Same target type (granted), but the document being edited is of type B — denied on the current-type

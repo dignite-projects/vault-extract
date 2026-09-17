@@ -367,54 +367,140 @@ public class DocumentAccessEntryGate_Tests : DocumentAccessTestBase
     // ===================== The per-request cost of the grant map =====================
 
     /// <summary>
-    /// #635 decision 4's cost claim: one request performs at most <b>one</b> type-layer read and <b>one</b>
-    /// multi-name grant check per type of the layer, whatever it asks — the list, the recycle bin and the detail
-    /// page alike. Before this the checker swept the layer once per permission name per shape, and the recycle
-    /// bin swept it twice.
+    /// #635 decision 4's cost claim, per surface. A <b>set</b> of documents costs one type-layer read and one
+    /// multi-name grant check per type; a <b>single</b> document costs neither the read nor more than one check,
+    /// because judging one document asks about one type.
     /// <para>
     /// Counted through a decorator over ABP's real <c>IResourcePermissionChecker</c>, not through a stand-in, so
     /// the number counted is the number the production path actually makes. The single-name overload is asserted
     /// to be unused: a fall back to it would still answer correctly while quietly restoring the per-name sweep.
+    /// The layer has four types and every fact reaches at most one, so a per-type sweep cannot pass a
+    /// per-document assertion by coincidence.
     /// </para>
     /// </summary>
     [Theory]
     [InlineData("list")]
     [InlineData("recycle-bin")]
-    [InlineData("detail")]
-    public async Task One_request_costs_at_most_one_grant_check_per_type_and_one_type_layer_read(string surface)
+    public async Task A_list_request_costs_one_grant_check_per_type_and_one_type_layer_read(string surface)
     {
         var document = StubDocument(TypeA.Id, creatorId: StrangerId, deleted: surface == "recycle-bin");
         StubQueryable(document);
         GrantEntryOnly();
         GrantResource(VaultExtractResourcePermissions.Read, TypeA.Id, StrangerId);
 
-        CheckCounter.Reset();
-        DocumentTypeRepository.ClearReceivedCalls();
+        ResetCounters();
 
-        await AsStrangerAsync(async () =>
-        {
-            switch (surface)
-            {
-                case "list":
-                    await AppService.GetListAsync(new GetDocumentListInput());
-                    break;
-                case "recycle-bin":
-                    await AppService.GetListAsync(new GetDocumentListInput { IsDeleted = true });
-                    break;
-                default:
-                    await AppService.GetAsync(document.Id);
-                    break;
-            }
-        });
+        await AsStrangerAsync(() => AppService.GetListAsync(
+            new GetDocumentListInput { IsDeleted = surface == "recycle-bin" ? true : null }));
 
-        // Two types in this layer.
-        CheckCounter.MultiNameChecks.ShouldBeLessThanOrEqualTo(2);
+        CheckCounter.MultiNameChecks.ShouldBeLessThanOrEqualTo(LayerTypes.Length);
         CheckCounter.SingleNameChecks.ShouldBe(0);
 
         // The layer sweep is the parameterless GetListAsync overload; the by-predicate one is the DTO reference
         // map, a different question.
         await DocumentTypeRepository.Received(1).GetListAsync(
             Arg.Any<bool>(), Arg.Any<System.Threading.CancellationToken>());
+    }
+
+    /// <summary>
+    /// An uploader reaching their own document: the ownership arm answers before the per-type arm is reached, so
+    /// the authorization itself costs <b>no</b> grant check and <b>no</b> type-layer read. Under the first #635
+    /// shape this same call resolved a whole scope and swept the layer.
+    /// <para>
+    /// <c>GetBlobAsync</c> rather than <c>GetAsync</c>, because it returns a stream and therefore does not
+    /// project the per-row rights — see the next fact for what those cost.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Reaching_ones_own_document_costs_no_grant_check_and_no_type_layer_read()
+    {
+        var own = StubDocument(TypeA.Id, creatorId: OwnerId);
+        BlobContainer.GetAsync(own.FileOrigin!.BlobName, Arg.Any<System.Threading.CancellationToken>())
+            .Returns(_ => new System.IO.MemoryStream([1, 2, 3]));
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Upload);
+
+        ResetCounters();
+
+        await AsOwnerAsync(() => AppService.GetBlobAsync(own.Id));
+
+        CheckCounter.MultiNameChecks.ShouldBe(0);
+        CheckCounter.SingleNameChecks.ShouldBe(0);
+        await DocumentTypeRepository.DidNotReceive().GetListAsync(
+            Arg.Any<bool>(), Arg.Any<System.Threading.CancellationToken>());
+    }
+
+    /// <summary>
+    /// The owner's <b>detail</b> page costs exactly one grant check, and still no layer read. Five of the six
+    /// rights are answered by the ownership arm; <c>canReview</c> is the one that is not — its rule's owner arm is
+    /// <see cref="DocumentOwnerArm.Never"/> by design — so it reaches the per-type arm, and all four grants on
+    /// that one type come back in that single multi-name call.
+    /// </summary>
+    [Fact]
+    public async Task The_owners_own_detail_page_costs_one_grant_check_and_no_type_layer_read()
+    {
+        var own = StubDocument(TypeA.Id, creatorId: OwnerId);
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Upload);
+
+        ResetCounters();
+
+        var rights = (await AsOwnerAsync(() => AppService.GetAsync(own.Id))).Rights;
+        rights.CanEdit.ShouldBeTrue();
+        rights.CanReview.ShouldBeFalse();
+
+        CheckCounter.MultiNameChecks.ShouldBe(1);
+        CheckCounter.SingleNameChecks.ShouldBe(0);
+        await DocumentTypeRepository.DidNotReceive().GetListAsync(
+            Arg.Any<bool>(), Arg.Any<System.Threading.CancellationToken>());
+    }
+
+    /// <summary>
+    /// A module-wide <c>ReadAll</c> holder on somebody else's document: the module-wide arm answers Read,
+    /// Delete, Restore and Retry outright, so the only grant check left is the one the remaining rules need on
+    /// that document's own type — one, not four, and still no layer read.
+    /// </summary>
+    [Fact]
+    public async Task A_ReadAll_holders_detail_page_costs_at_most_one_grant_check_and_no_type_layer_read()
+    {
+        var document = StubDocument(TypeA.Id, creatorId: OwnerId);
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.ReadAll);
+
+        ResetCounters();
+
+        await AsStrangerAsync(() => AppService.GetAsync(document.Id));
+
+        CheckCounter.MultiNameChecks.ShouldBeLessThanOrEqualTo(1);
+        CheckCounter.SingleNameChecks.ShouldBe(0);
+        await DocumentTypeRepository.DidNotReceive().GetListAsync(
+            Arg.Any<bool>(), Arg.Any<System.Threading.CancellationToken>());
+    }
+
+    /// <summary>
+    /// The standard-permission half of the same claim: resolving a document's six rights names
+    /// <c>Documents.Default</c> six times and <c>ConfirmClassification</c> twice, and the memo turns that into
+    /// one check each. The bound is the number of DISTINCT permission names the whole request can reach, which is
+    /// smaller than the number of times it asks.
+    /// </summary>
+    [Fact]
+    public async Task A_detail_page_asks_each_standard_permission_name_at_most_once()
+    {
+        var document = StubDocument(TypeA.Id, creatorId: OwnerId);
+        GrantEntryOnly();
+        GrantResource(VaultExtractResourcePermissions.Read, TypeA.Id, StrangerId);
+
+        ResetCounters();
+
+        await AsStrangerAsync(() => AppService.GetAsync(document.Id));
+
+        // Entry + the six rules' module-wide names, of which Edit and Review share one: Documents.Default,
+        // ReadAll, ConfirmClassification, Delete, Restore, Pipelines.Retry.
+        Authorization.PolicyChecks.ShouldBeLessThanOrEqualTo(6);
+    }
+
+    private void ResetCounters()
+    {
+        CheckCounter.Reset();
+        Authorization.ResetPolicyChecks();
+        DocumentTypeRepository.ClearReceivedCalls();
     }
 
     // ===================== helpers =====================
