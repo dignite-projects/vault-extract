@@ -263,6 +263,49 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
         });
     }
 
+    /// <summary>
+    /// #635: the grant map sweeps the layer's types <b>across soft delete</b>, so a <c>Read</c> grant on a type
+    /// that has since been archived still reaches that type's documents. Otherwise the narrow caller and a
+    /// <c>Documents.ReadAll</c> holder would disagree about which rows exist — archiving a type is a schema
+    /// decision, not a revocation.
+    /// <para>
+    /// A real-provider fact: the Application-layer rights test that claims the same thing stubs
+    /// <c>IDocumentTypeRepository</c>, so the <c>DataFilter.Disable&lt;ISoftDelete&gt;()</c> the claim rests on is
+    /// never exercised there — a substitute returns the archived type whether the filter is disabled or not.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Read_grant_on_an_archived_type_still_reaches_that_types_documents()
+    {
+        var archivedReaderId = Guid.Parse("66666666-0000-0000-0000-000000000635");
+        Guid documentId = default;
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var typeId = await SeedTypeAsync("per.type.archived");
+            documentId = await SeedDocumentAsync(typeId);
+
+            await GrantAsync(archivedReaderId, VaultExtractPermissions.Documents.Default);
+            await GrantResourceAsync(archivedReaderId, VaultExtractResourcePermissions.Read, typeId);
+
+            // Archive the type AFTER the grant, exactly as an operator would.
+            await _documentTypeRepository.DeleteAsync(typeId, autoSave: true);
+        });
+
+        using (_principalAccessor.Change(Principal(archivedReaderId)))
+        {
+            await WithUnitOfWorkAsync(async () =>
+            {
+                var page = await _documentAppService.GetListAsync(new GetDocumentListInput());
+                page.TotalCount.ShouldBe(1);
+                page.Items[0].Id.ShouldBe(documentId);
+                page.Items[0].Rights.CanRead.ShouldBeTrue();
+
+                (await _documentAppService.GetAsync(documentId)).Id.ShouldBe(documentId);
+            });
+        }
+    }
+
     // ---- seeding / grant helpers ----
 
     private async Task<Guid> SeedTypeAsync(string typeCode)

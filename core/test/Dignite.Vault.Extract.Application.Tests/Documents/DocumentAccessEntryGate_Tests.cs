@@ -199,27 +199,27 @@ public class DocumentAccessEntryGate_Tests : DocumentAccessTestBase
         (await AsStrangerAsync(() => statistics.GetAsync())).ShouldNotBeNull();
     }
 
-    // ===================== Anonymous callers =====================
+    // ===================== A caller granted nothing =====================
 
     /// <summary>
-    /// The three documents-domain services carry no <c>[Authorize]</c> at all any more, not even a class-level
-    /// one, and <c>VaultExtractAppService</c> declares none either — so "must be authenticated" is not asserted
-    /// anywhere by attribute. It does not need to be: ABP's permission value providers key on the principal's
-    /// user / role / client claims, and an anonymous principal has none, so entry is simply not granted and the
-    /// first checker call refuses. This fact pins that, because the reasoning is not visible at any call site.
+    /// With <b>no</b> permission granted, the three entry points refuse — the read path, the list and a mutating
+    /// method alike, so the refusal does not depend on which of the three shapes the call happens to take.
+    /// <para>
+    /// <b>What this does not prove.</b> It was written as "an anonymous caller is refused", which it cannot show:
+    /// <see cref="GrantSetAuthorizationService"/> answers from a grant set and never looks at the principal, so an
+    /// anonymous caller and a fully-authenticated one with an empty grant set are the same thing here. The real
+    /// claim — that ABP's permission value providers key on the principal's claims, so a caller with no identity
+    /// is granted nothing — needs the real permission pipeline, and lives in
+    /// <c>Mcp.Integration.Tests/Documents/AnonymousCaller_Tests</c>.
+    /// </para>
     /// </summary>
     [Fact]
-    public async Task An_anonymous_caller_is_refused_even_though_no_Authorize_attribute_remains()
+    public async Task A_caller_granted_nothing_is_refused_on_every_shape()
     {
         var document = StubDocument(TypeA.Id, creatorId: OwnerId);
         StubQueryable(document);
 
-        // The grant set is what a fully-permissioned principal would carry; the caller is simply not one.
-        Grant(
-            VaultExtractPermissions.Documents.Default,
-            VaultExtractPermissions.Documents.ReadAll,
-            VaultExtractPermissions.Documents.Delete);
-        Authorization.Granted.Clear();
+        Grant();
 
         await Should.ThrowAsync<AbpAuthorizationException>(() => AppService.GetAsync(document.Id));
         await Should.ThrowAsync<AbpAuthorizationException>(() => AppService.GetListAsync(new GetDocumentListInput()));
