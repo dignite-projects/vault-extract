@@ -5,10 +5,8 @@ using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using NSubstitute;
-using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Volo.Abp.Authorization;
-using Volo.Abp.Domain.Entities;
 using Volo.Abp.Modularity;
 using Volo.Abp.MultiTenancy;
 using Xunit;
@@ -20,9 +18,9 @@ public class DocumentResourcesTestModule : AbpModule
 {
     public override void ConfigureServices(ServiceConfigurationContext context)
     {
-        // The resource is a thin shell delegating to IDocumentAppService.GetAsync. Permission assertions /
-        // tenant isolation live in AppService and are represented here by a mock substitute; the injected
-        // mock asserts the metadata-header assembly only.
+        // The resource is a thin shell delegating to IDocumentAppService.FindForCallerAsync (#636). Permission
+        // assertions / tenant isolation live in AppService and are represented here by a mock substitute; the
+        // injected mock asserts the metadata-header assembly only.
         context.Services.AddSingleton(Substitute.For<IDocumentAppService>());
 
         // #524: explicit tenant scope is fail-closed by default. This suite's ad hoc Guid.NewGuid()
@@ -55,7 +53,7 @@ public class DocumentResources_Tests : VaultExtractTestBase<DocumentResourcesTes
         var tenantId = Guid.NewGuid();
         var documentId = Guid.NewGuid();
         var currentTenant = GetRequiredService<ICurrentTenant>();
-        _documentAppService.GetAsync(documentId).Returns(_ =>
+        _documentAppService.FindForCallerAsync(documentId).Returns(_ =>
         {
             currentTenant.Id.ShouldBe(tenantId);
             return Task.FromResult(new DocumentDto
@@ -96,23 +94,25 @@ public class DocumentResources_Tests : VaultExtractTestBase<DocumentResourcesTes
                 _documentAppService,
                 serviceProvider: ServiceProvider));
 
-        await _documentAppService.DidNotReceive().GetAsync(Arg.Any<Guid>());
+        await _documentAppService.DidNotReceive().FindForCallerAsync(Arg.Any<Guid>());
     }
 
     /// <summary>
-    /// #632: the resource read remaps an authorization refusal onto the same "not found" the nonexistent and
-    /// cross-tenant cases already share. A document that exists in the caller's own tenant but lies outside the
-    /// caller's read scope — no <c>Documents.ReadAll</c>, no per-type <c>Read</c> grant on its type — makes
-    /// <c>GetAsync</c> throw <see cref="AbpAuthorizationException"/>; letting that through would make "exists but
-    /// not yours" distinguishable from "does not exist" on the very path whose comment promises it is not.
+    /// #636: the fold that used to live here (catching <c>EntityNotFoundException</c> /
+    /// <see cref="AbpAuthorizationException"/> around <c>GetAsync</c>) moved into
+    /// <see cref="IDocumentAppService.FindForCallerAsync"/> itself — nonexistent, cross-tenant, and #632's
+    /// in-tenant-but-outside-the-read-scope case all collapse to <c>null</c> before this adapter ever sees them, so
+    /// the adapter cannot distinguish "exists but not yours" from "does not exist" even in principle. What remains
+    /// to verify at this layer is that a <c>null</c> result, whatever id produced it, always throws the same
+    /// "Document not found" shape.
     /// </summary>
     [Fact]
     public async Task Reads_outside_the_callers_read_scope_answer_exactly_like_a_missing_document()
     {
         var missingId = Guid.NewGuid();
         var forbiddenId = Guid.NewGuid();
-        _documentAppService.GetAsync(missingId).Throws(new EntityNotFoundException());
-        _documentAppService.GetAsync(forbiddenId).Throws(new AbpAuthorizationException());
+        _documentAppService.FindForCallerAsync(missingId).Returns((DocumentDto?)null);
+        _documentAppService.FindForCallerAsync(forbiddenId).Returns((DocumentDto?)null);
 
         var missing = await Should.ThrowAsync<McpException>(
             () => DocumentResources.ReadAsync(missingId.ToString(), _documentAppService));
@@ -129,7 +129,7 @@ public class DocumentResources_Tests : VaultExtractTestBase<DocumentResourcesTes
     {
         var containerId = Guid.NewGuid();
         _documentAppService
-            .GetAsync(containerId)
+            .FindForCallerAsync(containerId)
             .Returns(new DocumentDto
             {
                 Id = containerId,
@@ -164,7 +164,7 @@ public class DocumentResources_Tests : VaultExtractTestBase<DocumentResourcesTes
     {
         var docId = Guid.NewGuid();
         var body = new string('x', VaultExtractMcpConsts.MaxDocumentMarkdownChars + 500);
-        _documentAppService.GetAsync(docId).Returns(new DocumentDto
+        _documentAppService.FindForCallerAsync(docId).Returns(new DocumentDto
         {
             Id = docId,
             LifecycleStatus = DocumentLifecycleStatus.Ready,
@@ -187,7 +187,7 @@ public class DocumentResources_Tests : VaultExtractTestBase<DocumentResourcesTes
     public async Task Body_under_the_cap_adds_no_truncation_header()
     {
         var docId = Guid.NewGuid();
-        _documentAppService.GetAsync(docId).Returns(new DocumentDto
+        _documentAppService.FindForCallerAsync(docId).Returns(new DocumentDto
         {
             Id = docId,
             LifecycleStatus = DocumentLifecycleStatus.Ready,
@@ -224,7 +224,7 @@ public class DocumentResources_Tests : VaultExtractTestBase<DocumentResourcesTes
         var subDocId = Guid.NewGuid();
         var originId = Guid.NewGuid();
         _documentAppService
-            .GetAsync(subDocId)
+            .FindForCallerAsync(subDocId)
             .Returns(new DocumentDto
             {
                 Id = subDocId,
@@ -248,7 +248,7 @@ public class DocumentResources_Tests : VaultExtractTestBase<DocumentResourcesTes
         var documentId = Guid.NewGuid();
         var cabinetId = Guid.NewGuid();
         _documentAppService
-            .GetAsync(documentId)
+            .FindForCallerAsync(documentId)
             .Returns(new DocumentDto
             {
                 Id = documentId,

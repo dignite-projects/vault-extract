@@ -8,8 +8,6 @@ using Dignite.Vault.Extract.Documents;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
-using Volo.Abp.Authorization;
-using Volo.Abp.Domain.Entities;
 
 namespace Dignite.Vault.Extract.Mcp.Documents;
 
@@ -20,11 +18,11 @@ namespace Dignite.Vault.Extract.Mcp.Documents;
 /// Document discovery goes through the search tool instead of putting thousands of documents into
 /// resources/list.
 /// <para>
-/// The outbound adapter is a thin shell. It delegates to <see cref="IDocumentAppService.GetAsync"/>,
-/// the same use-case entry point as the REST outbound surface. Authorization assertions, tenant
-/// isolation, and <c>DocumentTypeCode</c> resolution through soft-delete are centralized in the
-/// AppService. This class only owns MCP transport concerns: URI formatting, metadata-header assembly,
-/// and <c>PromptBoundary</c> wrapping for the body.
+/// The outbound adapter is a thin shell. It delegates to <see cref="IDocumentAppService.FindForCallerAsync"/>
+/// (#636), the not-found-folding sibling of the REST outbound surface's <see cref="IDocumentAppService.GetAsync"/>.
+/// Authorization assertions, tenant isolation, and <c>DocumentTypeCode</c> resolution through soft-delete are
+/// centralized in the AppService. This class only owns MCP transport concerns: URI formatting, metadata-header
+/// assembly, and <c>PromptBoundary</c> wrapping for the body.
 /// </para>
 /// </summary>
 [McpServerResourceType]
@@ -82,29 +80,16 @@ public sealed class DocumentResources
             throw new McpException($"Invalid document id: {id}");
         }
 
-        DocumentDto document;
-        try
-        {
-            // Delegate to the IDocumentAppService.GetAsync use case. It centralizes fail-closed
-            // authorization assertions (CheckPolicyAsync inside the method body; MCP dispatch does
-            // not pass through HTTP [Authorize], but in-process AppService calls still execute
-            // normally), tenant isolation through the ambient IMultiTenant filter, and
-            // DocumentTypeCode resolution through soft-delete.
-            document = await documentAppService.GetAsync(documentId);
-        }
-        catch (Exception ex) when (ex is EntityNotFoundException or AbpAuthorizationException)
-        {
-            // Every id the caller may not read answers identically, so the error cannot be used to probe what
-            // exists. Three distinct causes collapse here:
-            //   * a truly nonexistent id;
-            //   * a cross-tenant id, filtered out by IMultiTenant so GetAsync throws EntityNotFound;
-            //   * #632: an IN-TENANT document outside the caller's read scope — no Documents.ReadAll and no Read
-            //     grant on this document's type, or no Documents.Default at all — which GetAsync answers with
-            //     AbpAuthorizationException. Letting that propagate would have made "exists but not yours"
-            //     distinguishable from "does not exist", which is exactly the disclosure this remap prevents;
-            //     per-type Read is the first rule that can produce it for an id the tenant filter admits.
-            throw new McpException($"Document not found: {id}");
-        }
+        // #636: delegate to the IDocumentAppService.FindForCallerAsync use case, which folds not-found,
+        // cross-tenant, and out-of-read-scope into null itself — the remap this adapter used to do locally by
+        // catching EntityNotFoundException / AbpAuthorizationException around GetAsync. It centralizes fail-closed
+        // authorization assertions (CheckPolicyAsync inside the method body; MCP dispatch does not pass through
+        // HTTP [Authorize], but in-process AppService calls still execute normally), tenant isolation through the
+        // ambient IMultiTenant filter, and DocumentTypeCode resolution through soft-delete. A caller with no entry
+        // (Documents.Default) still gets AbpAuthorizationException, propagated unchanged: that is a caller-wide
+        // fact unrelated to this id, so it must not read the same as "not found".
+        var document = await documentAppService.FindForCallerAsync(documentId)
+            ?? throw new McpException($"Document not found: {id}");
 
         return new TextResourceContents
         {

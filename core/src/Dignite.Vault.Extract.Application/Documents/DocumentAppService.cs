@@ -112,6 +112,33 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         return await MapToDtoAsync(document);
     }
 
+    /// <summary>
+    /// #636: the MCP not-found folding, moved here from DocumentResources / DocumentTools so the decision has one
+    /// implementation instead of an identical try/catch duplicated in each adapter. Entry (Documents.Default) is
+    /// still asserted and still throws — it is a caller-wide fact, not something a specific id can excuse — but
+    /// the existence and per-type Read checks collapse to null instead of two different exception types, because
+    /// an MCP caller cannot act differently on "does not exist" vs. "exists but you may not read it" and should
+    /// not be able to distinguish them either (the same disclosure #632 already closed for GetAsync's own callers,
+    /// generalized here to a shape both adapters can call with no try/catch of their own).
+    /// </summary>
+    public virtual async Task<DocumentDto?> FindForCallerAsync(Guid id)
+    {
+        await CheckPolicyAsync(VaultExtractPermissions.Documents.Default);
+
+        var document = await _documentRepository.FindWithFieldValuesAsync(id);
+        if (document == null)
+        {
+            return null;
+        }
+
+        if (!await _documentTypeAccess.IsGrantedAsync(DocumentAccessRule.Read, document.DocumentTypeId))
+        {
+            return null;
+        }
+
+        return await MapToDtoAsync(document);
+    }
+
     public virtual async Task<PagedResultDto<DocumentListItemDto>> GetListAsync(GetDocumentListInput input)
     {
         await CheckPolicyAsync(VaultExtractPermissions.Documents.Default);

@@ -194,6 +194,79 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
             () => AsPrincipalAsync(() => _appService.GetBlobAsync(denied.Id)));
     }
 
+    // ===================== FindForCallerAsync (#636) =====================
+
+    [Fact]
+    public async Task FindForCallerAsync_returns_the_dto_when_granted()
+    {
+        var document = StubDocument(_typeA.Id);
+        GrantEntryOnly();
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
+
+        var dto = await AsPrincipalAsync(() => _appService.FindForCallerAsync(document.Id));
+
+        dto.ShouldNotBeNull();
+        dto!.Id.ShouldBe(document.Id);
+        dto.DocumentTypeCode.ShouldBe(_typeA.TypeCode);
+    }
+
+    /// <summary>Mirrors <see cref="GetAsync_is_denied_for_a_document_of_another_type"/>: null instead of a throw.</summary>
+    [Fact]
+    public async Task FindForCallerAsync_returns_null_for_a_document_of_another_type()
+    {
+        var document = StubDocument(_typeB.Id);
+        GrantEntryOnly();
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
+
+        var dto = await AsPrincipalAsync(() => _appService.FindForCallerAsync(document.Id));
+
+        dto.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// Mirrors <see cref="GetAsync_is_denied_for_an_untyped_document_however_many_grants_the_caller_holds"/>: the
+    /// fail-closed half — an untyped document belongs to no type, so no per-type grant can reach it.
+    /// </summary>
+    [Fact]
+    public async Task FindForCallerAsync_returns_null_for_an_untyped_document_however_many_grants_the_caller_holds()
+    {
+        var document = StubDocument(documentTypeId: null);
+        GrantEntryOnly();
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Read, _typeB.Id);
+
+        var dto = await AsPrincipalAsync(() => _appService.FindForCallerAsync(document.Id));
+
+        dto.ShouldBeNull();
+    }
+
+    /// <summary>Nonexistent id (unstubbed on the repository) — the third null case, alongside wrong-type and untyped.</summary>
+    [Fact]
+    public async Task FindForCallerAsync_returns_null_for_a_nonexistent_document()
+    {
+        GrantEntryOnly();
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
+
+        var dto = await AsPrincipalAsync(() => _appService.FindForCallerAsync(Guid.NewGuid()));
+
+        dto.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// The one case that does NOT fold to null: a caller with no entry (Documents.Default) at all still throws
+    /// AbpAuthorizationException, unrelated to whether the id names a real document — entry is a caller-wide fact,
+    /// not an id-specific one, and folding it into null would make "no permission" indistinguishable from "wrong id".
+    /// </summary>
+    [Fact]
+    public async Task FindForCallerAsync_throws_when_the_caller_has_no_entry()
+    {
+        var document = StubDocument(_typeA.Id);
+        GrantNothing();
+
+        await Should.ThrowAsync<AbpAuthorizationException>(
+            () => AsPrincipalAsync(() => _appService.FindForCallerAsync(document.Id)));
+    }
+
     // ===================== Edit =====================
 
     [Fact]

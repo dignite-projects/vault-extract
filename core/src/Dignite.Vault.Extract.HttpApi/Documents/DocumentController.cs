@@ -24,6 +24,14 @@ public class DocumentController : VaultExtractController, IDocumentAppService
         return _documentAppService.GetAsync(id);
     }
 
+    // #636: an in-process use case (the MCP adapters), not part of the REST contract. Explicit interface
+    // implementation satisfies IDocumentAppService without adding a public action method — the conventional C#
+    // way to keep an interface member off a plain ASP.NET controller's routable, Swagger-visible surface.
+    Task<DocumentDto?> IDocumentAppService.FindForCallerAsync(Guid id)
+    {
+        return _documentAppService.FindForCallerAsync(id);
+    }
+
     [HttpGet]
     public virtual Task<PagedResultDto<DocumentListItemDto>> GetListAsync(GetDocumentListInput input)
     {
