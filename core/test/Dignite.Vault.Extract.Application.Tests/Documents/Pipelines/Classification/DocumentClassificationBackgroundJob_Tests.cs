@@ -639,7 +639,9 @@ public class DocumentClassificationBackgroundJob_Tests
                 fileSize: 256,
                 originalFileName: "segment-abc.md"),
             originDocumentId: Guid.NewGuid(),
-            originConstituentKey: $"{Guid.NewGuid():N}{Guid.NewGuid():N}"[..64]);
+            originConstituentKey: $"{Guid.NewGuid():N}{Guid.NewGuid():N}"[..64],
+            // #635: the origin's owner, irrelevant to the recursion guard these facts are about.
+            creatorId: null);
 
         typeof(Document)
             .GetProperty(nameof(Document.Markdown))!

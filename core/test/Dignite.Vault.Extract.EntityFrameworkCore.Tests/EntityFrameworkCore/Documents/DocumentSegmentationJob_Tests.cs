@@ -840,9 +840,9 @@ public class DocumentSegmentationJob_Tests : VaultExtractTestBase<DocumentSegmen
             fileSize: 2048, originalFileName: "bundle.pdf");
 
         var firstId = await spawner.SpawnAsync<DocumentSegment>(
-            containerId, tenantId: null, segment.SegmentKey, fileOrigin, ReloadClaimableAsync, MarkSpawnedAsync);
+            containerId, tenantId: null, segment.SegmentKey, fileOrigin, ownerId: null, ReloadClaimableAsync, MarkSpawnedAsync);
         var secondId = await spawner.SpawnAsync<DocumentSegment>(
-            containerId, tenantId: null, segment.SegmentKey, fileOrigin, ReloadClaimableAsync, MarkSpawnedAsync);
+            containerId, tenantId: null, segment.SegmentKey, fileOrigin, ownerId: null, ReloadClaimableAsync, MarkSpawnedAsync);
 
         firstId.ShouldNotBeNull();
         secondId.ShouldBeNull();

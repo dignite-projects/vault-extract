@@ -186,7 +186,7 @@ public class EfCoreDocumentRepositoryStatistics_Tests : VaultExtractEntityFramew
                 _currentTenant.Id,
                 CloneFileOrigin(parent.FileOrigin!),
                 originDocumentId: parent.Id,
-                originConstituentKey: "slice-1");
+                originConstituentKey: "slice-1", creatorId: null);
             child.TransitionLifecycle(DocumentLifecycleStatus.Ready);
             await _documentRepository.InsertAsync(child, autoSave: true);
         });
