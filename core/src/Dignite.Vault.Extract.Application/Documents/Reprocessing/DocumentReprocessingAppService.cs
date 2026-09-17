@@ -30,22 +30,27 @@ public class DocumentReprocessingAppService : VaultExtractAppService, IDocumentR
     private readonly IDocumentTypeRepository _documentTypeRepository;
     private readonly IFieldRepository _fieldRepository;
     private readonly IBackgroundJobManager _backgroundJobManager;
+    private readonly DocumentTypeAccessChecker _documentTypeAccess;
 
     public DocumentReprocessingAppService(
         IDocumentRepository documentRepository,
         IDocumentTypeRepository documentTypeRepository,
         IFieldRepository fieldRepository,
-        IBackgroundJobManager backgroundJobManager)
+        IBackgroundJobManager backgroundJobManager,
+        DocumentTypeAccessChecker documentTypeAccess)
     {
         _documentRepository = documentRepository;
         _documentTypeRepository = documentTypeRepository;
         _fieldRepository = fieldRepository;
         _backgroundJobManager = backgroundJobManager;
+        _documentTypeAccess = documentTypeAccess;
     }
 
-    [Authorize(VaultExtractPermissions.Documents.Reprocessing.FieldExtraction)]
     public virtual async Task<FieldReextractionPreviewDto> PreviewFieldExtractionAsync(Guid documentTypeId)
     {
+        await _documentTypeAccess.CheckAsync(
+            DocumentAccessRule.ReprocessFieldExtraction, DocumentAccessSubject.None);
+
         await EnsureTypeInCurrentLayerAsync(documentTypeId);
 
         var count = await _documentRepository.CountForReprocessingAsync(
@@ -60,9 +65,11 @@ public class DocumentReprocessingAppService : VaultExtractAppService, IDocumentR
         };
     }
 
-    [Authorize(VaultExtractPermissions.Documents.Reprocessing.FieldExtraction)]
     public virtual async Task<ReprocessingStartResultDto> StartFieldExtractionAsync(StartFieldReextractionInput input)
     {
+        await _documentTypeAccess.CheckAsync(
+            DocumentAccessRule.ReprocessFieldExtraction, DocumentAccessSubject.None);
+
         await EnsureTypeInCurrentLayerAsync(input.DocumentTypeId);
 
         var count = await _documentRepository.CountForReprocessingAsync(
@@ -83,9 +90,11 @@ public class DocumentReprocessingAppService : VaultExtractAppService, IDocumentR
         return new ReprocessingStartResultDto { EstimatedDocumentCount = count };
     }
 
-    [Authorize(VaultExtractPermissions.Documents.Reprocessing.Reclassification)]
     public virtual async Task<ReclassificationPreviewDto> PreviewReclassificationAsync(ReclassificationScopeInput input)
     {
+        await _documentTypeAccess.CheckAsync(
+            DocumentAccessRule.ReprocessReclassification, DocumentAccessSubject.None);
+
         var (typeId, withReason, excludeConfirmed) = await ResolveScopeAsync(input);
 
         var count = await _documentRepository.CountForReprocessingAsync(typeId, withReason, excludeConfirmed);
@@ -93,9 +102,11 @@ public class DocumentReprocessingAppService : VaultExtractAppService, IDocumentR
         return new ReclassificationPreviewDto { DocumentCount = count };
     }
 
-    [Authorize(VaultExtractPermissions.Documents.Reprocessing.Reclassification)]
     public virtual async Task<ReprocessingStartResultDto> StartReclassificationAsync(ReclassificationScopeInput input)
     {
+        await _documentTypeAccess.CheckAsync(
+            DocumentAccessRule.ReprocessReclassification, DocumentAccessSubject.None);
+
         var (typeId, withReason, excludeConfirmed) = await ResolveScopeAsync(input);
 
         var count = await _documentRepository.CountForReprocessingAsync(typeId, withReason, excludeConfirmed);

@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 
 namespace Dignite.Vault.Extract.Documents;
@@ -64,24 +63,22 @@ public static class DocumentQueries
         if (filter.HasReviewReasons == true)
             query = query.Where(DocumentReviewQueries.RequiresAttention);
 
-        // Per-document-type READ SCOPE (#632 decision 3). Null means "unrestricted" — the caller holds the
-        // module-wide Documents.ReadAll — and is the only way this predicate is absent. A non-null set is the
-        // caller's own readable types, so an EMPTY set is a real answer ("may read nothing") and must narrow to
-        // nothing rather than degrade into an absent filter; the explicit branch below says so instead of
-        // relying on how a provider happens to translate an empty Contains.
+        // READ SCOPE (#635 decision 3, replacing #632's nullable type-id collection): one object that already
+        // knows whether it narrows and how. DocumentAccessScope.Unrestricted is the module-wide ReadAll holder
+        // and adds no predicate; every other scope carries its own "types OR owner" expression, including the
+        // reaches-nothing case, which is a constant-false predicate built inside the scope rather than an
+        // emptiness branch every consumer had to remember.
         //
-        // Untyped rows (DocumentTypeId == null: unclassified, failed classification, containers) are excluded by
-        // construction — they belong to no type, so no grant can name them. That is the same fail-closed rule
+        // Untyped rows (DocumentTypeId == null: unclassified, failed classification, containers) are reached
+        // only through the owner arm — they belong to no type, so no grant can name them. That is the same rule
         // DocumentTypeAccessChecker applies to a single document, expressed as a predicate.
         //
         // Placing it in the SHARED chain rather than in the list is the point: the operator list, the export and
         // the MCP search all reach rows through here, so "download the current view" and "search over MCP" cannot
         // see rows the screen may not (#501 item 1, one layer down).
-        if (filter.ReadableDocumentTypeIds is { } readable)
+        if (!filter.ReadScope.IsUnrestricted)
         {
-            query = readable.Count == 0
-                ? query.Where(d => false)
-                : query.Where(d => d.DocumentTypeId.HasValue && readable.Contains(d.DocumentTypeId.Value));
+            query = query.Where(filter.ReadScope.ToPredicate());
         }
 
         if (filter.CreationTimeMin.HasValue)
@@ -121,13 +118,16 @@ public class DocumentMetadataFilter
     public Guid? DocumentTypeId { get; set; }
 
     /// <summary>
-    /// Per-type read scope (#632): the document types the caller may read, or <c>null</c> when the caller holds
-    /// the module-wide <c>Documents.ReadAll</c> and the scope is unrestricted. Unlike every other member here,
-    /// an <b>empty</b> value is not "absent filter" but "may read nothing" — see
-    /// <see cref="DocumentQueries.ApplyMetadataFilter"/>. It is resolved by
-    /// <c>DocumentTypeAccessChecker.GetReadableDocumentTypeIdsAsync</c>, never by a caller's DTO.
+    /// The caller's read scope (#635): what this caller may reach, as one non-nullable object. It is resolved by
+    /// <c>DocumentTypeAccessChecker.ResolveScopeAsync(DocumentAccessRule.Read)</c>, never by a caller's DTO — a
+    /// client cannot widen it.
+    /// <para>
+    /// The default is <see cref="DocumentAccessScope.Unrestricted"/>, which matches every other member's "absent
+    /// means no filter". Unlike #632's nullable collection there is no third state to get wrong: a scope that
+    /// reaches nothing carries its own always-false predicate.
+    /// </para>
     /// </summary>
-    public IReadOnlyCollection<Guid>? ReadableDocumentTypeIds { get; set; }
+    public DocumentAccessScope ReadScope { get; set; } = DocumentAccessScope.Unrestricted;
 
     public DocumentLifecycleStatus? LifecycleStatus { get; set; }
 

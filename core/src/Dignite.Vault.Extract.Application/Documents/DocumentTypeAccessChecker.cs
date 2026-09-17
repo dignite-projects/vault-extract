@@ -1,152 +1,92 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 using Dignite.Vault.Extract.Permissions;
 using Microsoft.AspNetCore.Authorization;
-using Volo.Abp;
 using Volo.Abp.Authorization;
-using Volo.Abp.Authorization.Permissions.Resources;
-using Volo.Abp.Data;
 using Volo.Abp.DependencyInjection;
+using Volo.Abp.Users;
 
 namespace Dignite.Vault.Extract.Documents;
 
 /// <summary>
-/// One operation family's pair of names (#632 decision 2): the module-wide permission that admits every type of
-/// the caller's layer, and the per-<c>DocumentType</c> resource permission that admits exactly one type.
+/// The single implementation of the #635 rule: <b>an operation on a document is authorized by
+/// <c>Documents.Default</c> (entry) AND either the module-wide permission for that operation, OR the caller owns
+/// the document and the rule allows it, OR the matching grant on the subject's type.</b> The rows live in
+/// <see cref="DocumentAccessRule"/>; this class is the only place that evaluates them.
 /// <para>
-/// This type exists so the table in the Issue has a single expression in code. A call site reads
-/// <c>CheckAsync(DocumentAccessRule.Edit, document)</c> and cannot accidentally pair "edit" with the read
-/// permission, which is what hand-writing the OR at nine call sites invites.
+/// <b>Two shapes, not five.</b> <see cref="IsGrantedAsync"/> / <see cref="CheckAsync"/> answer "may this caller
+/// do this to this one subject"; <see cref="ResolveScopeAsync"/> answers "what may this caller reach at all",
+/// as a <see cref="DocumentAccessScope"/> that is both a predicate and a membership test. #632's
+/// <c>CheckTargetTypeAsync</c>, <c>IsGrantedOnAnyTypeAsync</c>, <c>CheckOnAnyTypeAsync</c> and
+/// <c>GetReadableDocumentTypeIdsAsync</c> are gone: the first became a <see cref="DocumentAccessSubject"/>, the
+/// other three became this scope. Each of them had handled entry differently — two asserted it, one deliberately
+/// did not — and every new way of asking had produced a new method with its own answer to the same question.
 /// </para>
-/// </summary>
-public sealed record DocumentAccessRule(string ModuleWidePermission, string ResourcePermission)
-{
-    /// <summary>Detail, blob, list / export rows, pipeline runs, and the MCP paths that delegate to them.</summary>
-    public static readonly DocumentAccessRule Read = new(
-        VaultExtractPermissions.Documents.ReadAll,
-        VaultExtractResourcePermissions.Read);
-
-    /// <summary>The operator edit family (confirm / reclassify / re-recognize / re-extract / update / reject / allow duplicate / resolve warnings).</summary>
-    public static readonly DocumentAccessRule Edit = new(
-        VaultExtractPermissions.Documents.ConfirmClassification,
-        VaultExtractResourcePermissions.Edit);
-
-    /// <summary>Soft delete. Permanent delete stays module-wide only, by decision.</summary>
-    public static readonly DocumentAccessRule Delete = new(
-        VaultExtractPermissions.Documents.Delete,
-        VaultExtractResourcePermissions.Delete);
-
-    /// <summary>
-    /// Restore from the recycle bin, and reaching the recycle bin at all. <b>Whoever may delete may undo:</b> the
-    /// per-type half is deliberately <see cref="VaultExtractResourcePermissions.Delete"/> — the
-    /// same grant <see cref="Delete"/> uses — rather than a fifth resource permission. Undoing an operation is not
-    /// a wider right than the operation; a per-type deleter who could not restore would have to escalate a mistake
-    /// of their own making to an admin, and a fifth frozen string buys nothing (#632).
-    /// </summary>
-    public static readonly DocumentAccessRule Restore = new(
-        VaultExtractPermissions.Documents.Restore,
-        VaultExtractResourcePermissions.Delete);
-
-    /// <summary>
-    /// Declaring / assigning a type: <c>UploadAsync</c>'s <c>DocumentTypeId</c> and the <b>target</b> type of
-    /// Confirm / Reclassify. The #629 rule, unchanged — it is about the type being assigned, never about the
-    /// document's current type, which is <see cref="Edit"/>'s job.
-    /// </summary>
-    public static readonly DocumentAccessRule DeclareType = new(
-        VaultExtractPermissions.Documents.ConfirmClassification,
-        VaultExtractResourcePermissions.Upload);
-}
-
-/// <summary>
-/// The single implementation of the #632 rule: <b>an operation on a document is authorized by
-/// <c>Documents.Default</c> (entry) AND either the module-wide permission for that operation OR the matching
-/// grant on the document's current type.</b> See <see cref="IsEntryGrantedAsync"/> for why entry gates both
-/// halves of the OR rather than only the per-type one.
 /// <para>
-/// The OR has to be written by hand because ABP's <c>ResourcePermissionChecker</c> only consults the resource
-/// value providers and never falls back to a module-wide permission (the commercial File Management module does
-/// the same). #629 wrote it inline in <c>UploadAsync</c>; with four grants and a dozen enforcement points, one
-/// inline copy per call site is how a screen and an endpoint quietly disagree — so there is exactly one copy,
-/// here, and <c>UploadAsync</c> was moved onto it.
+/// <b>Entry is asserted in exactly one place</b>, <see cref="IsEntryGrantedAsync"/>, reached by both shapes.
+/// <see cref="CheckAsync"/> throws without it and <see cref="ResolveScopeAsync"/> throws without it, so there is
+/// no longer any way to ask this class a question and get a permissive answer for a caller who may not open the
+/// documents area. That is what closed the escapes #635 catalogued: <c>PermanentDeleteAsync</c>,
+/// <c>RetryPipelineAsync</c>, the four <c>Reprocessing</c> methods, <c>ExportAsync</c> and the untyped
+/// <c>UploadAsync</c> branch carried only their own <c>[Authorize]</c> and asserted entry nowhere.
 /// </para>
 /// <para>
 /// Every check is programmatic rather than an <c>[Authorize]</c> attribute, for the reason the read paths already
-/// document: MCP / reflection / tool-dispatch paths do not run attributes. It is also structurally required —
-/// <c>[Authorize(ConfirmClassification)]</c> would deny an Edit-grant holder before the method body could offer
-/// the other half of the OR.
+/// document: MCP / reflection / tool-dispatch paths do not run attributes. It is also structurally required — an
+/// attribute fires before the method body and would deny a per-type grant holder, or an owner, before the body
+/// could offer the other arms of the OR.
 /// </para>
 /// <para>
-/// <b>Untyped documents are fail-closed.</b> A document with no <c>DocumentTypeId</c> (unclassified, failed
-/// classification, container) belongs to no type, so no grant can ever cover it and only the module-wide
-/// permission reaches it. Sub-documents carry their own type and are covered by it.
+/// <b>Ownership is a per-rule flag, never a global arm.</b> <see cref="DocumentAccessRule.Review"/> carries the
+/// same two permission names as <see cref="DocumentAccessRule.Edit"/> and differs only in that flag, because its
+/// three methods clear a blocking review reason and that gate exists so somebody other than the uploader checks
+/// the uploader's work.
 /// </para>
 /// <para>
-/// The per-type half runs through <see cref="IResourcePermissionChecker"/> directly rather than through
-/// <c>AuthorizationService.IsGrantedAsync(entity, name)</c>. Both end at the same checker — ABP's keyed-object
-/// requirement handler resolves this very service — but the direct call also serves the two shapes that have no
-/// entity in hand (a document's type id, and the list-scope sweep), so all four shapes share one mechanism
-/// instead of two. Tenant isolation comes from the grant rows themselves: <c>AbpResourcePermissionGrants</c> is
-/// <c>IMultiTenant</c>, so a Host-layer grant is invisible to a tenant caller without a hand-written predicate.
+/// The per-type arm runs through <see cref="DocumentTypeGrantMap"/> rather than through
+/// <c>AuthorizationService.IsGrantedAsync(entity, name)</c>. Both end at ABP's own
+/// <c>IResourcePermissionChecker</c> — the keyed-object requirement handler resolves that very service — but the
+/// map also serves the two shapes that have no entity in hand, answers all four grants per type in one call, and
+/// holds the answers for the rest of the request.
 /// </para>
 /// </summary>
 public class DocumentTypeAccessChecker : ITransientDependency
 {
     private readonly IAuthorizationService _authorizationService;
-    private readonly IResourcePermissionChecker _resourcePermissionChecker;
-    private readonly IDocumentTypeRepository _documentTypeRepository;
-    private readonly IDataFilter _dataFilter;
+    private readonly ICurrentUser _currentUser;
+    private readonly DocumentTypeGrantMap _grantMap;
 
     public DocumentTypeAccessChecker(
         IAuthorizationService authorizationService,
-        IResourcePermissionChecker resourcePermissionChecker,
-        IDocumentTypeRepository documentTypeRepository,
-        IDataFilter dataFilter)
+        ICurrentUser currentUser,
+        DocumentTypeGrantMap grantMap)
     {
         _authorizationService = authorizationService;
-        _resourcePermissionChecker = resourcePermissionChecker;
-        _documentTypeRepository = documentTypeRepository;
-        _dataFilter = dataFilter;
+        _currentUser = currentUser;
+        _grantMap = grantMap;
     }
 
     /// <summary>
     /// The precondition every rule shares: <c>Documents.Default</c>, which since #632 decision 1 means
-    /// <b>entry</b> — "may enter the documents area <i>and</i> use it within their type scope". Not a synonym for
+    /// <b>entry</b> — "may enter the documents area <i>and</i> use it within their own scope". Not a synonym for
     /// reading everything (that is <c>Documents.ReadAll</c>), and not merely the SPA route gate.
     /// <para>
-    /// It is asserted here, once, rather than at the eleven enforcement points, for the same reason the OR itself
-    /// is: a per-call-site copy is how an endpoint and a screen quietly disagree. The read paths
-    /// (<c>GetAsync</c> / <c>GetListAsync</c> / <c>GetBlobAsync</c> / <c>DocumentPipelineRunAppService</c>) keep
-    /// their own <c>CheckPolicyAsync(Documents.Default)</c> ahead of the entity load, so a caller with no entry is
-    /// refused before existence is disclosed; this is the backstop that the mutating families — which have no
-    /// pre-load gate, because the rule needs the document's type in hand — inherit instead of restating.
-    /// </para>
-    /// <para>
-    /// <b>Entry gates the module-wide half as well as the per-type half</b>, deliberately. The alternative —
-    /// requiring entry only when the caller is leaning on a resource grant — would say that a principal holding
+    /// <b>Entry gates the module-wide arm as well as the other two</b>, deliberately. The alternative — requiring
+    /// entry only when the caller leans on a grant or on ownership — would say that a principal holding
     /// <c>Documents.Delete</c> but not <c>Documents.Default</c> may soft-delete documents in an area it may not
-    /// open, which is precisely the reading decision 1 rules out. Three further reasons it is not merely
-    /// defensible but the only consistent choice here:
+    /// open. Three further reasons it is the only consistent choice:
     /// <list type="number">
-    /// <item>Read already behaves this way. <c>GetAsync</c> asserts <c>Documents.Default</c> and then evaluates
-    /// the Read rule, whose module-wide half is <c>ReadAll</c> — so a <c>ReadAll</c> holder without entry is
-    /// already refused. Leaving the mutate families more permissive than the read family would be backwards.</item>
+    /// <item>Read already behaved this way before #635, so leaving the other families more permissive than the
+    /// read family would be backwards.</item>
     /// <item>The definition provider makes every one of these module-wide permissions a CHILD of
     /// <c>Documents.Default</c>. ABP's dialog grants the parent with the child, so a real principal carries both;
-    /// only a programmatic <c>IPermissionManager</c> grant can separate them, because <c>PermissionChecker</c>
-    /// never consults <c>Parent</c> at check time. Requiring entry is what makes the check agree with the
-    /// definition the dialog enforces, instead of relying on the grant path to have been the dialog.</item>
-    /// <item>It closes a hole the resource-permission dialog opens by ordinary use: handing out per-type grants is
-    /// gated by <c>DocumentTypes.ManagePermissions</c> alone, which is unrelated to <c>Documents.*</c>. Without
-    /// this, "Delete on Invoices" granted to a principal holding no <c>Documents</c> permission at all produced a
-    /// caller that could soft-delete, restore and rewrite the Markdown of a document it could not read.</item>
+    /// only a programmatic <c>IPermissionManager</c> grant or a hand-edited store can separate them, because
+    /// <c>PermissionChecker</c> never consults <c>Parent</c> at check time. Requiring entry makes the check agree
+    /// with the definition the dialog enforces instead of relying on the grant path to have been the dialog.</item>
+    /// <item>It closes a hole ordinary administration opens: handing out per-type grants is gated by
+    /// <c>DocumentTypes.ManagePermissions</c> alone, which is unrelated to <c>Documents.*</c>.</item>
     /// </list>
-    /// Known asymmetry, left alone on purpose: <c>UploadAsync</c>'s UNTYPED branch asserts
-    /// <c>Documents.ConfirmClassification</c> directly rather than through this class (#629's rule for "let the
-    /// classifier choose the type"), so it does not pick the entry requirement up. Its typed branch does, via
-    /// <see cref="DocumentAccessRule.DeclareType"/>. Creating a document is not an operation on an existing one,
-    /// which is what this class governs; changing that is a separate decision about <c>Documents.Upload</c>.
     /// </para>
     /// </summary>
     protected virtual Task<bool> IsEntryGrantedAsync()
@@ -155,12 +95,12 @@ public class DocumentTypeAccessChecker : ITransientDependency
     }
 
     /// <summary>
-    /// The rule itself. <paramref name="documentTypeId"/> is the type the operation is judged against — a
-    /// document's current type for Read / Edit / Delete, the target type for
-    /// <see cref="DocumentAccessRule.DeclareType"/>. <c>null</c> means an untyped document and reduces the rule
-    /// to entry plus the module-wide permission.
+    /// The rule itself, for one subject: a loaded document
+    /// (<see cref="DocumentAccessSubject.Of(Document)"/>), a target type being assigned
+    /// (<see cref="DocumentAccessSubject.OfType(Guid)"/>), or nothing at all
+    /// (<see cref="DocumentAccessSubject.None"/>) for a family whose rule reads neither fact.
     /// </summary>
-    public virtual async Task<bool> IsGrantedAsync(DocumentAccessRule rule, Guid? documentTypeId)
+    public virtual async Task<bool> IsGrantedAsync(DocumentAccessRule rule, DocumentAccessSubject subject)
     {
         if (!await IsEntryGrantedAsync())
         {
@@ -172,171 +112,63 @@ public class DocumentTypeAccessChecker : ITransientDependency
             return true;
         }
 
-        if (!documentTypeId.HasValue)
-        {
-            // Fail-closed: no type, therefore no grant can name it.
-            return false;
-        }
-
-        return await _resourcePermissionChecker.IsGrantedAsync(
-            rule.ResourcePermission,
-            VaultExtractResourcePermissions.Name,
-            documentTypeId.Value.ToString());
-    }
-
-    /// <summary>Asserts <see cref="IsGrantedAsync(DocumentAccessRule, Guid?)"/>, throwing <see cref="AbpAuthorizationException"/>.</summary>
-    public virtual async Task CheckAsync(DocumentAccessRule rule, Guid? documentTypeId)
-    {
-        if (!await IsGrantedAsync(rule, documentTypeId))
-        {
-            throw new AbpAuthorizationException();
-        }
-    }
-
-    /// <summary>
-    /// Single-document shape: judges the operation against the document's <b>current</b> type. Call it after the
-    /// document has been loaded, so a missing / cross-layer id still fails with <c>EntityNotFoundException</c>
-    /// first — the #629 existence-before-permission ordering, kept unchanged.
-    /// </summary>
-    public virtual Task CheckAsync(DocumentAccessRule rule, Document document)
-    {
-        return CheckAsync(rule, document.DocumentTypeId);
-    }
-
-    /// <summary>
-    /// Declare-a-type shape: judges the operation against a <b>target</b> <see cref="DocumentType"/> the caller
-    /// is assigning, not against any document. Takes the loaded entity rather than an id precisely because the
-    /// caller must have resolved it under the ambient <c>IMultiTenant</c> filter first.
-    /// </summary>
-    public virtual Task CheckTargetTypeAsync(DocumentAccessRule rule, DocumentType targetType)
-    {
-        return CheckAsync(rule, targetType.Id);
-    }
-
-    /// <summary>
-    /// Layer-scope shape: does the caller hold this rule's module-wide permission, or its resource permission on
-    /// <b>at least one</b> type of the layer? That is the question an entry gate asks — "may this caller do this
-    /// at all?" — as opposed to <see cref="IsGrantedAsync(DocumentAccessRule, Guid?)"/>'s "may they do it to this
-    /// one document?".
-    /// <para>
-    /// It exists for the recycle bin (#632): that branch of the list used to assert the module-wide
-    /// <c>Documents.Restore</c> outright, which would shut a per-type deleter out of the page and leave the
-    /// Restore rule unreachable from the UI. It decides admission only — the rows inside stay narrowed by
-    /// <see cref="GetReadableDocumentTypeIdsAsync"/>, so a caller who may delete type A but not read it is
-    /// admitted to an empty recycle bin, which is the intended fail-closed answer rather than a special case.
-    /// </para>
-    /// <para>
-    /// Its <see cref="IsEntryGrantedAsync"/> assertion is, today, unreachable: the one caller
-    /// (<c>DocumentAppService.GetListAsync</c>) asserts <c>Documents.Default</c> before it gets here. It is kept so
-    /// that no shape of this class's rule can answer <c>true</c> without entry — a second caller of the
-    /// layer-scope gate would otherwise have to remember the precondition on its own, which is exactly how the
-    /// single-document shapes lost it.
-    /// </para>
-    /// </summary>
-    public virtual async Task<bool> IsGrantedOnAnyTypeAsync(DocumentAccessRule rule)
-    {
-        if (!await IsEntryGrantedAsync())
-        {
-            return false;
-        }
-
-        if (await _authorizationService.IsGrantedAsync(rule.ModuleWidePermission))
+        // Ownership. A subject with no CreatorId (a machine-created row, a pre-#635 derived sub-document) never
+        // matches, and neither does a caller with no user id -- a client-credentials principal has no `sub`, so
+        // its Id is null and the arm is structurally unreachable for it.
+        if (rule.OwnerMayPerform && subject.CreatorId is { } creatorId && _currentUser.Id == creatorId)
         {
             return true;
         }
 
-        foreach (var type in await GetLayerTypesAsync())
+        // The per-type arm. A rule with no resource permission is module-wide only by decision, and an untyped
+        // subject belongs to no type, so no grant can name it: both fall through to false, fail-closed.
+        if (rule.ResourcePermission is { } resourcePermission && subject.DocumentTypeId is { } documentTypeId)
         {
-            if (await _resourcePermissionChecker.IsGrantedAsync(
-                    rule.ResourcePermission,
-                    VaultExtractResourcePermissions.Name,
-                    type.Id.ToString()))
-            {
-                return true;
-            }
+            return await _grantMap.HasAsync(documentTypeId, resourcePermission);
         }
 
         return false;
     }
 
-    /// <summary>Asserts <see cref="IsGrantedOnAnyTypeAsync"/>, throwing <see cref="AbpAuthorizationException"/>.</summary>
-    public virtual async Task CheckOnAnyTypeAsync(DocumentAccessRule rule)
+    /// <summary>Asserts <see cref="IsGrantedAsync"/>, throwing <see cref="AbpAuthorizationException"/>.</summary>
+    public virtual async Task CheckAsync(DocumentAccessRule rule, DocumentAccessSubject subject)
     {
-        if (!await IsGrantedOnAnyTypeAsync(rule))
+        if (!await IsGrantedAsync(rule, subject))
         {
             throw new AbpAuthorizationException();
         }
     }
 
     /// <summary>
-    /// List-scope shape (#632 decision 3): the document types the caller may read, or <c>null</c> when the caller
-    /// holds <c>Documents.ReadAll</c> and the scope is therefore unrestricted.
+    /// The scope shape: everything this caller may reach under <paramref name="rule"/>, as one object that is
+    /// both a query predicate and a membership test. It <b>throws</b> without entry, exactly as
+    /// <see cref="CheckAsync"/> does — a scope resolver that silently answered "you reach nothing" for a caller
+    /// with no entry is how the export and the recycle bin ended up admitting principals the single-document
+    /// shapes refused.
     /// <para>
-    /// An empty (non-null) result is a real answer — "this caller may read nothing" — and the query chain turns
-    /// it into an empty page, not into an absent filter. Untyped rows are excluded by construction: the returned
-    /// set only ever contains type ids.
-    /// </para>
-    /// <para>
-    /// Resolved once per request over the layer's own types (tens, and each check is a distributed-cache read),
-    /// soft delete traversed — see the body for why.
-    /// <c>IResourcePermissionStore.GetGrantedResourceKeysAsync</c> is deliberately not used: it filters on
-    /// resource + permission name only and is not per-user, so it would report every type that carries a grant
-    /// for anyone — the same trap #629 recorded for the DTO populator.
-    /// </para>
-    /// <para>
-    /// Unlike the two gate shapes above, this one does <b>not</b> assert <see cref="IsEntryGrantedAsync"/>: it
-    /// answers "how wide is this caller's read scope", not "may this caller proceed", and its two callers each
-    /// gate themselves with the permission their own endpoint contract names —
-    /// <c>DocumentAppService.GetListAsync</c> with <c>Documents.Default</c>, <c>DocumentExportAppService</c> with
-    /// <c>Documents.Export</c>. Folding entry in here would silently turn "unrestricted scope" into "empty scope"
-    /// for an export principal, i.e. decide an endpoint's admission from inside a scope resolver.
+    /// Used as the admission gate wherever a caller must be judged <b>before</b> a document is loaded (the read
+    /// paths, so existence is not disclosed to a caller with no entry), and as the row filter wherever a set of
+    /// documents is returned.
     /// </para>
     /// </summary>
-    public virtual async Task<IReadOnlyCollection<Guid>?> GetReadableDocumentTypeIdsAsync()
+    public virtual async Task<DocumentAccessScope> ResolveScopeAsync(DocumentAccessRule rule)
     {
-        if (await _authorizationService.IsGrantedAsync(VaultExtractPermissions.Documents.ReadAll))
+        if (!await IsEntryGrantedAsync())
         {
-            return null;
+            throw new AbpAuthorizationException();
         }
 
-        var types = await GetLayerTypesAsync();
-
-        var readable = new List<Guid>(types.Count);
-        foreach (var type in types)
+        if (await _authorizationService.IsGrantedAsync(rule.ModuleWidePermission))
         {
-            if (await _resourcePermissionChecker.IsGrantedAsync(
-                    VaultExtractResourcePermissions.Read,
-                    VaultExtractResourcePermissions.Name,
-                    type.Id.ToString()))
-            {
-                readable.Add(type.Id);
-            }
+            return DocumentAccessScope.Unrestricted;
         }
 
-        return readable;
+        var types = rule.ResourcePermission is { } resourcePermission
+            ? await _grantMap.TypesWithAsync(resourcePermission)
+            : EmptyTypeSet;
+
+        return DocumentAccessScope.Of(types, rule.OwnerMayPerform ? _currentUser.Id : null);
     }
 
-    /// <summary>
-    /// The layer's own document types — the set both per-type sweeps enumerate.
-    /// <para>
-    /// Soft delete is traversed on purpose, the same way <c>DocumentAppService.ResolveReferenceMapsAsync</c>
-    /// traverses it: a document classified to a since-archived type is still in the list of a
-    /// <c>Documents.ReadAll</c> holder, so a caller holding an explicit Read grant on that type must see it too —
-    /// otherwise the narrow caller and the module-wide caller disagree about which rows exist. It also makes the
-    /// sweep independent of whether the CALLER happens to be inside <c>DataFilter.Disable&lt;ISoftDelete&gt;()</c>
-    /// (the recycle-bin branch of the list is), which would otherwise silently widen or narrow it depending on the
-    /// call site.
-    /// </para>
-    /// <para>
-    /// This can only ever ADD a type the caller was explicitly granted; the <c>IMultiTenant</c> filter is
-    /// untouched, so the enumeration stays inside the caller's own layer.
-    /// </para>
-    /// </summary>
-    protected virtual async Task<List<DocumentType>> GetLayerTypesAsync()
-    {
-        using (_dataFilter.Disable<ISoftDelete>())
-        {
-            return await _documentTypeRepository.GetListAsync();
-        }
-    }
+    private static readonly IReadOnlySet<Guid> EmptyTypeSet = new HashSet<Guid>();
 }

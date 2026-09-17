@@ -133,8 +133,16 @@ public class DocumentAppService_UploadDeclaredType_Tests
                 Arg.Any<bool>(),
                 Arg.Any<CancellationToken>())
             .Returns([type]);
+        // #635: the per-type arm reads DocumentTypeGrantMap, which sweeps the layer's own types once per request
+        // through the parameterless overload. Every stubbed type has to be in that sweep or no grant on it can be
+        // found — the map answers strictly from the layer it enumerated.
+        _stubbedTypes.Add(type);
+        _documentTypeRepository.GetListAsync(Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(_ => new List<DocumentType>(_stubbedTypes));
         return type;
     }
+
+    private readonly List<DocumentType> _stubbedTypes = [];
 
     private void GrantResource(string providerName, string providerKey, Guid documentTypeId)
     {

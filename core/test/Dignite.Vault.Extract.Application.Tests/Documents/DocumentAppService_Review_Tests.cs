@@ -393,16 +393,19 @@ public class DocumentAppService_Review_Tests
             Substitute.For<Dignite.Vault.Extract.FlexFields.IVaultExtractFieldTypeRegistry>(),
             new DocumentTypeAccessChecker(
                 Substitute.For<Microsoft.AspNetCore.Authorization.IAuthorizationService>(),
-                Substitute.For<Volo.Abp.Authorization.Permissions.Resources.IResourcePermissionChecker>(),
-                Substitute.For<IDocumentTypeRepository>(),
-                Substitute.For<Volo.Abp.Data.IDataFilter>()));
+                Substitute.For<Volo.Abp.Users.ICurrentUser>(),
+                new DocumentTypeGrantMap(
+                    Substitute.For<Volo.Abp.Authorization.Permissions.Resources.IResourcePermissionChecker>(),
+                    Substitute.For<IDocumentTypeRepository>(),
+                    Substitute.For<Volo.Abp.Data.IDataFilter>())));
 
         var method = typeof(DocumentAppService).GetMethod(
             "ApplyFilter",
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
-        // #207: ApplyFilter signature is now (query, input, documentTypeId?, readableDocumentTypeIds?) (#632).
-        // These cases filter only ReviewStatus, so pass null for the type and null for the read scope — null read
-        // scope is "unrestricted", what a Documents.ReadAll holder gets.
-        return (IQueryable<Document>)method.Invoke(service, [query, input, null, null])!;
+        // #207: ApplyFilter's signature is (query, input, documentTypeId?, readScope) (#635). These cases filter
+        // only ReviewStatus, so pass null for the type and the unrestricted scope — what a Documents.ReadAll
+        // holder gets, and the one scope that adds no predicate of its own.
+        return (IQueryable<Document>)method.Invoke(
+            service, [query, input, null, DocumentAccessScope.Unrestricted])!;
     }
 }
