@@ -2,7 +2,7 @@
 
 By default, what a user may do with documents is an all-or-nothing decision: the module-wide permissions in `VaultExtractPermissions` either admit every document of the layer or none.
 
-This page describes the narrower grants: **this user (or role) may read / edit / delete / upload into these document types and no others.**
+This page describes the narrower grants: **this user (or role) may read / edit / delete / upload into these document types and no others** — and the axis that sits beside them: **whoever uploaded a document may view, edit and delete it, whatever type it landed on.**
 
 They are built on ABP's [resource-based authorization](https://abp.io/docs/latest/framework/fundamentals/authorization), not on anything Vault Extract invented — the grants, the management API, the user / role lookup and the dialog are all ABP's.
 
@@ -14,9 +14,9 @@ They are built on ABP's [resource-based authorization](https://abp.io/docs/lates
 | Standard permission | `VaultExtract.Documents.ReadAll` | May read **every** type of the caller's layer, plus untyped documents. |
 | Standard permission | `VaultExtract.DocumentTypes.ManagePermissions` | May open the per-type permission dialog and grant / revoke the grants below. |
 | Resource permission | `…DocumentType.Upload` | May upload a document declaring **one specific** document type. |
-| Resource permission | `…DocumentType.Read` | May read the documents of **one specific** document type. |
-| Resource permission | `…DocumentType.Edit` | May run the operator edit family on **one specific** type's documents. |
-| Resource permission | `…DocumentType.Delete` | May soft-delete **one specific** type's documents, and restore them again. |
+| Resource permission | `…DocumentType.Read` | May read **all** documents of **one specific** type — other people's included. |
+| Resource permission | `…DocumentType.Edit` | May run the operator edit family, and resolve reviews, on **all** documents of **one specific** type. |
+| Resource permission | `…DocumentType.Delete` | May soft-delete **all** documents of **one specific** type, and restore them again. |
 
 The four resource permission names are prefixed with the resource name `Dignite.Vault.Extract.Documents.DocumentTypes.DocumentType`. The resource is the `DocumentType` entity; the resource **key** is its immutable `Id`.
 
@@ -36,29 +36,64 @@ ABP documents `PermissionDefinition.Parent` as "this permission can be granted o
 
 ## The rule every enforcement point applies
 
-**An operation on a document is authorized by `VaultExtract.Documents` (entry) AND either the module-wide permission for that operation OR the matching grant on the document's current type.** Within the OR, the module-wide permission remains sufficient on its own; the grant is the narrower alternative.
+**An operation on a document is authorized by `VaultExtract.Documents` (entry) AND either the module-wide permission for that operation, OR the caller owns the document and the rule allows it, OR the matching grant on the document's current type.** Within the OR, the module-wide permission remains sufficient on its own; the other two are the narrower alternatives.
 
-Entry is a precondition of the whole rule, not only of the read endpoints, and it gates the module-wide half as well as the per-type half: a principal who may not open the documents area may not mutate documents in it either. Every principal assembled through ABP's permission dialog carries it, because each of these module-wide permissions is a child of `VaultExtract.Documents` and the dialog grants the parent with the child; only a programmatic `IPermissionManager` grant can separate them, since `PermissionChecker` never consults `Parent` at check time. It matters most for the per-type half: handing out a resource grant is gated by `DocumentTypes.ManagePermissions`, which says nothing about `Documents.*`, so without this precondition granting "Delete on Invoices" to a principal holding no `Documents` permission at all would produce a caller that could soft-delete, restore and rewrite the Markdown of a document it could not read.
+Put the other way round, which is the sentence to remember:
 
-| Operation family | Module-wide | Per-type grant on the document's type |
-| --- | --- | --- |
-| **Read** — `GetAsync`, `GetBlobAsync`, `GetListAsync` rows, `DocumentPipelineRunAppService.GetListAsync`, MCP `get_document` / `search_documents` / document resources, export rows | `Documents.ReadAll` | `Read` |
-| **Edit** — `ConfirmClassificationAsync`, `ReclassifyAsync`, `RerecognizeAsync`, `ReextractFieldsAsync`, `UpdateExtractedFieldsAsync`, `UpdateMarkdownAsync`, `RejectReviewAsync`, `AllowDuplicateAsync`, `ResolveFieldValidationWarningsAsync` | `Documents.ConfirmClassification` | `Edit` |
-| **Delete** — `DeleteAsync` (soft delete) | `Documents.Delete` | `Delete` |
-| **Restore** — `RestoreAsync`, and reaching the recycle bin at all | `Documents.Restore` | `Delete` — **whoever may delete may undo** |
-| **Declare / assign a type** — `UploadAsync` with `DocumentTypeId`, and the **target** type of `ConfirmClassificationAsync` / `ReclassifyAsync` | `Documents.ConfirmClassification` | `Upload` on the **target** type |
+> **Whoever uploaded a document may view, edit and delete it. The per-type `Read` / `Edit` / `Delete` grants are what extend those rights to *other people's* documents of that type.**
 
-Reclassifying a document from type A to type B therefore needs both halves: `Edit` on A (it is an edit of that document) and `Upload` on B (it is a decision about B), or the module-wide permission in place of either.
+### Entry gates every operation, without exception
 
-Restore is the one row whose per-type half is not its own resource permission: it reuses `Delete`. Undoing an operation is not a wider right than the operation, and a per-type deleter who could not restore would have to escalate a mistake of their own making to an admin. Reaching the recycle bin follows the same rule, asked of the layer rather than of one document — `Documents.Restore`, or a `Delete` grant on **at least one** type. Admission is all that decides: the rows inside are still narrowed by the read scope, so a caller who may delete a type but not read it is admitted to an empty recycle bin.
+Entry is a precondition of the whole rule, not only of the read endpoints, and it gates all three arms: a principal who may not open the documents area may not mutate documents in it either. Every principal assembled through ABP's permission dialog carries it, because each of these module-wide permissions is a child of `VaultExtract.Documents` and the dialog grants the parent with the child; only a programmatic `IPermissionManager` grant or a hand-edited store can separate them, since `PermissionChecker` never consults `Parent` at check time.
 
-Stays module-wide only, by decision: `PermanentDeleteAsync` (`PermanentDelete`), `RetryPipelineAsync` (`Pipelines.Retry`), everything under `Reprocessing.*`, and the overview statistics (`ReadAll` — a whole-layer aggregate has no per-type meaning). `UpdateCabinetAsync` needs entry plus Read on the document, plus `Cabinets.Default` when a cabinet is assigned. Cabinet reads, field-definition reads and `GetVisibleAsync` keep their existing gates, in which `Documents` now reads as entry.
+It matters most for the per-type arm: handing out a resource grant is gated by `DocumentTypes.ManagePermissions`, which says nothing about `Documents.*`, so without this precondition granting "Delete on Invoices" to a principal holding no `Documents` permission at all would produce a caller that could soft-delete, restore and rewrite the Markdown of a document it could not read.
 
-### Untyped documents are fail-closed
+**Every operation in the table below is on the table for the same reason** — including the ones with no per-type arm. They used to declare their gate with an `[Authorize]` attribute instead, which meant `Documents.PermanentDelete`, `Documents.Pipelines.Retry`, `Documents.Reprocessing.*` and `Documents.Export` each reached documents without entry ever being asserted.
 
-A document with no `DocumentTypeId` — unclassified, failed classification, or a container — belongs to no type, so **no grant can ever cover it**. Only the module-wide permission reaches it: `ReadAll` to read it, `ConfirmClassification` to edit it, `Documents.Delete` to delete it. It is also excluded from the list and export of any caller without `ReadAll`, by construction rather than by a predicate anyone has to remember.
+### The rule table
 
-Sub-documents carry their own type and are covered by it.
+| Rule | Module-wide | Per-type grant | Owner may | Operations it gates |
+| --- | --- | --- | --- | --- |
+| **Read** | `Documents.ReadAll` | `Read` | **yes** | `GetAsync`, `GetBlobAsync`, list and recycle-bin membership, export rows, `DocumentPipelineRunAppService.GetListAsync`, MCP `get_document` / `search_documents` / document resources |
+| **Edit** | `Documents.ConfirmClassification` | `Edit` | **yes** | `ConfirmClassificationAsync` / `ReclassifyAsync` (whose **target** type is judged by *Declare a type*), `RerecognizeAsync`, `ReextractFieldsAsync`, `UpdateExtractedFieldsAsync`, `UpdateMarkdownAsync`, `UpdateCabinetAsync` |
+| **Review** | `Documents.ConfirmClassification` | `Edit` | **no** | `AllowDuplicateAsync`, `ResolveFieldValidationWarningsAsync`, `RejectReviewAsync` |
+| **Delete** | `Documents.Delete` | `Delete` | **yes** | `DeleteAsync` (soft delete) |
+| **Restore** | `Documents.Restore` | `Delete` — **whoever may delete may undo** | **yes** | `RestoreAsync` |
+| **Retry** | `Documents.Pipelines.Retry` | `Edit` | **yes** | `RetryPipelineAsync` |
+| **Declare a type** | `Documents.ConfirmClassification` | `Upload` on the **target** type | no | `UploadAsync`'s `DocumentTypeId`, and the target type of `ConfirmClassificationAsync` / `ReclassifyAsync` |
+| **Upload** | `Documents.Upload` | — | no | `UploadAsync` admission, checked before *Declare a type* |
+| **Permanent delete** | `Documents.PermanentDelete` | — | no | `PermanentDeleteAsync` |
+| **Reprocess (fields)** | `Documents.Reprocessing.FieldExtraction` | — | no | `PreviewFieldExtractionAsync`, `StartFieldExtractionAsync` |
+| **Reprocess (classification)** | `Documents.Reprocessing.Reclassification` | — | no | `PreviewReclassificationAsync`, `StartReclassificationAsync` |
+| **Export** | `Documents.Export` | — | no | `ExportAsync` admission; the rows in the file are narrowed by the **Read** scope |
+| **Statistics** | `Documents.ReadAll` | — | no | the overview statistics, which is also where the list page's review-count badge comes from |
+
+Reclassifying a document from type A to type B needs two rows: **Edit** on A (it is an edit of that document) and **Declare a type** on B (it is a decision about B), or the module-wide permission in place of either. Owning the document satisfies the first and never the second — owning a document is not a licence to move it into a type you were never granted.
+
+**Review is why ownership is a per-rule flag rather than one global arm.** Its two permission names are identical to Edit's; the *only* difference is that the ownership arm is shut. Those three methods clear a blocking review reason — the channel's data-quality gate on the way to `DocumentReadyEto` — and a suspected duplicate or a field-validation warning exists precisely so that someone other than the uploader checks the uploader's work. A duplicate invoice is the adversarial case the review queue is for. (Editing field values on one's own document does **not** clear a validation warning: only `ResolveFieldValidationWarningsAsync` removes one, so Review is not reachable through the back door.)
+
+**Restore** is the one row whose per-type arm is not its own resource permission: it reuses `Delete`. Undoing an operation is not a wider right than the operation, and a per-type deleter who could not restore would have to escalate a mistake of their own making to an admin.
+
+**Retry** used to be module-wide only, by decision. It is not any more: it is a single-document operator action on the detail page, the same act as `RerecognizeAsync` beside it, and none of the reasons the remaining module-wide-only rows have (irreversible, admin-level bulk, whole-layer aggregate) applies to it. Left as it was, a caller holding a `Read` grant plus `Pipelines.Retry` re-ran OCR and classification on any readable document, around the per-type `Edit` gate.
+
+**`UpdateCabinetAsync`** moved from Read to Edit: it calls `SetCabinet` + `UpdateAsync`, so filing a document is a write however it is described, and leaving it on Read meant a `Read` grant was no longer read-only. Assigning to a cabinet still additionally requires `Cabinets.Default`.
+
+Stays module-wide only, by decision: permanent delete (irreversible, and it destroys the blob a restorable sub-document reaches through its provenance pointer), everything under `Reprocessing.*` (admin-level bulk over a whole type), and the overview statistics (a whole-layer aggregate has no per-type — or per-uploader — meaning). Cabinet reads, field-definition reads and `GetVisibleAsync` keep their existing gates, in which `Documents` reads as entry.
+
+### What "own" means
+
+**`Document.CreatorId`**, ABP's audit property, set at insert from `ICurrentUser.Id`. Nothing new is persisted and there is no migration.
+
+- **Derived sub-documents inherit the origin's owner.** Segmentation runs in a background job with no principal, so ABP would leave `CreatorId` null and the sub-documents of a bundle would be invisible to the person who uploaded the bundle. `Document.CreateDerived` takes the origin's `CreatorId`; ABP's audit setter returns early when `CreatorId` already has a value, so the explicit value survives.
+- **Machine identities have no owner.** A client-credentials token has no `sub`, so `ICurrentUser.Id` is null and the ownership arm can never match. Such a principal reaches documents only through module-wide permissions or per-type grants. Today's MCP client is Authorization Code + PKCE, so real MCP callers are users and do carry ownership.
+- **Not transferable, and there is no UI for it.** Out of scope.
+- **Revoking `Upload` does not retract ownership.** Nothing short of removing entry stops an uploader from editing or soft-deleting their own document, including one that has already fired `DocumentReadyEto`. Approval workflows belong downstream, and downstream already handles `DocumentDeletedEto`.
+
+### Untyped documents
+
+A document with no `DocumentTypeId` — unclassified, failed classification, or a container — belongs to no type, so **no grant can ever cover it**. Two arms reach it: the module-wide permission, and **its uploader**. That second arm is the point: before it, the documents that most need a human — the ones whose classification failed — were exactly the ones their uploader could not reach.
+
+Sub-documents carry their own type and are covered by it, plus the owner they inherit from their origin.
 
 ### Existence is validated before permission
 
@@ -66,12 +101,23 @@ Every lookup runs under ABP's ambient `IMultiTenant` filter, so a cross-layer id
 
 ## Where the rule lives in the code
 
-- **One helper, `DocumentTypeAccessChecker`** (application layer) implements the OR. Every enforcement point calls it; none re-implements it inline. ABP's `ResourcePermissionChecker` only consults the resource value providers and never falls back to a module-wide permission, so the fallback has to be written by hand — but exactly once.
-- **The checks are programmatic, not `[Authorize]` attributes.** MCP and reflection dispatch paths do not run attributes, and an attribute would deny a per-type grant holder before the method body could offer the other half of the OR. That is why the edit family and `DeleteAsync` no longer carry one.
-- **The read scope is a query predicate, resolved once per request.** `DocumentQueries.ApplyMetadataFilter` — the single chain the operator list, the export and the MCP search all pass through — takes the set of types the caller may read, or `null` for a `ReadAll` holder. The list's total count is narrowed by the same predicate as its rows, so a page count cannot leak how many documents the caller may not see. The review-queue count follows the list.
+- **The table is data.** `DocumentAccessRule` is a record of three fields — module-wide permission, optional per-type grant, and whether the owner may perform it — with one static member per row above. A call site reads `CheckAsync(DocumentAccessRule.Edit, subject)` and cannot pair "edit" with the read permission.
+- **One helper, `DocumentTypeAccessChecker`**, evaluates every row, in two shapes and no more: `IsGrantedAsync` / `CheckAsync` answer "may this caller do this to this one subject", and `ResolveScopeAsync` answers "what may this caller reach at all". **Entry is asserted in exactly one place**, reached by both, so there is no way to ask the checker a question and get a permissive answer for a caller who may not open the documents area.
+- **The subject is `DocumentAccessSubject(DocumentTypeId, CreatorId)`**, built from a loaded document, from a target type alone (no owner), or from nothing at all for an operation that reads neither fact.
+- **The checks are programmatic, not `[Authorize]` attributes.** MCP and reflection dispatch paths do not run attributes, and an attribute fires before the method body — so it would deny a per-type grant holder, or an owner, before the body could offer the other arms of the OR. No method of `DocumentAppService`, `DocumentExportAppService` or `DocumentReprocessingAppService` carries one, and neither does any of those classes.
+- **The scope is one object, `DocumentAccessScope`**, non-nullable, and the single source for the list predicate, the export's row narrowing, the recycle bin's rows and the per-row rights. `Unrestricted` is the module-wide holder; every other scope carries "the types I was granted OR the documents I uploaded" as an expression, and a scope that reaches nothing carries its own always-false predicate rather than making each caller branch on emptiness. It reaches the query through `DocumentQueries.ApplyMetadataFilter`, the single chain the operator list, the export and the MCP search all pass through, so the list's total count is narrowed by the same predicate as its rows.
+- **Grants are resolved once per request.** A scoped `DocumentTypeGrantMap` reads the layer's types once (traversing soft delete, so a document on an archived type stays visible to a caller granted on it) and asks ABP's multi-name `IResourcePermissionChecker` overload once per type, for all four grants together. The checker, the scope and the per-row rights all read that one map, so a list, its rights column and the detail page behind it cannot disagree and a request costs one grant check per type however many questions it asks. `IResourcePermissionStore.GetGrantedResourceKeysAsync` is deliberately not used: it filters on resource + permission name only and is not per-user, so it would report every type that carries a grant for anyone.
+- **Rights are decided on the server.** `DocumentListItemDto` and `DocumentDto` carry a `rights` object (`canRead` / `canEdit` / `canReview` / `canDelete` / `canRestore` / `canRetry`) computed by the same checker; the client binds actions to it instead of re-deriving the rule. No `creatorId` is exposed — the client needs to know what it may do with a document, never who owns it.
 - **Background jobs are not affected.** They run without a principal and are not user-facing reads.
 
-The per-type half of every check resolves through ABP's own `IResourcePermissionChecker`, over the layer's types (tens, each check a distributed-cache read). `IResourcePermissionStore.GetGrantedResourceKeysAsync` is deliberately not used: it filters on resource + permission name only and is not per-user, so it would report every type that carries a grant for anyone.
+### Two orderings worth knowing
+
+- **The recycle bin is admitted by entry alone**, and its rows are the Read scope's soft-deleted documents, own included. It used to admit by the Restore arm and narrow by the Read arm — two different questions — so a caller holding only a `Delete` grant was let into a bin the UI then reported as empty while it was not.
+- **`GetListAsync` resolves the scope first.** A requested `DocumentTypeCode` the caller can produce no row of returns an **empty page**, not a 403, and returns it before any field filter is resolved — otherwise the unknown-field error would answer "type X has no field named Y" to a caller who cannot see a single document of X. An empty page rather than a refusal because an owner legitimately lists a type they hold no grant on and gets their own rows back; for that caller an unknown field name also yields an empty page instead of the correctable error, since describing a type's schema to someone holding no grant on it discloses more than their rows do.
+
+### Existence, and what an export contains
+
+`ExportAsync` admits on the **Export** row and narrows the rows in the file by the **Read** scope — the same predicate the screen runs, so "download the current view" keeps meaning the view. It no longer refuses a type the caller holds no `Read` grant on: after ownership that test could not distinguish "you may see nothing of this type" from "you may see your own", so it would have had to admit every caller with an owner arm, which is every real user. An unknown type **code** still loud-fails: "this type does not exist in your layer" is a statement about the layer, not about the caller.
 
 ## Upload: declaring a type
 
@@ -103,26 +149,26 @@ On `GetVisibleAsync`, every returned `DocumentTypeDto` carries a `resourcePermis
 
 The MCP tools and resources list types for an LLM and never read the dictionary, so they call a separate, narrower method, `GetVisibleSummariesAsync`, which returns `DocumentTypeSummaryDto` — identity and display text only, with no `resourcePermissions` member at all — instead of paying for one multi-permission check per type and discarding the result.
 
-Client-side rights are a convenience only; the server enforces the same rule regardless of what the client sends.
+Client-side rights are a convenience only; the server enforces the same rule regardless of what the client sends. Since #635 the client is handed the answer rather than the inputs — see the `rights` object below.
 
 ## What the operator UI shows
 
-The lists themselves are narrowed on the server, so the UI never hides a row it was sent. What it does gate is the per-row actions, from the same `resourcePermissions` dictionary combined with the caller's module-wide permissions — one shared helper (`documentRights`) answers "may read / may edit / may delete this document", and both pages ask it instead of checking a module-wide permission directly.
+The lists themselves are narrowed on the server, so the UI never hides a row it was sent. What it gates is the per-row actions, and it gates them from the **`rights` object on the row** — the answer, not the inputs.
 
 | Surface | Shown when |
 | --- | --- |
-| Document list → row actions → Confirm classification | Edit on that row's type |
-| Document list → row actions → Delete | Delete on that row's type |
-| Document list → selection checkboxes and bulk delete | Delete on at least one row of the page; rows the caller may not delete drop out of the selection |
-| Document list → **Needs review** toggle, overview → **Needs review** quick link | Edit module-wide, or an Edit grant on at least one visible type |
-| Document list → review-count badge | `Documents.ReadAll` (the count is a whole-layer statistic) |
-| Document detail → Delete | Delete on that document's type |
-| Document detail → confirm / reclassify / re-recognize / re-extract fields / edit fields / correct Markdown / reject / allow duplicate / resolve warnings | Edit on that document's type |
-| Confirm / Reclassify → the type picker | lists only the types the caller may **assign**: `ConfirmClassification`, or an `Upload` grant on that type |
-| Overview → statistics card | `Documents.ReadAll` |
-| Document list → Export, Upload; overview → recycle bin | unchanged: `Documents.Export`, `Documents.Upload`, `Documents.Restore` |
+| Document list / detail → Confirm classification, Reclassify, Re-recognize, Re-extract fields, Edit fields, Correct Markdown, Change cabinet | `rights.canEdit` |
+| Document list / detail → Delete | `rights.canDelete` |
+| Document list → selection checkboxes and bulk delete | `rights.canDelete` on at least one row of the page; rows without it drop out of the selection |
+| Document detail → Reject review, Allow duplicate, Resolve warnings | `rights.canReview` |
+| Document detail → Retry | `rights.canRetry` (and the run being retryable) |
+| Recycle bin → Restore | `rights.canRestore` |
+| Confirm / Reclassify → the type picker | lists only the types the caller may **assign**: `ConfirmClassification`, or an `Upload` grant on that type — a question about *types*, so it is still answered from `GetVisibleAsync`'s `resourcePermissions` |
+| Document list → **Needs review** toggle, overview → **Needs review** quick link | Edit module-wide, or an `Edit` grant on at least one visible type — after this change the review queue is a reviewer's surface, and an uploader whose own document is pending review sees it in the ordinary list with its status |
+| Document list → review-count badge, overview → statistics card | `Documents.ReadAll` (both are whole-layer aggregates) |
+| Document list → Export, Upload; overview → recycle bin | `Documents.Export`, `Documents.Upload`, and entry, respectively |
 
-An **untyped** document (unclassified, failed classification, container) offers its actions only to a caller holding the module-wide permission — the same fail-closed rule the server applies, so the affordance and the endpoint agree.
+Because the answer comes from the server, an **untyped** document (unclassified, failed classification, container) offers its actions to its uploader, and a document on an **archived** type offers exactly the actions the API still admits — the two cases a client-side copy of the rule got wrong, the second because it keyed types by `TypeCode` against the active types while the server keys by `Id` across soft-deleted ones.
 
 The **overview's statistics card** is hidden without `Documents.ReadAll`, and the request behind it is not made at all: these are whole-layer aggregates and the endpoint requires `ReadAll`, so an entry-only caller would only collect a 403. Routes are unchanged — `Documents` still gates entry to the documents area.
 
