@@ -13,8 +13,10 @@
    * paints its dropdown with var(--lpx-content-bg) — a variable only the commercial LeptonX theme defines.
    * Under LeptonX Lite it is assigned nowhere, so the dropdown container computes to transparent, and Lite's
    * list-group hover tint (rgba(247, 37, 133, 0.1)) lets the dialog show through the hovered row. Bridge it to
-   * Bootstrap's body background, which follows the colour mode. */
-  --lpx-content-bg: var(--bs-body-bg);
+   * the theme's card surface (--lpx-card-bg, which Lite does define): the dropdown sits on a modal whose
+   * content and list rows are that colour, so the hover tint composites over the same surface as the rows
+   * beside it. Not --bs-body-bg — in Lite's dim build that is #161616, not a surface colour. */
+  --lpx-content-bg: var(--lpx-card-bg);
 
   .abp-logo {
     background-repeat: no-repeat;

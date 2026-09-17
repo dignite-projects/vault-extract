@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **The provider-key search dropdown in the resource-permission dialog is no longer see-through on hover** ([#642](https://github.com/dignite-projects/vault-extract/issues/642)). ABP's lookup component paints it with `--lpx-content-bg`, which LeptonX Lite never defines; the host stylesheet now bridges it to `--bs-body-bg`.
+- **The provider-key search dropdown in the resource-permission dialog is no longer see-through on hover** ([#642](https://github.com/dignite-projects/vault-extract/issues/642)). ABP's lookup component paints it with `--lpx-content-bg`, which LeptonX Lite never defines; the host stylesheet now bridges it to `--lpx-card-bg`, the theme's card surface.
 
 ## [0.5.0-preview.4] - 2026-09-04
 
