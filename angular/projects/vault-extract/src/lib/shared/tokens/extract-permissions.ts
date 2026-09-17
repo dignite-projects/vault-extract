@@ -42,11 +42,11 @@ export const EXTRACT_PERMISSIONS = {
     // definition, so the dialog itself needed no work.
     ManagePermissions: 'VaultExtract.DocumentTypes.ManagePermissions',
     // ABP resource-permission strings (#629/#632) — frozen contracts mirrored from
-    // VaultExtractPermissions.DocumentTypes.Resources, NOT standard permissions: they are only
-    // ever checked against one DocumentType row (resourceKey = its Id), never by name alone.
-    // The client never checks them against PermissionService either: they arrive per type on
-    // DocumentTypeDto.resourcePermissions from GetVisibleAsync, and document-rights.ts pairs each
-    // with its module-wide counterpart.
+    // VaultExtractResourcePermissions (#636 renamed the C# holder out of VaultExtractPermissions.DocumentTypes;
+    // the string values did not change), NOT standard permissions: they are only ever checked against one
+    // DocumentType row (resourceKey = its Id), never by name alone. The client never checks them against
+    // PermissionService either: they arrive per type on DocumentTypeDto.resourcePermissions from GetVisibleAsync,
+    // and document-rights.ts pairs each with its module-wide counterpart.
     Resources: {
       Name: 'Dignite.Vault.Extract.Documents.DocumentTypes.DocumentType',
       // Declare / assign this type — at upload, and as the TARGET of confirm / reclassify.
@@ -57,7 +57,8 @@ export const EXTRACT_PERMISSIONS = {
       // re-recognize / re-extract / update fields / correct Markdown / reject / allow duplicate /
       // resolve field-validation warnings).
       Edit: 'Dignite.Vault.Extract.Documents.DocumentTypes.DocumentType.Edit',
-      // Soft-delete the documents of this type. Restore / permanent delete stay module-wide only.
+      // Soft-delete the documents of this type (#632). Restore reuses this same grant — whoever may delete may
+      // undo — while permanent delete stays module-wide only.
       Delete: 'Dignite.Vault.Extract.Documents.DocumentTypes.DocumentType.Delete',
     },
   },

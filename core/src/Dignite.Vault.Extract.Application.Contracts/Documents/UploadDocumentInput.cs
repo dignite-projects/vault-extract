@@ -29,7 +29,7 @@ public class UploadDocumentInput
     /// <c>Cabinets.Default</c> check — but the additive permission is <b>per type</b> (#629): either the
     /// module-wide <c>VaultExtractPermissions.Documents.ConfirmClassification</c>, which admits every type of
     /// the caller's layer, or a resource grant of
-    /// <c>VaultExtractPermissions.DocumentTypes.Resources.Upload</c> on this specific type.
+    /// <c>VaultExtractResourcePermissions.Upload</c> on this specific type.
     /// </para>
     /// <para>
     /// <b>Leaving this null is not the unprivileged fallback it used to be</b>: an untyped upload hands the type

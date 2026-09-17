@@ -1,7 +1,3 @@
-using System;
-using System.Linq;
-using Volo.Abp.Reflection;
-
 namespace Dignite.Vault.Extract.Permissions;
 
 public class VaultExtractPermissions
@@ -31,8 +27,8 @@ public class VaultExtractPermissions
         /// The module-wide read (#632): every document of the caller's layer, whatever its type. It is to Read
         /// what <see cref="ConfirmClassification"/> is to Edit and <see cref="Delete"/> is to Delete — the
         /// module-wide half of the "module-wide permission OR the matching per-type grant" rule. Without it a
-        /// caller sees only the types it holds a <see cref="DocumentTypes.Resources.Read"/> grant on, and never
-        /// sees untyped documents at all.
+        /// caller sees only the types it holds a <see cref="VaultExtractResourcePermissions.Read"/> grant on, and
+        /// never sees untyped documents at all.
         /// </summary>
         public const string ReadAll = Default + ".ReadAll";
 
@@ -85,65 +81,17 @@ public class VaultExtractPermissions
 
         /// <summary>
         /// May open ABP's resource-permission dialog for a <c>DocumentType</c> and grant / revoke the
-        /// per-type grants below (#629). Deliberately separate from <see cref="Update"/>: handing out
-        /// access is a different responsibility from editing the schema, and this name is the only gate
-        /// ABP puts on the <c>/api/permission-management/permissions/resource*</c> endpoints.
+        /// per-type grants in <see cref="VaultExtractResourcePermissions"/> (#629). Deliberately separate from
+        /// <see cref="Update"/>: handing out access is a different responsibility from editing the schema, and
+        /// this name is the only gate ABP puts on the <c>/api/permission-management/permissions/resource*</c>
+        /// endpoints.
         /// </summary>
         public const string ManagePermissions = Default + ".ManagePermissions";
 
-        /// <summary>
-        /// ABP resource-based authorization (#629, completed by #632): grants attached to one <c>DocumentType</c> row rather
-        /// than to the module as a whole. These are <b>not</b> standard permissions — they are never
-        /// checked by name alone, only as <c>AuthorizationService.IsGrantedAsync(documentType, name)</c>,
-        /// and they are stored in <c>AbpResourcePermissionGrants</c> keyed by the type's immutable Id.
-        /// <para>
-        /// <b>Both strings below are frozen wire contracts from the first grant row onwards</b>, the same
-        /// discipline CLAUDE.md applies to the <c>Extract:*</c> error codes: rename the holder class if you
-        /// must, never the persisted value. Changing either one silently orphans every existing grant.
-        /// </para>
-        /// </summary>
-        public static class Resources
-        {
-            /// <summary>
-            /// MUST equal <c>typeof(DocumentType).FullName</c>: ABP's
-            /// <c>KeyedObjectResourcePermissionRequirementHandler</c> derives the resource name from the
-            /// runtime type of the object handed to <c>AuthorizationService</c>. Application.Contracts
-            /// cannot reference Domain, so this is a literal, guarded by
-            /// <c>DocumentTypeResourcePermissions_Tests</c>, which reds if the entity is ever renamed or
-            /// moved.
-            /// </summary>
-            public const string Name = "Dignite.Vault.Extract.Documents.DocumentTypes.DocumentType";
-
-            /// <summary>
-            /// May upload a document declaring <b>this</b> document type. Admits the caller to the #623
-            /// declared-type path (confidence 1.0, <c>Confirmed</c>, no classification LLM call) for one
-            /// type only; <c>Documents.ConfirmClassification</c> remains the module-wide equivalent that
-            /// admits every type of the layer.
-            /// </summary>
-            public const string Upload = Name + ".Upload";
-
-            /// <summary>
-            /// May read the documents of <b>this</b> document type — detail, blob download, list / export rows,
-            /// pipeline runs, and every MCP path that delegates to them (#632). The module-wide equivalent that
-            /// admits every type of the layer is <see cref="Documents.ReadAll"/>.
-            /// </summary>
-            public const string Read = Name + ".Read";
-
-            /// <summary>
-            /// May run the operator edit family on documents of <b>this</b> document type: confirm / reclassify /
-            /// re-recognize / re-extract fields / update fields / correct Markdown / reject review / allow
-            /// duplicate / resolve field validation warnings (#632). Module-wide equivalent:
-            /// <see cref="Documents.ConfirmClassification"/>. Reclassifying to another type additionally needs
-            /// <see cref="Upload"/> (or the module-wide permission) on the <b>target</b> type.
-            /// </summary>
-            public const string Edit = Name + ".Edit";
-
-            /// <summary>
-            /// May soft-delete documents of <b>this</b> document type (#632). Module-wide equivalent:
-            /// <see cref="Documents.Delete"/>. Restore and permanent delete stay module-wide only, by decision.
-            /// </summary>
-            public const string Delete = Name + ".Delete";
-        }
+        // The per-document-type resource-permission family (#629/#632) moved out to its own holder,
+        // VaultExtractResourcePermissions (#636): it is a resource name plus four resource permissions, never
+        // checked by name alone, and does not belong inside the class that models the standard permission tree.
+        // String values are unchanged to the character.
     }
 
     // Field definition schema management (#217): admin-level operations independent of document CRUD.
@@ -153,23 +101,5 @@ public class VaultExtractPermissions
         public const string Create = Default + ".Create";
         public const string Update = Default + ".Update";
         public const string Delete = Default + ".Delete";
-    }
-
-    /// <summary>
-    /// Every <b>standard</b> permission name defined here.
-    /// <para>
-    /// The <c>DocumentTypes.Resources</c> family (#629) is excluded on purpose:
-    /// <see cref="DocumentTypes.Resources.Name"/> is a resource <i>name</i>, not a permission at all, and the
-    /// resource permissions under it are only ever checked against a concrete <c>DocumentType</c> instance —
-    /// feeding either one to something that treats this array as "the permissions to grant / seed / render"
-    /// would produce a permission that can never be granted. Every resource permission is prefixed with the
-    /// resource name, so the filter covers the ones phase 2 adds too.
-    /// </para>
-    /// </summary>
-    public static string[] GetAll()
-    {
-        return ReflectionHelper.GetPublicConstantsRecursively(typeof(VaultExtractPermissions))
-            .Where(name => !name.StartsWith(DocumentTypes.Resources.Name, StringComparison.Ordinal))
-            .ToArray();
     }
 }

@@ -50,26 +50,26 @@ public class VaultExtractPermissionDefinitionProvider : PermissionDefinitionProv
         // All four are managed by DocumentTypes.ManagePermissions, so ABP's dialog renders four checkboxes with no
         // dialog work; each pairs with the module-wide permission named in VaultExtractPermissions.
         context.AddResourcePermission(
-            name: VaultExtractPermissions.DocumentTypes.Resources.Upload,
-            resourceName: VaultExtractPermissions.DocumentTypes.Resources.Name,
+            name: VaultExtractResourcePermissions.Upload,
+            resourceName: VaultExtractResourcePermissions.Name,
             managementPermissionName: VaultExtractPermissions.DocumentTypes.ManagePermissions,
             displayName: L("Permission:DocumentTypes.Resources.Upload"));
 
         context.AddResourcePermission(
-            name: VaultExtractPermissions.DocumentTypes.Resources.Read,
-            resourceName: VaultExtractPermissions.DocumentTypes.Resources.Name,
+            name: VaultExtractResourcePermissions.Read,
+            resourceName: VaultExtractResourcePermissions.Name,
             managementPermissionName: VaultExtractPermissions.DocumentTypes.ManagePermissions,
             displayName: L("Permission:DocumentTypes.Resources.Read"));
 
         context.AddResourcePermission(
-            name: VaultExtractPermissions.DocumentTypes.Resources.Edit,
-            resourceName: VaultExtractPermissions.DocumentTypes.Resources.Name,
+            name: VaultExtractResourcePermissions.Edit,
+            resourceName: VaultExtractResourcePermissions.Name,
             managementPermissionName: VaultExtractPermissions.DocumentTypes.ManagePermissions,
             displayName: L("Permission:DocumentTypes.Resources.Edit"));
 
         context.AddResourcePermission(
-            name: VaultExtractPermissions.DocumentTypes.Resources.Delete,
-            resourceName: VaultExtractPermissions.DocumentTypes.Resources.Name,
+            name: VaultExtractResourcePermissions.Delete,
+            resourceName: VaultExtractResourcePermissions.Name,
             managementPermissionName: VaultExtractPermissions.DocumentTypes.ManagePermissions,
             displayName: L("Permission:DocumentTypes.Resources.Delete"));
 

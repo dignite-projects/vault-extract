@@ -56,7 +56,7 @@ public class DocumentTypeAppService : VaultExtractAppService, IDocumentTypeAppSe
         // providers); IResourcePermissionStore.GetGrantedResourceKeysAsync is deliberately NOT used here because
         // it filters on resource + permission name only and is therefore not per-user — it would report every
         // type that carries a grant for anyone. Types are tens, not thousands, so per-row is affordable.
-        await _resourcePermissionPopulator.PopulateAsync(dtos, VaultExtractPermissions.DocumentTypes.Resources.Name);
+        await _resourcePermissionPopulator.PopulateAsync(dtos, VaultExtractResourcePermissions.Name);
 
         return dtos;
     }
