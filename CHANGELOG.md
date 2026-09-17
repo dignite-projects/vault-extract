@@ -31,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   > **Migration:** any role that holds `Documents.Upload` **without** `Documents.ConfirmClassification` and relies on untyped upload must be granted `Documents.ConfirmClassification`, or its uploads will start failing with `AbpAuthorizationException`. Roles that already hold both are unaffected, as are callers that always supply `DocumentTypeId`. The repo's seeded `DocumentManager` role is updated by `VaultExtractHostRoleDataSeedContributor` to include `Documents.ConfirmClassification`, applied on the next migration run; roles created by hand still need the manual grant.
 
+### Fixed
+
+- **The provider-key search dropdown in the resource-permission dialog is no longer see-through on hover** ([#642](https://github.com/dignite-projects/vault-extract/issues/642)). ABP's lookup component paints it with `--lpx-content-bg`, which LeptonX Lite never defines; the host stylesheet now bridges it to `--bs-body-bg`.
+
 ## [0.5.0-preview.4] - 2026-09-04
 
 Re-cuts `0.5.0-preview.3`, whose release run pushed the NuGet packages to GitHub Packages and then failed on the npm step, leaving no npm package and no GitHub Release. The content below is preview.3's, plus the workflow fix. **Nothing consumes `0.5.0-preview.3`; use this version.**
