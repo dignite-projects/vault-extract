@@ -105,7 +105,6 @@
     "Document:Bulk:DeleteFailed": "所選的 {0} 份文件均無法刪除。",
     "Document:RecycleBin": "回收筒",
     "Document:RecycleBinEmpty": "回收筒是空的。",
-    "Document:RecycleBin:NoRestoreRights": "您尚未被授予任何文件類型的還原權限，請聯絡管理員進行授權。",
     "Document:DeletedAt": "刪除時間",
     "Document:Restore": "還原",
     "Document:PermanentDelete": "永久刪除",

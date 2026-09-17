@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { LocalizationService, PermissionService } from '@abp/ng.core';
 import { ToasterService } from '@abp/ng.theme.shared';
-import { of } from 'rxjs';
+import { Observable, Subject, of, throwError } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CabinetService,
@@ -34,7 +34,11 @@ const TYPE_WITHOUT_EDIT: DocumentTypeDto = {
   resourcePermissions: { [RESOURCES.Read]: true },
 };
 
-function setup(grantedPolicies: Set<string>, types: DocumentTypeDto[] = [TYPE_WITH_EDIT]) {
+function setup(
+  grantedPolicies: Set<string>,
+  types: DocumentTypeDto[] = [TYPE_WITH_EDIT],
+  getVisible: () => Observable<DocumentTypeDto[]> = () => of(types),
+) {
   const statisticsSpy = vi.fn().mockReturnValue(of({ totalCount: 7 }));
 
   TestBed.configureTestingModule({
@@ -48,7 +52,7 @@ function setup(grantedPolicies: Set<string>, types: DocumentTypeDto[] = [TYPE_WI
       { provide: LocalizationService, useValue: { instant: (key: string) => key } },
       { provide: ToasterService, useValue: { success: vi.fn(), error: vi.fn(), warn: vi.fn() } },
       { provide: DocumentStatisticsService, useValue: { get: statisticsSpy } },
-      { provide: DocumentTypeService, useValue: { getVisible: () => of(types) } },
+      { provide: DocumentTypeService, useValue: { getVisible } },
       { provide: CabinetService, useValue: { getList: () => of([]) } },
       { provide: DocumentUploadService, useValue: { upload: vi.fn() } },
     ],
@@ -99,7 +103,7 @@ describe('DocumentOverviewComponent — needs-review quick link (#632)', () => {
   it('is offered to a caller holding only an Edit grant on some type', () => {
     const { component } = setup(ENTRY_ONLY, [TYPE_WITH_EDIT]);
 
-    expect(component.canReview).toBe(false);
+    expect(component.canConfirmClassification).toBe(false);
     expect(component.canReviewAnyType()).toBe(true);
   });
 
@@ -116,5 +120,39 @@ describe('DocumentOverviewComponent — needs-review quick link (#632)', () => {
     );
 
     expect(component.canReviewAnyType()).toBe(true);
+  });
+});
+
+// #635 decision 7: this page used to fetch the visible types itself and hand the upload card three inputs —
+// the list, a loading flag and an unavailable flag — because an empty list alone could not tell the card
+// which of the three states it was in. Both the fetch and the inputs are gone.
+describe('DocumentOverviewComponent — the types come from the store (#635)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('reads the quick-link types from the store, on one fetch shared with the upload card', () => {
+    const getVisible = vi.fn().mockReturnValue(of([TYPE_WITH_EDIT]));
+    const { component } = setup(ENTRY_ONLY, [TYPE_WITH_EDIT], getVisible);
+
+    expect(component.documentTypes.value()).toEqual([TYPE_WITH_EDIT]);
+    // One call, although both this page and the upload card it hosts need the answer.
+    expect(getVisible).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the type section on screen while the answer is still in flight', () => {
+    // Showing "no document types yet" before the fetch lands would be a claim the page cannot make.
+    const pending = new Subject<DocumentTypeDto[]>();
+    const { component } = setup(ENTRY_ONLY, [], () => pending.asObservable());
+
+    expect(component.documentTypes.isLoading()).toBe(true);
+    expect(component.showTypeSection()).toBe(true);
+  });
+
+  it('surfaces a failed fetch as an error state rather than as an empty list', () => {
+    const { component } = setup(ENTRY_ONLY, [], () => throwError(() => new Error('offline')));
+
+    expect(component.documentTypes.error()).toBe(true);
+    expect(component.documentTypes.value()).toEqual([]);
   });
 });

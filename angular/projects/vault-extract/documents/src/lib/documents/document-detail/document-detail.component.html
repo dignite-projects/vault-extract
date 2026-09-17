@@ -131,7 +131,12 @@
               {{ reviewReasonLabel(detail.reason) | abpLocalization }}
             </span>
           }
-          @if (canEditFields()) {
+          <!-- #635 decision 2: the edit family and the REVIEW family part company here. Confirming a
+               classification and completing missing fields are edits, which an uploader may perform on
+               their own document; allowing a suspected duplicate, resolving field-validation warnings and
+               rejecting review each clear a blocking review reason, which is exactly the check a second
+               pair of eyes exists to make, so they follow canReview instead. -->
+          @if (canEdit() || canReview()) {
             <div class="ms-auto d-flex gap-2">
               @if (needsClassification()) {
                 <button type="button" class="btn btn-sm btn-warning" (click)="openClassifyDialog()">
@@ -162,10 +167,12 @@
                   {{ '::Document:Review:ResolveFieldValidationWarnings' | abpLocalization }}
                 </button>
               }
-              <button type="button" class="btn btn-sm btn-outline-danger" (click)="openRejectDialog()">
-                <i class="fas fa-ban me-1"></i>
-                {{ '::Document:Review:Reject' | abpLocalization }}
-              </button>
+              @if (canReview()) {
+                <button type="button" class="btn btn-sm btn-outline-danger" (click)="openRejectDialog()">
+                  <i class="fas fa-ban me-1"></i>
+                  {{ '::Document:Review:Reject' | abpLocalization }}
+                </button>
+              }
             </div>
           }
         </div>
@@ -395,10 +402,15 @@
                       } @else {
                         <span class="text-muted">{{ '::Document:Unfiled' | abpLocalization }}</span>
                       }
-                      <button type="button" class="btn btn-sm btn-link p-0 ms-2"
-                              (click)="startEditCabinet()">
-                        {{ '::Edit' | abpLocalization }}
-                      </button>
+                      <!-- #635 decision 2: filing a document into a cabinet is a WRITE, so
+                           UpdateCabinetAsync moved from the Read rule to the Edit one. A Read-only caller
+                           no longer gets a button that the endpoint refuses. -->
+                      @if (canEdit()) {
+                        <button type="button" class="btn btn-sm btn-link p-0 ms-2"
+                                (click)="startEditCabinet()">
+                          {{ '::Edit' | abpLocalization }}
+                        </button>
+                      }
                     }
                   </dd>
                 }
@@ -495,7 +507,7 @@
                   <i class="fas fa-table-list me-2"></i>
                   {{ '::Document:ExtractedFields' | abpLocalization }}
                 </h6>
-                @if (canEditFields() && fieldDefinitions().length > 0 && !isEditingFields()) {
+                @if (canEdit() && fieldDefinitions().length > 0 && !isEditingFields()) {
                   <button class="btn btn-outline-primary btn-sm" (click)="startEditFields()">
                     <i class="fas fa-pen me-1"></i>{{ '::Edit' | abpLocalization }}
                   </button>
@@ -594,7 +606,9 @@
                         <i class="fas fa-clock me-1"></i>{{ row.elapsedDisplay }}
                       </span>
                     }
-                    @if (row.retryable) {
+                    <!-- #635 decision 2: retry is an edit-family act on this document, not a bare
+                         Pipelines.Retry holder's free run over anything they may read. -->
+                    @if (row.retryable && canRetry()) {
                       <button
                         class="btn btn-outline-primary btn-sm"
                         [class.ms-auto]="row.elapsedDisplay === null"

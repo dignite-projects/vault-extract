@@ -15,18 +15,12 @@ import { finalize, of } from 'rxjs';
 import {
   DocumentListItemDto,
   DocumentService,
-  DocumentTypeDto,
-  DocumentTypeService,
   EXTRACT_PERMISSIONS,
 } from '@dignite/ng.vault-extract';
 import { ClientPagedResult, configureEntityTable, EXTRACT_TABLES } from '../../shared/extensible-table';
 import { executeBulkOperations } from '../../shared/bulk-operation';
 import { formatBytes } from '../../shared/format-bytes';
-import {
-  canRestoreAnyDocumentType,
-  documentRightsAccessor,
-  readDocumentModuleWidePolicies,
-} from '../../shared/document-rights';
+import { rightsOf } from '../../shared/document-access';
 
 @Component({
   selector: 'lib-document-recycle-bin',
@@ -44,7 +38,6 @@ import {
 })
 export class DocumentRecycleBinComponent implements OnInit {
   private readonly documentService = inject(DocumentService);
-  private readonly documentTypeService = inject(DocumentTypeService);
   private readonly confirmation = inject(ConfirmationService);
   private readonly toaster = inject(ToasterService);
   private readonly permissionService = inject(PermissionService);
@@ -58,47 +51,21 @@ export class DocumentRecycleBinComponent implements OnInit {
   isLoading = signal(true);
   selectedDocuments = signal<DocumentListItemDto[]>([]);
   isBulkDeleting = signal(false);
-  documentTypes = signal<DocumentTypeDto[]>([]);
   readonly selectedCount = computed(() => this.selectedDocuments().length);
-
-  // #632 code review: the types fetch FAILING is a third state, distinct from both "no rows" and "you may
-  // restore nothing". Without it a transient network error read as an empty grant dictionary, so
-  // canRestoreAnything() answered false and the page told a caller who does hold a Delete grant to go ask an
-  // administrator for one — a wrong and unactionable instruction, and the list query was never hooked, which
-  // left the Refresh button inert so nothing could recover it. DocumentUploadComponent already separates these
-  // two states for the same fetch (#629); this is the same separation on this page.
-  readonly typesUnavailable = signal(false);
-
-  // Whether hookToQuery has run. hookToQuery must happen exactly once per component — a second call would
-  // add a second subscription and issue every request twice — and until it has, ListService.getWithoutPageReset
-  // has no query to re-run, which is what made refresh() a no-op in the two states that skip the hook.
-  private listHooked = false;
-
-  // #632: the module-wide half of the rules, snapshotted once. "May restore" is now module-wide
-  // Documents.Restore OR a Delete grant on the row's own document type — whoever may delete may undo — so it
-  // is no longer one boolean field, and this page needs the visible types to answer it at all.
-  private readonly moduleWideRights = readDocumentModuleWidePolicies(this.permissionService);
-
-  // #632: per-row restore right. Reads the documentTypes signal on every call, so rows re-evaluate as soon as
-  // the type list (and its grant dictionary) lands.
-  readonly rightsFor = documentRightsAccessor(this.documentTypes, this.moduleWideRights);
 
   // Permanent delete stays module-wide, by decision: no per-type grant reaches it.
   readonly canPermanentDelete = this.permissionService.getGrantedPolicy(
     EXTRACT_PERMISSIONS.Documents.PermanentDelete,
   );
 
-  // #632: "may this caller restore anything at all" — the client twin of the server's CheckOnAnyTypeAsync
-  // gate on the recycle-bin list. The route is now the entry permission (a per-type grant cannot be expressed
-  // as a route policy), so this is what decides whether the page queries the server at all; asking without it
-  // would earn a 403 toast the caller can do nothing about.
-  readonly canRestoreAnything = computed(() =>
-    canRestoreAnyDocumentType(this.documentTypes(), this.moduleWideRights),
-  );
+  // #635 decision 5: the restore right rides down with the row. Reading `rights` per row replaces the
+  // client-side rule table this page used to run against the visible types — which is also why this page no
+  // longer fetches them: nothing else on it was type-derived.
+  readonly rightsOf = rightsOf;
 
   // The actions column exists when some row on the page actually carries an action.
   readonly hasRecycleActions = computed(
-    () => this.canPermanentDelete || this.documents().items.some(d => this.rightsFor(d).canRestore),
+    () => this.canPermanentDelete || this.documents().items.some(d => rightsOf(d).canRestore),
   );
 
   constructor() {
@@ -154,59 +121,21 @@ export class DocumentRecycleBinComponent implements OnInit {
     ]);
   }
 
+  // #635 decision 6: the query is always hooked. Admission to the recycle bin is now entry alone and its rows
+  // are the caller's read scope — own documents included — so the server always has an honest answer, and an
+  // empty bin is empty by construction. The three-way conditional start this page used to do (fetch the
+  // types, decide whether the caller may restore anything, hook the query only then) had two states in which
+  // no query existed at all, which is what the hooked-yet latch and the dual-meaning refresh() coped with.
   ngOnInit(): void {
-    this.loadDocumentTypes();
-  }
-
-  // The visible types carry this caller's own per-type grant dictionary, which is half of "may restore". The
-  // list query is hooked only afterwards, and only when the answer is yes — the server refuses the recycle-bin
-  // list to a caller who may restore nothing, and the route now admits every documents user.
-  private loadDocumentTypes(): void {
-    this.isLoading.set(true);
-    this.typesUnavailable.set(false);
-
-    this.documentTypeService
-      .getVisible()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: types => {
-          this.documentTypes.set(types);
-          this.startListing();
-        },
-        error: () => {
-          // NOT "you may restore nothing": this call failed, so the caller's grants are unknown, and the page
-          // says so and offers the retry rather than reporting the absence of an answer as a denial.
-          this.documentTypes.set([]);
-          this.typesUnavailable.set(true);
-          this.isLoading.set(false);
-        },
-      });
-  }
-
-  private startListing(): void {
-    if (!this.canRestoreAnything()) {
-      // Nothing to show and nothing to ask for: the page falls through to its own empty state.
-      this.isLoading.set(false);
-      return;
-    }
     this.hookListQuery();
   }
 
-  // The header's Refresh button, and the retry offered by the unavailable state. In both states that skip the
-  // hook — the fetch failed, or the caller may restore nothing — there is no query to re-run, so it re-runs the
-  // types fetch instead: that is what recovers a transient failure, and it also re-reads a grant an
-  // administrator may have added since the page loaded. Once the list is hooked it is the list that refreshes.
+  /** The header's Refresh button. One meaning: re-run the list query. */
   refresh(): void {
-    if (this.listHooked) {
-      this.list.getWithoutPageReset();
-      return;
-    }
-    this.loadDocumentTypes();
+    this.list.getWithoutPageReset();
   }
 
   private hookListQuery(): void {
-    this.listHooked = true;
-
     this.list.requestStatus$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(status => {

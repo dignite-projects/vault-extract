@@ -105,7 +105,6 @@
     "Document:Bulk:DeleteFailed": "選択した {0} 件のドキュメントを削除できませんでした。",
     "Document:RecycleBin": "ごみ箱",
     "Document:RecycleBinEmpty": "ごみ箱は空です。",
-    "Document:RecycleBin:NoRestoreRights": "まだどのドキュメントタイプの復元権限も付与されていません。管理者に付与を依頼してください。",
     "Document:DeletedAt": "削除日時",
     "Document:Restore": "復元",
     "Document:PermanentDelete": "完全に削除",
