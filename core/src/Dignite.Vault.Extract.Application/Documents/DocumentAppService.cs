@@ -157,11 +157,6 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // Resolve external type code -> internal DocumentTypeId (#207). If a type code is supplied but the layer has no such type:
         // with field filters -> loud fail because fields cannot be resolved; metadata-only -> empty page because no documents have that type.
         Guid? documentTypeId = null;
-
-        // #635: may this caller be TOLD about the requested type's schema? True unless the only way they reach
-        // the type is the ownership arm — see the lenient branch below.
-        var mayDescribeType = true;
-
         if (!input.DocumentTypeCode.IsNullOrWhiteSpace())
         {
             var type = await _documentTypeRepository.FindByTypeCodeAsync(input.DocumentTypeCode!);
@@ -176,26 +171,6 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
                 return new PagedResultDto<DocumentListItemDto>(0, new List<DocumentListItemDto>());
             }
 
-            // #635 decision 3: a requested type this caller's scope can produce no row of at all — no ReadAll, no
-            // Read grant on it, and no ownership arm to reach an own document through — returns an empty page
-            // HERE, before ResolveFieldQueriesAsync below. Without this ordering the unknown-field loud fail
-            // answers "type X has no field named Y" to a caller who cannot see a single document of X, which is
-            // the same disclosure #632 closed on RestoreAsync, one level up in the schema.
-            //
-            // Empty page, not 403: after #635 an owner legitimately lists a type they hold no grant on and gets
-            // their own rows back, so a refusal would be wrong for the ordinary case.
-            if (!scope.AllowsAnyOfType(type.Id))
-            {
-                return new PagedResultDto<DocumentListItemDto>(0, new List<DocumentListItemDto>());
-            }
-
-            // The middle case, and the reason the short circuit above asks "can you reach ANY row of this type"
-            // rather than "is this type in your granted set": an owner-armed caller passes it for every type of
-            // the layer, because they might own a document of any of them. Their rows are still narrowed to their
-            // own by the scope predicate, but the unknown-field error would describe the type's schema to someone
-            // holding no grant on it. So for them it degrades to an empty page (below) instead of the correctable
-            // signal a grant holder gets.
-            mayDescribeType = scope.GrantsWholeType(type.Id);
             documentTypeId = type.Id;
         }
 
@@ -203,19 +178,16 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // carrying the field's Id + declared value type. Field cross-aggregate lookup is the caller-layer responsibility. If any
         // field is not defined under that type, loud fail with UnknownExtractedField as a correctable signal, instead of silently
         // returning empty. No FieldFilters -> null (metadata-only retrieval).
-        List<FlexFieldQueryCondition>? fieldQueries;
-        try
-        {
-            fieldQueries = await ResolveFieldQueriesAsync(input, documentTypeId);
-        }
-        catch (BusinessException ex)
-            when (!mayDescribeType && ex.Code == VaultExtractErrorCodes.ExtractedField.Unknown)
-        {
-            // Caught rather than pre-checked so the unknown-field judgment itself stays single-sourced in
-            // DocumentFieldQueryResolver — the same resolver the export and the MCP search run. What changes for
-            // an owner-armed caller on an ungranted type is only how the answer is delivered.
-            return new PagedResultDto<DocumentListItemDto>(0, new List<DocumentListItemDto>());
-        }
+        //
+        // #635 first put a scope-dependent short circuit here, so an unknown field name would not describe a
+        // type's schema to a caller outside its scope. The code review found that guard reduces no disclosure:
+        // IFieldDefinitionAppService.GetListAsync hands every field definition of the layer to any entry holder
+        // by recorded decision (#223 / #629), and the same schema leaves through the export's column headers, the
+        // export's own unknown-field error, and the detail page's missing-required-field names. All it achieved
+        // was to cost an uploader the correctable "no such field" message on their own documents. So the loud fail
+        // is unconditional again, for everyone. The scope is still resolved first — that ordering is what asserts
+        // entry and narrows the rows.
+        var fieldQueries = await ResolveFieldQueriesAsync(input, documentTypeId);
 
         // Recycle-bin view: the whole query pipeline must run inside DataFilter.Disable<ISoftDelete>.
         //

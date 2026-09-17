@@ -109,30 +109,11 @@ public sealed class DocumentAccessScope
         return _ownerId is { } owner && subject.CreatorId == owner;
     }
 
-    /// <summary>
-    /// Could this scope produce <b>any</b> row of one specific type? Unrestricted, or the type is granted, or the
-    /// scope carries an owner arm and the caller may own documents of that type.
-    /// <para>
-    /// This is the question <c>GetListAsync</c>'s requested <c>DocumentTypeCode</c> and the export's single-type
-    /// gate ask, and it is deliberately weaker than <c>Allows(new DocumentAccessSubject(typeId, null))</c>: that
-    /// form answers "may I reach a document of this type that <i>nobody</i> owns", which is false for an
-    /// owner-armed caller and would hide an uploader's own documents the moment they filtered the list by their
-    /// own type — exactly the day-one failure #635 exists to fix.
-    /// </para>
-    /// </summary>
-    public bool AllowsAnyOfType(Guid documentTypeId)
-        => GrantsWholeType(documentTypeId) || _ownerId is not null;
-
-    /// <summary>
-    /// Does this scope reach <b>every</b> document of one type — unrestricted, or granted on that type — as
-    /// opposed to only the caller's own?
-    /// <para>
-    /// The distinction decides what may be <i>said</i> about a type rather than which rows come back. A caller
-    /// who reaches a type only through the ownership arm holds no grant on it, so describing its schema to them
-    /// (the unknown-field error naming what the type does and does not define) discloses something the rows
-    /// themselves never would.
-    /// </para>
-    /// </summary>
-    public bool GrantsWholeType(Guid documentTypeId)
-        => _documentTypeIds is null || _documentTypeIds.Contains(documentTypeId);
+    // #635 briefly carried two more members here — AllowsAnyOfType and GrantsWholeType — to decide whether a
+    // caller might be TOLD about a type's schema (the unknown-field error naming what a type does and does not
+    // define). The code review established that they reduced no disclosure: IFieldDefinitionAppService.GetListAsync
+    // hands the whole layer's field definitions to any entry holder by recorded decision (#223 / #629), and the
+    // same schema also leaves through export headers, the export's own unknown-field error and the detail page's
+    // missing-required-field names. They are gone rather than kept "in case", because a scope that answers
+    // questions nothing asks is how the next reader concludes the answer is load-bearing.
 }

@@ -442,33 +442,56 @@ public class DocumentOwnership_Tests : DocumentAccessTestBase
     // ===================== GetListAsync's type-code short circuit =====================
 
     /// <summary>
-    /// #635 decision 3: a requested <c>DocumentTypeCode</c> this caller can produce no row of returns an empty
-    /// page <b>before</b> the field filters are resolved, so an unknown-field error can no longer be used to
-    /// enumerate a type's schema from outside the caller's scope. Empty page, not 403.
+    /// A requested <c>DocumentTypeCode</c> this caller can produce no row of returns an empty page — not a 403,
+    /// because after #635 an owner legitimately lists a type they hold no grant on and gets their own rows back.
+    /// The rows are narrowed by the scope predicate, so "outside the scope" needs no branch of its own.
+    /// <para>
+    /// #635 first added a scope-dependent short circuit here so an unknown-field error could not describe a
+    /// type's schema to such a caller. The code review established that it reduced no disclosure —
+    /// <c>IFieldDefinitionAppService.GetListAsync</c> hands the whole layer's field definitions to any entry
+    /// holder by recorded decision (#223 / #629) — so it is gone, and the next fact is the one that matters.
+    /// </para>
     /// </summary>
     [Fact]
-    public async Task A_type_code_outside_the_scope_returns_an_empty_page_without_the_unknown_field_error()
+    public async Task A_type_code_outside_the_scope_returns_an_empty_page()
     {
-        StubQueryable(NewDocument(TypeB.Id, creatorId: StrangerId));
+        // Somebody ELSE`s type-B document: with StrangerId as the creator the caller`s own ownership arm would
+        // reach it, and this fact would pass for the wrong reason.
+        StubQueryable(NewDocument(TypeB.Id, creatorId: OwnerId));
         // Entry plus a Read grant on A only: nothing of type B is reachable, and there is no owner arm to reach
         // one through because this principal owns nothing.
         Grant(VaultExtractPermissions.Documents.Default);
         GrantResource(VaultExtractResourcePermissions.Read, TypeA.Id, StrangerId);
 
-        var page = await AsStrangerAsync(() => AppService.GetListAsync(new GetDocumentListInput
-        {
-            DocumentTypeCode = TypeB.TypeCode,
-            FieldFilters = [new DocumentFieldFilter { Name = "invoice_no", Value = "42" }]
-        }));
+        var page = await AsStrangerAsync(() => AppService.GetListAsync(
+            new GetDocumentListInput { DocumentTypeCode = TypeB.TypeCode }));
 
         page.TotalCount.ShouldBe(0);
         page.Items.ShouldBeEmpty();
     }
 
     /// <summary>
-    /// The counter-case, so the short circuit cannot be "always return empty": a type the caller <i>can</i> reach
-    /// still resolves its field filters, and an unknown field name still loud-fails as a correctable signal.
+    /// An unknown field name loud-fails for <b>everyone</b>, scope or no scope: it is a correctable signal, and
+    /// swallowing it for some callers cost an uploader the message on their own documents while disclosing
+    /// nothing that four other surfaces do not already disclose.
     /// </summary>
+    [Fact]
+    public async Task An_unknown_field_loud_fails_for_a_caller_outside_the_types_scope_too()
+    {
+        StubQueryable(NewDocument(TypeB.Id, creatorId: OwnerId));
+        Grant(VaultExtractPermissions.Documents.Default);
+        GrantResource(VaultExtractResourcePermissions.Read, TypeA.Id, StrangerId);
+
+        var exception = await Should.ThrowAsync<BusinessException>(() => AsStrangerAsync(
+            () => AppService.GetListAsync(new GetDocumentListInput
+            {
+                DocumentTypeCode = TypeB.TypeCode,
+                FieldFilters = [new DocumentFieldFilter { Name = "invoice_no", Value = "42" }]
+            })));
+
+        exception.Code.ShouldBe(VaultExtractErrorCodes.ExtractedField.Unknown);
+    }
+
     [Fact]
     public async Task A_type_code_inside_the_scope_still_loud_fails_on_an_unknown_field()
     {
