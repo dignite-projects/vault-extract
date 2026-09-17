@@ -15,7 +15,7 @@ public class DocumentStatisticsAppServiceTestModule : AbpModule
     public override void ConfigureServices(ServiceConfigurationContext context)
     {
         context.Services.AddSingleton(Substitute.For<IDocumentRepository>());
-        // #635: the statistics gate is now the Statistics rule, evaluated by DocumentTypeAccessChecker, whose
+        // #635: the statistics gate is now the Statistics rule, evaluated by DocumentAccessChecker, whose
         // grant map reads the layer's document types. This suite grants everything (AddAlwaysAllowAuthorization),
         // so the map is never consulted — but it still has to be constructible.
         context.Services.AddSingleton(Substitute.For<DocumentTypes.IDocumentTypeRepository>());

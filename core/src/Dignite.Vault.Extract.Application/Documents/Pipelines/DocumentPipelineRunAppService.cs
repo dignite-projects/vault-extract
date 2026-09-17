@@ -18,24 +18,24 @@ public class DocumentPipelineRunAppService : VaultExtractAppService, IDocumentPi
     private readonly IDocumentRepository _documentRepository;
     private readonly IDocumentPipelineRunRepository _runRepository;
     private readonly DocumentPipelineRunToDocumentPipelineRunDtoMapper _runMapper;
-    private readonly DocumentTypeAccessChecker _documentTypeAccess;
+    private readonly DocumentAccessChecker _documentAccess;
 
     public DocumentPipelineRunAppService(
         IDocumentRepository documentRepository,
         IDocumentPipelineRunRepository runRepository,
         DocumentPipelineRunToDocumentPipelineRunDtoMapper runMapper,
-        DocumentTypeAccessChecker documentTypeAccess)
+        DocumentAccessChecker documentAccess)
     {
         _documentRepository = documentRepository;
         _runRepository = runRepository;
         _runMapper = runMapper;
-        _documentTypeAccess = documentTypeAccess;
+        _documentAccess = documentAccess;
     }
 
     public virtual async Task<List<DocumentPipelineRunDto>> GetListAsync(Guid documentId)
     {
         // #635: resolving the Read scope is the entry assertion, before the load — see DocumentAppService.GetAsync.
-        var scope = await _documentTypeAccess.ResolveScopeAsync(DocumentAccessRule.Read);
+        var scope = await _documentAccess.ResolveScopeAsync(DocumentAccessRule.Read);
 
         // Fail-closed safety gate: assert visibility through the document read path before returning
         // its orchestration state. CheckPolicyAsync alone is insufficient. PipelineRun has its own

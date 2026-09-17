@@ -15,14 +15,14 @@ namespace Dignite.Vault.Extract.Documents;
 public class DocumentStatisticsAppService : VaultExtractAppService, IDocumentStatisticsAppService
 {
     private readonly IDocumentRepository _documentRepository;
-    private readonly DocumentTypeAccessChecker _documentTypeAccess;
+    private readonly DocumentAccessChecker _documentAccess;
 
     public DocumentStatisticsAppService(
         IDocumentRepository documentRepository,
-        DocumentTypeAccessChecker documentTypeAccess)
+        DocumentAccessChecker documentAccess)
     {
         _documentRepository = documentRepository;
-        _documentTypeAccess = documentTypeAccess;
+        _documentAccess = documentAccess;
     }
 
     public virtual async Task<DocumentStatisticsDto> GetAsync()
@@ -35,7 +35,7 @@ public class DocumentStatisticsAppService : VaultExtractAppService, IDocumentSta
         // feeds the list page's badge, the total upload size); a whole-layer overview has no per-type — or
         // per-uploader — meaning, and recomputing it inside one caller's scope would be a different statistic
         // wearing the same name. A caller narrowed to some types sees the list, not the overview.
-        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Statistics, DocumentAccessSubject.None);
+        await _documentAccess.CheckAsync(DocumentAccessRule.Statistics, DocumentAccessSubject.None);
 
         var statistics = await _documentRepository.GetStatisticsAsync();
         return ObjectMapper.Map<DocumentStatisticsModel, DocumentStatisticsDto>(statistics);

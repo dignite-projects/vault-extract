@@ -51,7 +51,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// current type". Every enforcement point in this service calls it; none re-implements the OR inline
     /// (<see cref="UploadAsync"/>, which did, was moved onto it).
     /// </summary>
-    private readonly DocumentTypeAccessChecker _documentTypeAccess;
+    private readonly DocumentAccessChecker _documentAccess;
 
     public DocumentAppService(
         IDocumentRepository documentRepository,
@@ -68,7 +68,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         ReviewStateEvaluator reviewEvaluator,
         ManualClassificationApplier manualClassificationApplier,
         Dignite.Vault.Extract.FlexFields.IVaultExtractFieldTypeRegistry fieldTypeExtensionRegistry,
-        DocumentTypeAccessChecker documentTypeAccess)
+        DocumentAccessChecker documentAccess)
     {
         _documentRepository = documentRepository;
         _documentTypeRepository = documentTypeRepository;
@@ -84,7 +84,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         _reviewEvaluator = reviewEvaluator;
         _manualClassificationApplier = manualClassificationApplier;
         _fieldTypeExtensionRegistry = fieldTypeExtensionRegistry;
-        _documentTypeAccess = documentTypeAccess;
+        _documentAccess = documentAccess;
     }
 
     public virtual async Task<DocumentDto> GetAsync(Guid id)
@@ -96,7 +96,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // #635: the Read scope is resolved BEFORE the load, and resolving it is what asserts entry — a caller with
         // no Documents.Default is refused before existence is disclosed, which is why the read paths gate ahead of
         // the entity load while the mutating families (whose rule needs the document in hand) gate after it.
-        var scope = await _documentTypeAccess.ResolveScopeAsync(DocumentAccessRule.Read);
+        var scope = await _documentAccess.ResolveScopeAsync(DocumentAccessRule.Read);
 
         // #527: load the field-stage children (values + validation warnings) so the detail DTO can project the
         // warnings. FindWithFieldValuesAsync returns null when missing, so preserve GetAsync's fast-fail semantics.
@@ -132,7 +132,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     {
         // #635: the same scope GetAsync resolves, and the same entry assertion inside it — entry is a caller-wide
         // fact and still throws. Only the two id-specific answers fold to null.
-        var scope = await _documentTypeAccess.ResolveScopeAsync(DocumentAccessRule.Read);
+        var scope = await _documentAccess.ResolveScopeAsync(DocumentAccessRule.Read);
 
         var document = await _documentRepository.FindWithFieldValuesAsync(id);
         if (document == null)
@@ -153,7 +153,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // #635 decision 3: the scope is resolved FIRST — before the type code is resolved and, crucially, before
         // any field filter is. Resolving it is also the entry assertion (it throws without Documents.Default),
         // which is why there is no separate CheckPolicyAsync here any more.
-        var scope = await _documentTypeAccess.ResolveScopeAsync(DocumentAccessRule.Read);
+        var scope = await _documentAccess.ResolveScopeAsync(DocumentAccessRule.Read);
 
         // Resolve external type code -> internal DocumentTypeId (#207). If a type code is supplied but the layer has no such type:
         // with field filters -> loud fail because fields cannot be resolved; metadata-only -> empty page because no documents have that type.
@@ -298,7 +298,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // outside it. The attribute never asserted entry, so Documents.Upload alone used to reach this method;
         // the Upload rule is entry AND Documents.Upload. It runs first, before the business fast-fail below, for
         // the same reason every other check in this file moved ahead of its guards: a business error is an oracle.
-        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Upload, DocumentAccessSubject.None);
+        await _documentAccess.CheckAsync(DocumentAccessRule.Upload, DocumentAccessSubject.None);
 
         // Pre-check: the current layer must have at least one DocumentType (CLAUDE.md "two-layer document type system", exact single-layer match).
         // Host startup seeding entry points were removed (HostDocumentTypeDataSeedContributor / DocumentTypeOptions).
@@ -339,7 +339,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         //     per row in AbpResourcePermissionGrants and keyed by the type's immutable Id);
         //   - no DocumentTypeId at all          -> requires ConfirmClassification (see the untyped branch below).
         //
-        // The OR itself lives in DocumentTypeAccessChecker (#632): ABP's ResourcePermissionChecker only consults
+        // The OR itself lives in DocumentAccessChecker (#632): ABP's ResourcePermissionChecker only consults
         // the resource value providers and never falls back to the module-wide permission, so the fallback has to
         // be written by hand — but exactly once, for all four grants, instead of inline here as #629 left it.
         // Both halves are programmatic, not [Authorize], because MCP / reflection dispatch paths do not run the
@@ -360,7 +360,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
                 throw new EntityNotFoundException(typeof(DocumentType), input.DocumentTypeId.Value);
             }
 
-            await _documentTypeAccess.CheckAsync(
+            await _documentAccess.CheckAsync(
                 DocumentAccessRule.DeclareType, DocumentAccessSubject.OfType(declaredType));
         }
         else
@@ -377,7 +377,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
             // resource arm is structurally unreachable and its owner arm is off, so it reduces to exactly
             // ConfirmClassification — plus entry, which the bare CheckPolicyAsync call it replaces never
             // asserted. That was the last untyped escape on the table.
-            await _documentTypeAccess.CheckAsync(DocumentAccessRule.DeclareType, DocumentAccessSubject.None);
+            await _documentAccess.CheckAsync(DocumentAccessRule.DeclareType, DocumentAccessSubject.None);
         }
 
         var fileName = input.File.FileName ?? "document";
@@ -511,7 +511,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     public virtual async Task<IRemoteStreamContent> GetBlobAsync(Guid id)
     {
         // #635: entry asserted by resolving the scope, before the load — see GetAsync.
-        var scope = await _documentTypeAccess.ResolveScopeAsync(DocumentAccessRule.Read);
+        var scope = await _documentAccess.ResolveScopeAsync(DocumentAccessRule.Read);
 
         // Only fetch the blob stream: scalar fields + owned FileOrigin are loaded with the entity, and no child collection is needed.
         var document = await _documentRepository.GetAsync(id, includeDetails: false);
@@ -568,7 +568,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     {
         var document = await _documentRepository.GetAsync(id);
 
-        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Delete, DocumentAccessSubject.Of(document));
+        await _documentAccess.CheckAsync(DocumentAccessRule.Delete, DocumentAccessSubject.Of(document));
 
         if (await _documentRepository.AnyByOriginAsync(id))
         {
@@ -607,7 +607,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // attribute outside it, which is what adds the entry precondition. Before this, Documents.PermanentDelete
         // without Documents.Default hard-deleted a document in an area the caller could not open — the hole #632's
         // review closed for soft delete, reopened one grade up.
-        await _documentTypeAccess.CheckAsync(DocumentAccessRule.PermanentDelete, DocumentAccessSubject.None);
+        await _documentAccess.CheckAsync(DocumentAccessRule.PermanentDelete, DocumentAccessSubject.None);
 
         Document document;
         using (DataFilter.Disable<ISoftDelete>())
@@ -717,7 +717,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
             //     either permitted for this type or it is not, whatever state the row happens to be in.
             // Existence still comes first: GetAsync above throws EntityNotFoundException for an id that does not
             // resolve under the ambient IMultiTenant filter, keeping #629's existence-before-permission ordering.
-            await _documentTypeAccess.CheckAsync(DocumentAccessRule.Restore, DocumentAccessSubject.Of(document));
+            await _documentAccess.CheckAsync(DocumentAccessRule.Restore, DocumentAccessSubject.Of(document));
 
             if (!document.IsDeleted)
             {
@@ -798,7 +798,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // meaning as the module-wide one. Left as it was, a caller holding a Read grant plus Pipelines.Retry
         // re-ran OCR and classification on any readable document, around the per-type Edit gate. It runs BEFORE
         // EnsureNotDeleted and EnsureRetryableAsync, both of which report this document's state.
-        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Retry, DocumentAccessSubject.Of(document));
+        await _documentAccess.CheckAsync(DocumentAccessRule.Retry, DocumentAccessSubject.Of(document));
 
         EnsureNotDeleted(document);
 
@@ -827,7 +827,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
 
         // #632 Edit rule (replaces the method-level [Authorize(ConfirmClassification)], which would have denied a
         // per-type Edit holder before this body could offer the other half of the OR).
-        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Edit, DocumentAccessSubject.Of(document));
+        await _documentAccess.CheckAsync(DocumentAccessRule.Edit, DocumentAccessSubject.Of(document));
 
         EnsureNotDeleted(document);
 
@@ -859,7 +859,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         var document = await _documentRepository.GetAsync(id, includeDetails: false);
 
         // #632 Edit rule (see RerecognizeAsync for why the attribute is gone).
-        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Edit, DocumentAccessSubject.Of(document));
+        await _documentAccess.CheckAsync(DocumentAccessRule.Edit, DocumentAccessSubject.Of(document));
 
         EnsureNotDeleted(document);
 
@@ -946,7 +946,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         }
 
         // #632 Edit rule (see RerecognizeAsync for why the attribute is gone).
-        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Edit, DocumentAccessSubject.Of(document));
+        await _documentAccess.CheckAsync(DocumentAccessRule.Edit, DocumentAccessSubject.Of(document));
 
         // Field definitions hang off DocumentType; unclassified documents have no basis for validating field names.
         EnsureClassified(document);
@@ -1070,7 +1070,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         }
 
         // #632 Edit rule (see RerecognizeAsync for why the attribute is gone).
-        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Edit, DocumentAccessSubject.Of(document));
+        await _documentAccess.CheckAsync(DocumentAccessRule.Edit, DocumentAccessSubject.Of(document));
 
         EnsureNotDeleted(document);
 
@@ -1133,7 +1133,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // #635 Review rule: the same two permission names as Edit, with the ownership arm shut. Rejecting a
         // review is one of the three acts that clear a blocking review reason, and that gate exists so somebody
         // other than the uploader passes judgment on the uploader's work.
-        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Review, DocumentAccessSubject.Of(document));
+        await _documentAccess.CheckAsync(DocumentAccessRule.Review, DocumentAccessSubject.Of(document));
 
         document.RejectReview(input.Reason);
         await _documentRepository.UpdateAsync(document, autoSave: true);
@@ -1159,7 +1159,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // #635 Review rule, not Edit: allowing a suspected duplicate clears a blocking reason, and a duplicate
         // invoice is precisely the case the review queue exists for — so the uploader's own ownership arm does
         // not open it. Granting Edit on the type, or ConfirmClassification, admits a reviewer as before.
-        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Review, DocumentAccessSubject.Of(document));
+        await _documentAccess.CheckAsync(DocumentAccessRule.Review, DocumentAccessSubject.Of(document));
 
         document.AllowDuplicate();
         await _pipelineRunManager.ReDeriveLifecycleAsync(document);
@@ -1193,7 +1193,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // in-progress guard, which #527 had first as a fast-fail: running that guard first would tell a caller
         // with no review right whether this document has a field-extraction run in flight. Authorization
         // outranks the fast-fail.
-        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Review, DocumentAccessSubject.Of(document));
+        await _documentAccess.CheckAsync(DocumentAccessRule.Review, DocumentAccessSubject.Of(document));
 
         // Reject while field extraction is in progress: a pending/running run would replace the whole warning set on
         // completion and overwrite the operator's decision (throws RetryInProgress).
@@ -1225,7 +1225,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // filing a document under someone else's cabinet is not a read-side act however it is described. Leaving
         // it on Read meant a Read grant was no longer read-only. The owner arm comes with the Edit rule, so an
         // uploader may file their own document.
-        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Edit, DocumentAccessSubject.Of(document));
+        await _documentAccess.CheckAsync(DocumentAccessRule.Edit, DocumentAccessSubject.Of(document));
 
         if (input.CabinetId.HasValue)
         {
@@ -1266,7 +1266,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // Documents.ConfirmClassification or an Edit grant on whatever type it carries today. An unclassified
         // document carries none, so Confirm on a fresh document reduces to the module-wide permission — exactly
         // the pre-#632 behaviour.
-        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Edit, DocumentAccessSubject.Of(document));
+        await _documentAccess.CheckAsync(DocumentAccessRule.Edit, DocumentAccessSubject.Of(document));
 
         // Type validation responsibility lives in AppService and no longer goes through manager-internal EnsureRegisteredTypeCodeAsync:
         // resolve by immutable Id (#207), with tenant isolation delegated to ABP IMultiTenant global filters for exact single-layer matching.
@@ -1288,7 +1288,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // document's processing state from the business error before the target-type permission was ever
         // consulted. Same reordering RestoreAsync and ResolveFieldValidationWarningsAsync already carry:
         // authorization outranks a fast-fail, because a business error is an oracle.
-        await _documentTypeAccess.CheckAsync(DocumentAccessRule.DeclareType, DocumentAccessSubject.OfType(typeDef));
+        await _documentAccess.CheckAsync(DocumentAccessRule.DeclareType, DocumentAccessSubject.OfType(typeDef));
 
         // A type can only be confirmed on a document that has text -- mirrors RerecognizeAsync / ReextractFieldsAsync.
         // Without this guard the cascade field extraction below would run over an empty body, and since
@@ -1395,12 +1395,12 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     {
         return new DocumentRightsDto
         {
-            CanRead = await _documentTypeAccess.IsGrantedAsync(DocumentAccessRule.Read, subject),
-            CanEdit = await _documentTypeAccess.IsGrantedAsync(DocumentAccessRule.Edit, subject),
-            CanReview = await _documentTypeAccess.IsGrantedAsync(DocumentAccessRule.Review, subject),
-            CanDelete = await _documentTypeAccess.IsGrantedAsync(DocumentAccessRule.Delete, subject),
-            CanRestore = await _documentTypeAccess.IsGrantedAsync(DocumentAccessRule.Restore, subject),
-            CanRetry = await _documentTypeAccess.IsGrantedAsync(DocumentAccessRule.Retry, subject)
+            CanRead = await _documentAccess.IsGrantedAsync(DocumentAccessRule.Read, subject),
+            CanEdit = await _documentAccess.IsGrantedAsync(DocumentAccessRule.Edit, subject),
+            CanReview = await _documentAccess.IsGrantedAsync(DocumentAccessRule.Review, subject),
+            CanDelete = await _documentAccess.IsGrantedAsync(DocumentAccessRule.Delete, subject),
+            CanRestore = await _documentAccess.IsGrantedAsync(DocumentAccessRule.Restore, subject),
+            CanRetry = await _documentAccess.IsGrantedAsync(DocumentAccessRule.Retry, subject)
         };
     }
 

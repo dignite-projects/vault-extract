@@ -40,7 +40,7 @@ public class DocumentAppServiceUploadDeclaredTypeTestModule : AbpModule
         {
             Granted = new HashSet<string>
             {
-                // #632: Documents.Default is ENTRY, and DocumentTypeAccessChecker now asserts it before either
+                // #632: Documents.Default is ENTRY, and DocumentAccessChecker now asserts it before either
                 // half of the OR is evaluated. Every real caller carries it (ABP's dialog grants the parent
                 // with the child), so this default set carries it too — otherwise every declared-type upload
                 // below would fail for a reason none of these facts is about.

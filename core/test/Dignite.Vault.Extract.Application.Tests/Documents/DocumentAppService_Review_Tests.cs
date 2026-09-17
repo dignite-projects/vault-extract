@@ -391,7 +391,7 @@ public class DocumentAppService_Review_Tests
                 Substitute.For<IDistributedEventBus>(),
                 Substitute.For<Volo.Abp.Timing.IClock>()),
             Substitute.For<Dignite.Vault.Extract.FlexFields.IVaultExtractFieldTypeRegistry>(),
-            new DocumentTypeAccessChecker(
+            new DocumentAccessChecker(
                 Substitute.For<Microsoft.AspNetCore.Authorization.IAuthorizationService>(),
                 Substitute.For<Volo.Abp.Users.ICurrentUser>(),
                 new DocumentTypeGrantMap(

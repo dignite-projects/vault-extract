@@ -71,7 +71,7 @@ public static class DocumentQueries
         //
         // Untyped rows (DocumentTypeId == null: unclassified, failed classification, containers) are reached
         // only through the owner arm — they belong to no type, so no grant can name them. That is the same rule
-        // DocumentTypeAccessChecker applies to a single document, expressed as a predicate.
+        // DocumentAccessChecker applies to a single document, expressed as a predicate.
         //
         // Placing it in the SHARED chain rather than in the list is the point: the operator list, the export and
         // the MCP search all reach rows through here, so "download the current view" and "search over MCP" cannot
@@ -119,7 +119,7 @@ public class DocumentMetadataFilter
 
     /// <summary>
     /// The caller's read scope (#635): what this caller may reach, as one non-nullable object. It is resolved by
-    /// <c>DocumentTypeAccessChecker.ResolveScopeAsync(DocumentAccessRule.Read)</c>, never by a caller's DTO — a
+    /// <c>DocumentAccessChecker.ResolveScopeAsync(DocumentAccessRule.Read)</c>, never by a caller's DTO — a
     /// client cannot widen it.
     /// <para>
     /// The default is <see cref="DocumentAccessScope.Unrestricted"/>, which matches every other member's "absent

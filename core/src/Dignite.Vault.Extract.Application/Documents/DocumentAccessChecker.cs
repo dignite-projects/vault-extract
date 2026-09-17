@@ -51,13 +51,13 @@ namespace Dignite.Vault.Extract.Documents;
 /// holds the answers for the rest of the request.
 /// </para>
 /// </summary>
-public class DocumentTypeAccessChecker : ITransientDependency
+public class DocumentAccessChecker : ITransientDependency
 {
     private readonly IAuthorizationService _authorizationService;
     private readonly ICurrentUser _currentUser;
     private readonly DocumentTypeGrantMap _grantMap;
 
-    public DocumentTypeAccessChecker(
+    public DocumentAccessChecker(
         IAuthorizationService authorizationService,
         ICurrentUser currentUser,
         DocumentTypeGrantMap grantMap)

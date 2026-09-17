@@ -33,7 +33,7 @@ public class DocumentExportAppService : VaultExtractAppService, IDocumentExportA
     private readonly IFieldTypeResolver _fieldTypeResolver;
     private readonly IFlexFieldQueryExecutor<Document> _flexFieldQueryExecutor;
     private readonly IVaultExtractFieldTypeRegistry _fieldTypeExtensionRegistry;
-    private readonly DocumentTypeAccessChecker _documentTypeAccess;
+    private readonly DocumentAccessChecker _documentAccess;
 
     public DocumentExportAppService(
         IDocumentRepository documentRepository,
@@ -42,7 +42,7 @@ public class DocumentExportAppService : VaultExtractAppService, IDocumentExportA
         IFieldTypeResolver fieldTypeResolver,
         IFlexFieldQueryExecutor<Document> flexFieldQueryExecutor,
         IVaultExtractFieldTypeRegistry fieldTypeExtensionRegistry,
-        DocumentTypeAccessChecker documentTypeAccess)
+        DocumentAccessChecker documentAccess)
     {
         _documentRepository = documentRepository;
         _documentTypeRepository = documentTypeRepository;
@@ -50,7 +50,7 @@ public class DocumentExportAppService : VaultExtractAppService, IDocumentExportA
         _fieldTypeResolver = fieldTypeResolver;
         _flexFieldQueryExecutor = flexFieldQueryExecutor;
         _fieldTypeExtensionRegistry = fieldTypeExtensionRegistry;
-        _documentTypeAccess = documentTypeAccess;
+        _documentAccess = documentAccess;
     }
 
     public virtual async Task<IRemoteStreamContent> ExportAsync(ExportDocumentsInput input)
@@ -59,7 +59,7 @@ public class DocumentExportAppService : VaultExtractAppService, IDocumentExportA
         // service used to carry. The attribute never asserted entry, and the read scope deliberately did not
         // either, so Documents.Export plus a Read grant used to bulk-download out of an area the caller could not
         // open. Admission first, before the type code is even looked up.
-        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Export, DocumentAccessSubject.None);
+        await _documentAccess.CheckAsync(DocumentAccessRule.Export, DocumentAccessSubject.None);
 
         // An unknown type code loud-fails rather than yielding an empty file. The list may legitimately show an
         // empty page for a type that does not exist in this layer, but an export is an artifact the operator
@@ -79,7 +79,7 @@ public class DocumentExportAppService : VaultExtractAppService, IDocumentExportA
         // everyone who can ask is not a gate. The rows are narrowed by the predicate instead, exactly as the
         // operator list narrows the view this file is a download of. An unknown type code still loud-fails
         // above: "this type does not exist in your layer" is a statement about the layer, and stays a refusal.
-        var readScope = await _documentTypeAccess.ResolveScopeAsync(DocumentAccessRule.Read);
+        var readScope = await _documentAccess.ResolveScopeAsync(DocumentAccessRule.Read);
 
         // #499 decision (a): columns come from the type's LIVE field definitions, ordered by DisplayOrder — the
         // same rows, in the same order, that drive the operator list's dynamic columns. Values a document still
