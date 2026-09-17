@@ -52,7 +52,7 @@ public class DocumentTypeToolsTestModule : AbpModule
 
 /// <summary>
 /// Thin-shell behavior of <see cref="DocumentTypeTools.ListAsync"/>: delegates to
-/// <see cref="IDocumentTypeAppService.GetVisibleAsync"/> plus
+/// <see cref="IDocumentTypeAppService.GetVisibleSummariesAsync"/> plus
 /// <see cref="IFieldDefinitionAppService.GetListAsync"/> in one batch with DocumentTypeId left blank to
 /// eliminate per-type N+1, and maps results to <see cref="DocumentTypeListResult"/>. displayName is
 /// wrapped by <c>PromptBoundary</c>; results are sorted by TypeCode and truncated to
@@ -83,10 +83,10 @@ public class DocumentTypeTools_Tests : VaultExtractTestBase<DocumentTypeToolsTes
         var tenantId = Guid.NewGuid();
         var typeId = Guid.NewGuid();
         var currentTenant = GetRequiredService<ICurrentTenant>();
-        _documentTypeAppService.GetVisibleAsync(Arg.Any<bool>()).Returns(_ =>
+        _documentTypeAppService.GetVisibleSummariesAsync().Returns(_ =>
         {
             currentTenant.Id.ShouldBe(tenantId);
-            return Task.FromResult<List<DocumentTypeDto>>(
+            return Task.FromResult<List<DocumentTypeSummaryDto>>(
             [
                 new()
                 {
@@ -115,15 +115,16 @@ public class DocumentTypeTools_Tests : VaultExtractTestBase<DocumentTypeToolsTes
     }
 
     /// <summary>
-    /// #632 closes the #629 leftover "populator cost on MCP paths". The MCP surface lists types for an LLM and
-    /// never reads <c>DocumentTypeDto.ResourcePermissions</c>, so it must ask <c>GetVisibleAsync</c> to skip ABP's
-    /// <c>ResourcePermissionPopulator</c> — one multi-permission check per type, paid for nothing. Asserted once,
-    /// here, rather than pinned into every setup in this file: the other tests only need the call to resolve.
+    /// #636 (closing the #629/#632 leftover "populator cost on MCP paths"): the MCP surface lists types for an
+    /// LLM and never reads a caller's per-type grants, so it must call the narrow
+    /// <c>GetVisibleSummariesAsync</c> read, which skips ABP's <c>ResourcePermissionPopulator</c> entirely — not
+    /// the full <c>GetVisibleAsync</c>. Asserted once, here, rather than pinned into every setup in this file: the
+    /// other tests only need the call to resolve.
     /// </summary>
     [Fact]
-    public async Task List_tool_skips_the_resource_permission_populator()
+    public async Task List_tool_uses_the_narrow_summary_read()
     {
-        _documentTypeAppService.GetVisibleAsync(Arg.Any<bool>()).Returns(new List<DocumentTypeDto>());
+        _documentTypeAppService.GetVisibleSummariesAsync().Returns(new List<DocumentTypeSummaryDto>());
 
         await DocumentTypeTools.ListAsync(
             _documentTypeAppService,
@@ -131,8 +132,8 @@ public class DocumentTypeTools_Tests : VaultExtractTestBase<DocumentTypeToolsTes
             _fieldTypeResolver,
             _fieldTypeExtensionRegistry);
 
-        await _documentTypeAppService.Received(1).GetVisibleAsync(false);
-        await _documentTypeAppService.DidNotReceive().GetVisibleAsync(true);
+        await _documentTypeAppService.Received(1).GetVisibleSummariesAsync();
+        await _documentTypeAppService.DidNotReceive().GetVisibleAsync();
     }
 
     [Fact]
@@ -140,8 +141,8 @@ public class DocumentTypeTools_Tests : VaultExtractTestBase<DocumentTypeToolsTes
     {
         var typeId = Guid.NewGuid();
         _documentTypeAppService
-            .GetVisibleAsync(Arg.Any<bool>())
-            .Returns(new List<DocumentTypeDto>
+            .GetVisibleSummariesAsync()
+            .Returns(new List<DocumentTypeSummaryDto>
             {
                 new()
                 {
@@ -208,7 +209,7 @@ public class DocumentTypeTools_Tests : VaultExtractTestBase<DocumentTypeToolsTes
     [Fact]
     public async Task Returns_empty_list_when_no_visible_types()
     {
-        _documentTypeAppService.GetVisibleAsync(Arg.Any<bool>()).Returns(new List<DocumentTypeDto>());
+        _documentTypeAppService.GetVisibleSummariesAsync().Returns(new List<DocumentTypeSummaryDto>());
 
         var result = await DocumentTypeTools.ListAsync(
             _documentTypeAppService, _fieldDefinitionAppService, _fieldTypeResolver, _fieldTypeExtensionRegistry);
@@ -225,7 +226,7 @@ public class DocumentTypeTools_Tests : VaultExtractTestBase<DocumentTypeToolsTes
         // Exactly at the limit: return all results with no truncation signal; within-limit behavior is
         // unchanged.
         var total = VaultExtractMcpConsts.MaxDocumentTypeResults;
-        _documentTypeAppService.GetVisibleAsync(Arg.Any<bool>()).Returns(BuildTypes(total));
+        _documentTypeAppService.GetVisibleSummariesAsync().Returns(BuildTypes(total));
         _fieldDefinitionAppService
             .GetListAsync(Arg.Any<GetFieldDefinitionListInput>())
             .Returns(new List<FieldDefinitionDto>());
@@ -245,7 +246,7 @@ public class DocumentTypeTools_Tests : VaultExtractTestBase<DocumentTypeToolsTes
         // create arbitrarily many types. Over-limit results must be truncated and explicitly tell the LLM
         // there are more via truncated + totalCount.
         var total = VaultExtractMcpConsts.MaxDocumentTypeResults + 5;
-        _documentTypeAppService.GetVisibleAsync(Arg.Any<bool>()).Returns(BuildTypes(total));
+        _documentTypeAppService.GetVisibleSummariesAsync().Returns(BuildTypes(total));
         _fieldDefinitionAppService
             .GetListAsync(Arg.Any<GetFieldDefinitionListInput>())
             .Returns(new List<FieldDefinitionDto>());
@@ -267,10 +268,10 @@ public class DocumentTypeTools_Tests : VaultExtractTestBase<DocumentTypeToolsTes
 
     private static string TypeCodeOf(int index) => $"type.{index:D4}";
 
-    private static List<DocumentTypeDto> BuildTypes(int count)
+    private static List<DocumentTypeSummaryDto> BuildTypes(int count)
     {
         return Enumerable.Range(0, count)
-            .Select(i => new DocumentTypeDto
+            .Select(i => new DocumentTypeSummaryDto
             {
                 Id = Guid.NewGuid(),
                 TypeCode = TypeCodeOf(i),

@@ -26,28 +26,28 @@ public sealed record DocumentAccessRule(string ModuleWidePermission, string Reso
     /// <summary>Detail, blob, list / export rows, pipeline runs, and the MCP paths that delegate to them.</summary>
     public static readonly DocumentAccessRule Read = new(
         VaultExtractPermissions.Documents.ReadAll,
-        VaultExtractPermissions.DocumentTypes.Resources.Read);
+        VaultExtractResourcePermissions.Read);
 
     /// <summary>The operator edit family (confirm / reclassify / re-recognize / re-extract / update / reject / allow duplicate / resolve warnings).</summary>
     public static readonly DocumentAccessRule Edit = new(
         VaultExtractPermissions.Documents.ConfirmClassification,
-        VaultExtractPermissions.DocumentTypes.Resources.Edit);
+        VaultExtractResourcePermissions.Edit);
 
     /// <summary>Soft delete. Permanent delete stays module-wide only, by decision.</summary>
     public static readonly DocumentAccessRule Delete = new(
         VaultExtractPermissions.Documents.Delete,
-        VaultExtractPermissions.DocumentTypes.Resources.Delete);
+        VaultExtractResourcePermissions.Delete);
 
     /// <summary>
     /// Restore from the recycle bin, and reaching the recycle bin at all. <b>Whoever may delete may undo:</b> the
-    /// per-type half is deliberately <see cref="VaultExtractPermissions.DocumentTypes.Resources.Delete"/> — the
+    /// per-type half is deliberately <see cref="VaultExtractResourcePermissions.Delete"/> — the
     /// same grant <see cref="Delete"/> uses — rather than a fifth resource permission. Undoing an operation is not
     /// a wider right than the operation; a per-type deleter who could not restore would have to escalate a mistake
     /// of their own making to an admin, and a fifth frozen string buys nothing (#632).
     /// </summary>
     public static readonly DocumentAccessRule Restore = new(
         VaultExtractPermissions.Documents.Restore,
-        VaultExtractPermissions.DocumentTypes.Resources.Delete);
+        VaultExtractResourcePermissions.Delete);
 
     /// <summary>
     /// Declaring / assigning a type: <c>UploadAsync</c>'s <c>DocumentTypeId</c> and the <b>target</b> type of
@@ -56,7 +56,7 @@ public sealed record DocumentAccessRule(string ModuleWidePermission, string Reso
     /// </summary>
     public static readonly DocumentAccessRule DeclareType = new(
         VaultExtractPermissions.Documents.ConfirmClassification,
-        VaultExtractPermissions.DocumentTypes.Resources.Upload);
+        VaultExtractResourcePermissions.Upload);
 }
 
 /// <summary>
@@ -180,7 +180,7 @@ public class DocumentTypeAccessChecker : ITransientDependency
 
         return await _resourcePermissionChecker.IsGrantedAsync(
             rule.ResourcePermission,
-            VaultExtractPermissions.DocumentTypes.Resources.Name,
+            VaultExtractResourcePermissions.Name,
             documentTypeId.Value.ToString());
     }
 
@@ -249,7 +249,7 @@ public class DocumentTypeAccessChecker : ITransientDependency
         {
             if (await _resourcePermissionChecker.IsGrantedAsync(
                     rule.ResourcePermission,
-                    VaultExtractPermissions.DocumentTypes.Resources.Name,
+                    VaultExtractResourcePermissions.Name,
                     type.Id.ToString()))
             {
                 return true;
@@ -305,8 +305,8 @@ public class DocumentTypeAccessChecker : ITransientDependency
         foreach (var type in types)
         {
             if (await _resourcePermissionChecker.IsGrantedAsync(
-                    VaultExtractPermissions.DocumentTypes.Resources.Read,
-                    VaultExtractPermissions.DocumentTypes.Resources.Name,
+                    VaultExtractResourcePermissions.Read,
+                    VaultExtractResourcePermissions.Name,
                     type.Id.ToString()))
             {
                 readable.Add(type.Id);

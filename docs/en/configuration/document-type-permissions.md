@@ -101,7 +101,7 @@ Keeping that would make the per-type grant trivially bypassable: upload untyped,
 
 On `GetVisibleAsync`, every returned `DocumentTypeDto` carries a `resourcePermissions` dictionary filled with the calling principal's own grants on that type — all four keys — so the client does not have to guess; other endpoints return it empty.
 
-`GetVisibleAsync` takes an optional `includeResourcePermissions` parameter (default `true`). The MCP tools and resources pass `false`: they list types for an LLM and never read the dictionary, so filling it would be one multi-permission check per type paid for nothing. An empty dictionary from that path means "not asked", not "no grants".
+The MCP tools and resources list types for an LLM and never read the dictionary, so they call a separate, narrower method, `GetVisibleSummariesAsync`, which returns `DocumentTypeSummaryDto` — identity and display text only, with no `resourcePermissions` member at all — instead of paying for one multi-permission check per type and discarding the result.
 
 Client-side rights are a convenience only; the server enforces the same rule regardless of what the client sends.
 

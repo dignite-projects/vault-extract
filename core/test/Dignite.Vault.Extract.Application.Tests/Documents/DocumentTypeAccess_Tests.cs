@@ -130,7 +130,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         var document = StubDocument(_typeA.Id);
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Read, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
 
         var dto = await AsPrincipalAsync(() => _appService.GetAsync(document.Id));
 
@@ -143,7 +143,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         var document = StubDocument(_typeB.Id);
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Read, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
 
         await Should.ThrowAsync<AbpAuthorizationException>(
             () => AsPrincipalAsync(() => _appService.GetAsync(document.Id)));
@@ -158,8 +158,8 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         var document = StubDocument(documentTypeId: null);
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Read, _typeA.Id);
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Read, _typeB.Id);
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Read, _typeB.Id);
 
         await Should.ThrowAsync<AbpAuthorizationException>(
             () => AsPrincipalAsync(() => _appService.GetAsync(document.Id)));
@@ -185,13 +185,86 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
             .Returns(_ => new MemoryStream([1, 2, 3]));
 
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Read, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
 
         var stream = await AsPrincipalAsync(() => _appService.GetBlobAsync(granted.Id));
         stream.ShouldNotBeNull();
 
         await Should.ThrowAsync<AbpAuthorizationException>(
             () => AsPrincipalAsync(() => _appService.GetBlobAsync(denied.Id)));
+    }
+
+    // ===================== FindForCallerAsync (#636) =====================
+
+    [Fact]
+    public async Task FindForCallerAsync_returns_the_dto_when_granted()
+    {
+        var document = StubDocument(_typeA.Id);
+        GrantEntryOnly();
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
+
+        var dto = await AsPrincipalAsync(() => _appService.FindForCallerAsync(document.Id));
+
+        dto.ShouldNotBeNull();
+        dto!.Id.ShouldBe(document.Id);
+        dto.DocumentTypeCode.ShouldBe(_typeA.TypeCode);
+    }
+
+    /// <summary>Mirrors <see cref="GetAsync_is_denied_for_a_document_of_another_type"/>: null instead of a throw.</summary>
+    [Fact]
+    public async Task FindForCallerAsync_returns_null_for_a_document_of_another_type()
+    {
+        var document = StubDocument(_typeB.Id);
+        GrantEntryOnly();
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
+
+        var dto = await AsPrincipalAsync(() => _appService.FindForCallerAsync(document.Id));
+
+        dto.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// Mirrors <see cref="GetAsync_is_denied_for_an_untyped_document_however_many_grants_the_caller_holds"/>: the
+    /// fail-closed half — an untyped document belongs to no type, so no per-type grant can reach it.
+    /// </summary>
+    [Fact]
+    public async Task FindForCallerAsync_returns_null_for_an_untyped_document_however_many_grants_the_caller_holds()
+    {
+        var document = StubDocument(documentTypeId: null);
+        GrantEntryOnly();
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Read, _typeB.Id);
+
+        var dto = await AsPrincipalAsync(() => _appService.FindForCallerAsync(document.Id));
+
+        dto.ShouldBeNull();
+    }
+
+    /// <summary>Nonexistent id (unstubbed on the repository) — the third null case, alongside wrong-type and untyped.</summary>
+    [Fact]
+    public async Task FindForCallerAsync_returns_null_for_a_nonexistent_document()
+    {
+        GrantEntryOnly();
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
+
+        var dto = await AsPrincipalAsync(() => _appService.FindForCallerAsync(Guid.NewGuid()));
+
+        dto.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// The one case that does NOT fold to null: a caller with no entry (Documents.Default) at all still throws
+    /// AbpAuthorizationException, unrelated to whether the id names a real document — entry is a caller-wide fact,
+    /// not an id-specific one, and folding it into null would make "no permission" indistinguishable from "wrong id".
+    /// </summary>
+    [Fact]
+    public async Task FindForCallerAsync_throws_when_the_caller_has_no_entry()
+    {
+        var document = StubDocument(_typeA.Id);
+        GrantNothing();
+
+        await Should.ThrowAsync<AbpAuthorizationException>(
+            () => AsPrincipalAsync(() => _appService.FindForCallerAsync(document.Id)));
     }
 
     // ===================== Edit =====================
@@ -202,7 +275,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
         var granted = StubDocument(_typeA.Id);
         var denied = StubDocument(_typeB.Id);
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Edit, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Edit, _typeA.Id);
 
         // RejectReviewAsync stands in for the whole edit family: all nine methods share the one helper call, so a
         // per-method repeat would assert the same line nine times. The family membership itself is asserted
@@ -220,7 +293,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         var document = StubDocument(documentTypeId: null);
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Edit, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Edit, _typeA.Id);
 
         await Should.ThrowAsync<AbpAuthorizationException>(() => AsPrincipalAsync(() =>
             _appService.RejectReviewAsync(document.Id, new RejectReviewInput { Reason = "x" })));
@@ -280,7 +353,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
         var granted = StubDocument(_typeA.Id);
         var denied = StubDocument(_typeB.Id);
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Delete, _typeA.Id);
 
         await AsPrincipalAsync(() => _appService.DeleteAsync(granted.Id));
         await _documentRepository.Received(1).DeleteAsync(granted.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>());
@@ -314,7 +387,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
         var granted = StubDocument(_typeA.Id, deleted: true);
         var denied = StubDocument(_typeB.Id, deleted: true);
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Delete, _typeA.Id);
 
         await AsPrincipalAsync(() => _appService.RestoreAsync(granted.Id));
         granted.IsDeleted.ShouldBeFalse();
@@ -329,7 +402,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         var untyped = StubDocument(documentTypeId: null, deleted: true);
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Delete, _typeA.Id);
 
         // Untyped: no grant can name it, so the per-type half cannot reach it.
         await Should.ThrowAsync<AbpAuthorizationException>(
@@ -352,7 +425,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         var live = StubDocument(_typeB.Id, deleted: false);
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Delete, _typeA.Id);
 
         await Should.ThrowAsync<AbpAuthorizationException>(
             () => AsPrincipalAsync(() => _appService.RestoreAsync(live.Id)));
@@ -369,7 +442,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
         var document = StubDocument(_typeB.Id, deleted: true);
         _typeB.IsDeleted = true;
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Delete, _typeA.Id);
 
         await Should.ThrowAsync<AbpAuthorizationException>(
             () => AsPrincipalAsync(() => _appService.RestoreAsync(document.Id)));
@@ -389,8 +462,8 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
             NewDocument(_typeB.Id, deleted: true),
             NewDocument(_typeA.Id));
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Read, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Delete, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
 
         var page = await AsPrincipalAsync(
             () => _appService.GetListAsync(new GetDocumentListInput { IsDeleted = true }));
@@ -404,7 +477,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         StubQueryable(NewDocument(_typeA.Id, deleted: true));
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Read, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
 
         await Should.ThrowAsync<AbpAuthorizationException>(() => AsPrincipalAsync(
             () => _appService.GetListAsync(new GetDocumentListInput { IsDeleted = true })));
@@ -420,7 +493,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         StubQueryable(NewDocument(_typeA.Id, deleted: true), NewDocument(_typeB.Id, deleted: true));
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Delete, _typeA.Id);
 
         var page = await AsPrincipalAsync(
             () => _appService.GetListAsync(new GetDocumentListInput { IsDeleted = true }));
@@ -454,7 +527,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
             NewDocument(_typeA.Id), NewDocument(_typeA.Id), NewDocument(_typeB.Id), NewDocument(documentTypeId: null));
 
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Read, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
 
         var page = await AsPrincipalAsync(() => _appService.GetListAsync(new GetDocumentListInput()));
 
@@ -496,7 +569,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         StubQueryable(NewDocument(_typeA.Id), NewDocument(_typeB.Id));
         Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Export);
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Read, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
 
         var file = await AsPrincipalAsync(() => _exportAppService.ExportAsync(new ExportDocumentsInput
         {
@@ -535,7 +608,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         var document = StubDocument(_typeA.Id);
         GrantNothing();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Edit, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Edit, _typeA.Id);
 
         await Should.ThrowAsync<AbpAuthorizationException>(() => AsPrincipalAsync(() =>
             _appService.RejectReviewAsync(document.Id, new RejectReviewInput { Reason = "x" })));
@@ -552,7 +625,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         var document = StubDocument(_typeA.Id);
         GrantNothing();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Delete, _typeA.Id);
 
         await Should.ThrowAsync<AbpAuthorizationException>(
             () => AsPrincipalAsync(() => _appService.DeleteAsync(document.Id)));
@@ -571,7 +644,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         var document = StubDocument(_typeA.Id, deleted: true);
         GrantNothing();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Delete, _typeA.Id);
 
         await Should.ThrowAsync<AbpAuthorizationException>(
             () => AsPrincipalAsync(() => _appService.RestoreAsync(document.Id)));
@@ -621,7 +694,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         StubQueryable(NewDocument(_typeA.Id, deleted: true));
         GrantNothing();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Delete, _typeA.Id);
 
         await Should.ThrowAsync<AbpAuthorizationException>(() => AsPrincipalAsync(
             () => _appService.GetListAsync(new GetDocumentListInput { IsDeleted = true })));
@@ -652,7 +725,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
         var document = StubDocument(_typeA.Id);
         document.Markdown.ShouldBeNullOrEmpty();
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Edit, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Edit, _typeA.Id);
 
         await Should.ThrowAsync<AbpAuthorizationException>(() => AsPrincipalAsync(() =>
             _appService.ReclassifyAsync(document.Id, new ReclassifyDocumentInput { DocumentTypeId = _typeB.Id })));
@@ -672,7 +745,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         _resourcePermissionStore.Grant(
             permissionName,
-            VaultExtractPermissions.DocumentTypes.Resources.Name,
+            VaultExtractResourcePermissions.Name,
             documentTypeId.ToString(),
             UserResourcePermissionValueProvider.ProviderName,
             UserId.ToString());

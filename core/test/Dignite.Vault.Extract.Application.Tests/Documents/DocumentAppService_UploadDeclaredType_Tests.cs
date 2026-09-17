@@ -139,8 +139,8 @@ public class DocumentAppService_UploadDeclaredType_Tests
     private void GrantResource(string providerName, string providerKey, Guid documentTypeId)
     {
         _resourcePermissionStore.Grant(
-            VaultExtractPermissions.DocumentTypes.Resources.Upload,
-            VaultExtractPermissions.DocumentTypes.Resources.Name,
+            VaultExtractResourcePermissions.Upload,
+            VaultExtractResourcePermissions.Name,
             documentTypeId.ToString(),
             providerName,
             providerKey);

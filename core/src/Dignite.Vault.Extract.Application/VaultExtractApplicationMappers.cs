@@ -150,6 +150,18 @@ public partial class DocumentTypeToDtoMapper : MapperBase<DocumentType, Document
 }
 
 /// <summary>
+/// DocumentType -> DocumentTypeSummaryDto (#636). Target-only projection: DocumentTypeSummaryDto carries no
+/// counterpart to Description / ConfidenceThreshold / Priority / TenantId / ResourcePermissions, all correctly
+/// left unmapped under RequiredMappingStrategy.Target (which only requires every TARGET member to have a source).
+/// </summary>
+[Mapper(RequiredMappingStrategy = RequiredMappingStrategy.Target)]
+public partial class DocumentTypeToSummaryDtoMapper : MapperBase<DocumentType, DocumentTypeSummaryDto>
+{
+    public override partial DocumentTypeSummaryDto Map(DocumentType source);
+    public override partial void Map(DocumentType source, DocumentTypeSummaryDto destination);
+}
+
+/// <summary>
 /// Field -> FieldDefinitionDto. All scalar values, including the immutable <see cref="Field.DocumentTypeId"/>
 /// (#207), are mapped directly by Mapperly with no lookup projection. The DTO keeps the v2 name because it
 /// names the concept the egress exposes; only the entity behind it changed (#559).

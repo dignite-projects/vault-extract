@@ -46,11 +46,12 @@ public sealed class DocumentTypeTools
         var explicitTenantId = await McpTenantScope.ResolveAsync(tenantId, serviceProvider, cancellationToken);
         using var tenantScope = McpTenantScope.Enter(explicitTenantId, serviceProvider);
 
-        // Delegate to GetVisibleAsync. Fail-closed authorization assertions and ambient tenant
+        // Delegate to GetVisibleSummariesAsync. Fail-closed authorization assertions and ambient tenant
         // isolation (two-layer independent single-layer model) execute inside the AppService.
-        // #632: the populator is skipped — this path lists types for an LLM and never reads the per-type grant
-        // dictionary, so filling it would be one multi-permission check per type paid for nothing.
-        var types = await documentTypeAppService.GetVisibleAsync(includeResourcePermissions: false);
+        // #636: this path lists types for an LLM and never reads a caller's per-type grants, so it uses the
+        // narrow summary read, which skips ABP's ResourcePermissionPopulator entirely rather than paying for it
+        // and discarding the result.
+        var types = await documentTypeAppService.GetVisibleSummariesAsync();
 
         // Hard result cap (llm-call-anti-patterns counterexample B point 3): full enumeration can
         // blow up LLM context and create a cost-attack surface. Sort stably by TypeCode before

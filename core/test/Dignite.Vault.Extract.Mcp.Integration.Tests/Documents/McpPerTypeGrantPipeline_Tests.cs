@@ -78,7 +78,7 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
             typeB = await SeedTypeAsync("per.type.upload.b");
             await GrantAsync(UploaderId, VaultExtractPermissions.Documents.Default);
             await GrantAsync(UploaderId, VaultExtractPermissions.Documents.Upload);
-            await GrantResourceAsync(UploaderId, VaultExtractPermissions.DocumentTypes.Resources.Upload, typeA);
+            await GrantResourceAsync(UploaderId, VaultExtractResourcePermissions.Upload, typeA);
         });
 
         using (_principalAccessor.Change(Principal(UploaderId)))
@@ -112,7 +112,7 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
             untyped = await SeedDocumentAsync(documentTypeId: null);
 
             await GrantAsync(ReaderId, VaultExtractPermissions.Documents.Default);
-            await GrantResourceAsync(ReaderId, VaultExtractPermissions.DocumentTypes.Resources.Read, typeA);
+            await GrantResourceAsync(ReaderId, VaultExtractResourcePermissions.Read, typeA);
         });
 
         using (_principalAccessor.Change(Principal(ReaderId)))
@@ -149,9 +149,9 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
             documentB = await SeedDocumentAsync(typeB, markdown: "# B");
 
             await GrantAsync(EditorId, VaultExtractPermissions.Documents.Default);
-            await GrantResourceAsync(EditorId, VaultExtractPermissions.DocumentTypes.Resources.Edit, typeA);
+            await GrantResourceAsync(EditorId, VaultExtractResourcePermissions.Edit, typeA);
             // The TARGET-type half of Confirm / Reclassify, which is the #629 Upload rule, not Edit.
-            await GrantResourceAsync(EditorId, VaultExtractPermissions.DocumentTypes.Resources.Upload, typeA);
+            await GrantResourceAsync(EditorId, VaultExtractResourcePermissions.Upload, typeA);
         });
 
         using (_principalAccessor.Change(Principal(EditorId)))
@@ -187,7 +187,7 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
             documentB = await SeedDocumentAsync(typeB);
 
             await GrantAsync(DeleterId, VaultExtractPermissions.Documents.Default);
-            await GrantResourceAsync(DeleterId, VaultExtractPermissions.DocumentTypes.Resources.Delete, typeA);
+            await GrantResourceAsync(DeleterId, VaultExtractResourcePermissions.Delete, typeA);
         });
 
         using (_principalAccessor.Change(Principal(DeleterId)))
@@ -222,7 +222,7 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
             documentB = await SeedDocumentAsync(typeB);
 
             await GrantAsync(RestorerId, VaultExtractPermissions.Documents.Default);
-            await GrantResourceAsync(RestorerId, VaultExtractPermissions.DocumentTypes.Resources.Delete, typeA);
+            await GrantResourceAsync(RestorerId, VaultExtractResourcePermissions.Delete, typeA);
         });
 
         // Both land in the recycle bin out of band, so the fact below is about Restore alone.
@@ -308,7 +308,7 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
             new ResourcePermissionGrant(
                 _guidGenerator.Create(),
                 permissionName,
-                VaultExtractPermissions.DocumentTypes.Resources.Name,
+                VaultExtractResourcePermissions.Name,
                 documentTypeId.ToString(),
                 UserProviderName,
                 userId.ToString(),

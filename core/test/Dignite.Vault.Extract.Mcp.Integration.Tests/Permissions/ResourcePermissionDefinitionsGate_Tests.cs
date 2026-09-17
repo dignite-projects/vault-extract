@@ -61,13 +61,13 @@ public class ResourcePermissionDefinitionsGate_Tests : McpPermissionPipelineTest
             await WithUnitOfWorkAsync(async () =>
             {
                 var result = await _permissionAppService.GetResourceDefinitionsAsync(
-                    VaultExtractPermissions.DocumentTypes.Resources.Name);
+                    VaultExtractResourcePermissions.Name);
 
                 result.Permissions.Count.ShouldBe(4);
-                result.Permissions.ShouldContain(p => p.Name == VaultExtractPermissions.DocumentTypes.Resources.Upload);
-                result.Permissions.ShouldContain(p => p.Name == VaultExtractPermissions.DocumentTypes.Resources.Read);
-                result.Permissions.ShouldContain(p => p.Name == VaultExtractPermissions.DocumentTypes.Resources.Edit);
-                result.Permissions.ShouldContain(p => p.Name == VaultExtractPermissions.DocumentTypes.Resources.Delete);
+                result.Permissions.ShouldContain(p => p.Name == VaultExtractResourcePermissions.Upload);
+                result.Permissions.ShouldContain(p => p.Name == VaultExtractResourcePermissions.Read);
+                result.Permissions.ShouldContain(p => p.Name == VaultExtractResourcePermissions.Edit);
+                result.Permissions.ShouldContain(p => p.Name == VaultExtractResourcePermissions.Delete);
             });
         }
     }
@@ -87,7 +87,7 @@ public class ResourcePermissionDefinitionsGate_Tests : McpPermissionPipelineTest
             await WithUnitOfWorkAsync(async () =>
             {
                 var result = await _permissionAppService.GetResourceDefinitionsAsync(
-                    VaultExtractPermissions.DocumentTypes.Resources.Name);
+                    VaultExtractResourcePermissions.Name);
 
                 result.Permissions.ShouldBeEmpty();
             });
@@ -102,7 +102,7 @@ public class ResourcePermissionDefinitionsGate_Tests : McpPermissionPipelineTest
             await WithUnitOfWorkAsync(async () =>
             {
                 var result = await _permissionAppService.GetResourceDefinitionsAsync(
-                    VaultExtractPermissions.DocumentTypes.Resources.Name);
+                    VaultExtractResourcePermissions.Name);
 
                 result.Permissions.ShouldBeEmpty();
             });

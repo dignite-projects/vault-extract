@@ -127,6 +127,39 @@ public class SchemaReadAuthorization_Tests : VaultExtractApplicationTestBase<Sch
         result.Count.ShouldBe(1);
     }
 
+    // ---- DocumentType reads: GetVisibleSummariesAsync (#636) ----
+
+    [Fact]
+    public async Task GetVisibleSummariesAsync_Throws_When_Neither_Documents_Nor_DocumentTypes_Granted()
+    {
+        // Shares GetVisibleEntitiesAsync's visibility judgment with GetVisibleAsync, so the same fail-closed
+        // OR assertion applies.
+        Grant(/* nothing */);
+
+        await Should.ThrowAsync<AbpAuthorizationException>(() => _documentTypeAppService.GetVisibleSummariesAsync());
+    }
+
+    /// <summary>
+    /// #636 acceptance: GetVisibleSummariesAsync returns the same set of types as GetVisibleAsync (identity and
+    /// display text agree), narrowed to DocumentTypeSummaryDto with no ResourcePermissions member at all.
+    /// </summary>
+    [Fact]
+    public async Task GetVisibleSummariesAsync_Returns_The_Same_Type_Set_As_GetVisibleAsync()
+    {
+        Grant(VaultExtractPermissions.Documents.Default);
+        var typeA = new DocumentType(Guid.NewGuid(), null, "host.a", "Host A");
+        var typeB = new DocumentType(Guid.NewGuid(), null, "host.b", "Host B");
+        _documentTypeRepository.GetListAsync(Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(new List<DocumentType> { typeA, typeB });
+
+        var full = await _documentTypeAppService.GetVisibleAsync();
+        var summaries = await _documentTypeAppService.GetVisibleSummariesAsync();
+
+        summaries.Count.ShouldBe(full.Count);
+        summaries.Select(s => (s.Id, s.TypeCode, s.DisplayName)).ShouldBe(
+            full.Select(f => (f.Id, f.TypeCode, f.DisplayName)), ignoreOrder: true);
+    }
+
     // ---- Cabinet reads: bounded non-HTTP read service ----
 
     [Fact]

@@ -44,13 +44,46 @@ public class DocumentTypeAppService : VaultExtractAppService, IDocumentTypeAppSe
         _resourcePermissionPopulator = resourcePermissionPopulator;
     }
 
-    public virtual async Task<List<DocumentTypeDto>> GetVisibleAsync(bool includeResourcePermissions = true)
+    public virtual async Task<List<DocumentTypeDto>> GetVisibleAsync()
+    {
+        var list = await GetVisibleEntitiesAsync();
+        var dtos = ObjectMapper.Map<List<DocumentType>, List<DocumentTypeDto>>(list);
+
+        // #629: fill DocumentTypeDto.ResourcePermissions for EVERY caller, not only upload-only ones, so the
+        // dictionary is the single source of truth the UI reads instead of inferring rights from which
+        // permission got the caller past the gate in GetVisibleEntitiesAsync. ResourcePermissionPopulator runs
+        // one cached multi-permission check per type against the caller's own principal (user + role + client
+        // providers); IResourcePermissionStore.GetGrantedResourceKeysAsync is deliberately NOT used here because
+        // it filters on resource + permission name only and is therefore not per-user — it would report every
+        // type that carries a grant for anyone. Types are tens, not thousands, so per-row is affordable.
+        await _resourcePermissionPopulator.PopulateAsync(dtos, VaultExtractResourcePermissions.Name);
+
+        return dtos;
+    }
+
+    /// <summary>
+    /// #636: the narrow read for internal callers that never look at <see cref="DocumentTypeDto.ResourcePermissions"/>
+    /// — today the three MCP adapters that list types for an LLM. Shares <see cref="GetVisibleEntitiesAsync"/> with
+    /// <see cref="GetVisibleAsync"/>, so the visibility judgment stays in one place, and skips
+    /// <see cref="ResourcePermissionPopulator"/> entirely rather than running it and discarding the result.
+    /// </summary>
+    public virtual async Task<List<DocumentTypeSummaryDto>> GetVisibleSummariesAsync()
+    {
+        var list = await GetVisibleEntitiesAsync();
+        return ObjectMapper.Map<List<DocumentType>, List<DocumentTypeSummaryDto>>(list);
+    }
+
+    /// <summary>
+    /// The visibility judgment shared by <see cref="GetVisibleAsync"/> and <see cref="GetVisibleSummariesAsync"/>:
+    /// the fail-closed OR assertion plus the caller's own layer's active types, ordered.
+    /// </summary>
+    protected virtual async Task<List<DocumentType>> GetVisibleEntitiesAsync()
     {
         // Schema reads are decoupled from schema management (#223): document operators (Documents.Default) need to read types
         // for type filters / classification assignment / dynamic field columns, while schema admins (DocumentTypes.Default)
         // need to read their own management list. #629 adds a third admitting permission, Documents.Upload: a caller whose
         // only right is to upload still has to be shown the types to pick one to declare, and the per-type grants that decide
-        // which of them are actually declarable ride back on the DTO below.
+        // which of them are actually declarable ride back on the DTO GetVisibleAsync returns.
         // Any one of the three is enough: fail-closed OR assertion.
         // Programmatic because [Authorize] does not trigger on reflection / non-HTTP paths.
         if (!await AuthorizationService.IsGrantedAsync(VaultExtractPermissions.Documents.Default) &&
@@ -62,29 +95,10 @@ public class DocumentTypeAppService : VaultExtractAppService, IDocumentTypeAppSe
 
         // Do not union Host and Tenant. Tenant isolation is enforced by the ambient IMultiTenant filter.
         // Keep Priority DESC + TypeCode ASC ordering in memory.
-        var list = (await _repository.GetListAsync())
+        return (await _repository.GetListAsync())
             .OrderByDescending(t => t.Priority)
             .ThenBy(t => t.TypeCode)
             .ToList();
-        var dtos = ObjectMapper.Map<List<DocumentType>, List<DocumentTypeDto>>(list);
-
-        // #629: fill DocumentTypeDto.ResourcePermissions for EVERY caller, not only upload-only ones, so the
-        // dictionary is the single source of truth the UI reads instead of inferring rights from which
-        // permission got the caller past the gate above. ResourcePermissionPopulator runs one cached
-        // multi-permission check per type against the caller's own principal (user + role + client providers);
-        // IResourcePermissionStore.GetGrantedResourceKeysAsync is deliberately NOT used here because it filters
-        // on resource + permission name only and is therefore not per-user — it would report every type that
-        // carries a grant for anyone. Types are tens, not thousands, so per-row is affordable.
-        //
-        // #632 closes the #629 leftover: the MCP tools and resources list types for an LLM and never read the
-        // dictionary, so they pass includeResourcePermissions:false and skip the populator entirely. The UI keeps
-        // the default. An empty dictionary from the skipped path is "not asked", not "no grants".
-        if (includeResourcePermissions)
-        {
-            await _resourcePermissionPopulator.PopulateAsync(dtos, VaultExtractPermissions.DocumentTypes.Resources.Name);
-        }
-
-        return dtos;
     }
 
     [Authorize(VaultExtractPermissions.DocumentTypes.Default)]
