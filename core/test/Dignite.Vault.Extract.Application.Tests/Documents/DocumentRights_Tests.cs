@@ -181,6 +181,59 @@ public class DocumentRights_Tests : DocumentAccessTestBase
     }
 
     /// <summary>
+    /// Every method of the edit and review families returns a <see cref="DocumentDto"/>. An <c>Edit</c>-grant
+    /// holder with no <c>Read</c> grant is refused outright by <c>GetAsync</c> — so handing them the whole
+    /// Markdown, title, field values and file origin as the response body of a cabinet reassignment would be the
+    /// read they were just refused, with <c>rights.canRead == false</c> sitting in the same payload.
+    /// <para>
+    /// The redaction is in <c>MapToDtoAsync</c>, so it covers every method of both families at once rather than
+    /// one at a time.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task An_edit_without_read_succeeds_and_returns_a_body_carrying_nothing_but_the_id_and_the_rights()
+    {
+        var document = StubDocument(TypeA.Id, creatorId: StrangerId, markdown: "# secret body");
+        GrantEntryOnly();
+        GrantResource(VaultExtractResourcePermissions.Edit, TypeA.Id);
+
+        var dto = await AsOwnerAsync(() => AppService.UpdateCabinetAsync(
+            document.Id, new UpdateDocumentCabinetInput { CabinetId = null }));
+
+        // The write happened — this is not a refusal.
+        document.CabinetId.ShouldBeNull();
+
+        dto.Id.ShouldBe(document.Id);
+        dto.Rights.CanEdit.ShouldBeTrue();
+        dto.Rights.CanRead.ShouldBeFalse();
+
+        dto.Markdown.ShouldBeNull();
+        dto.Title.ShouldBeNull();
+        dto.DocumentTypeCode.ShouldBeNull();
+        dto.ExtractedFields.ShouldBeNull();
+        dto.FileOrigin.ShouldBeNull();
+        dto.ReviewReasonDetails.ShouldBeNull();
+    }
+
+    /// <summary>The counter-case: a caller who may read gets the whole document, as before.</summary>
+    [Fact]
+    public async Task An_edit_with_read_still_returns_the_whole_document()
+    {
+        var document = StubDocument(TypeA.Id, creatorId: StrangerId, markdown: "# body");
+        GrantEntryOnly();
+        GrantResource(VaultExtractResourcePermissions.Read, TypeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Edit, TypeA.Id);
+
+        var dto = await AsOwnerAsync(() => AppService.UpdateCabinetAsync(
+            document.Id, new UpdateDocumentCabinetInput { CabinetId = null }));
+
+        dto.Markdown.ShouldBe("# body");
+        dto.DocumentTypeCode.ShouldBe(TypeA.TypeCode);
+        dto.FileOrigin.ShouldNotBeNull();
+        dto.Rights.CanRead.ShouldBeTrue();
+    }
+
+    /// <summary>
     /// #635 decision 5 and 11, stated structurally: no <c>CreatorId</c> on either egress DTO. The client needs to
     /// know what it may do with a document, never who owns it, and adding the uploader to every list row would put
     /// a personal-data field on the wire to answer a question the six booleans already answer.

@@ -1376,9 +1376,28 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     // Traverse soft-delete so archived types / fields referenced by historical documents can still resolve. No snapshot fields are introduced;
     // renames transparently reflect current values. =====
 
-    /// <summary>Maps one Document -> DocumentDto and fills DocumentTypeCode + ExtractedFields (Id -> code/name) + extraction integrity (#268).</summary>
+    /// <summary>
+    /// Maps one Document -> DocumentDto and fills DocumentTypeCode + ExtractedFields (Id -> code/name) +
+    /// extraction integrity (#268).
+    /// <para>
+    /// <b>#635: rights are computed first, and a caller who may not read the document gets only its id back.</b>
+    /// Every method of the edit and review families returns this DTO, so an <c>Edit</c>-grant holder with no
+    /// <c>Read</c> — refused outright by <c>GetAsync</c> — otherwise received the whole Markdown, title, field
+    /// values and file origin as the response body of, say, a cabinet reassignment, with
+    /// <c>rights.canRead == false</c> sitting in the same payload. One redaction here covers every one of those
+    /// methods; doing it per method is how one of them would be missed.
+    /// </para>
+    /// </summary>
     protected virtual async Task<DocumentDto> MapToDtoAsync(Document document)
     {
+        var rights = await ResolveRightsAsync(DocumentAccessSubject.Of(document));
+        if (!rights.CanRead)
+        {
+            // The id, so the caller can correlate the response with its own request, and the rights, so a client
+            // knows not to try rendering it. Nothing about the document's content or provenance.
+            return new DocumentDto { Id = document.Id, Rights = rights };
+        }
+
         var dto = ObjectMapper.Map<Document, DocumentDto>(document);
         var (typeCodes, fieldsByType) = await ResolveReferenceMapsAsync(new[] { document });
         dto.DocumentTypeCode = ResolveTypeCode(document.DocumentTypeId, typeCodes);
@@ -1392,8 +1411,8 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         dto.RequiresReview = ReviewReasonPolicy.RequiresAttention(document.ReviewReasons, document.ReviewDisposition);
         dto.ReviewReasonDetails = await BuildReviewReasonDetailsAsync(document);
         // #635 decision 5: the six answers the client used to re-derive from the caller's grants, decided here by
-        // the same checker the endpoints enforce with, over the same per-request grant map.
-        dto.Rights = await ResolveRightsAsync(DocumentAccessSubject.Of(document));
+        // the same checker the endpoints enforce with, over the same memoised permission answers.
+        dto.Rights = rights;
         return dto;
     }
 
@@ -1608,11 +1627,21 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
             return new List<DuplicateCandidateDto>();
         }
 
+        // #635: each candidate is another document, named by its title and file name. A shared (type,
+        // fingerprint) is not a permission to see whoever else uploaded one, so the panel is narrowed by the
+        // caller's own read scope — the same predicate the list runs.
+        //
+        // Resolved HERE rather than by the caller, and only on this branch: BuildDuplicateCandidatesAsync is
+        // reached only when the document actually carries DuplicateSuspected, so the detail page of every other
+        // document costs no layer sweep.
+        var readScope = await _documentAccess.ResolveScopeAsync(DocumentAccessRule.Read);
+
         var candidates = await _documentRepository.FindDuplicateCandidatesAsync(
             document.Id,
             document.DocumentTypeId.Value,
             document.FieldFingerprint,
-            DocumentConsts.MaxDuplicateCandidates);
+            DocumentConsts.MaxDuplicateCandidates,
+            readScope);
 
         return ObjectMapper.Map<List<DuplicateCandidateModel>, List<DuplicateCandidateDto>>(candidates);
     }
