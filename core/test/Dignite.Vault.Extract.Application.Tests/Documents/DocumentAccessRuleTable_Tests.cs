@@ -154,11 +154,7 @@ public class DocumentAccessRuleTable_Tests
     [Fact]
     public void Review_differs_from_Edit_only_by_the_owner_arm()
     {
-        // Stated through record equality, which compares the role-level arm by content (#645): Review with Edit's
-        // owner arm IS Edit, and nothing else about the two rows may differ.
-        (DocumentAccessRule.Review with { OwnerArm = DocumentOwnerArm.UnlessUnderReview })
-            .ShouldBe(DocumentAccessRule.Edit);
-        DocumentAccessRule.Review.ShouldNotBe(DocumentAccessRule.Edit);
+        ShouldAdmitThroughTheSameGrants(DocumentAccessRule.Review, DocumentAccessRule.Edit);
         DocumentAccessRule.Review.OwnerArm.ShouldBe(DocumentOwnerArm.Never);
         DocumentAccessRule.Edit.OwnerArm.ShouldBe(DocumentOwnerArm.UnlessUnderReview);
     }
@@ -170,7 +166,8 @@ public class DocumentAccessRuleTable_Tests
     [Fact]
     public void Restore_is_the_Delete_row()
     {
-        DocumentAccessRule.Restore.ShouldBe(DocumentAccessRule.Delete);
+        ShouldAdmitThroughTheSameGrants(DocumentAccessRule.Restore, DocumentAccessRule.Delete);
+        DocumentAccessRule.Restore.OwnerArm.ShouldBe(DocumentAccessRule.Delete.OwnerArm);
     }
 
     /// <summary>
@@ -189,26 +186,6 @@ public class DocumentAccessRuleTable_Tests
             .Where(f => ((DocumentAccessRule)f.GetValue(null)!).ModuleWidePermissions.Count > 1)
             .Select(f => f.Name)
             .ShouldBe([nameof(DocumentAccessRule.DeclareType)]);
-    }
-
-    /// <summary>
-    /// #645: the role-level arm is a set, so a rule's equality has to compare it by content. The compiler-made
-    /// equality of a record would compare the collection by reference, and two rules admitting exactly the same
-    /// callers would come out unequal.
-    /// </summary>
-    [Fact]
-    public void A_rules_equality_compares_its_role_level_set_by_content_and_ignores_order()
-    {
-        var either = new DocumentAccessRule(
-            ["A", "B"], ResourcePermission: "grant", OwnerArm: DocumentOwnerArm.Never);
-
-        either.ShouldBe(new DocumentAccessRule(["B", "A"], "grant", DocumentOwnerArm.Never));
-        either.GetHashCode().ShouldBe(new DocumentAccessRule(["B", "A"], "grant", DocumentOwnerArm.Never).GetHashCode());
-
-        either.ShouldNotBe(new DocumentAccessRule(["A"], "grant", DocumentOwnerArm.Never));
-        either.ShouldNotBe(new DocumentAccessRule(["A", "C"], "grant", DocumentOwnerArm.Never));
-        either.ShouldNotBe(new DocumentAccessRule(["A", "B"], null, DocumentOwnerArm.Never));
-        either.ShouldNotBe(new DocumentAccessRule(["A", "B"], "grant", DocumentOwnerArm.Always));
     }
 
     /// <summary>
@@ -249,6 +226,17 @@ public class DocumentAccessRuleTable_Tests
         ReviewReasonPolicy.LocksOwnerEdits(
             DocumentReviewReasons.UnresolvedClassification | DocumentReviewReasons.FieldValidationWarning)
             .ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// The two grant arms of <paramref name="actual"/> are those of <paramref name="expected"/>: the same role-level
+    /// set (order is only the asking order, #645) and the same per-type grant. Stated field by field because a rule
+    /// has no value equality; the owner arm is left to each caller, since that is where the rows may differ.
+    /// </summary>
+    private static void ShouldAdmitThroughTheSameGrants(DocumentAccessRule actual, DocumentAccessRule expected)
+    {
+        actual.ModuleWidePermissions.ShouldBe(expected.ModuleWidePermissions, ignoreOrder: true);
+        actual.ResourcePermission.ShouldBe(expected.ResourcePermission);
     }
 
     private static List<string> RulesWith(DocumentOwnerArm arm)
