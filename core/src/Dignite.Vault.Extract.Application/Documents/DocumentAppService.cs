@@ -308,10 +308,18 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
             DocumentAccessRule.Upload,
             declaredType != null ? DocumentAccessSubject.OfType(declaredType) : DocumentAccessSubject.None);
 
-        // Pre-check: the current layer must have at least one DocumentType (CLAUDE.md "two-layer document type system", exact single-layer match).
-        // Host startup seeding entry points were removed (HostDocumentTypeDataSeedContributor / DocumentTypeOptions).
-        // DocumentTypes can now only be created at runtime through IDocumentTypeAppService, so a new deployment / tenant must create types before upload.
-        // Without this fail-fast check, upload would succeed, classification candidates would be empty, and the document would stay in the manual-review queue forever.
+        // No-types-configured guards the UNTYPED upload. DocumentTypes are created only at runtime through
+        // IDocumentTypeAppService (no startup seed, no registration path — CLAUDE.md "no built-in document types"),
+        // so a new deployment or tenant starts with none. Classification matches the document's own layer exactly,
+        // so an untyped upload into an empty layer would be stored with an empty candidate set and sit in the
+        // manual-review queue forever; this fails it fast instead.
+        //
+        // A typed upload that reaches this line always passes it: the lookup above resolved its declared type in
+        // this layer, so the layer has at least one. A typed upload into an EMPTY layer never reaches it — its id
+        // cannot resolve there, and the lookup answers 404 (EntityNotFoundException). That answer is accurate (the
+        // id names no type in the caller's layer) and deliberate: moving this check above the lookup would also put
+        // it above the upload judgment, which needs the resolved type, and a business error answered ahead of the
+        // judgment is an oracle for a caller who may not upload.
         var hasType = await _documentTypeRepository.GetCountAsync() > 0;
         if (!hasType)
         {
