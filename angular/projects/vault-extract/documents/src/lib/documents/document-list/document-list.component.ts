@@ -55,8 +55,9 @@ import { isFilterableField } from '../../shared/field-value-filter/field-value-f
 import { exportFileName, readBlobErrorMessage, triggerBlobDownload } from '../../shared/blob-download';
 import { executeBulkOperations } from '../../shared/bulk-operation';
 import {
-  assignableDocumentTypes,
   canEditAnyDocumentType,
+  canUploadIntoAnyDocumentType,
+  reclassificationTargetTypes,
   rightsOf,
 } from '../../shared/document-access';
 import { DocumentTypesStore } from '../../shared/document-types.store';
@@ -129,7 +130,9 @@ export class DocumentListComponent implements OnInit {
   readonly canConfirmClassification = this.permissionService.getGrantedPolicy(
     EXTRACT_PERMISSIONS.Documents.ConfirmClassification,
   );
-  readonly canUpload = this.permissionService.getGrantedPolicy(
+  // #645: `Documents.Upload` ("上传到所有文档类型") — upload into every type. Also half of the reclassify
+  // picker's all-types key, alongside ConfirmClassification.
+  readonly canUploadIntoAllTypes = this.permissionService.getGrantedPolicy(
     EXTRACT_PERMISSIONS.Documents.Upload,
   );
   readonly canViewCabinets = this.permissionService.getGrantedPolicy(
@@ -204,12 +207,26 @@ export class DocumentListComponent implements OnInit {
   // action the API would in fact have admitted.
   readonly rightsOf = rightsOf;
 
-  // #632: only the types this caller may ASSIGN may appear in the confirm picker — ConfirmClassification
-  // module-wide, or an Upload grant on that particular type (the #629 rule, unchanged). Offering any other
-  // type would build a request the server refuses. Still a client-side answer after #635 because it is a
-  // question about TYPES: the target type of a reclassification is not the row being judged.
+  // #632: only the types this caller may ASSIGN may appear in the confirm picker. #645: every type for
+  // ConfirmClassification or Documents.Upload, otherwise the types carrying an Upload grant — the server's
+  // DeclareType row. Offering any other type would build a request the server refuses. Still a client-side
+  // answer after #635 because it is a question about TYPES: the target type of a reclassification is not the
+  // row being judged.
   readonly assignableTypes = computed(() =>
-    assignableDocumentTypes(this.documentTypes.value(), this.canConfirmClassification),
+    reclassificationTargetTypes(
+      this.documentTypes.value(),
+      this.canConfirmClassification,
+      this.canUploadIntoAllTypes,
+    ),
+  );
+
+  // #645: the upload button — a shortcut to the overview's upload card — shows for anyone who may upload:
+  // `Documents.Upload`, or an Upload grant on some visible type, which since #645 suffices on its own. Gated
+  // on `Documents.Upload` alone it hid from the ordinary uploader (entry plus type-level grants). While the
+  // type store has not answered, or has failed, a grant-only uploader simply does not see the shortcut yet;
+  // the overview is where the failure is shown and retried, and this page's Refresh heals the store too.
+  readonly canUploadAnywhere = computed(() =>
+    canUploadIntoAnyDocumentType(this.documentTypes.value(), this.canUploadIntoAllTypes),
   );
 
   // #632: the needs-review toggle is a FILTER, not a per-document action, so there is no single document to

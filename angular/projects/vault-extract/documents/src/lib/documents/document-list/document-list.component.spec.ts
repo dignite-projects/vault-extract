@@ -133,7 +133,6 @@ const MODULE_WIDE = new Set<string>([
   EXTRACT_PERMISSIONS.Documents.ReadAll,
   EXTRACT_PERMISSIONS.Documents.ConfirmClassification,
   EXTRACT_PERMISSIONS.Documents.Delete,
-  EXTRACT_PERMISSIONS.Documents.Restore,
 ]);
 
 /** The persona #629/#632 exist for: entry only, everything else through per-type grants. */
@@ -226,7 +225,15 @@ describe('DocumentListComponent — bulk-delete selection (#635)', () => {
   });
 });
 
-describe('DocumentListComponent — confirm-classification picker (#632)', () => {
+/** #645: `Documents.Upload` ("上传到所有文档类型") and nothing else module-wide. */
+const UPLOAD_INTO_ALL = new Set<string>([
+  EXTRACT_PERMISSIONS.Documents.Default,
+  EXTRACT_PERMISSIONS.Documents.Upload,
+]);
+
+// #645: the target picker mirrors the server's DeclareType row — every type for ConfirmClassification OR
+// Documents.Upload, otherwise the types carrying an Upload grant.
+describe('DocumentListComponent — confirm-classification picker (#632, #645)', () => {
   beforeEach(() => {
     TestBed.resetTestingModule();
   });
@@ -237,7 +244,14 @@ describe('DocumentListComponent — confirm-classification picker (#632)', () =>
     expect(component.assignableTypes()).toEqual([TYPE_A, TYPE_B]);
   });
 
-  it('lists only the Upload-granted target types otherwise', () => {
+  it('lists every type for a Documents.Upload holder without ConfirmClassification', () => {
+    // Whoever could have uploaded the document into any type may also move it into any type.
+    const { component } = setup(UPLOAD_INTO_ALL);
+
+    expect(component.assignableTypes()).toEqual([TYPE_A, TYPE_B]);
+  });
+
+  it('lists only the Upload-granted target types for a grant-only caller', () => {
     const { component } = setup(ENTRY_ONLY);
 
     expect(component.assignableTypes()).toEqual([TYPE_A]);
@@ -251,6 +265,36 @@ describe('DocumentListComponent — confirm-classification picker (#632)', () =>
 
     component.openConfirmDialog(FULL_ROW, new Event('click'));
     expect(component.selectedTypeId()).toBe('type-a');
+  });
+});
+
+// #645 decision 4: the upload button is a shortcut to the overview's upload card, and shows for anyone who
+// may upload — Documents.Upload, or an Upload grant on a visible type, which suffices on its own since #645.
+describe('DocumentListComponent — the upload button (#645)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('shows for a grant-only uploader', () => {
+    // TYPE_A carries an Upload grant; the caller holds entry and nothing else.
+    const { component } = setup(ENTRY_ONLY);
+
+    expect(component.canUploadIntoAllTypes).toBe(false);
+    expect(component.canUploadAnywhere()).toBe(true);
+  });
+
+  it('shows for a Documents.Upload holder with no grant on any type', () => {
+    const { component } = setup(UPLOAD_INTO_ALL, () => of([TYPE_B]));
+
+    expect(component.canUploadAnywhere()).toBe(true);
+  });
+
+  it('does not show for a caller with neither, once the types have answered', () => {
+    const { component } = setup(MODULE_WIDE, () => of([TYPE_B]));
+
+    // ConfirmClassification, ReadAll and Delete are not upload rights.
+    expect(component.documentTypes.isLoading()).toBe(false);
+    expect(component.canUploadAnywhere()).toBe(false);
   });
 });
 

@@ -297,7 +297,9 @@ describe('DocumentDetailComponent — retry follows the row (#635 decision 2)', 
   });
 });
 
-describe('DocumentDetailComponent — classify picker (#632)', () => {
+// #645: the confirm / reclassify target picker mirrors the server's DeclareType row — every type for
+// ConfirmClassification OR Documents.Upload, otherwise the types carrying an Upload grant.
+describe('DocumentDetailComponent — classify picker (#632, #645)', () => {
   beforeEach(() => {
     TestBed.resetTestingModule();
   });
@@ -306,7 +308,16 @@ describe('DocumentDetailComponent — classify picker (#632)', () => {
     expect(setup(MODULE_WIDE).component.assignableTypes()).toEqual([TYPE_A, TYPE_B]);
   });
 
-  it('lists only the Upload-granted target types otherwise', () => {
+  it('lists every type for a Documents.Upload holder without ConfirmClassification', () => {
+    const uploadIntoAll = new Set<string>([
+      EXTRACT_PERMISSIONS.Documents.Default,
+      EXTRACT_PERMISSIONS.Documents.Upload,
+    ]);
+
+    expect(setup(uploadIntoAll).component.assignableTypes()).toEqual([TYPE_A, TYPE_B]);
+  });
+
+  it('lists only the Upload-granted target types for a grant-only caller', () => {
     expect(setup(ENTRY_ONLY).component.assignableTypes()).toEqual([TYPE_A]);
   });
 

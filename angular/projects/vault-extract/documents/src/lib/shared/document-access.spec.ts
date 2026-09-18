@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { DocumentTypeDto, EXTRACT_PERMISSIONS } from '@dignite/ng.vault-extract';
-import { assignableDocumentTypes, canEditAnyDocumentType, rightsOf } from './document-access';
+import {
+  assignableDocumentTypes,
+  canEditAnyDocumentType,
+  canUploadIntoAnyDocumentType,
+  reclassificationTargetTypes,
+  rightsOf,
+} from './document-access';
 
 // #635 decision 5: the client no longer re-derives what it may do with a document — the server decides and
 // sends the verdict down with the row. What survives here is the pair of questions that are about TYPES
@@ -137,5 +143,39 @@ describe('canEditAnyDocumentType — the review-queue affordances (#635 decision
     // The state the store starts in. Consumers gate on DocumentTypesStore.isLoading() so this answer is
     // never rendered as a denial before the fetch lands.
     expect(canEditAnyDocumentType([], false)).toBe(false);
+  });
+});
+
+// #645: the upload entry points show for anyone who may upload — Documents.Upload (every type), or a
+// type-level Upload grant on at least one visible type, which since #645 suffices on its own.
+describe('canUploadIntoAnyDocumentType — the upload entry points (#645)', () => {
+  it('is true with Documents.Upload, whatever the type list says', () => {
+    expect(canUploadIntoAnyDocumentType([TYPE_B], true)).toBe(true);
+    expect(canUploadIntoAnyDocumentType([], true)).toBe(true);
+  });
+
+  it('is true through an Upload grant on a single visible type', () => {
+    expect(canUploadIntoAnyDocumentType([TYPE_B, TYPE_A], false)).toBe(true);
+  });
+
+  it('is false when no visible type carries an Upload grant', () => {
+    // TYPE_C carries Edit only: editing a type's documents is not uploading into it.
+    expect(canUploadIntoAnyDocumentType([TYPE_B, TYPE_C], false)).toBe(false);
+  });
+});
+
+// #645: a reclassification target mirrors the server's DeclareType row, the only row whose role-level arm
+// has two members.
+describe('reclassificationTargetTypes — the confirm / reclassify pickers (#645)', () => {
+  it('lists every type for ConfirmClassification', () => {
+    expect(reclassificationTargetTypes(TYPES, true, false)).toEqual([TYPE_A, TYPE_B]);
+  });
+
+  it('lists every type for Documents.Upload', () => {
+    expect(reclassificationTargetTypes(TYPES, false, true)).toEqual([TYPE_A, TYPE_B]);
+  });
+
+  it('lists only the Upload-granted types for a caller holding neither', () => {
+    expect(reclassificationTargetTypes(TYPES, false, false)).toEqual([TYPE_A]);
   });
 });

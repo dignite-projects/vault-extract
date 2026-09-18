@@ -130,7 +130,6 @@
     "Document:Upload:Complete": "上傳完成",
     "Document:Upload:CompletedWithErrors": "上傳完成，但有錯誤",
     "Document:Upload:Succeeded": "份已上傳",
-    "Document:Upload:NoGrantableTypes": "您尚未被授予任何文件類型的上傳權限，請聯絡管理員進行授權。",
     "Document:Upload:TypesUnavailable": "文件類型載入失敗，請重新整理頁面或稍後再試。",
     "Document:UnsupportedFileType": "不支援的檔案類型。請上傳支援的圖片、PDF、CSV/TSV、DOCX、PPTX、TXT 或 XLSX 檔案。",
     "Document:FileTooLarge": "檔案過大，上限為 20 MB。",

@@ -25,8 +25,8 @@ export const DOCUMENTS_ROUTES: Routes = [
   {
     // #632/#635: the entry permission, like every other documents route. Neither arm that now reaches the
     // recycle bin — a per-type Delete grant, or owning the document — is a name in `grantedPolicies`, so
-    // neither can be expressed as a route policy at all; guarding on `Documents.Restore` would keep both
-    // personas out of the page entirely. The server is the authority: admission to the recycle-bin query is
+    // neither can be expressed as a route policy at all; guarding on the role-level `Documents.Delete` (which
+    // covers restore since #645) would keep both personas out of the page entirely. The server is the authority: admission to the recycle-bin query is
     // entry alone, and it answers with exactly the deleted documents this caller may read.
     path: 'recycle',
     canActivate: [authGuard, permissionGuard],

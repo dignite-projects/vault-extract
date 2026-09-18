@@ -8,10 +8,13 @@ export const EXTRACT_PERMISSIONS = {
     // Resources.Read grant on, and never sees untyped documents at all. Also gates the
     // whole-layer statistics endpoint (DocumentStatisticsAppService), hence the overview card.
     ReadAll: 'VaultExtract.Documents.ReadAll',
+    // #645: upload into EVERY type, including an untyped upload the AI classifies. A type-level Upload
+    // grant alone (Resources.Upload) admits an upload into that one type; this is not also required.
     Upload: 'VaultExtract.Documents.Upload',
+    // #645: delete AND restore, for every type — whoever may delete may undo. There is no separate restore
+    // permission any more; a type-level Delete grant covers both for its type, and an owner both for their own.
     Delete: 'VaultExtract.Documents.Delete',
     PermanentDelete: 'VaultExtract.Documents.PermanentDelete',
-    Restore: 'VaultExtract.Documents.Restore',
     Export: 'VaultExtract.Documents.Export',
     ConfirmClassification: 'VaultExtract.Documents.ConfirmClassification',
     Pipelines: {
