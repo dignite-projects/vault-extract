@@ -476,7 +476,7 @@ public class DocumentPipelineBackgroundJobPersistence_Tests
             var derived = Document.CreateDerived(
                 derivedId, tenantId: null,
                 fileOrigin: null,
-                originDocumentId: sourceId, originConstituentKey: segmentKey);
+                originDocumentId: sourceId, originConstituentKey: segmentKey, creatorId: null);
             await _documentRepository.InsertAsync(derived, autoSave: true);
 
             var run = await _pipelineJobScheduler.QueueAsync(derived, VaultExtractPipelines.Parse);

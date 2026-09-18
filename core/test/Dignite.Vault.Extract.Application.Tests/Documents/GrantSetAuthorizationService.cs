@@ -41,7 +41,32 @@ public sealed class GrantSetAuthorizationService : IAbpAuthorizationService
         _serviceProvider = serviceProvider;
     }
 
-    public HashSet<string> Granted { get; set; } = new();
+    private HashSet<string> _granted = new();
+
+    /// <summary>
+    /// Bumped whenever the grant set is replaced. A real request never changes what its principal is granted
+    /// half way through, so DocumentAccessMemo memoises per scope -- and a test that does exactly that is
+    /// simulating a SECOND request. TestDocumentAccessMemo watches this counter and forgets its answers.
+    /// </summary>
+    public int Version { get; private set; }
+
+    /// <summary>
+    /// Standard-permission policy evaluations, so a cost fact can assert that resolving a document`s six rights
+    /// asks Documents.Default once rather than six times.
+    /// </summary>
+    public int PolicyChecks { get; private set; }
+
+    public void ResetPolicyChecks() => PolicyChecks = 0;
+
+    public HashSet<string> Granted
+    {
+        get => _granted;
+        set
+        {
+            _granted = value;
+            Version++;
+        }
+    }
 
     // Read on every call: the parameterless AuthorizeAsync/IsGrantedAsync extensions route through it. It has to
     // be the ambient principal, not null, or the resource value providers would see no user/role claims.
@@ -85,6 +110,7 @@ public sealed class GrantSetAuthorizationService : IAbpAuthorizationService
             return AuthorizationResult.Success();
         }
 
+        PolicyChecks++;
         return Granted.Contains(policyName) ? AuthorizationResult.Success() : AuthorizationResult.Failed();
     }
 

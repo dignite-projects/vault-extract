@@ -245,19 +245,34 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant, IHasFlexFi
     /// back-reference (<see cref="OriginDocumentId"/> / <see cref="OriginConstituentKey"/>).
     /// <paramref name="fileOrigin"/> is <c>null</c> for every derived document: a sub-document has no file of its
     /// own to parse or download. Markdown is still seeded from the segment SliceText (seed precedence).
+    /// <para>
+    /// <b>#635: a sub-document inherits its origin's owner.</b> Segmentation runs in a background job where
+    /// <c>ICurrentUser.Id</c> is null, so ABP's <c>AuditPropertySetter</c> writes nothing and, before this,
+    /// derived documents had no creator at all — invisible to the person who uploaded the bundle they came out
+    /// of. <paramref name="creatorId"/> is the origin's <see cref="Volo.Abp.Auditing.IHasCreationTime"/> sibling
+    /// <c>CreatorId</c>, assigned here rather than left to the audit setter; that setter returns early when
+    /// <c>CreatorId</c> already has a value, so the explicit value survives <c>SaveChanges</c>
+    /// (pinned by <c>DerivedDocumentOwnership_Tests</c> against a real provider). A <c>null</c> origin creator
+    /// stays null — a document nobody owns spawns sub-documents nobody owns.
+    /// </para>
     /// </summary>
     public static Document CreateDerived(
         Guid id,
         Guid? tenantId,
         FileOrigin? fileOrigin,
         Guid originDocumentId,
-        string originConstituentKey)
+        string originConstituentKey,
+        Guid? creatorId)
     {
         var document = new Document(id, tenantId, fileOrigin)
         {
             OriginDocumentId = Check.NotDefaultOrNull<Guid>(originDocumentId, nameof(originDocumentId)),
             OriginConstituentKey = Check.NotNullOrWhiteSpace(
-                originConstituentKey, nameof(originConstituentKey), DocumentConsts.MaxOriginConstituentKeyLength)
+                originConstituentKey, nameof(originConstituentKey), DocumentConsts.MaxOriginConstituentKeyLength),
+            // Assignable here and nowhere outside the aggregate: CreatorId's setter is protected on
+            // CreationAuditedAggregateRoot, which is what keeps "who owns this" out of reach of the application
+            // layer except through this one factory.
+            CreatorId = creatorId
         };
         return document;
     }

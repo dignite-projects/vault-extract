@@ -66,4 +66,13 @@ public class DocumentListItemDto : EntityDto<Guid>
     /// common DTO.
     /// </summary>
     public Dictionary<string, JsonElement>? ExtractedFields { get; set; }
+
+    /// <summary>
+    /// What the calling principal may do with <b>this row</b> (#635 decision 5), decided on the server. The list
+    /// page binds every per-row action to it instead of re-deriving the rule from the caller's grants, which is
+    /// what let a document on an archived type come back with every action missing and made ownership —
+    /// not a property of a type — inexpressible client-side. Computed once per distinct (type, is-owner) pair on
+    /// the page, so the cost is bounded by the page's distinct types rather than by its row count.
+    /// </summary>
+    public DocumentRightsDto Rights { get; set; } = new();
 }

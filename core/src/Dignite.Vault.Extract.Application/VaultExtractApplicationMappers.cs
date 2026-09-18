@@ -34,6 +34,7 @@ public partial class DocumentToDocumentDtoMapper : MapperBase<Document, Document
     [MapperIgnoreTarget(nameof(DocumentDto.ExtractionIncompleteReason))]
     [MapperIgnoreTarget(nameof(DocumentDto.RequiresReview))]
     [MapperIgnoreTarget(nameof(DocumentDto.ReviewReasonDetails))]
+    [MapperIgnoreTarget(nameof(DocumentDto.Rights))]
     public override partial DocumentDto Map(Document source);
 
     [MapperIgnoreTarget(nameof(DocumentDto.DocumentTypeCode))]
@@ -42,6 +43,7 @@ public partial class DocumentToDocumentDtoMapper : MapperBase<Document, Document
     [MapperIgnoreTarget(nameof(DocumentDto.ExtractionIncompleteReason))]
     [MapperIgnoreTarget(nameof(DocumentDto.RequiresReview))]
     [MapperIgnoreTarget(nameof(DocumentDto.ReviewReasonDetails))]
+    [MapperIgnoreTarget(nameof(DocumentDto.Rights))]
     public override partial void Map(Document source, DocumentDto destination);
 }
 
@@ -125,11 +127,13 @@ public partial class DocumentToDocumentListItemDtoMapper : MapperBase<Document, 
     [MapperIgnoreTarget(nameof(DocumentListItemDto.DocumentTypeCode))]
     [MapperIgnoreTarget(nameof(DocumentListItemDto.ExtractedFields))]
     [MapperIgnoreTarget(nameof(DocumentListItemDto.RequiresReview))]
+    [MapperIgnoreTarget(nameof(DocumentListItemDto.Rights))]
     public override partial DocumentListItemDto Map(Document source);
 
     [MapperIgnoreTarget(nameof(DocumentListItemDto.DocumentTypeCode))]
     [MapperIgnoreTarget(nameof(DocumentListItemDto.ExtractedFields))]
     [MapperIgnoreTarget(nameof(DocumentListItemDto.RequiresReview))]
+    [MapperIgnoreTarget(nameof(DocumentListItemDto.Rights))]
     public override partial void Map(Document source, DocumentListItemDto destination);
 }
 

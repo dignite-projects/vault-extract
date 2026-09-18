@@ -89,6 +89,11 @@ public class DerivedDocumentSpawner : ITransientDependency
     /// The derived document's file origin — always <c>null</c>: a derived sub-document has no file of its own to
     /// parse or download.
     /// </param>
+    /// <param name="ownerId">
+    /// The source document's <c>CreatorId</c> (#635), copied onto the derived document. This job runs with no
+    /// principal, so nothing else would set it and the sub-documents of a bundle would be invisible to the person
+    /// who uploaded the bundle. <c>null</c> when the source itself has no owner.
+    /// </param>
     /// <param name="reloadClaimable">Reloads the candidate inside the UoW; returns it when still claimable, or <c>null</c> to abort.</param>
     /// <param name="markSpawned">Marks the (reloaded) candidate spawned with the derived document id and persists it.</param>
     public virtual async Task<Guid?> SpawnAsync<TCandidate>(
@@ -96,6 +101,7 @@ public class DerivedDocumentSpawner : ITransientDependency
         Guid? tenantId,
         string constituentKey,
         FileOrigin? fileOrigin,
+        Guid? ownerId,
         Func<Task<TCandidate?>> reloadClaimable,
         Func<TCandidate, Guid, Task> markSpawned,
         CancellationToken cancellationToken = default)
@@ -117,8 +123,11 @@ public class DerivedDocumentSpawner : ITransientDependency
             }
 
             var derivedDocumentId = _guidGenerator.Create();
+            // #635: the sub-document inherits the origin's owner. This job runs with no principal, so ABP's audit
+            // setter would leave CreatorId null and the uploader of the bundle would not be able to see, correct
+            // or withdraw the documents their own upload produced.
             var derived = Document.CreateDerived(
-                derivedDocumentId, tenantId, fileOrigin, sourceDocumentId, constituentKey);
+                derivedDocumentId, tenantId, fileOrigin, sourceDocumentId, constituentKey, ownerId);
 
             // autoSave is still harmless (not a correctness lever) — the enclosing transaction is what governs
             // atomicity now that there is no unique (OriginDocumentId, OriginConstituentKey) index on Document to

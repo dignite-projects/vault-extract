@@ -214,7 +214,7 @@ public class ContainerReclassifyRetraction_Tests
                         fileSize: sliceText.Length,
                         originalFileName: $"segment-{i}.md"),
                     originDocumentId: containerId,
-                    originConstituentKey: segmentKey);
+                    originConstituentKey: segmentKey, creatorId: null);
                 await _documentRepository.InsertAsync(derived, autoSave: true);
 
                 var segment = new DocumentSegment(
@@ -254,7 +254,7 @@ public class ContainerReclassifyRetraction_Tests
                     fileSize: 23,
                     originalFileName: "segment-figure.md"),
                 originDocumentId: containerId,
-                originConstituentKey: figureKey);
+                originConstituentKey: figureKey, creatorId: null);
             await _documentRepository.InsertAsync(derived, autoSave: true);
 
             var segment = new DocumentSegment(

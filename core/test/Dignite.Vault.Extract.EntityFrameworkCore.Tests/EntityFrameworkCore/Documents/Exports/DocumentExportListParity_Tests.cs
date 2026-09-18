@@ -234,7 +234,7 @@ public class DocumentExportListParity_Tests : VaultExtractTestBase<DocumentExpor
 
     private Task SeedDerivedAsync(Guid id, Guid originDocumentId, string title) =>
         PersistAsync(
-            Document.CreateDerived(id, tenantId: null, fileOrigin: null, originDocumentId, originConstituentKey: "seg-1"),
+            Document.CreateDerived(id, tenantId: null, fileOrigin: null, originDocumentId, originConstituentKey: "seg-1", creatorId: null),
             title, configure: null);
 
     private Task PersistAsync(Document document, string title, Action<Document>? configure)

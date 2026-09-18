@@ -40,7 +40,7 @@ public class DocumentAppServiceUploadDeclaredTypeTestModule : AbpModule
         {
             Granted = new HashSet<string>
             {
-                // #632: Documents.Default is ENTRY, and DocumentTypeAccessChecker now asserts it before either
+                // #632: Documents.Default is ENTRY, and DocumentAccessChecker now asserts it before either
                 // half of the OR is evaluated. Every real caller carries it (ABP's dialog grants the parent
                 // with the child), so this default set carries it too — otherwise every declared-type upload
                 // below would fail for a reason none of these facts is about.
@@ -60,6 +60,10 @@ public class DocumentAppServiceUploadDeclaredTypeTestModule : AbpModule
         context.Services.AddSingleton<InMemoryResourcePermissionStore>();
         context.Services.RemoveAll<IResourcePermissionStore>();
         context.Services.AddSingleton<IResourcePermissionStore>(sp => sp.GetRequiredService<InMemoryResourcePermissionStore>());
+
+        // The scoped grant memo, plus one extra reason to forget: this host changes what a principal is granted
+        // inside one scope, which no request does. See TestDocumentAccessMemo.
+        context.Services.UseTestAccessMemo();
 
         context.Services.AddSingleton(Substitute.For<IDocumentRepository>());
         context.Services.AddSingleton(Substitute.For<IDocumentTypeRepository>());
@@ -133,8 +137,16 @@ public class DocumentAppService_UploadDeclaredType_Tests
                 Arg.Any<bool>(),
                 Arg.Any<CancellationToken>())
             .Returns([type]);
+        // #635: the per-type arm reads DocumentAccessMemo, which sweeps the layer's own types once per request
+        // through the parameterless overload. Every stubbed type has to be in that sweep or no grant on it can be
+        // found — the memo answers strictly from the layer it enumerated.
+        _stubbedTypes.Add(type);
+        _documentTypeRepository.GetListAsync(Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(_ => new List<DocumentType>(_stubbedTypes));
         return type;
     }
+
+    private readonly List<DocumentType> _stubbedTypes = [];
 
     private void GrantResource(string providerName, string providerKey, Guid documentTypeId)
     {
@@ -170,15 +182,11 @@ public class DocumentAppService_UploadDeclaredType_Tests
     [Fact]
     public async Task UploadAsync_With_Valid_DocumentTypeId_Declares_The_Type_As_Confirmed()
     {
-        var type = new DocumentType(Guid.NewGuid(), null, "invoice.general", "Invoice");
-        _documentTypeRepository.FindAsync(type.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(type);
-        // MapToDtoAsync's ResolveReferenceMapsAsync resolves DocumentTypeCode for the returned DTO once
-        // DocumentTypeId is set; stub the predicate-based lookup it uses.
-        _documentTypeRepository.GetListAsync(
-                Arg.Any<System.Linq.Expressions.Expression<Func<DocumentType, bool>>>(),
-                Arg.Any<bool>(),
-                Arg.Any<CancellationToken>())
-            .Returns([type]);
+        // StubType registers the type on FindAsync, on the predicate lookup MapToDtoAsync's
+        // ResolveReferenceMapsAsync uses, and on the layer sweep DocumentAccessMemo performs — the last of
+        // which #635 made reachable from every DTO mapping, because the returned DTO now carries the caller's
+        // per-document rights.
+        var type = StubType("invoice.general");
 
         var input = CreateUploadInput([1, 2, 3]);
         input.DocumentTypeId = type.Id;
