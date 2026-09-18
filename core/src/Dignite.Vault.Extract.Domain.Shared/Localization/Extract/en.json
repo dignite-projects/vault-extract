@@ -130,7 +130,6 @@
     "Document:Upload:Complete": "Upload complete",
     "Document:Upload:CompletedWithErrors": "Upload completed with errors",
     "Document:Upload:Succeeded": "uploaded",
-    "Document:Upload:NoGrantableTypes": "You have not been granted upload access to any document type yet. Ask an administrator to grant it.",
     "Document:Upload:TypesUnavailable": "The document types could not be loaded. Refresh the page or try again later.",
     "Document:UnsupportedFileType": "Unsupported file type. Please upload a supported image, PDF, CSV/TSV, DOCX, PPTX, TXT, or XLSX file.",
     "Document:FileTooLarge": "File is too large. Maximum size is 20 MB.",

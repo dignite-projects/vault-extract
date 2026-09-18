@@ -130,7 +130,6 @@
     "Document:Upload:Complete": "上传完成",
     "Document:Upload:CompletedWithErrors": "上传完成，但有错误",
     "Document:Upload:Succeeded": "个已上传",
-    "Document:Upload:NoGrantableTypes": "您尚未被授予任何文档类型的上传权限，请联系管理员进行授权。",
     "Document:Upload:TypesUnavailable": "文档类型加载失败，请刷新页面或稍后重试。",
     "Document:UnsupportedFileType": "不支持的文件类型。请上传支持的图片、PDF、CSV/TSV、DOCX、PPTX、TXT 或 XLSX 文件。",
     "Document:FileTooLarge": "文件过大，最大为 20 MB。",
