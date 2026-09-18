@@ -78,9 +78,10 @@ public class DocumentAccessChecker : ITransientDependency
     /// <list type="number">
     /// <item>Read already behaved this way before #635, so leaving the other families more permissive than the
     /// read family would be backwards.</item>
-    /// <item>The definition provider makes every one of these module-wide permissions a CHILD of
-    /// <c>Documents.Default</c>. ABP's dialog grants the parent with the child, so a real principal carries both;
-    /// only a programmatic <c>IPermissionManager</c> grant or a hand-edited store can separate them, because
+    /// <item>The definition provider makes every one of these module-wide permissions a DESCENDANT of
+    /// <c>Documents.Default</c> — most as children, <c>Pipelines.Retry</c> and <c>Reprocessing.*</c> as
+    /// grandchildren. ABP's dialog grants the whole ancestor chain of a ticked permission, so a real principal
+    /// carries entry; only a programmatic <c>IPermissionManager</c> grant or a hand-edited store can separate them, because
     /// <c>PermissionChecker</c> never consults <c>Parent</c> at check time. Requiring entry makes the check agree
     /// with the definition the dialog enforces instead of relying on the grant path to have been the dialog.</item>
     /// <item>It closes a hole ordinary administration opens: handing out per-type grants is gated by
