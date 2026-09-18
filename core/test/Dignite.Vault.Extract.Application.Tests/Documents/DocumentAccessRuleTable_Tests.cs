@@ -20,75 +20,76 @@ namespace Dignite.Vault.Extract.Documents;
 /// </summary>
 public class DocumentAccessRuleTable_Tests
 {
-    public static TheoryData<string, DocumentAccessRule, string, string?, DocumentOwnerArm> Table => new()
+    public static TheoryData<string, DocumentAccessRule, string[], string?, DocumentOwnerArm> Table => new()
     {
         {
             nameof(DocumentAccessRule.Read), DocumentAccessRule.Read,
-            VaultExtractPermissions.Documents.ReadAll, VaultExtractResourcePermissions.Read,
+            [VaultExtractPermissions.Documents.ReadAll], VaultExtractResourcePermissions.Read,
             DocumentOwnerArm.Always
         },
         {
             nameof(DocumentAccessRule.Edit), DocumentAccessRule.Edit,
-            VaultExtractPermissions.Documents.ConfirmClassification, VaultExtractResourcePermissions.Edit,
+            [VaultExtractPermissions.Documents.ConfirmClassification], VaultExtractResourcePermissions.Edit,
             DocumentOwnerArm.UnlessUnderReview
         },
         {
             nameof(DocumentAccessRule.Review), DocumentAccessRule.Review,
-            VaultExtractPermissions.Documents.ConfirmClassification, VaultExtractResourcePermissions.Edit,
+            [VaultExtractPermissions.Documents.ConfirmClassification], VaultExtractResourcePermissions.Edit,
             DocumentOwnerArm.Never
         },
         {
             nameof(DocumentAccessRule.Delete), DocumentAccessRule.Delete,
-            VaultExtractPermissions.Documents.Delete, VaultExtractResourcePermissions.Delete,
+            [VaultExtractPermissions.Documents.Delete], VaultExtractResourcePermissions.Delete,
             DocumentOwnerArm.Always
         },
         {
             nameof(DocumentAccessRule.Restore), DocumentAccessRule.Restore,
-            VaultExtractPermissions.Documents.Restore, VaultExtractResourcePermissions.Delete,
+            [VaultExtractPermissions.Documents.Restore], VaultExtractResourcePermissions.Delete,
             DocumentOwnerArm.Always
         },
         {
             nameof(DocumentAccessRule.Retry), DocumentAccessRule.Retry,
-            VaultExtractPermissions.Documents.Pipelines.Retry, VaultExtractResourcePermissions.Edit,
+            [VaultExtractPermissions.Documents.Pipelines.Retry], VaultExtractResourcePermissions.Edit,
             DocumentOwnerArm.UnlessUnderReview
         },
         {
             nameof(DocumentAccessRule.DeclareType), DocumentAccessRule.DeclareType,
-            VaultExtractPermissions.Documents.ConfirmClassification, VaultExtractResourcePermissions.Upload,
+            [VaultExtractPermissions.Documents.ConfirmClassification], VaultExtractResourcePermissions.Upload,
             DocumentOwnerArm.Never
         },
         {
             nameof(DocumentAccessRule.Upload), DocumentAccessRule.Upload,
-            VaultExtractPermissions.Documents.Upload, null, DocumentOwnerArm.Never
+            [VaultExtractPermissions.Documents.Upload], null, DocumentOwnerArm.Never
         },
         {
             nameof(DocumentAccessRule.PermanentDelete), DocumentAccessRule.PermanentDelete,
-            VaultExtractPermissions.Documents.PermanentDelete, null, DocumentOwnerArm.Never
+            [VaultExtractPermissions.Documents.PermanentDelete], null, DocumentOwnerArm.Never
         },
         {
             nameof(DocumentAccessRule.ReprocessFieldExtraction), DocumentAccessRule.ReprocessFieldExtraction,
-            VaultExtractPermissions.Documents.Reprocessing.FieldExtraction, null, DocumentOwnerArm.Never
+            [VaultExtractPermissions.Documents.Reprocessing.FieldExtraction], null, DocumentOwnerArm.Never
         },
         {
             nameof(DocumentAccessRule.ReprocessReclassification), DocumentAccessRule.ReprocessReclassification,
-            VaultExtractPermissions.Documents.Reprocessing.Reclassification, null, DocumentOwnerArm.Never
+            [VaultExtractPermissions.Documents.Reprocessing.Reclassification], null, DocumentOwnerArm.Never
         },
         {
             nameof(DocumentAccessRule.Export), DocumentAccessRule.Export,
-            VaultExtractPermissions.Documents.Export, null, DocumentOwnerArm.Never
+            [VaultExtractPermissions.Documents.Export], null, DocumentOwnerArm.Never
         },
         {
             nameof(DocumentAccessRule.Statistics), DocumentAccessRule.Statistics,
-            VaultExtractPermissions.Documents.ReadAll, null, DocumentOwnerArm.Never
+            [VaultExtractPermissions.Documents.ReadAll], null, DocumentOwnerArm.Never
         }
     };
 
     [Theory]
     [MemberData(nameof(Table))]
     public void Every_rule_carries_the_three_values_the_Issues_table_states(
-        string name, DocumentAccessRule rule, string moduleWide, string? resource, DocumentOwnerArm ownerArm)
+        string name, DocumentAccessRule rule, string[] moduleWide, string? resource, DocumentOwnerArm ownerArm)
     {
-        rule.ModuleWidePermission.ShouldBe(moduleWide, $"{name}: module-wide permission");
+        // A set: the order the row writes its members in is only the order they are asked in (#645).
+        rule.ModuleWidePermissions.ShouldBe(moduleWide, ignoreOrder: true, $"{name}: module-wide permissions");
         rule.ResourcePermission.ShouldBe(resource, $"{name}: per-type grant");
         rule.OwnerArm.ShouldBe(ownerArm, $"{name}: owner arm");
     }
@@ -147,10 +148,52 @@ public class DocumentAccessRuleTable_Tests
     [Fact]
     public void Review_differs_from_Edit_only_by_the_owner_arm()
     {
-        DocumentAccessRule.Review.ModuleWidePermission.ShouldBe(DocumentAccessRule.Edit.ModuleWidePermission);
-        DocumentAccessRule.Review.ResourcePermission.ShouldBe(DocumentAccessRule.Edit.ResourcePermission);
+        // Stated through record equality, which compares the role-level arm by content (#645): Review with Edit's
+        // owner arm IS Edit, and nothing else about the two rows may differ.
+        (DocumentAccessRule.Review with { OwnerArm = DocumentOwnerArm.UnlessUnderReview })
+            .ShouldBe(DocumentAccessRule.Edit);
+        DocumentAccessRule.Review.ShouldNotBe(DocumentAccessRule.Edit);
         DocumentAccessRule.Review.OwnerArm.ShouldBe(DocumentOwnerArm.Never);
         DocumentAccessRule.Edit.OwnerArm.ShouldBe(DocumentOwnerArm.UnlessUnderReview);
+    }
+
+    /// <summary>
+    /// #645: the role-level arm is a set, so a rule's equality has to compare it by content. The compiler-made
+    /// equality of a record would compare the collection by reference, and two rules admitting exactly the same
+    /// callers would come out unequal.
+    /// </summary>
+    [Fact]
+    public void A_rules_equality_compares_its_role_level_set_by_content_and_ignores_order()
+    {
+        var either = new DocumentAccessRule(
+            ["A", "B"], ResourcePermission: "grant", OwnerArm: DocumentOwnerArm.Never);
+
+        either.ShouldBe(new DocumentAccessRule(["B", "A"], "grant", DocumentOwnerArm.Never));
+        either.GetHashCode().ShouldBe(new DocumentAccessRule(["B", "A"], "grant", DocumentOwnerArm.Never).GetHashCode());
+
+        either.ShouldNotBe(new DocumentAccessRule(["A"], "grant", DocumentOwnerArm.Never));
+        either.ShouldNotBe(new DocumentAccessRule(["A", "C"], "grant", DocumentOwnerArm.Never));
+        either.ShouldNotBe(new DocumentAccessRule(["A", "B"], null, DocumentOwnerArm.Never));
+        either.ShouldNotBe(new DocumentAccessRule(["A", "B"], "grant", DocumentOwnerArm.Always));
+    }
+
+    /// <summary>
+    /// The set is frozen at construction and cannot be empty or name a permission twice. A caller's collection is
+    /// copied, so mutating it afterwards cannot change what the rule admits.
+    /// </summary>
+    [Fact]
+    public void A_rules_role_level_set_is_frozen_non_empty_and_distinct()
+    {
+        Should.Throw<ArgumentException>(() => new DocumentAccessRule([], null, DocumentOwnerArm.Never));
+        Should.Throw<ArgumentException>(() => new DocumentAccessRule(["A", "A"], null, DocumentOwnerArm.Never));
+        Should.Throw<ArgumentException>(() => new DocumentAccessRule(["A", " "], null, DocumentOwnerArm.Never));
+
+        var source = new List<string> { "A" };
+        var rule = new DocumentAccessRule(source, null, DocumentOwnerArm.Never);
+        source.Add("B");
+
+        rule.ModuleWidePermissions.ShouldBe(["A"]);
+        (rule.ModuleWidePermissions is ICollection<string> { IsReadOnly: false }).ShouldBeFalse();
     }
 
     /// <summary>

@@ -1,15 +1,20 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
+using System.Text;
 using Dignite.Vault.Extract.Permissions;
 
 namespace Dignite.Vault.Extract.Documents;
 
 /// <summary>
 /// <b>The whole rule table, as data</b> (#635 decision 2). One row per operation family: the module-wide
-/// permission that admits every type of the caller's layer, the per-<c>DocumentType</c> resource permission that
+/// permissions that admit every type of the caller's layer, the per-<c>DocumentType</c> resource permission that
 /// admits exactly one type (<c>null</c> when the family has no per-type arm at all), and whether the document's
 /// own uploader may perform it.
 /// <para>
 /// The rule the checker applies to every row is the same:
-/// <c>entry (Documents) AND ( module-wide OR owner-where-allowed OR the grant on the subject's type )</c>.
+/// <c>entry (Documents) AND ( any module-wide member OR owner-where-allowed OR the grant on the subject's type )</c>.
 /// Entry gates all three arms, for every rule <b>including the module-wide-only ones</b> — that is what turned
 /// <c>PermanentDeleteAsync</c>, <c>RetryPipelineAsync</c>, the four <c>Reprocessing</c> methods, the export and
 /// the untyped upload branch from <c>[Authorize]</c> attributes sitting outside the table into rows on it.
@@ -30,8 +35,13 @@ namespace Dignite.Vault.Extract.Documents;
 /// it".
 /// </para>
 /// </summary>
-/// <param name="ModuleWidePermission">
-/// The standard permission that admits every type of the caller's layer, and untyped documents with it.
+/// <param name="ModuleWidePermissions">
+/// The role-level arm: standard permissions any <b>one</b> of which admits every type of the caller's layer, and
+/// untyped documents with it (#645 decision 1). Almost every row has exactly one member; a second member is the
+/// statement "this other all-types right implies this one too", written on the row instead of as a second check
+/// at the call site. Never empty — a rule with no role-level arm at all would be unreachable for every untyped
+/// subject, and no row is meant to be. The members are asked in the order written, so the one most callers hold
+/// goes first; the order is not part of the rule's meaning and <see cref="Equals(DocumentAccessRule?)"/> ignores it.
 /// </param>
 /// <param name="ResourcePermission">
 /// The per-type grant that admits exactly the subject's type, or <c>null</c> for a family that has no per-type
@@ -48,17 +58,101 @@ namespace Dignite.Vault.Extract.Documents;
 /// DeclareType, and for every row with no per-type arm.
 /// </param>
 public sealed record DocumentAccessRule(
-    string ModuleWidePermission,
+    IReadOnlyList<string> ModuleWidePermissions,
     string? ResourcePermission,
     DocumentOwnerArm OwnerArm)
 {
+    /// <summary>
+    /// The role-level arm, copied and frozen at construction: a caller's collection is never kept, so nothing
+    /// that built a rule can change what it admits afterwards.
+    /// </summary>
+    public IReadOnlyList<string> ModuleWidePermissions { get; } = Freeze(ModuleWidePermissions);
+
+    /// <summary>
+    /// <b>Equality is by content</b>, with the role-level arm compared as a set. The compiler-generated equality
+    /// of a record would compare the collection by reference, so two rules admitting exactly the same callers
+    /// would be unequal and a rule would stop equalling its own <c>with</c> copy. No production path compares
+    /// rules — the checker reads their members — but a record that silently changed what <c>==</c> means when one
+    /// member became a collection is a trap for the first caller that does.
+    /// </summary>
+    public bool Equals(DocumentAccessRule? other)
+    {
+        if (other is null)
+        {
+            return false;
+        }
+
+        if (ReferenceEquals(this, other))
+        {
+            return true;
+        }
+
+        // Freeze rejects duplicates, so equal counts plus one-way containment is set equality.
+        return OwnerArm == other.OwnerArm
+            && string.Equals(ResourcePermission, other.ResourcePermission, StringComparison.Ordinal)
+            && ModuleWidePermissions.Count == other.ModuleWidePermissions.Count
+            && ModuleWidePermissions.All(name => other.ModuleWidePermissions.Contains(name, StringComparer.Ordinal));
+    }
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(OwnerArm);
+        hash.Add(ResourcePermission, StringComparer.Ordinal);
+        foreach (var name in ModuleWidePermissions.Order(StringComparer.Ordinal))
+        {
+            hash.Add(name, StringComparer.Ordinal);
+        }
+
+        return hash.ToHashCode();
+    }
+
+    /// <summary>
+    /// Prints the members of the role-level arm rather than the collection's type name, which is what the
+    /// compiler-generated <c>ToString</c> would show — this is the text an assertion failure or a log line quotes.
+    /// </summary>
+    private bool PrintMembers(StringBuilder builder)
+    {
+        builder.Append(nameof(ModuleWidePermissions)).Append(" = [")
+            .Append(string.Join(", ", ModuleWidePermissions)).Append("], ")
+            .Append(nameof(ResourcePermission)).Append(" = ").Append(ResourcePermission ?? "null").Append(", ")
+            .Append(nameof(OwnerArm)).Append(" = ").Append(OwnerArm);
+        return true;
+    }
+
+    private static IReadOnlyList<string> Freeze(IReadOnlyList<string> permissions)
+    {
+        ArgumentNullException.ThrowIfNull(permissions);
+
+        var copy = permissions.ToArray();
+        if (copy.Length == 0)
+        {
+            throw new ArgumentException(
+                "A rule's role-level arm needs at least one module-wide permission.", nameof(permissions));
+        }
+
+        if (copy.Any(string.IsNullOrWhiteSpace))
+        {
+            throw new ArgumentException(
+                "A rule's role-level arm cannot name an empty permission.", nameof(permissions));
+        }
+
+        if (copy.Distinct(StringComparer.Ordinal).Count() != copy.Length)
+        {
+            throw new ArgumentException(
+                "A rule's role-level arm names the same permission twice.", nameof(permissions));
+        }
+
+        return new ReadOnlyCollection<string>(copy);
+    }
+
     /// <summary>
     /// Detail, blob, list / recycle-bin / export rows, pipeline runs, and the MCP paths that delegate to them.
     /// The owner arm is what makes an uploader able to confirm their own upload processed — the day-one failure
     /// #635 exists to fix.
     /// </summary>
     public static readonly DocumentAccessRule Read = new(
-        VaultExtractPermissions.Documents.ReadAll,
+        [VaultExtractPermissions.Documents.ReadAll],
         VaultExtractResourcePermissions.Read,
         OwnerArm: DocumentOwnerArm.Always);
 
@@ -70,7 +164,7 @@ public sealed record DocumentAccessRule(
     /// no longer read-only.
     /// </summary>
     public static readonly DocumentAccessRule Edit = new(
-        VaultExtractPermissions.Documents.ConfirmClassification,
+        [VaultExtractPermissions.Documents.ConfirmClassification],
         VaultExtractResourcePermissions.Edit,
         OwnerArm: DocumentOwnerArm.UnlessUnderReview);
 
@@ -86,13 +180,13 @@ public sealed record DocumentAccessRule(
     /// </para>
     /// </summary>
     public static readonly DocumentAccessRule Review = new(
-        VaultExtractPermissions.Documents.ConfirmClassification,
+        [VaultExtractPermissions.Documents.ConfirmClassification],
         VaultExtractResourcePermissions.Edit,
         OwnerArm: DocumentOwnerArm.Never);
 
     /// <summary>Soft delete (<c>DeleteAsync</c>). An uploader may withdraw a mistaken upload of their own.</summary>
     public static readonly DocumentAccessRule Delete = new(
-        VaultExtractPermissions.Documents.Delete,
+        [VaultExtractPermissions.Documents.Delete],
         VaultExtractResourcePermissions.Delete,
         OwnerArm: DocumentOwnerArm.Always);
 
@@ -103,7 +197,7 @@ public sealed record DocumentAccessRule(
     /// not a wider right than the operation (#632).
     /// </summary>
     public static readonly DocumentAccessRule Restore = new(
-        VaultExtractPermissions.Documents.Restore,
+        [VaultExtractPermissions.Documents.Restore],
         VaultExtractResourcePermissions.Delete,
         OwnerArm: DocumentOwnerArm.Always);
 
@@ -117,7 +211,7 @@ public sealed record DocumentAccessRule(
     /// become the per-type and own-document arms, the same shape as <see cref="Restore"/> reusing Delete's grant.
     /// </summary>
     public static readonly DocumentAccessRule Retry = new(
-        VaultExtractPermissions.Documents.Pipelines.Retry,
+        [VaultExtractPermissions.Documents.Pipelines.Retry],
         VaultExtractResourcePermissions.Edit,
         // UnlessUnderReview, like Edit: a retried field-extraction run replaces the whole validation-warning set
         // and recomputes the duplicate fingerprint from the new values, exactly as re-extraction does.
@@ -131,7 +225,7 @@ public sealed record DocumentAccessRule(
     /// it to entry plus <c>ConfirmClassification</c>, which is exactly #629's untyped-upload rule, now with entry.
     /// </summary>
     public static readonly DocumentAccessRule DeclareType = new(
-        VaultExtractPermissions.Documents.ConfirmClassification,
+        [VaultExtractPermissions.Documents.ConfirmClassification],
         VaultExtractResourcePermissions.Upload,
         OwnerArm: DocumentOwnerArm.Never);
 
@@ -140,7 +234,7 @@ public sealed record DocumentAccessRule(
     /// operation on an existing one, so there is nothing to own and no type to grant against.
     /// </summary>
     public static readonly DocumentAccessRule Upload = new(
-        VaultExtractPermissions.Documents.Upload,
+        [VaultExtractPermissions.Documents.Upload],
         ResourcePermission: null,
         OwnerArm: DocumentOwnerArm.Never);
 
@@ -150,7 +244,7 @@ public sealed record DocumentAccessRule(
     /// uploader withdraws through <see cref="Delete"/>, which is recoverable.
     /// </summary>
     public static readonly DocumentAccessRule PermanentDelete = new(
-        VaultExtractPermissions.Documents.PermanentDelete,
+        [VaultExtractPermissions.Documents.PermanentDelete],
         ResourcePermission: null,
         OwnerArm: DocumentOwnerArm.Never);
 
@@ -159,7 +253,7 @@ public sealed record DocumentAccessRule(
     /// Module-wide only, by decision: admin-level bulk over a whole type.
     /// </summary>
     public static readonly DocumentAccessRule ReprocessFieldExtraction = new(
-        VaultExtractPermissions.Documents.Reprocessing.FieldExtraction,
+        [VaultExtractPermissions.Documents.Reprocessing.FieldExtraction],
         ResourcePermission: null,
         OwnerArm: DocumentOwnerArm.Never);
 
@@ -168,7 +262,7 @@ public sealed record DocumentAccessRule(
     /// Module-wide only, by decision: admin-level bulk, cascading and destructive.
     /// </summary>
     public static readonly DocumentAccessRule ReprocessReclassification = new(
-        VaultExtractPermissions.Documents.Reprocessing.Reclassification,
+        [VaultExtractPermissions.Documents.Reprocessing.Reclassification],
         ResourcePermission: null,
         OwnerArm: DocumentOwnerArm.Never);
 
@@ -177,7 +271,7 @@ public sealed record DocumentAccessRule(
     /// uploader's own documents reach the file through that rule, not through this one.
     /// </summary>
     public static readonly DocumentAccessRule Export = new(
-        VaultExtractPermissions.Documents.Export,
+        [VaultExtractPermissions.Documents.Export],
         ResourcePermission: null,
         OwnerArm: DocumentOwnerArm.Never);
 
@@ -188,7 +282,7 @@ public sealed record DocumentAccessRule(
     /// would be a different statistic wearing the same name.
     /// </summary>
     public static readonly DocumentAccessRule Statistics = new(
-        VaultExtractPermissions.Documents.ReadAll,
+        [VaultExtractPermissions.Documents.ReadAll],
         ResourcePermission: null,
         OwnerArm: DocumentOwnerArm.Never);
 }
