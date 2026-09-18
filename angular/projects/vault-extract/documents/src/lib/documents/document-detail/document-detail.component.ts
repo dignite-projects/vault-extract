@@ -318,6 +318,20 @@ export class DocumentDetailComponent implements OnInit {
   // #527: the warnings carried by the FieldValidationWarning review-reason detail (at most one such detail, one entry
   // per flagged field). Drives both the itemised list rendered in the metadata card and the id set sent to the resolve
   // endpoint. Empty when there is no such detail.
+  // #635: the document is held by a blocking review reason and this caller can do nothing about it — the
+  // explanation an uploader needs once their own document is locked for review (they keep read and delete,
+  // lose edit and retry, never had review). Built ONLY from what the server sent: each detail's
+  // `isBlocking` and the row's `rights`. Re-deriving which reasons block on the client would be a second
+  // copy of ReviewReasonPolicy, which is the kind of copy #635 removed. The `canEdit` term is what keeps it
+  // off a document blocked only on classification: its uploader may still confirm or reclassify it, so
+  // there is something they can do, and the line would be false.
+  readonly waitingForReviewer = computed(
+    () =>
+      (this.document()?.reviewReasonDetails ?? []).some(detail => detail.isBlocking === true) &&
+      !this.canEdit() &&
+      !this.canReview(),
+  );
+
   fieldValidationWarnings = computed<FieldValidationWarningDto[]>(() =>
     (this.document()?.reviewReasonDetails ?? [])
       .find(d => d.reason === DocumentReviewReasons.FieldValidationWarning)
@@ -841,9 +855,10 @@ export class DocumentDetailComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: updated => {
-          this.document.set(updated);
           this.isSavingCabinet.set(false);
           this.isEditingCabinet.set(false);
+          if (this.leaveIfNoLongerReadable(updated)) return;
+          this.document.set(updated);
           this.toaster.success('::Document:CabinetUpdated', '::Success');
         },
         error: () => {
@@ -904,6 +919,7 @@ export class DocumentDetailComponent implements OnInit {
         next: updated => {
           this.isSavingMarkdown.set(false);
           this.isEditingMarkdown.set(false);
+          if (this.leaveIfNoLongerReadable(updated)) return;
           if (reprocessDropped) {
             // #555 review: the operator checked "also re-extract fields" and confirmed the warning
             // dialog, but the document went unclassified before Save actually ran -- surface that
@@ -990,6 +1006,34 @@ export class DocumentDetailComponent implements OnInit {
   // error signal.
   onPreviewError(): void {
     this.fileBlob.markError();
+  }
+
+  /**
+   * #635: every edit- and review-family endpoint answers with the document as the caller may see it AFTER
+   * the write — and when that is nothing, with a body redacted to `{ id, rights }`, `rights.canRead` false.
+   * The write has happened either way. All seven of this page's mutations that return a `DocumentDto` pass
+   * their response through here first; it returns `true` when it has taken the page away, and the caller
+   * must then stop.
+   *
+   * The case that reaches it is a reclassification out of the caller's read scope: an `Edit` grant on type
+   * X and an `Upload` grant on type Y, but no `Read` on Y, moving a document from X to Y. Neither of the two
+   * things the page would otherwise do is right. Putting the redacted DTO into `document` renders an empty
+   * page with every action off; and the four calls that ignore the body and reload would send a `GetAsync`
+   * this caller is now refused, which surfaces as ABP's authorization-error modal straight after a success
+   * toast, over the stale pre-mutation document. The other six calls cannot move a document out of scope
+   * by themselves — they reach this only if a grant is revoked mid-session — but one guard costs less than
+   * reasoning about which calls can race.
+   *
+   * The list, not `goBack()`: the previous page may be another view of this same document (its file
+   * preview), which the caller can no longer open either.
+   */
+  private leaveIfNoLongerReadable(result: DocumentDto | null | undefined): boolean {
+    if (rightsOf(result).canRead) {
+      return false;
+    }
+    this.toaster.info('::Document:SavedOutOfView', '::Success');
+    this.router.navigate(['/documents/list']);
+    return true;
   }
 
   goBack(): void {
@@ -1128,9 +1172,12 @@ export class DocumentDetailComponent implements OnInit {
     this.documentService.confirmClassification(doc.id!, { documentTypeId: this.selectedTypeId() })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => {
+        next: updated => {
           this.isConfirmingClassification.set(false);
           this.closeClassifyDialog();
+          // The one call on this page that routinely moves a document out of the caller's read scope: the
+          // TARGET type is judged by DeclareType (an Upload grant suffices), not by Read.
+          if (this.leaveIfNoLongerReadable(updated)) return;
           this.toaster.success('::Document:ClassificationConfirmed', '::Success');
           this.loadDocument();
         },
@@ -1166,9 +1213,10 @@ export class DocumentDetailComponent implements OnInit {
     this.documentService.rejectReview(doc.id!, { reason })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => {
+        next: updated => {
           this.isRejecting.set(false);
           this.closeRejectDialog();
+          if (this.leaveIfNoLongerReadable(updated)) return;
           this.toaster.success('::Document:Review:RejectedSuccessfully', '::Success');
           this.loadDocument();
         },
@@ -1189,8 +1237,9 @@ export class DocumentDetailComponent implements OnInit {
     this.documentService.allowDuplicate(doc.id!)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => {
+        next: updated => {
           this.isAllowingDuplicate.set(false);
+          if (this.leaveIfNoLongerReadable(updated)) return;
           this.toaster.success('::Document:Review:DuplicateAllowed', '::Success');
           this.loadDocument();
         },
@@ -1222,8 +1271,9 @@ export class DocumentDetailComponent implements OnInit {
         this.documentService.resolveFieldValidationWarnings(doc.id!, { fieldDefinitionIds })
           .pipe(takeUntilDestroyed(this.destroyRef))
           .subscribe({
-            next: () => {
+            next: updated => {
               this.isResolvingWarnings.set(false);
+              if (this.leaveIfNoLongerReadable(updated)) return;
               this.toaster.success('::Document:Review:FieldValidationWarningsResolved', '::Success');
               this.loadDocument();
             },
@@ -1408,11 +1458,12 @@ export class DocumentDetailComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: updated => {
-          this.document.set(updated);
           this.isSavingFields.set(false);
           this.isEditingFields.set(false);
           this.fieldsForm.set(undefined);
           this.editingDocument.set(undefined);
+          if (this.leaveIfNoLongerReadable(updated)) return;
+          this.document.set(updated);
           this.toaster.success('::Document:FieldsUpdated', '::Success');
         },
         error: () => {

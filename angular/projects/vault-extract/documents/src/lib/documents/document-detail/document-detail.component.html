@@ -467,6 +467,14 @@
                               </button>
                             }
                           </div>
+                        } @else if (detail.reason === DocumentReviewReasons.DuplicateSuspected) {
+                          <!-- #635: the candidate list is narrowed by the caller's read scope, so a suspected
+                               duplicate can arrive with no candidate this caller may see — or with none at all,
+                               because the match was since deleted. The wording covers both, and claims nothing
+                               about which. -->
+                          <div class="text-muted ms-1 mt-1 duplicate-candidates-empty">
+                            {{ '::Document:ReviewReason:NoViewableDuplicateCandidates' | abpLocalization }}
+                          </div>
                         }
                         <!-- #527: field-validation warnings — each flagged field's display name + the warning message.
                              The message is bound via interpolation, so Angular escapes it (no innerHTML): the operator
@@ -481,6 +489,12 @@
                             }
                           </ul>
                         }
+                      </div>
+                    }
+                    <!-- #635: blocked, and nothing this caller may do about it. See waitingForReviewer. -->
+                    @if (waitingForReviewer()) {
+                      <div class="small text-muted fst-italic mt-1 waiting-for-reviewer">
+                        {{ '::Document:Review:WaitingForReviewer' | abpLocalization }}
                       </div>
                     }
                   </dd>

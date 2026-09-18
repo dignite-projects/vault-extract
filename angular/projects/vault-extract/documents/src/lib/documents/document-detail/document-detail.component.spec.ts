@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { LocalizationService, PermissionService } from '@abp/ng.core';
 import { ConfirmationService, ToasterService } from '@abp/ng.theme.shared';
 import { Observable, of } from 'rxjs';
@@ -99,7 +99,10 @@ function documentOf(
 function setup(
   grantedPolicies: Set<string>,
   getVisible: () => Observable<DocumentTypeDto[]> = () => of([TYPE_A, TYPE_B]),
+  documentService: Record<string, unknown> = {},
 ) {
+  const toaster = { success: vi.fn(), error: vi.fn(), warn: vi.fn(), info: vi.fn() };
+
   TestBed.configureTestingModule({
     imports: [DocumentDetailComponent],
     providers: [
@@ -109,9 +112,9 @@ function setup(
         useValue: { getGrantedPolicy: (key: string) => grantedPolicies.has(key) },
       },
       { provide: LocalizationService, useValue: { instant: (key: string) => key } },
-      { provide: ToasterService, useValue: { success: vi.fn(), error: vi.fn(), warn: vi.fn() } },
+      { provide: ToasterService, useValue: toaster },
       { provide: ConfirmationService, useValue: { warn: vi.fn().mockReturnValue(of(null)) } },
-      { provide: DocumentService, useValue: {} },
+      { provide: DocumentService, useValue: documentService },
       { provide: DocumentPipelineRunService, useValue: { getList: () => of([]) } },
       { provide: DocumentTypeService, useValue: { getVisible } },
       { provide: FieldDefinitionService, useValue: { getFieldTypes: () => of([]), getList: () => of([]) } },
@@ -120,7 +123,8 @@ function setup(
   });
 
   const fixture = TestBed.createComponent(DocumentDetailComponent);
-  return { component: fixture.componentInstance, fixture };
+  const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+  return { component: fixture.componentInstance, fixture, toaster, navigate };
 }
 
 const MODULE_WIDE = new Set<string>([
@@ -320,5 +324,158 @@ describe('DocumentDetailComponent — classify picker (#632)', () => {
 
     expect(component.documentTypes.value()).toEqual([TYPE_A, TYPE_B]);
     expect(getVisible).toHaveBeenCalledTimes(1);
+  });
+});
+
+// #635 (after the #638 review): an edit- or review-family call whose result the caller may not read comes back
+// redacted to `{ id, rights }`. The write happened; the body is not a document to show.
+describe('DocumentDetailComponent — a mutation result the caller may not read (#635)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  /** What the server returns when the write succeeded but the caller may no longer read the document. */
+  const REDACTED: DocumentDto = {
+    id: 'doc-1',
+    rights: { ...READ_ONLY, canRead: false },
+  } as DocumentDto;
+
+  it('leaves the page after a reclassification out of the read scope, without rendering or reloading', () => {
+    // The real case: an Edit grant on the current type and an Upload grant on the target, but no Read on
+    // the target. The page used to ignore this body and reload — a GetAsync the caller is now refused.
+    const get = vi.fn();
+    const confirmClassification = vi.fn().mockReturnValue(of(REDACTED));
+    const { component, toaster, navigate } = setup(ENTRY_ONLY, undefined, { get, confirmClassification });
+    const before = documentOf(FULL);
+    component.document.set(before);
+    component.selectedTypeId.set('type-b');
+
+    component.submitClassify();
+
+    expect(confirmClassification).toHaveBeenCalled();
+    expect(component.document()).toBe(before);
+    expect(get).not.toHaveBeenCalled();
+    expect(toaster.info).toHaveBeenCalledWith('::Document:SavedOutOfView', '::Success');
+    expect(toaster.success).not.toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledWith(['/documents/list']);
+  });
+
+  it('does not put a redacted body into state on a call that renders its response', () => {
+    const updateCabinet = vi.fn().mockReturnValue(of(REDACTED));
+    const { component, navigate } = setup(ENTRY_ONLY, undefined, { updateCabinet });
+    const before = documentOf(FULL);
+    component.document.set(before);
+
+    component.saveCabinet();
+
+    expect(component.document()).toBe(before);
+    expect(navigate).toHaveBeenCalledWith(['/documents/list']);
+  });
+
+  it('keeps the page, and the new body, when the caller can still read the result', () => {
+    // The counter-case: without it the facts above would pass on a guard that always leaves.
+    const after = documentOf(FULL, 'contract', { cabinetId: 'cabinet-1' });
+    const updateCabinet = vi.fn().mockReturnValue(of(after));
+    const { component, toaster, navigate } = setup(ENTRY_ONLY, undefined, { updateCabinet });
+    component.document.set(documentOf(FULL));
+
+    component.saveCabinet();
+
+    expect(component.document()).toBe(after);
+    expect(navigate).not.toHaveBeenCalled();
+    expect(toaster.success).toHaveBeenCalledWith('::Document:CabinetUpdated', '::Success');
+  });
+});
+
+// #635 (after the #638 review): an uploader whose own document is held for review keeps read and delete, and
+// loses edit and retry. The page tells them why the actions are gone — from the server's `isBlocking` and
+// `rights` only, never from a client-side copy of which reasons block.
+describe('DocumentDetailComponent — "waiting for a reviewer" (#635)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  const LOCKED_OWNER: DocumentRightsDto = { ...OWNER, canEdit: false, canRetry: false };
+
+  function render(rights: DocumentRightsDto, isBlocking: boolean) {
+    const { component, fixture } = setup(ENTRY_ONLY);
+    component.isLoading.set(false);
+    component.document.set(
+      documentOf(rights, 'contract', {
+        requiresReview: true,
+        reviewReasons: DocumentReviewReasons.DuplicateSuspected,
+        reviewReasonDetails: [
+          { reason: DocumentReviewReasons.DuplicateSuspected, isBlocking, duplicateCandidates: [] },
+        ],
+      }),
+    );
+    fixture.detectChanges();
+    return { component, text: fixture.nativeElement.textContent as string };
+  }
+
+  it('is shown for a blocked document the caller may neither edit nor review', () => {
+    const { component, text } = render(LOCKED_OWNER, true);
+
+    expect(component.waitingForReviewer()).toBe(true);
+    expect(text).toContain('Document:Review:WaitingForReviewer');
+  });
+
+  it('is hidden when the caller may still edit it', () => {
+    // An uploader whose document is blocked only on classification: they may confirm or reclassify it, so
+    // there is something they can do.
+    const { text } = render({ ...LOCKED_OWNER, canEdit: true }, true);
+
+    expect(text).not.toContain('Document:Review:WaitingForReviewer');
+  });
+
+  it('is hidden when the caller may review it', () => {
+    const { text } = render({ ...LOCKED_OWNER, canReview: true }, true);
+
+    expect(text).not.toContain('Document:Review:WaitingForReviewer');
+  });
+
+  it('is hidden when nothing is blocking', () => {
+    const { text } = render(LOCKED_OWNER, false);
+
+    expect(text).not.toContain('Document:Review:WaitingForReviewer');
+  });
+});
+
+// #635 (after the #638 review): the duplicate-candidate panel is narrowed by the caller's read scope, so an
+// uploader whose document is flagged as a duplicate may receive no candidate at all.
+describe('DocumentDetailComponent — an empty duplicate panel (#635)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  function renderDuplicate(duplicateCandidates: unknown) {
+    const { component, fixture } = setup(ENTRY_ONLY);
+    component.isLoading.set(false);
+    component.document.set(
+      documentOf(FULL, 'contract', {
+        requiresReview: true,
+        reviewReasons: DocumentReviewReasons.DuplicateSuspected,
+        reviewReasonDetails: [
+          { reason: DocumentReviewReasons.DuplicateSuspected, isBlocking: true, duplicateCandidates },
+        ] as DocumentDto['reviewReasonDetails'],
+      }),
+    );
+    fixture.detectChanges();
+    return fixture.nativeElement.textContent as string;
+  }
+
+  it('says there is no matching document the caller can view, whether the list is empty or absent', () => {
+    // Deliberately not "outside your view": a candidate can also be missing because it was deleted.
+    expect(renderDuplicate([])).toContain('Document:ReviewReason:NoViewableDuplicateCandidates');
+
+    TestBed.resetTestingModule();
+    expect(renderDuplicate(undefined)).toContain('Document:ReviewReason:NoViewableDuplicateCandidates');
+  });
+
+  it('lists the candidates instead when there are some', () => {
+    const text = renderDuplicate([{ id: 'doc-2', title: 'Invoice 42' }]);
+
+    expect(text).toContain('Invoice 42');
+    expect(text).not.toContain('Document:ReviewReason:NoViewableDuplicateCandidates');
   });
 });
