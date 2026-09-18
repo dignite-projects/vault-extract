@@ -85,6 +85,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   > **Deployment:** the duplicate Host-layer roles this bug already produced are data, not code, and are not cleaned up automatically — delete one `Viewer` and one `DocumentManager` from the Host layer by hand. Grants are keyed by role *name*, so whichever row survives keeps its permissions.
 
+- **The provider-key search dropdown in the resource-permission dialog is no longer see-through on hover** ([#642](https://github.com/dignite-projects/vault-extract/issues/642)). ABP's lookup component paints it with `--lpx-content-bg`, which LeptonX Lite never defines; the host stylesheet now bridges it to `--lpx-card-bg`, the theme's card surface.
+
 ## [0.5.0-preview.4] - 2026-09-04
 
 Re-cuts `0.5.0-preview.3`, whose release run pushed the NuGet packages to GitHub Packages and then failed on the npm step, leaving no npm package and no GitHub Release. The content below is preview.3's, plus the workflow fix. **Nothing consumes `0.5.0-preview.3`; use this version.**
