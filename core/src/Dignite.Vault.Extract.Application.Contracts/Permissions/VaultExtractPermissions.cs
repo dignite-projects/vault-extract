@@ -32,6 +32,11 @@ public class VaultExtractPermissions
         /// </summary>
         public const string ReadAll = Default + ".ReadAll";
 
+        /// <summary>
+        /// Upload into <b>every</b> document type of the caller's layer, and upload untyped for the classifier to
+        /// assign (#645). The per-type counterpart is <see cref="VaultExtractResourcePermissions.Upload"/>, which
+        /// uploads into its one type on its own. It also admits every target type of a reclassification.
+        /// </summary>
         public const string Upload = Default + ".Upload";
 
         /// <summary>
@@ -43,6 +48,13 @@ public class VaultExtractPermissions
 
         public const string PermanentDelete = Default + ".PermanentDelete";
         public const string Export = Default + ".Export";
+
+        /// <summary>
+        /// Edit — and review — documents of <b>every</b> type of the caller's layer, and assign any type to one; the
+        /// per-type counterpart is <see cref="VaultExtractResourcePermissions.Edit"/>. Its display name says so
+        /// ("Edit Documents of All Types", #645); the permission name predates the edit family it now gates and is
+        /// a frozen contract, so only the display name changed.
+        /// </summary>
         public const string ConfirmClassification = Default + ".ConfirmClassification";
 
         public static class Pipelines

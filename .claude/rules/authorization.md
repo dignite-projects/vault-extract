@@ -26,6 +26,8 @@ var scope = await _documentAccess.ResolveScopeAsync(DocumentAccessRule.Read);   
 
 Adding an operation means **adding a row to the table**, not writing a check. `CheckPolicyAsync(...)` on a `Documents.*` permission in this domain is a bug: it bypasses the ownership and per-type arms, and it asserts no entry.
 
+Every row pairs a role-level arm ("all types") with a type-level grant ("this type"), and the role-level arm is a **set** (#645): the checker admits if any member is granted. When a second all-types permission should also admit an operation, add it to that row's set — `DeclareType` = {`ConfirmClassification`, `Documents.Upload`} is the one such row — never a second check at the call site. Each subject is judged by **one** row: `UploadAsync` is `Upload` on the declared type (or on `DocumentAccessSubject.None` when untyped) and nothing else; a reclassification is `Edit` on the document plus `DeclareType` on the target type, because those are two subjects.
+
 **3. Ownership goes through the rule's owner arm. Never hand-write `CreatorId != CurrentUser.Id`.** The "Ownership Validation" snippet further down this file is exactly what not to do here. The arm is three-valued (`DocumentOwnerArm`: `Never` / `Always` / `UnlessUnderReview`) because an uploader may always read and delete their own document, may never sign off its review, and may not modify it while it is blocked on a review reason other than classification — a hand-written comparison expresses none of that, and each copy of it would drift.
 
 **4. Rights are decided on the server.** `DocumentListItemDto` / `DocumentDto` carry a `rights` object from the same checker. Never re-derive the rule anywhere else, client or server.
