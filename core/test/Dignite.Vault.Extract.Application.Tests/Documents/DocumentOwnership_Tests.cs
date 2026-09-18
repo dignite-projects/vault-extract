@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Dignite.Vault.Extract.Documents.Exports;
 using Dignite.Vault.Extract.Documents.Pipelines;
 using Dignite.Vault.Extract.Documents.Review;
 using Dignite.Vault.Extract.Permissions;
@@ -10,6 +12,7 @@ using NSubstitute;
 using Shouldly;
 using Volo.Abp;
 using Volo.Abp.Authorization;
+using Volo.Abp.Content;
 using Xunit;
 
 namespace Dignite.Vault.Extract.Documents;
@@ -527,6 +530,62 @@ public class DocumentOwnership_Tests : DocumentAccessTestBase
 
         page.TotalCount.ShouldBe(1);
         page.Items[0].Id.ShouldBe(own.Id);
+    }
+
+    // ===================== Export narrows by the same scope, ownership included =====================
+
+    /// <summary>
+    /// Acceptance: "GetListAsync, ExportAsync and MCP search_documents return the caller's own documents in
+    /// addition to the types they may read." The list is covered above and MCP search calls
+    /// <c>GetListAsync</c>, but <see cref="Documents.Exports.DocumentExportAppService"/> composes its own query
+    /// and resolves the <see cref="DocumentAccessRule.Read"/> scope separately from its own admission rule
+    /// (<see cref="DocumentAccessRule.Export"/>, which has no owner arm at all -- it only gates the call itself).
+    /// This pins that the ROWS the export narrows down to still include what the caller owns.
+    /// </summary>
+    [Fact]
+    public async Task An_uploader_without_a_Read_grant_still_exports_their_own_document_and_not_a_strangers()
+    {
+        var own = NewDocument(TypeA.Id, creatorId: OwnerId);
+        var theirs = NewDocument(TypeA.Id, creatorId: StrangerId);
+        StubQueryable(own, theirs);
+
+        // Entry + the module-wide Export admission only: no Read grant anywhere, no ReadAll. Export's own rule
+        // has OwnerArm.Never, so this grant set is what gets the CALL admitted; the rows are narrowed below.
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Export);
+
+        var exportAppService = GetRequiredService<IDocumentExportAppService>();
+        var file = await AsOwnerAsync(() => exportAppService.ExportAsync(
+            new ExportDocumentsInput { DocumentTypeCode = TypeA.TypeCode, Format = ExportFormat.Csv }));
+
+        (await CountDataRowsAsync(file)).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task A_ReadAll_holder_exports_every_document_of_the_type_including_a_strangers()
+    {
+        var own = NewDocument(TypeA.Id, creatorId: OwnerId);
+        var theirs = NewDocument(TypeA.Id, creatorId: StrangerId);
+        StubQueryable(own, theirs);
+
+        Grant(
+            VaultExtractPermissions.Documents.Default,
+            VaultExtractPermissions.Documents.Export,
+            VaultExtractPermissions.Documents.ReadAll);
+
+        var exportAppService = GetRequiredService<IDocumentExportAppService>();
+        var file = await AsOwnerAsync(() => exportAppService.ExportAsync(
+            new ExportDocumentsInput { DocumentTypeCode = TypeA.TypeCode, Format = ExportFormat.Csv }));
+
+        (await CountDataRowsAsync(file)).ShouldBe(2);
+    }
+
+    /// <summary>Counts CSV data rows (header excluded) -- the least brittle way to tell "own only" from "both".</summary>
+    private static async Task<int> CountDataRowsAsync(IRemoteStreamContent file)
+    {
+        using var reader = new StreamReader(file.GetStream());
+        var text = await reader.ReadToEndAsync();
+        var lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+        return lines.Length - 1;
     }
 
     // ===================== helpers =====================
