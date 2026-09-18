@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using Shouldly;
 using Xunit;
 
@@ -39,13 +40,26 @@ public class DocumentReadScopeFilter_Tests
     }
 
     /// <summary>
-    /// The default matters: every other member of the filter is "absent means no filter", and the scope now
-    /// reads the same way instead of being a nullable third state a caller could forget to set.
+    /// <b>There is deliberately no default.</b> Every other member of this filter is "absent means no filter", so
+    /// a scope defaulting to <see cref="DocumentAccessScope.Unrestricted"/> would read exactly the same way — and
+    /// that is the failure mode: a new query path that forgot to set it would return the whole layer, silently
+    /// and correctly-looking. `required` turns forgetting it into a compile error. An unrestricted read is still
+    /// expressible; it just has to be written down.
+    /// <para>
+    /// Asserted by reflection because the thing under test is the absence of a value, which no constructed
+    /// instance can show.
+    /// </para>
     /// </summary>
     [Fact]
-    public void The_default_scope_is_unrestricted()
+    public void The_read_scope_has_no_default_and_must_be_set_explicitly()
     {
-        new DocumentMetadataFilter().ReadScope.ShouldBeSameAs(DocumentAccessScope.Unrestricted);
+        var property = typeof(DocumentMetadataFilter).GetProperty(nameof(DocumentMetadataFilter.ReadScope))
+            .ShouldNotBeNull();
+
+        property.GetCustomAttributes(typeof(RequiredMemberAttribute), inherit: false).ShouldNotBeEmpty(
+            "DocumentMetadataFilter.ReadScope must stay `required`: a default would make forgetting it "
+            + "indistinguishable from choosing an unrestricted read.");
+
         DocumentAccessScope.Unrestricted.IsUnrestricted.ShouldBeTrue();
     }
 
@@ -141,7 +155,7 @@ public class DocumentReadScopeFilter_Tests
         rows.ShouldBeEmpty();
     }
 
-    // ===================== Allows / AllowsAnyOfType agree with the predicate =====================
+    // ===================== Allows agrees with the predicate =====================
 
     /// <summary>
     /// <see cref="DocumentAccessScope.Allows"/> is the single-document twin of <see cref="DocumentAccessScope.ToPredicate"/>
@@ -170,22 +184,6 @@ public class DocumentReadScopeFilter_Tests
                     .ShouldBe(kept.Contains(document.Id), $"scope disagreed about {document.Id}");
             }
         }
-    }
-
-    /// <summary>
-    /// <see cref="DocumentAccessScope.AllowsAnyOfType"/> is weaker than <c>Allows</c> on a creator-less subject,
-    /// and deliberately so: an owner-armed caller may hold rows of a type they were never granted, so the list's
-    /// type-code short circuit must not treat that type as unreachable.
-    /// </summary>
-    [Fact]
-    public void AllowsAnyOfType_admits_an_ungranted_type_for_an_owner_armed_scope()
-    {
-        Scope(Owner).AllowsAnyOfType(TypeB).ShouldBeTrue();
-        Scope(Owner).Allows(new DocumentAccessSubject(TypeB, CreatorId: null)).ShouldBeFalse();
-
-        Scope(ownerId: null, TypeA).AllowsAnyOfType(TypeB).ShouldBeFalse();
-        Scope(ownerId: null, TypeA).AllowsAnyOfType(TypeA).ShouldBeTrue();
-        DocumentAccessScope.Unrestricted.AllowsAnyOfType(TypeB).ShouldBeTrue();
     }
 
     private static DocumentAccessScope Scope(Guid? ownerId, params Guid[] documentTypeIds)

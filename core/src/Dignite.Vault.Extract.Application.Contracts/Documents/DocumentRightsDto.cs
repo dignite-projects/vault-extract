@@ -18,7 +18,7 @@ namespace Dignite.Vault.Extract.Documents;
 /// </para>
 /// <para>
 /// Computed once per distinct (type, is-owner) pair on a page and mapped onto the rows, so the cost is bounded by
-/// the page's distinct types rather than by its row count, and reads the same per-request grant map the
+/// the page's distinct types rather than by its row count, and reads the same per-request access memo the
 /// enforcement points read.
 /// </para>
 /// </summary>

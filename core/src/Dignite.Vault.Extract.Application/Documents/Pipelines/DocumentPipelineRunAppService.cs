@@ -34,8 +34,9 @@ public class DocumentPipelineRunAppService : VaultExtractAppService, IDocumentPi
 
     public virtual async Task<List<DocumentPipelineRunDto>> GetListAsync(Guid documentId)
     {
-        // #635: resolving the Read scope is the entry assertion, before the load — see DocumentAppService.GetAsync.
-        var scope = await _documentAccess.ResolveScopeAsync(DocumentAccessRule.Read);
+        // #635: entry is asserted before the load — see DocumentAppService.GetAsync. A bare entry check, not a
+        // resolved scope: judging one document needs at most one grant check, never a sweep of the layer.
+        await _documentAccess.CheckEntryAsync();
 
         // Fail-closed safety gate: assert visibility through the document read path before returning
         // its orchestration state. CheckPolicyAsync alone is insufficient. PipelineRun has its own
@@ -51,10 +52,7 @@ public class DocumentPipelineRunAppService : VaultExtractAppService, IDocumentPi
         // DocumentAppService.GetAsync — Documents.ReadAll, a Read grant on this document's own type, or this
         // caller uploaded it. Without this, a caller narrowed to one type could read the pipeline history of
         // every document in the layer by id.
-        if (!scope.Allows(DocumentAccessSubject.Of(document)))
-        {
-            throw new AbpAuthorizationException();
-        }
+        await _documentAccess.CheckAsync(DocumentAccessRule.Read, DocumentAccessSubject.Of(document));
 
         var runs = await _runRepository.GetListByDocumentAsync(documentId);
         // Call the child mapper Map(source) directly instead of ObjectMapper so AfterMap decodes

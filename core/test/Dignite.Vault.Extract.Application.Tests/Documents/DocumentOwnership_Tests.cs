@@ -202,32 +202,159 @@ public class DocumentOwnership_Tests : DocumentAccessTestBase
             AppService.RejectReviewAsync(own.Id, new RejectReviewInput { Reason = "x" }))).Id.ShouldBe(own.Id);
     }
 
+    // ===================== The owner lock: modification while under review =====================
+
     /// <summary>
-    /// The Issue's other half of the Review decision: <c>UpdateExtractedFieldsAsync</c> on one's own document must
-    /// not clear a blocking field-validation warning, or Review is reachable through the back door.
+    /// The review invariant, held where it can actually hold. Closing only the three explicit review methods to
+    /// an owner does <b>not</b> keep an uploader from clearing a blocking reason on their own document, because
+    /// the edit family clears the same bits as a side effect: this very call clears
+    /// <see cref="DocumentReviewReasons.FieldExtractionIncomplete"/> outright (#491's escape path — an empty
+    /// field set is enough), which releases the document to Ready and fires <c>DocumentReadyEto</c>.
     /// <para>
-    /// It does not: #527 made warning removal an explicit, separate action
-    /// (<c>ResolveFieldValidationWarningsAsync</c>) precisely so an in-flight extraction could not overwrite a
-    /// human decision, and editing values leaves both the warning rows and the blocking bit alone. This fact pins
-    /// that, because it is the property the Review rule's exclusion depends on rather than an incidental one.
+    /// So while a document carries a blocking reason other than classification, the ownership arm of the edit
+    /// family is shut (<see cref="DocumentOwnerArm.UnlessUnderReview"/>). The clear itself stays — it is what a
+    /// reviewer filling the fields in relies on — it is simply no longer reachable by the uploader.
     /// </para>
     /// </summary>
     [Fact]
-    public async Task Editing_field_values_on_ones_own_document_leaves_a_blocking_validation_warning_standing()
+    public async Task An_owner_may_not_fill_in_the_fields_of_their_own_document_blocked_on_incomplete_extraction()
     {
         var own = StubDocument(TypeA.Id, creatorId: OwnerId);
+        own.SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: true);
+        GrantUploaderOnTypeA();
+
+        await Should.ThrowAsync<AbpAuthorizationException>(() => AsOwnerAsync(() =>
+            AppService.UpdateExtractedFieldsAsync(
+                own.Id, new UpdateExtractedFieldsInput { Fields = new Dictionary<string, JsonElement>() })));
+
+        own.ReviewReasons.HasFlag(DocumentReviewReasons.FieldExtractionIncomplete).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task An_Edit_grant_on_the_type_fills_in_the_fields_of_a_document_blocked_on_incomplete_extraction()
+    {
+        var own = StubDocument(TypeA.Id, creatorId: OwnerId);
+        own.SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: true);
+        GrantUploaderOnTypeA();
+        GrantResource(VaultExtractResourcePermissions.Edit, TypeA.Id);
+
+        await AsOwnerAsync(() => AppService.UpdateExtractedFieldsAsync(
+            own.Id, new UpdateExtractedFieldsInput { Fields = new Dictionary<string, JsonElement>() }));
+
+        // #491's escape path, intact for the reviewer: manual entry IS the resolution.
+        own.ReviewReasons.HasFlag(DocumentReviewReasons.FieldExtractionIncomplete).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task The_module_wide_ConfirmClassification_fills_in_the_fields_of_a_document_under_review()
+    {
+        var own = StubDocument(TypeA.Id, creatorId: OwnerId);
+        own.SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: true);
+        Grant(
+            VaultExtractPermissions.Documents.Default,
+            VaultExtractPermissions.Documents.ConfirmClassification);
+
+        await AsOwnerAsync(() => AppService.UpdateExtractedFieldsAsync(
+            own.Id, new UpdateExtractedFieldsInput { Fields = new Dictionary<string, JsonElement>() }));
+
+        own.ReviewReasons.HasFlag(DocumentReviewReasons.FieldExtractionIncomplete).ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The whole edit family, on a document blocked on a field-validation warning. Every one of these either
+    /// replaces the warning set outright (re-extraction, a retried field-extraction run) or is a modification the
+    /// lock covers by the same rule; <c>UpdateCabinetAsync</c> is on the Edit rule since #635, so it is locked
+    /// with the rest rather than being a special case.
+    /// </summary>
+    [Fact]
+    public async Task An_owner_may_not_modify_their_own_document_blocked_on_a_validation_warning()
+    {
+        var own = StubDocument(TypeA.Id, creatorId: OwnerId, markdown: "# body");
         own.ReplaceFieldValidationWarnings(
             [new FieldValidationWarning(Guid.NewGuid(), "value does not match the source")]);
         own.ReviewReasons.HasFlag(DocumentReviewReasons.FieldValidationWarning).ShouldBeTrue();
         ReviewReasonPolicy.IsBlocking(DocumentReviewReasons.FieldValidationWarning).ShouldBeTrue();
 
+        await FailParseAsync(own);
         GrantUploaderOnTypeA();
 
-        await AsOwnerAsync(() => AppService.UpdateExtractedFieldsAsync(
-            own.Id, new UpdateExtractedFieldsInput { Fields = new Dictionary<string, JsonElement>() }));
+        await Should.ThrowAsync<AbpAuthorizationException>(() => AsOwnerAsync(() =>
+            AppService.UpdateMarkdownAsync(
+                own.Id, new UpdateMarkdownInput { Markdown = "# corrected", Reprocess = true })));
+        await Should.ThrowAsync<AbpAuthorizationException>(() => AsOwnerAsync(() =>
+            AppService.UpdateMarkdownAsync(
+                own.Id, new UpdateMarkdownInput { Markdown = "# corrected", Reprocess = false })));
+        await Should.ThrowAsync<AbpAuthorizationException>(
+            () => AsOwnerAsync(() => AppService.ReextractFieldsAsync(own.Id)));
+        await Should.ThrowAsync<AbpAuthorizationException>(
+            () => AsOwnerAsync(() => AppService.RerecognizeAsync(own.Id)));
+        await Should.ThrowAsync<AbpAuthorizationException>(() => AsOwnerAsync(() =>
+            AppService.UpdateCabinetAsync(own.Id, new UpdateDocumentCabinetInput { CabinetId = null })));
+        await Should.ThrowAsync<AbpAuthorizationException>(() => AsOwnerAsync(() =>
+            AppService.RetryPipelineAsync(
+                own.Id, new RetryPipelineInput { PipelineCode = VaultExtractPipelines.Parse })));
 
-        own.ReviewReasons.HasFlag(DocumentReviewReasons.FieldValidationWarning).ShouldBeTrue();
-        own.FieldValidationWarnings.Count.ShouldBe(1);
+        own.Markdown.ShouldBe("# body");
+    }
+
+    /// <summary>
+    /// The lock is on <b>modification</b> only. Seeing and withdrawing one's own upload are
+    /// <see cref="DocumentOwnerArm.Always"/> — neither can clear a review reason, and an uploader who could not
+    /// even look at a document held for review would have no way to understand why.
+    /// </summary>
+    [Fact]
+    public async Task An_owner_still_reads_and_deletes_their_own_document_under_review()
+    {
+        var own = StubDocument(TypeA.Id, creatorId: OwnerId);
+        own.ReplaceFieldValidationWarnings(
+            [new FieldValidationWarning(Guid.NewGuid(), "value does not match the source")]);
+        GrantUploaderOnTypeA();
+
+        (await AsOwnerAsync(() => AppService.GetAsync(own.Id))).Id.ShouldBe(own.Id);
+
+        await AsOwnerAsync(() => AppService.DeleteAsync(own.Id));
+        await DocumentRepository.Received(1).DeleteAsync(own.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// A suspected duplicate is the adversarial case the review queue exists for, so it locks the owner out of
+    /// reclassifying — including to the <b>same</b> type, which is not refused as a no-op and which
+    /// <c>Document.ConfirmClassification</c> would use to reset the duplicate state and clear the warnings.
+    /// </summary>
+    [Fact]
+    public async Task An_owner_may_not_reclassify_their_own_suspected_duplicate_even_to_the_same_type()
+    {
+        var own = StubDocument(TypeA.Id, creatorId: OwnerId, markdown: "# body");
+        own.SetReviewReason(DocumentReviewReasons.DuplicateSuspected, present: true);
+        GrantUploaderOnTypeA();
+
+        await Should.ThrowAsync<AbpAuthorizationException>(() => AsOwnerAsync(() =>
+            AppService.ReclassifyAsync(own.Id, new ReclassifyDocumentInput { DocumentTypeId = TypeA.Id })));
+        await Should.ThrowAsync<AbpAuthorizationException>(() => AsOwnerAsync(() =>
+            AppService.ConfirmClassificationAsync(
+                own.Id, new ConfirmClassificationInput { DocumentTypeId = TypeA.Id })));
+
+        own.ReviewReasons.HasFlag(DocumentReviewReasons.DuplicateSuspected).ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// The one blocking reason that does <b>not</b> lock the owner: classification. Confirming one's own upload
+    /// is exactly what an uploader is expected to do, and the target type is judged separately by the DeclareType
+    /// rule, which has no ownership arm at all.
+    /// </summary>
+    [Fact]
+    public async Task An_owner_still_classifies_their_own_document_blocked_only_on_classification()
+    {
+        var own = StubDocument(documentTypeId: null, creatorId: OwnerId, markdown: "# body");
+        own.SetReviewReason(DocumentReviewReasons.UnresolvedClassification, present: true);
+        ReviewReasonPolicy.IsBlocking(DocumentReviewReasons.UnresolvedClassification).ShouldBeTrue();
+
+        GrantUploaderOnTypeA();
+
+        var confirmed = await AsOwnerAsync(() => AppService.ConfirmClassificationAsync(
+            own.Id, new ConfirmClassificationInput { DocumentTypeId = TypeA.Id }));
+
+        confirmed.DocumentTypeCode.ShouldBe(TypeA.TypeCode);
     }
 
     // ===================== Other people's documents =====================
@@ -315,33 +442,56 @@ public class DocumentOwnership_Tests : DocumentAccessTestBase
     // ===================== GetListAsync's type-code short circuit =====================
 
     /// <summary>
-    /// #635 decision 3: a requested <c>DocumentTypeCode</c> this caller can produce no row of returns an empty
-    /// page <b>before</b> the field filters are resolved, so an unknown-field error can no longer be used to
-    /// enumerate a type's schema from outside the caller's scope. Empty page, not 403.
+    /// A requested <c>DocumentTypeCode</c> this caller can produce no row of returns an empty page — not a 403,
+    /// because after #635 an owner legitimately lists a type they hold no grant on and gets their own rows back.
+    /// The rows are narrowed by the scope predicate, so "outside the scope" needs no branch of its own.
+    /// <para>
+    /// #635 first added a scope-dependent short circuit here so an unknown-field error could not describe a
+    /// type's schema to such a caller. The code review established that it reduced no disclosure —
+    /// <c>IFieldDefinitionAppService.GetListAsync</c> hands the whole layer's field definitions to any entry
+    /// holder by recorded decision (#223 / #629) — so it is gone, and the next fact is the one that matters.
+    /// </para>
     /// </summary>
     [Fact]
-    public async Task A_type_code_outside_the_scope_returns_an_empty_page_without_the_unknown_field_error()
+    public async Task A_type_code_outside_the_scope_returns_an_empty_page()
     {
-        StubQueryable(NewDocument(TypeB.Id, creatorId: StrangerId));
+        // Somebody ELSE`s type-B document: with StrangerId as the creator the caller`s own ownership arm would
+        // reach it, and this fact would pass for the wrong reason.
+        StubQueryable(NewDocument(TypeB.Id, creatorId: OwnerId));
         // Entry plus a Read grant on A only: nothing of type B is reachable, and there is no owner arm to reach
         // one through because this principal owns nothing.
         Grant(VaultExtractPermissions.Documents.Default);
         GrantResource(VaultExtractResourcePermissions.Read, TypeA.Id, StrangerId);
 
-        var page = await AsStrangerAsync(() => AppService.GetListAsync(new GetDocumentListInput
-        {
-            DocumentTypeCode = TypeB.TypeCode,
-            FieldFilters = [new DocumentFieldFilter { Name = "invoice_no", Value = "42" }]
-        }));
+        var page = await AsStrangerAsync(() => AppService.GetListAsync(
+            new GetDocumentListInput { DocumentTypeCode = TypeB.TypeCode }));
 
         page.TotalCount.ShouldBe(0);
         page.Items.ShouldBeEmpty();
     }
 
     /// <summary>
-    /// The counter-case, so the short circuit cannot be "always return empty": a type the caller <i>can</i> reach
-    /// still resolves its field filters, and an unknown field name still loud-fails as a correctable signal.
+    /// An unknown field name loud-fails for <b>everyone</b>, scope or no scope: it is a correctable signal, and
+    /// swallowing it for some callers cost an uploader the message on their own documents while disclosing
+    /// nothing that four other surfaces do not already disclose.
     /// </summary>
+    [Fact]
+    public async Task An_unknown_field_loud_fails_for_a_caller_outside_the_types_scope_too()
+    {
+        StubQueryable(NewDocument(TypeB.Id, creatorId: OwnerId));
+        Grant(VaultExtractPermissions.Documents.Default);
+        GrantResource(VaultExtractResourcePermissions.Read, TypeA.Id, StrangerId);
+
+        var exception = await Should.ThrowAsync<BusinessException>(() => AsStrangerAsync(
+            () => AppService.GetListAsync(new GetDocumentListInput
+            {
+                DocumentTypeCode = TypeB.TypeCode,
+                FieldFilters = [new DocumentFieldFilter { Name = "invoice_no", Value = "42" }]
+            })));
+
+        exception.Code.ShouldBe(VaultExtractErrorCodes.ExtractedField.Unknown);
+    }
+
     [Fact]
     public async Task A_type_code_inside_the_scope_still_loud_fails_on_an_unknown_field()
     {

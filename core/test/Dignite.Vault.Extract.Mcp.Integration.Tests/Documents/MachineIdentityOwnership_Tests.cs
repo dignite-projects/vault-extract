@@ -60,9 +60,15 @@ public class MachineIdentityOwnership_Tests : McpPermissionPipelineTestBase<McpP
     /// the ownership arm has something to compare against — and still does not match, because the caller has no
     /// user id at all. The human whose id that is reads the same document with the same grants, which is what
     /// makes this a fact about the missing <c>sub</c> rather than about the missing permission.
+    /// <para>
+    /// <b>The human goes first</b>, and holds a real per-type <c>Read</c> grant of their own. That ordering is
+    /// what gives this fact teeth: the grant memo is scoped, both principals run inside the same scope, and if it
+    /// did not reset on an identity change the machine would inherit the human's answers and read the document.
+    /// The original version of this test ran the machine first and could not have detected that.
+    /// </para>
     /// </summary>
     [Fact]
-    public async Task A_principal_with_no_user_id_never_matches_the_ownership_arm()
+    public async Task A_principal_with_no_user_id_never_matches_the_ownership_arm_or_inherits_the_previous_one()
     {
         Guid documentId = default;
         await WithUnitOfWorkAsync(async () =>
@@ -72,7 +78,24 @@ public class MachineIdentityOwnership_Tests : McpPermissionPipelineTestBase<McpP
 
             await GrantToClientAsync(VaultExtractPermissions.Documents.Default);
             await GrantToUserAsync(HumanOwnerId, VaultExtractPermissions.Documents.Default);
+            // A real per-type grant for the human only. If the memo leaked across the principal switch below, the
+            // machine would read this document through THIS row.
+            await GrantResourceToUserAsync(HumanOwnerId, VaultExtractResourcePermissions.Read, typeId);
         });
+
+        // The human first, so the memo is populated with a principal that CAN read before the machine asks.
+        using (_principalAccessor.Change(UserPrincipal(HumanOwnerId)))
+        {
+            await WithUnitOfWorkAsync(async () =>
+            {
+                var dto = await _documentAppService.GetAsync(documentId);
+                dto.Id.ShouldBe(documentId);
+                dto.Rights.CanRead.ShouldBeTrue();
+
+                var page = await _documentAppService.GetListAsync(new GetDocumentListInput());
+                page.TotalCount.ShouldBe(1);
+            });
+        }
 
         using (_principalAccessor.Change(MachinePrincipal()))
         {
@@ -80,24 +103,11 @@ public class MachineIdentityOwnership_Tests : McpPermissionPipelineTestBase<McpP
                 WithUnitOfWorkAsync(() => _documentAppService.GetAsync(documentId)));
 
             // And the list it is admitted to is empty, for the same reason: the scope has no owner arm to build
-            // from, and no grant to fall back on.
+            // from, and no grant of its own to fall back on.
             await WithUnitOfWorkAsync(async () =>
             {
                 var page = await _documentAppService.GetListAsync(new GetDocumentListInput());
                 page.TotalCount.ShouldBe(0);
-            });
-        }
-
-        // Same document, same grants, a principal that does carry the creator's id.
-        using (_principalAccessor.Change(UserPrincipal(HumanOwnerId)))
-        {
-            await WithUnitOfWorkAsync(async () =>
-            {
-                var dto = await _documentAppService.GetAsync(documentId);
-                dto.Id.ShouldBe(documentId);
-
-                var page = await _documentAppService.GetListAsync(new GetDocumentListInput());
-                page.TotalCount.ShouldBe(1);
             });
         }
     }
@@ -141,6 +151,21 @@ public class MachineIdentityOwnership_Tests : McpPermissionPipelineTestBase<McpP
 
     private Task GrantToUserAsync(Guid userId, string permissionName)
         => GrantAsync(permissionName, UserProviderName, userId.ToString());
+
+    /// <summary>A real row in <c>AbpResourcePermissionGrants</c>, resolved by ABP's own user value provider.</summary>
+    private async Task GrantResourceToUserAsync(Guid userId, string permissionName, Guid documentTypeId)
+    {
+        await GetRequiredService<IResourcePermissionGrantRepository>().InsertAsync(
+            new ResourcePermissionGrant(
+                _guidGenerator.Create(),
+                permissionName,
+                VaultExtractResourcePermissions.Name,
+                documentTypeId.ToString(),
+                UserProviderName,
+                userId.ToString(),
+                tenantId: null),
+            autoSave: true);
+    }
 
     private Task GrantToClientAsync(string permissionName)
         => GrantAsync(permissionName, ClientProviderName, ClientId);

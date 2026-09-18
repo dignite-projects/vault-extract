@@ -39,6 +39,60 @@ public class DocumentRights_Tests : DocumentAccessTestBase
         rights.CanReview.ShouldBeFalse();
     }
 
+    /// <summary>
+    /// The owner lock, as the client sees it: the same uploader, the same document, one blocking review reason
+    /// later. <c>canEdit</c> and <c>canRetry</c> go false and <c>canRead</c> / <c>canDelete</c> stay true, with no
+    /// review-state code anywhere in the mapper — the rights key carries the lock, so the rule table decides it.
+    /// </summary>
+    [Fact]
+    public async Task The_detail_of_ones_own_document_under_review_loses_edit_and_retry_but_keeps_read_and_delete()
+    {
+        var own = StubDocument(TypeA.Id, creatorId: OwnerId);
+        own.SetReviewReason(DocumentReviewReasons.FieldValidationWarning, present: true);
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Upload);
+        GrantResource(VaultExtractResourcePermissions.Upload, TypeA.Id);
+
+        var rights = (await AsOwnerAsync(() => AppService.GetAsync(own.Id))).Rights;
+
+        rights.CanRead.ShouldBeTrue();
+        rights.CanDelete.ShouldBeTrue();
+        rights.CanRestore.ShouldBeTrue();
+        rights.CanEdit.ShouldBeFalse();
+        rights.CanRetry.ShouldBeFalse();
+        rights.CanReview.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The same on the list, and on the same page as an unlocked own row — so the per-page rights cache cannot
+    /// collapse the two into one answer. They share a type and an owner and differ only in review state.
+    /// </summary>
+    [Fact]
+    public async Task List_rows_of_the_same_type_and_owner_differ_by_review_state()
+    {
+        var clean = NewDocument(TypeA.Id, creatorId: OwnerId);
+        var locked = NewDocument(TypeA.Id, creatorId: OwnerId);
+        locked.SetReviewReason(DocumentReviewReasons.DuplicateSuspected, present: true);
+        StubQueryable(clean, locked);
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Upload);
+        GrantResource(VaultExtractResourcePermissions.Upload, TypeA.Id);
+
+        var page = await AsOwnerAsync(() => AppService.GetListAsync(new GetDocumentListInput()));
+
+        page.TotalCount.ShouldBe(2);
+        var cleanRow = page.Items.Single(i => i.Id == clean.Id);
+        var lockedRow = page.Items.Single(i => i.Id == locked.Id);
+
+        cleanRow.Rights.CanEdit.ShouldBeTrue();
+        cleanRow.Rights.CanRetry.ShouldBeTrue();
+        lockedRow.Rights.CanEdit.ShouldBeFalse();
+        lockedRow.Rights.CanRetry.ShouldBeFalse();
+        lockedRow.Rights.CanRead.ShouldBeTrue();
+        lockedRow.Rights.CanDelete.ShouldBeTrue();
+
+        // Each row carries its own instance, so nothing downstream can mutate a page-wide shared object.
+        cleanRow.Rights.ShouldNotBeSameAs(lockedRow.Rights);
+    }
+
     [Fact]
     public async Task A_Read_grant_on_someone_elses_document_carries_only_CanRead()
     {
@@ -85,7 +139,7 @@ public class DocumentRights_Tests : DocumentAccessTestBase
 
     /// <summary>
     /// The archived-type divergence the client-side table caused: the server keys grants by the type's immutable
-    /// <c>Id</c> and the grant map sweeps the layer across soft delete, so a document on a since-archived type
+    /// <c>Id</c> and the access memo sweeps the layer across soft delete, so a document on a since-archived type
     /// keeps exactly the rights the endpoints still admit.
     /// </summary>
     [Fact]
@@ -124,6 +178,59 @@ public class DocumentRights_Tests : DocumentAccessTestBase
         rights.CanEdit.ShouldBeTrue();
         rights.CanDelete.ShouldBeTrue();
         rights.CanReview.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// Every method of the edit and review families returns a <see cref="DocumentDto"/>. An <c>Edit</c>-grant
+    /// holder with no <c>Read</c> grant is refused outright by <c>GetAsync</c> — so handing them the whole
+    /// Markdown, title, field values and file origin as the response body of a cabinet reassignment would be the
+    /// read they were just refused, with <c>rights.canRead == false</c> sitting in the same payload.
+    /// <para>
+    /// The redaction is in <c>MapToDtoAsync</c>, so it covers every method of both families at once rather than
+    /// one at a time.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task An_edit_without_read_succeeds_and_returns_a_body_carrying_nothing_but_the_id_and_the_rights()
+    {
+        var document = StubDocument(TypeA.Id, creatorId: StrangerId, markdown: "# secret body");
+        GrantEntryOnly();
+        GrantResource(VaultExtractResourcePermissions.Edit, TypeA.Id);
+
+        var dto = await AsOwnerAsync(() => AppService.UpdateCabinetAsync(
+            document.Id, new UpdateDocumentCabinetInput { CabinetId = null }));
+
+        // The write happened — this is not a refusal.
+        document.CabinetId.ShouldBeNull();
+
+        dto.Id.ShouldBe(document.Id);
+        dto.Rights.CanEdit.ShouldBeTrue();
+        dto.Rights.CanRead.ShouldBeFalse();
+
+        dto.Markdown.ShouldBeNull();
+        dto.Title.ShouldBeNull();
+        dto.DocumentTypeCode.ShouldBeNull();
+        dto.ExtractedFields.ShouldBeNull();
+        dto.FileOrigin.ShouldBeNull();
+        dto.ReviewReasonDetails.ShouldBeNull();
+    }
+
+    /// <summary>The counter-case: a caller who may read gets the whole document, as before.</summary>
+    [Fact]
+    public async Task An_edit_with_read_still_returns_the_whole_document()
+    {
+        var document = StubDocument(TypeA.Id, creatorId: StrangerId, markdown: "# body");
+        GrantEntryOnly();
+        GrantResource(VaultExtractResourcePermissions.Read, TypeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Edit, TypeA.Id);
+
+        var dto = await AsOwnerAsync(() => AppService.UpdateCabinetAsync(
+            document.Id, new UpdateDocumentCabinetInput { CabinetId = null }));
+
+        dto.Markdown.ShouldBe("# body");
+        dto.DocumentTypeCode.ShouldBe(TypeA.TypeCode);
+        dto.FileOrigin.ShouldNotBeNull();
+        dto.Rights.CanRead.ShouldBeTrue();
     }
 
     /// <summary>

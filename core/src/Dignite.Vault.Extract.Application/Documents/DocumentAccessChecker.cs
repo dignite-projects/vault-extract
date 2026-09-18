@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Dignite.Vault.Extract.Permissions;
-using Microsoft.AspNetCore.Authorization;
+using Volo.Abp;
 using Volo.Abp.Authorization;
 using Volo.Abp.DependencyInjection;
 using Volo.Abp.Users;
@@ -38,33 +38,32 @@ namespace Dignite.Vault.Extract.Documents;
 /// could offer the other arms of the OR.
 /// </para>
 /// <para>
-/// <b>Ownership is a per-rule flag, never a global arm.</b> <see cref="DocumentAccessRule.Review"/> carries the
-/// same two permission names as <see cref="DocumentAccessRule.Edit"/> and differs only in that flag, because its
-/// three methods clear a blocking review reason and that gate exists so somebody other than the uploader checks
-/// the uploader's work.
+/// <b>Ownership is a per-rule, three-valued arm, never a global one</b> (<see cref="DocumentOwnerArm"/>).
+/// <see cref="DocumentAccessRule.Review"/> carries the same two permission names as
+/// <see cref="DocumentAccessRule.Edit"/> and differs only in that value, because its three methods clear a
+/// blocking review reason and that gate exists so somebody other than the uploader checks the uploader's work —
+/// and <see cref="DocumentAccessRule.Edit"/> itself is <see cref="DocumentOwnerArm.UnlessUnderReview"/>, because
+/// the edit family clears the same bits as a side effect and would otherwise reopen the door one along.
 /// </para>
 /// <para>
-/// The per-type arm runs through <see cref="DocumentTypeGrantMap"/> rather than through
+/// The per-type arm runs through <see cref="DocumentAccessMemo"/> rather than through
 /// <c>AuthorizationService.IsGrantedAsync(entity, name)</c>. Both end at ABP's own
 /// <c>IResourcePermissionChecker</c> — the keyed-object requirement handler resolves that very service — but the
-/// map also serves the two shapes that have no entity in hand, answers all four grants per type in one call, and
+/// memo also serves the two shapes that have no entity in hand, answers all four grants per type in one call, and
 /// holds the answers for the rest of the request.
 /// </para>
 /// </summary>
 public class DocumentAccessChecker : ITransientDependency
 {
-    private readonly IAuthorizationService _authorizationService;
     private readonly ICurrentUser _currentUser;
-    private readonly DocumentTypeGrantMap _grantMap;
+    private readonly DocumentAccessMemo _accessMemo;
 
     public DocumentAccessChecker(
-        IAuthorizationService authorizationService,
         ICurrentUser currentUser,
-        DocumentTypeGrantMap grantMap)
+        DocumentAccessMemo accessMemo)
     {
-        _authorizationService = authorizationService;
         _currentUser = currentUser;
-        _grantMap = grantMap;
+        _accessMemo = accessMemo;
     }
 
     /// <summary>
@@ -79,9 +78,10 @@ public class DocumentAccessChecker : ITransientDependency
     /// <list type="number">
     /// <item>Read already behaved this way before #635, so leaving the other families more permissive than the
     /// read family would be backwards.</item>
-    /// <item>The definition provider makes every one of these module-wide permissions a CHILD of
-    /// <c>Documents.Default</c>. ABP's dialog grants the parent with the child, so a real principal carries both;
-    /// only a programmatic <c>IPermissionManager</c> grant or a hand-edited store can separate them, because
+    /// <item>The definition provider makes every one of these module-wide permissions a DESCENDANT of
+    /// <c>Documents.Default</c> — most as children, <c>Pipelines.Retry</c> and <c>Reprocessing.*</c> as
+    /// grandchildren. ABP's dialog grants the whole ancestor chain of a ticked permission, so a real principal
+    /// carries entry; only a programmatic <c>IPermissionManager</c> grant or a hand-edited store can separate them, because
     /// <c>PermissionChecker</c> never consults <c>Parent</c> at check time. Requiring entry makes the check agree
     /// with the definition the dialog enforces instead of relying on the grant path to have been the dialog.</item>
     /// <item>It closes a hole ordinary administration opens: handing out per-type grants is gated by
@@ -91,7 +91,27 @@ public class DocumentAccessChecker : ITransientDependency
     /// </summary>
     protected virtual Task<bool> IsEntryGrantedAsync()
     {
-        return _authorizationService.IsGrantedAsync(VaultExtractPermissions.Documents.Default);
+        return _accessMemo.IsPermissionGrantedAsync(VaultExtractPermissions.Documents.Default);
+    }
+
+    /// <summary>
+    /// Asserts entry on its own, for the call sites that must refuse a caller <b>before</b> loading a document:
+    /// otherwise an unauthenticated caller tells a real id from an unknown one by whether it gets 404 or 403.
+    /// Every mutating method calls it first; the read paths call it and then judge the loaded document with
+    /// <see cref="IsGrantedAsync"/>.
+    /// <para>
+    /// It is not a third shape — it asserts exactly <see cref="IsEntryGrantedAsync"/>, the same single
+    /// precondition <see cref="IsGrantedAsync"/> and <see cref="ResolveScopeAsync"/> evaluate, and decides
+    /// nothing else. It exists because the alternative (resolving a whole scope to throw on its entry check)
+    /// made a single-document read sweep the layer's types for no other reason.
+    /// </para>
+    /// </summary>
+    public virtual async Task CheckEntryAsync()
+    {
+        if (!await IsEntryGrantedAsync())
+        {
+            throw new AbpAuthorizationException();
+        }
     }
 
     /// <summary>
@@ -107,7 +127,7 @@ public class DocumentAccessChecker : ITransientDependency
             return false;
         }
 
-        if (await _authorizationService.IsGrantedAsync(rule.ModuleWidePermission))
+        if (await _accessMemo.IsPermissionGrantedAsync(rule.ModuleWidePermission))
         {
             return true;
         }
@@ -115,7 +135,7 @@ public class DocumentAccessChecker : ITransientDependency
         // Ownership. A subject with no CreatorId (a machine-created row, a pre-#635 derived sub-document) never
         // matches, and neither does a caller with no user id -- a client-credentials principal has no `sub`, so
         // its Id is null and the arm is structurally unreachable for it.
-        if (rule.OwnerMayPerform && subject.CreatorId is { } creatorId && _currentUser.Id == creatorId)
+        if (subject.CreatorId is { } creatorId && _currentUser.Id == creatorId && IsOwnerArmOpen(rule, subject))
         {
             return true;
         }
@@ -124,7 +144,7 @@ public class DocumentAccessChecker : ITransientDependency
         // subject belongs to no type, so no grant can name it: both fall through to false, fail-closed.
         if (rule.ResourcePermission is { } resourcePermission && subject.DocumentTypeId is { } documentTypeId)
         {
-            return await _grantMap.HasAsync(documentTypeId, resourcePermission);
+            return await _accessMemo.HasAsync(documentTypeId, resourcePermission);
         }
 
         return false;
@@ -146,29 +166,59 @@ public class DocumentAccessChecker : ITransientDependency
     /// with no entry is how the export and the recycle bin ended up admitting principals the single-document
     /// shapes refused.
     /// <para>
-    /// Used as the admission gate wherever a caller must be judged <b>before</b> a document is loaded (the read
-    /// paths, so existence is not disclosed to a caller with no entry), and as the row filter wherever a set of
-    /// documents is returned.
+    /// Used wherever a <b>set</b> of documents is returned: the operator list, the recycle bin, the export and
+    /// the duplicate-candidate panel. A single-document check uses <see cref="CheckEntryAsync"/> plus
+    /// <see cref="IsGrantedAsync"/> instead, which costs one grant check rather than a sweep of the layer.
+    /// </para>
+    /// <para>
+    /// <b>Only rules whose owner arm is unconditional can have a scope.</b> A scope is a row predicate, and a
+    /// row predicate has no term for "is this document under review" — the review state is on the row, not on
+    /// the caller. Asking for the scope of a rule whose owner arm is
+    /// <see cref="DocumentOwnerArm.UnlessUnderReview"/> would therefore silently widen it to every document the
+    /// caller uploaded, locked ones included. It throws instead. In practice only
+    /// <see cref="DocumentAccessRule.Read"/> is ever asked, and its arm is unconditional by design.
     /// </para>
     /// </summary>
     public virtual async Task<DocumentAccessScope> ResolveScopeAsync(DocumentAccessRule rule)
     {
+        if (rule.OwnerArm == DocumentOwnerArm.UnlessUnderReview)
+        {
+            throw new AbpException(
+                $"A scope cannot be resolved for a rule whose owner arm is " +
+                $"{nameof(DocumentOwnerArm.UnlessUnderReview)} ({rule.ModuleWidePermission}): the scope is a row " +
+                $"predicate and has no review-state term, so it would silently admit the caller's own documents " +
+                $"that are locked for review. Use CheckEntryAsync + IsGrantedAsync per document instead.");
+        }
+
         if (!await IsEntryGrantedAsync())
         {
             throw new AbpAuthorizationException();
         }
 
-        if (await _authorizationService.IsGrantedAsync(rule.ModuleWidePermission))
+        if (await _accessMemo.IsPermissionGrantedAsync(rule.ModuleWidePermission))
         {
             return DocumentAccessScope.Unrestricted;
         }
 
         var types = rule.ResourcePermission is { } resourcePermission
-            ? await _grantMap.TypesWithAsync(resourcePermission)
+            ? await _accessMemo.TypesWithAsync(resourcePermission)
             : EmptyTypeSet;
 
-        return DocumentAccessScope.Of(types, rule.OwnerMayPerform ? _currentUser.Id : null);
+        return DocumentAccessScope.Of(
+            types, rule.OwnerArm == DocumentOwnerArm.Always ? _currentUser.Id : null);
     }
+
+    /// <summary>
+    /// The owner arm's per-rule verdict for one subject — see <see cref="DocumentOwnerArm"/>. Kept beside the
+    /// arm it evaluates so "which rules an owner reaches, and when" has exactly one reading.
+    /// </summary>
+    protected virtual bool IsOwnerArmOpen(DocumentAccessRule rule, DocumentAccessSubject subject)
+        => rule.OwnerArm switch
+        {
+            DocumentOwnerArm.Always => true,
+            DocumentOwnerArm.UnlessUnderReview => !subject.UnderReview,
+            _ => false
+        };
 
     private static readonly IReadOnlySet<Guid> EmptyTypeSet = new HashSet<Guid>();
 }

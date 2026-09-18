@@ -115,6 +115,7 @@ public class EfCoreDocumentRepository
         Guid documentTypeId,
         string fieldFingerprint,
         int maxResults,
+        DocumentAccessScope readScope,
         CancellationToken cancellationToken = default)
     {
         // #411: other documents in the current layer sharing this (type, fingerprint). The default IMultiTenant +
@@ -123,11 +124,20 @@ public class EfCoreDocumentRepository
         // a scalar projection (Id/Title/file name/upload time, no Markdown) keeps it light; Take is the fail-closed
         // cap on a widely-shared fingerprint.
         var dbSet = await GetDbSetAsync();
-        return await dbSet
+        IQueryable<Document> query = dbSet
             .AsNoTracking()
             .Where(d => d.DocumentTypeId == documentTypeId
                      && d.FieldFingerprint == fieldFingerprint
-                     && d.Id != documentId)
+                     && d.Id != documentId);
+
+        // #635: each candidate is named by title and file name, so the caller's read scope narrows them the same
+        // way it narrows the list. Unrestricted adds no predicate, which is what the pipeline's own call gets.
+        if (!readScope.IsUnrestricted)
+        {
+            query = query.Where(readScope.ToPredicate());
+        }
+
+        return await query
             .OrderBy(d => d.CreationTime)
             .Select(d => new DuplicateCandidateModel
             {

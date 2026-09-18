@@ -50,6 +50,10 @@ public class DocumentAccessTestModule : AbpModule
         context.Services.RemoveAll<IResourcePermissionStore>();
         context.Services.AddSingleton<IResourcePermissionStore>(sp => sp.GetRequiredService<InMemoryResourcePermissionStore>());
 
+        // The scoped grant memo, plus one extra reason to forget: this host changes what a principal is granted
+        // inside one scope, which no request does. See TestDocumentAccessMemo.
+        context.Services.UseTestAccessMemo();
+
         // Decorate rather than replace: ABP's real ResourcePermissionChecker still does the deciding, and the
         // wrapper only counts. A hand-written stand-in would have let the cost claim assert itself.
         context.Services.AddSingleton<ResourcePermissionCheckCounter>();
@@ -72,7 +76,7 @@ public class DocumentAccessTestModule : AbpModule
 /// <summary>Shared, resettable tally of multi-name resource-permission checks.</summary>
 public sealed class ResourcePermissionCheckCounter
 {
-    /// <summary>Calls to the multi-name overload — the one <c>DocumentTypeGrantMap</c> uses, one per type.</summary>
+    /// <summary>Calls to the multi-name overload — the one <c>DocumentAccessMemo</c> uses, one per type.</summary>
     public int MultiNameChecks { get; set; }
 
     /// <summary>Calls to the single-name overload. Nothing on the #635 path should use it.</summary>
@@ -139,6 +143,7 @@ public abstract class DocumentAccessTestBase : VaultExtractApplicationTestBase<D
     protected readonly IDocumentRepository DocumentRepository;
     protected readonly IDocumentTypeRepository DocumentTypeRepository;
     protected readonly IFieldRepository FieldRepository;
+    protected readonly IBlobContainer<VaultExtractDocumentContainer> BlobContainer;
     protected readonly GrantSetAuthorizationService Authorization;
     protected readonly InMemoryResourcePermissionStore ResourcePermissionStore;
     protected readonly ResourcePermissionCheckCounter CheckCounter;
@@ -147,31 +152,43 @@ public abstract class DocumentAccessTestBase : VaultExtractApplicationTestBase<D
     protected readonly DocumentType TypeA = new(Guid.NewGuid(), null, "own.a", "Type A");
     protected readonly DocumentType TypeB = new(Guid.NewGuid(), null, "own.b", "Type B");
 
+    /// <summary>
+    /// Two more types nothing is granted on, so the layer is bigger than the set any fact reaches. The cost facts
+    /// need it: with only two types, "one grant check per type" and "one grant check, full stop" are the same
+    /// number for a two-type page and a per-type sweep would pass a per-document assertion.
+    /// </summary>
+    protected readonly DocumentType TypeC = new(Guid.NewGuid(), null, "own.c", "Type C");
+    protected readonly DocumentType TypeD = new(Guid.NewGuid(), null, "own.d", "Type D");
+
+    /// <summary>Every type of the layer, in the order the sweep enumerates them.</summary>
+    protected DocumentType[] LayerTypes => [TypeA, TypeB, TypeC, TypeD];
+
     protected DocumentAccessTestBase()
     {
         AppService = GetRequiredService<IDocumentAppService>();
         DocumentRepository = GetRequiredService<IDocumentRepository>();
         DocumentTypeRepository = GetRequiredService<IDocumentTypeRepository>();
         FieldRepository = GetRequiredService<IFieldRepository>();
+        BlobContainer = GetRequiredService<IBlobContainer<VaultExtractDocumentContainer>>();
         Authorization = GetRequiredService<GrantSetAuthorizationService>();
         ResourcePermissionStore = GetRequiredService<InMemoryResourcePermissionStore>();
         CheckCounter = GetRequiredService<ResourcePermissionCheckCounter>();
         PrincipalAccessor = GetRequiredService<ICurrentPrincipalAccessor>();
 
         DocumentTypeRepository.GetListAsync(Arg.Any<bool>(), Arg.Any<CancellationToken>())
-            .Returns(_ => new List<DocumentType> { TypeA, TypeB });
+            .Returns(_ => new List<DocumentType>(LayerTypes));
         DocumentTypeRepository.GetListAsync(
                 Arg.Any<Expression<Func<DocumentType, bool>>>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(call =>
             {
                 var predicate = call.Arg<Expression<Func<DocumentType, bool>>>().Compile();
-                return new List<DocumentType>(new[] { TypeA, TypeB }.Where(predicate));
+                return new List<DocumentType>(LayerTypes.Where(predicate));
             });
         DocumentTypeRepository.FindByTypeCodeAsync(TypeA.TypeCode, Arg.Any<CancellationToken>()).Returns(TypeA);
         DocumentTypeRepository.FindByTypeCodeAsync(TypeB.TypeCode, Arg.Any<CancellationToken>()).Returns(TypeB);
         DocumentTypeRepository.FindAsync(TypeA.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(TypeA);
         DocumentTypeRepository.FindAsync(TypeB.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(TypeB);
-        DocumentTypeRepository.GetCountAsync(Arg.Any<CancellationToken>()).Returns(2L);
+        DocumentTypeRepository.GetCountAsync(Arg.Any<CancellationToken>()).Returns(LayerTypes.Length);
 
         FieldRepository.GetListAsync(
                 Arg.Any<Expression<Func<Field, bool>>>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())

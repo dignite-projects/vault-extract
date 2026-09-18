@@ -61,6 +61,10 @@ public class DocumentAppServiceUploadDeclaredTypeTestModule : AbpModule
         context.Services.RemoveAll<IResourcePermissionStore>();
         context.Services.AddSingleton<IResourcePermissionStore>(sp => sp.GetRequiredService<InMemoryResourcePermissionStore>());
 
+        // The scoped grant memo, plus one extra reason to forget: this host changes what a principal is granted
+        // inside one scope, which no request does. See TestDocumentAccessMemo.
+        context.Services.UseTestAccessMemo();
+
         context.Services.AddSingleton(Substitute.For<IDocumentRepository>());
         context.Services.AddSingleton(Substitute.For<IDocumentTypeRepository>());
         context.Services.AddSingleton(Substitute.For<IFieldRepository>());
@@ -133,9 +137,9 @@ public class DocumentAppService_UploadDeclaredType_Tests
                 Arg.Any<bool>(),
                 Arg.Any<CancellationToken>())
             .Returns([type]);
-        // #635: the per-type arm reads DocumentTypeGrantMap, which sweeps the layer's own types once per request
+        // #635: the per-type arm reads DocumentAccessMemo, which sweeps the layer's own types once per request
         // through the parameterless overload. Every stubbed type has to be in that sweep or no grant on it can be
-        // found — the map answers strictly from the layer it enumerated.
+        // found — the memo answers strictly from the layer it enumerated.
         _stubbedTypes.Add(type);
         _documentTypeRepository.GetListAsync(Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(_ => new List<DocumentType>(_stubbedTypes));
@@ -179,7 +183,7 @@ public class DocumentAppService_UploadDeclaredType_Tests
     public async Task UploadAsync_With_Valid_DocumentTypeId_Declares_The_Type_As_Confirmed()
     {
         // StubType registers the type on FindAsync, on the predicate lookup MapToDtoAsync's
-        // ResolveReferenceMapsAsync uses, and on the layer sweep DocumentTypeGrantMap performs — the last of
+        // ResolveReferenceMapsAsync uses, and on the layer sweep DocumentAccessMemo performs — the last of
         // which #635 made reachable from every DTO mapping, because the returned DTO now carries the caller's
         // per-document rights.
         var type = StubType("invoice.general");

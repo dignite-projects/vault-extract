@@ -49,6 +49,10 @@ public class DocumentTypeAccessTestModule : AbpModule
         context.Services.RemoveAll<IResourcePermissionStore>();
         context.Services.AddSingleton<IResourcePermissionStore>(sp => sp.GetRequiredService<InMemoryResourcePermissionStore>());
 
+        // The scoped grant memo, plus one extra reason to forget: this host changes what a principal is granted
+        // inside one scope, which no request does. See TestDocumentAccessMemo.
+        context.Services.UseTestAccessMemo();
+
         context.Services.AddSingleton(Substitute.For<IDocumentRepository>());
         context.Services.AddSingleton(Substitute.For<IDocumentTypeRepository>());
         context.Services.AddSingleton(Substitute.For<IFieldRepository>());

@@ -7,6 +7,7 @@ using Dignite.Vault.Extract.Permissions;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Shouldly;
+using Volo.Abp;
 using Volo.Abp.Authorization;
 using Volo.Abp.Content;
 using Xunit;
@@ -198,27 +199,27 @@ public class DocumentAccessEntryGate_Tests : DocumentAccessTestBase
         (await AsStrangerAsync(() => statistics.GetAsync())).ShouldNotBeNull();
     }
 
-    // ===================== Anonymous callers =====================
+    // ===================== A caller granted nothing =====================
 
     /// <summary>
-    /// The three documents-domain services carry no <c>[Authorize]</c> at all any more, not even a class-level
-    /// one, and <c>VaultExtractAppService</c> declares none either — so "must be authenticated" is not asserted
-    /// anywhere by attribute. It does not need to be: ABP's permission value providers key on the principal's
-    /// user / role / client claims, and an anonymous principal has none, so entry is simply not granted and the
-    /// first checker call refuses. This fact pins that, because the reasoning is not visible at any call site.
+    /// With <b>no</b> permission granted, the three entry points refuse — the read path, the list and a mutating
+    /// method alike, so the refusal does not depend on which of the three shapes the call happens to take.
+    /// <para>
+    /// <b>What this does not prove.</b> It was written as "an anonymous caller is refused", which it cannot show:
+    /// <see cref="GrantSetAuthorizationService"/> answers from a grant set and never looks at the principal, so an
+    /// anonymous caller and a fully-authenticated one with an empty grant set are the same thing here. The real
+    /// claim — that ABP's permission value providers key on the principal's claims, so a caller with no identity
+    /// is granted nothing — needs the real permission pipeline, and lives in
+    /// <c>Mcp.Integration.Tests/Documents/AnonymousCaller_Tests</c>.
+    /// </para>
     /// </summary>
     [Fact]
-    public async Task An_anonymous_caller_is_refused_even_though_no_Authorize_attribute_remains()
+    public async Task A_caller_granted_nothing_is_refused_on_every_shape()
     {
         var document = StubDocument(TypeA.Id, creatorId: OwnerId);
         StubQueryable(document);
 
-        // The grant set is what a fully-permissioned principal would carry; the caller is simply not one.
-        Grant(
-            VaultExtractPermissions.Documents.Default,
-            VaultExtractPermissions.Documents.ReadAll,
-            VaultExtractPermissions.Documents.Delete);
-        Authorization.Granted.Clear();
+        Grant();
 
         await Should.ThrowAsync<AbpAuthorizationException>(() => AppService.GetAsync(document.Id));
         await Should.ThrowAsync<AbpAuthorizationException>(() => AppService.GetListAsync(new GetDocumentListInput()));
@@ -232,7 +233,7 @@ public class DocumentAccessEntryGate_Tests : DocumentAccessTestBase
     /// a Read grant was no longer read-only.
     /// <para>
     /// The positive halves are separate facts rather than a second call in this one, because
-    /// <c>DocumentTypeGrantMap</c> is resolved once per scope by design — a grant handed out after the first
+    /// <c>DocumentAccessMemo</c> is resolved once per scope by design — a grant handed out after the first
     /// check of a request is deliberately not seen by that request, and the whole test shares one scope.
     /// </para>
     /// </summary>
@@ -332,57 +333,174 @@ public class DocumentAccessEntryGate_Tests : DocumentAccessTestBase
         retry!.Status.ShouldBe(PipelineRunStatus.Pending);
     }
 
-    // ===================== The per-request cost of the grant map =====================
+    // ===================== A conditional owner arm has no scope =====================
 
     /// <summary>
-    /// #635 decision 4's cost claim: one request performs at most <b>one</b> type-layer read and <b>one</b>
-    /// multi-name grant check per type of the layer, whatever it asks — the list, the recycle bin and the detail
-    /// page alike. Before this the checker swept the layer once per permission name per shape, and the recycle
-    /// bin swept it twice.
+    /// A scope is a row predicate and has no term for "is this document under review" — the review state is on
+    /// the row, not on the caller. Resolving a scope for a rule whose owner arm is
+    /// <see cref="DocumentOwnerArm.UnlessUnderReview"/> would therefore silently widen it to every document the
+    /// caller uploaded, locked ones included, which is precisely the hole the arm exists to close. It throws
+    /// instead of answering.
+    /// <para>
+    /// Only <see cref="DocumentAccessRule.Read"/> is ever asked in production, and its arm is unconditional by
+    /// design; this fact is what keeps a future caller from reaching for the wrong one.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task ResolveScopeAsync_refuses_a_rule_whose_owner_arm_depends_on_the_documents_review_state()
+    {
+        var checker = GetRequiredService<DocumentAccessChecker>();
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.ReadAll);
+
+        foreach (var rule in new[] { DocumentAccessRule.Edit, DocumentAccessRule.Retry })
+        {
+            var exception = await Should.ThrowAsync<AbpException>(
+                () => AsStrangerAsync(() => checker.ResolveScopeAsync(rule)));
+            exception.Message.ShouldContain(nameof(DocumentOwnerArm.UnlessUnderReview));
+        }
+
+        // The counter-case: the rule the production paths actually resolve still answers.
+        (await AsStrangerAsync(() => checker.ResolveScopeAsync(DocumentAccessRule.Read)))
+            .IsUnrestricted.ShouldBeTrue();
+    }
+
+    // ===================== The per-request cost of the access memo =====================
+
+    /// <summary>
+    /// #635 decision 4's cost claim, per surface. A <b>set</b> of documents costs one type-layer read and one
+    /// multi-name grant check per type; a <b>single</b> document costs neither the read nor more than one check,
+    /// because judging one document asks about one type.
     /// <para>
     /// Counted through a decorator over ABP's real <c>IResourcePermissionChecker</c>, not through a stand-in, so
     /// the number counted is the number the production path actually makes. The single-name overload is asserted
     /// to be unused: a fall back to it would still answer correctly while quietly restoring the per-name sweep.
+    /// The layer has four types and every fact reaches at most one, so a per-type sweep cannot pass a
+    /// per-document assertion by coincidence.
     /// </para>
     /// </summary>
     [Theory]
     [InlineData("list")]
     [InlineData("recycle-bin")]
-    [InlineData("detail")]
-    public async Task One_request_costs_at_most_one_grant_check_per_type_and_one_type_layer_read(string surface)
+    public async Task A_list_request_costs_one_grant_check_per_type_and_one_type_layer_read(string surface)
     {
         var document = StubDocument(TypeA.Id, creatorId: StrangerId, deleted: surface == "recycle-bin");
         StubQueryable(document);
         GrantEntryOnly();
         GrantResource(VaultExtractResourcePermissions.Read, TypeA.Id, StrangerId);
 
-        CheckCounter.Reset();
-        DocumentTypeRepository.ClearReceivedCalls();
+        ResetCounters();
 
-        await AsStrangerAsync(async () =>
-        {
-            switch (surface)
-            {
-                case "list":
-                    await AppService.GetListAsync(new GetDocumentListInput());
-                    break;
-                case "recycle-bin":
-                    await AppService.GetListAsync(new GetDocumentListInput { IsDeleted = true });
-                    break;
-                default:
-                    await AppService.GetAsync(document.Id);
-                    break;
-            }
-        });
+        await AsStrangerAsync(() => AppService.GetListAsync(
+            new GetDocumentListInput { IsDeleted = surface == "recycle-bin" ? true : null }));
 
-        // Two types in this layer.
-        CheckCounter.MultiNameChecks.ShouldBeLessThanOrEqualTo(2);
+        CheckCounter.MultiNameChecks.ShouldBeLessThanOrEqualTo(LayerTypes.Length);
         CheckCounter.SingleNameChecks.ShouldBe(0);
 
         // The layer sweep is the parameterless GetListAsync overload; the by-predicate one is the DTO reference
         // map, a different question.
         await DocumentTypeRepository.Received(1).GetListAsync(
             Arg.Any<bool>(), Arg.Any<System.Threading.CancellationToken>());
+    }
+
+    /// <summary>
+    /// An uploader reaching their own document: the ownership arm answers before the per-type arm is reached, so
+    /// the authorization itself costs <b>no</b> grant check and <b>no</b> type-layer read. Under the first #635
+    /// shape this same call resolved a whole scope and swept the layer.
+    /// <para>
+    /// <c>GetBlobAsync</c> rather than <c>GetAsync</c>, because it returns a stream and therefore does not
+    /// project the per-row rights — see the next fact for what those cost.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Reaching_ones_own_document_costs_no_grant_check_and_no_type_layer_read()
+    {
+        var own = StubDocument(TypeA.Id, creatorId: OwnerId);
+        BlobContainer.GetAsync(own.FileOrigin!.BlobName, Arg.Any<System.Threading.CancellationToken>())
+            .Returns(_ => new System.IO.MemoryStream([1, 2, 3]));
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Upload);
+
+        ResetCounters();
+
+        await AsOwnerAsync(() => AppService.GetBlobAsync(own.Id));
+
+        CheckCounter.MultiNameChecks.ShouldBe(0);
+        CheckCounter.SingleNameChecks.ShouldBe(0);
+        await DocumentTypeRepository.DidNotReceive().GetListAsync(
+            Arg.Any<bool>(), Arg.Any<System.Threading.CancellationToken>());
+    }
+
+    /// <summary>
+    /// The owner's <b>detail</b> page costs exactly one grant check, and still no layer read. Five of the six
+    /// rights are answered by the ownership arm; <c>canReview</c> is the one that is not — its rule's owner arm is
+    /// <see cref="DocumentOwnerArm.Never"/> by design — so it reaches the per-type arm, and all four grants on
+    /// that one type come back in that single multi-name call.
+    /// </summary>
+    [Fact]
+    public async Task The_owners_own_detail_page_costs_one_grant_check_and_no_type_layer_read()
+    {
+        var own = StubDocument(TypeA.Id, creatorId: OwnerId);
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Upload);
+
+        ResetCounters();
+
+        var rights = (await AsOwnerAsync(() => AppService.GetAsync(own.Id))).Rights;
+        rights.CanEdit.ShouldBeTrue();
+        rights.CanReview.ShouldBeFalse();
+
+        CheckCounter.MultiNameChecks.ShouldBe(1);
+        CheckCounter.SingleNameChecks.ShouldBe(0);
+        await DocumentTypeRepository.DidNotReceive().GetListAsync(
+            Arg.Any<bool>(), Arg.Any<System.Threading.CancellationToken>());
+    }
+
+    /// <summary>
+    /// A module-wide <c>ReadAll</c> holder on somebody else's document: the module-wide arm answers Read,
+    /// Delete, Restore and Retry outright, so the only grant check left is the one the remaining rules need on
+    /// that document's own type — one, not four, and still no layer read.
+    /// </summary>
+    [Fact]
+    public async Task A_ReadAll_holders_detail_page_costs_at_most_one_grant_check_and_no_type_layer_read()
+    {
+        var document = StubDocument(TypeA.Id, creatorId: OwnerId);
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.ReadAll);
+
+        ResetCounters();
+
+        await AsStrangerAsync(() => AppService.GetAsync(document.Id));
+
+        CheckCounter.MultiNameChecks.ShouldBeLessThanOrEqualTo(1);
+        CheckCounter.SingleNameChecks.ShouldBe(0);
+        await DocumentTypeRepository.DidNotReceive().GetListAsync(
+            Arg.Any<bool>(), Arg.Any<System.Threading.CancellationToken>());
+    }
+
+    /// <summary>
+    /// The standard-permission half of the same claim: resolving a document's six rights names
+    /// <c>Documents.Default</c> six times and <c>ConfirmClassification</c> twice, and the memo turns that into
+    /// one check each. The bound is the number of DISTINCT permission names the whole request can reach, which is
+    /// smaller than the number of times it asks.
+    /// </summary>
+    [Fact]
+    public async Task A_detail_page_asks_each_standard_permission_name_at_most_once()
+    {
+        var document = StubDocument(TypeA.Id, creatorId: OwnerId);
+        GrantEntryOnly();
+        GrantResource(VaultExtractResourcePermissions.Read, TypeA.Id, StrangerId);
+
+        ResetCounters();
+
+        await AsStrangerAsync(() => AppService.GetAsync(document.Id));
+
+        // Entry + the six rules' module-wide names, of which Edit and Review share one: Documents.Default,
+        // ReadAll, ConfirmClassification, Delete, Restore, Pipelines.Retry.
+        Authorization.PolicyChecks.ShouldBeLessThanOrEqualTo(6);
+    }
+
+    private void ResetCounters()
+    {
+        CheckCounter.Reset();
+        Authorization.ResetPolicyChecks();
+        DocumentTypeRepository.ClearReceivedCalls();
     }
 
     // ===================== helpers =====================

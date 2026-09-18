@@ -30,18 +30,28 @@ namespace Dignite.Vault.Extract.Documents;
 /// principal (a pre-#635 derived sub-document, a seeded row) and for every shape that is not a document at all.
 /// A <c>null</c> here never matches the ownership arm, whatever the caller's own id is.
 /// </param>
-public sealed record DocumentAccessSubject(Guid? DocumentTypeId, Guid? CreatorId)
+/// <param name="UnderReview">
+/// Whether this document's review state closes the ownership arm of the edit family —
+/// <see cref="ReviewReasonPolicy.LocksOwnerEdits"/>, i.e. it carries a blocking reason other than
+/// <see cref="DocumentReviewReasons.UnresolvedClassification"/>. Computed from the document; <c>false</c> for
+/// the two shapes that are not a document (<see cref="OfType(Guid)"/>, <see cref="None"/>), where there is no
+/// review state and no owner to lock out either.
+/// </param>
+public sealed record DocumentAccessSubject(Guid? DocumentTypeId, Guid? CreatorId, bool UnderReview)
 {
     /// <summary>
     /// No document and no type: <c>UploadAsync</c>'s admission and its untyped branch, and every rule whose
     /// per-type arm is <c>null</c> anyway (PermanentDelete / Reprocessing / Export / Statistics). Both arms that
     /// need a subject fact are absent, so such a rule reduces to entry plus its module-wide permission.
     /// </summary>
-    public static readonly DocumentAccessSubject None = new(null, null);
+    public static readonly DocumentAccessSubject None = new(null, null, UnderReview: false);
 
-    /// <summary>A loaded document: its current type and its owner.</summary>
+    /// <summary>A loaded document: its current type, its owner, and whether its review state locks that owner out.</summary>
     public static DocumentAccessSubject Of(Document document)
-        => new(document.DocumentTypeId, document.CreatorId);
+        => new(
+            document.DocumentTypeId,
+            document.CreatorId,
+            ReviewReasonPolicy.LocksOwnerEdits(document.ReviewReasons));
 
     /// <summary>
     /// A <b>target</b> type being declared or assigned — the shape that replaced <c>CheckTargetTypeAsync</c>.
@@ -49,9 +59,9 @@ public sealed record DocumentAccessSubject(Guid? DocumentTypeId, Guid? CreatorId
     /// its own rule.
     /// </summary>
     public static DocumentAccessSubject OfType(DocumentType documentType)
-        => new(documentType.Id, null);
+        => new(documentType.Id, null, UnderReview: false);
 
     /// <summary>The same, from a type id the caller has already resolved under the ambient multi-tenancy filter.</summary>
     public static DocumentAccessSubject OfType(Guid documentTypeId)
-        => new(documentTypeId, null);
+        => new(documentTypeId, null, UnderReview: false);
 }

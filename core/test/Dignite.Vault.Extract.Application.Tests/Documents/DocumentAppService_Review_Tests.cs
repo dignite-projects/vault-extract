@@ -392,12 +392,14 @@ public class DocumentAppService_Review_Tests
                 Substitute.For<Volo.Abp.Timing.IClock>()),
             Substitute.For<Dignite.Vault.Extract.FlexFields.IVaultExtractFieldTypeRegistry>(),
             new DocumentAccessChecker(
-                Substitute.For<Microsoft.AspNetCore.Authorization.IAuthorizationService>(),
                 Substitute.For<Volo.Abp.Users.ICurrentUser>(),
-                new DocumentTypeGrantMap(
+                new DocumentAccessMemo(
                     Substitute.For<Volo.Abp.Authorization.Permissions.Resources.IResourcePermissionChecker>(),
+                    Substitute.For<Microsoft.AspNetCore.Authorization.IAuthorizationService>(),
                     Substitute.For<IDocumentTypeRepository>(),
-                    Substitute.For<Volo.Abp.Data.IDataFilter>())));
+                    Substitute.For<Volo.Abp.Data.IDataFilter>(),
+                    Substitute.For<Volo.Abp.MultiTenancy.ICurrentTenant>(),
+                    Substitute.For<Volo.Abp.Users.ICurrentUser>())));
 
         var method = typeof(DocumentAppService).GetMethod(
             "ApplyFilter",

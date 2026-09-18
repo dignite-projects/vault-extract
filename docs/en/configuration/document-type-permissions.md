@@ -44,7 +44,7 @@ Put the other way round, which is the sentence to remember:
 
 ### Entry gates every operation, without exception
 
-Entry is a precondition of the whole rule, not only of the read endpoints, and it gates all three arms: a principal who may not open the documents area may not mutate documents in it either. Every principal assembled through ABP's permission dialog carries it, because each of these module-wide permissions is a child of `VaultExtract.Documents` and the dialog grants the parent with the child; only a programmatic `IPermissionManager` grant or a hand-edited store can separate them, since `PermissionChecker` never consults `Parent` at check time.
+Entry is a precondition of the whole rule, not only of the read endpoints, and it gates all three arms: a principal who may not open the documents area may not mutate documents in it either. Every principal assembled through ABP's permission dialog carries it, because each of these module-wide permissions descends from `VaultExtract.Documents` — most as children, `Documents.Pipelines.Retry` and `Documents.Reprocessing.*` as grandchildren via `Documents.Pipelines` / `Documents.Reprocessing` — and the dialog grants the whole ancestor chain, not only the immediate parent, when a permission is ticked. Only a programmatic `IPermissionManager` grant or a hand-edited store can separate them, since `PermissionChecker` never consults `Parent` at check time.
 
 It matters most for the per-type arm: handing out a resource grant is gated by `DocumentTypes.ManagePermissions`, which says nothing about `Documents.*`, so without this precondition granting "Delete on Invoices" to a principal holding no `Documents` permission at all would produce a caller that could soft-delete, restore and rewrite the Markdown of a document it could not read.
 
@@ -52,25 +52,42 @@ It matters most for the per-type arm: handing out a resource grant is gated by `
 
 ### The rule table
 
-| Rule | Module-wide | Per-type grant | Owner may | Operations it gates |
+| Rule | Module-wide | Per-type grant | Owner arm | Operations it gates |
 | --- | --- | --- | --- | --- |
-| **Read** | `Documents.ReadAll` | `Read` | **yes** | `GetAsync`, `GetBlobAsync`, list and recycle-bin membership, export rows, `DocumentPipelineRunAppService.GetListAsync`, MCP `get_document` / `search_documents` / document resources |
-| **Edit** | `Documents.ConfirmClassification` | `Edit` | **yes** | `ConfirmClassificationAsync` / `ReclassifyAsync` (whose **target** type is judged by *Declare a type*), `RerecognizeAsync`, `ReextractFieldsAsync`, `UpdateExtractedFieldsAsync`, `UpdateMarkdownAsync`, `UpdateCabinetAsync` |
-| **Review** | `Documents.ConfirmClassification` | `Edit` | **no** | `AllowDuplicateAsync`, `ResolveFieldValidationWarningsAsync`, `RejectReviewAsync` |
-| **Delete** | `Documents.Delete` | `Delete` | **yes** | `DeleteAsync` (soft delete) |
-| **Restore** | `Documents.Restore` | `Delete` — **whoever may delete may undo** | **yes** | `RestoreAsync` |
-| **Retry** | `Documents.Pipelines.Retry` | `Edit` | **yes** | `RetryPipelineAsync` |
-| **Declare a type** | `Documents.ConfirmClassification` | `Upload` on the **target** type | no | `UploadAsync`'s `DocumentTypeId`, and the target type of `ConfirmClassificationAsync` / `ReclassifyAsync` |
-| **Upload** | `Documents.Upload` | — | no | `UploadAsync` admission, checked before *Declare a type* |
-| **Permanent delete** | `Documents.PermanentDelete` | — | no | `PermanentDeleteAsync` |
-| **Reprocess (fields)** | `Documents.Reprocessing.FieldExtraction` | — | no | `PreviewFieldExtractionAsync`, `StartFieldExtractionAsync` |
-| **Reprocess (classification)** | `Documents.Reprocessing.Reclassification` | — | no | `PreviewReclassificationAsync`, `StartReclassificationAsync` |
-| **Export** | `Documents.Export` | — | no | `ExportAsync` admission; the rows in the file are narrowed by the **Read** scope |
-| **Statistics** | `Documents.ReadAll` | — | no | the overview statistics, which is also where the list page's review-count badge comes from |
+| **Read** | `Documents.ReadAll` | `Read` | **always** | `GetAsync`, `GetBlobAsync`, list and recycle-bin membership, export rows, `DocumentPipelineRunAppService.GetListAsync`, MCP `get_document` / `search_documents` / document resources |
+| **Edit** | `Documents.ConfirmClassification` | `Edit` | **unless under review** | `ConfirmClassificationAsync` / `ReclassifyAsync` (whose **target** type is judged by *Declare a type*), `RerecognizeAsync`, `ReextractFieldsAsync`, `UpdateExtractedFieldsAsync`, `UpdateMarkdownAsync`, `UpdateCabinetAsync` |
+| **Review** | `Documents.ConfirmClassification` | `Edit` | **never** | `AllowDuplicateAsync`, `ResolveFieldValidationWarningsAsync`, `RejectReviewAsync` |
+| **Delete** | `Documents.Delete` | `Delete` | **always** | `DeleteAsync` (soft delete) |
+| **Restore** | `Documents.Restore` | `Delete` — **whoever may delete may undo** | **always** | `RestoreAsync` |
+| **Retry** | `Documents.Pipelines.Retry` | `Edit` | **unless under review** | `RetryPipelineAsync` |
+| **Declare a type** | `Documents.ConfirmClassification` | `Upload` on the **target** type | never | `UploadAsync`'s `DocumentTypeId`, and the target type of `ConfirmClassificationAsync` / `ReclassifyAsync` |
+| **Upload** | `Documents.Upload` | — | never | `UploadAsync` admission, checked before *Declare a type* |
+| **Permanent delete** | `Documents.PermanentDelete` | — | never | `PermanentDeleteAsync` |
+| **Reprocess (fields)** | `Documents.Reprocessing.FieldExtraction` | — | never | `PreviewFieldExtractionAsync`, `StartFieldExtractionAsync` |
+| **Reprocess (classification)** | `Documents.Reprocessing.Reclassification` | — | never | `PreviewReclassificationAsync`, `StartReclassificationAsync` |
+| **Export** | `Documents.Export` | — | never | `ExportAsync` admission; the rows in the file are narrowed by the **Read** scope |
+| **Statistics** | `Documents.ReadAll` | — | never | the overview statistics, which is also where the list page's review-count badge comes from |
 
 Reclassifying a document from type A to type B needs two rows: **Edit** on A (it is an edit of that document) and **Declare a type** on B (it is a decision about B), or the module-wide permission in place of either. Owning the document satisfies the first and never the second — owning a document is not a licence to move it into a type you were never granted.
 
-**Review is why ownership is a per-rule flag rather than one global arm.** Its two permission names are identical to Edit's; the *only* difference is that the ownership arm is shut. Those three methods clear a blocking review reason — the channel's data-quality gate on the way to `DocumentReadyEto` — and a suspected duplicate or a field-validation warning exists precisely so that someone other than the uploader checks the uploader's work. A duplicate invoice is the adversarial case the review queue is for. (Editing field values on one's own document does **not** clear a validation warning: only `ResolveFieldValidationWarningsAsync` removes one, so Review is not reachable through the back door.)
+### The owner arm has three values, and Review is why
+
+**Review** carries exactly the same two permission names as **Edit**; the *only* difference is the owner arm. Its three methods clear a blocking review reason — the channel's data-quality gate on the way to `DocumentReadyEto` — and a suspected duplicate or a field-validation warning exists precisely so that someone other than the uploader checks the uploader's work. A duplicate invoice is the adversarial case the review queue is for.
+
+But **closing those three to an owner is not enough**, and that is why the arm is three-valued rather than a yes/no. The edit family clears the same bits as a *side effect*, without ever asking to:
+
+- `UpdateExtractedFieldsAsync` clears `FieldExtractionIncomplete` outright — that is #491's deliberate escape path, where manual entry *is* the resolution — and an empty field set is enough to trigger it, which releases the document to Ready and fires `DocumentReadyEto`;
+- `UpdateMarkdownAsync(reprocess: true)` and `ReextractFieldsAsync` re-run extraction, and re-extraction replaces the **whole** validation-warning set and recomputes the duplicate fingerprint from the new values — so correcting the body clears `FieldValidationWarning` *and* `DuplicateSuspected`;
+- `ConfirmClassificationAsync` resets duplicate state and clears warnings, and reclassifying to the **same** type is not refused as a no-op;
+- a retried field-extraction run does what re-extraction does.
+
+So the rule lives where it can actually hold:
+
+> **While a document carries a blocking review reason other than `UnresolvedClassification`, an uploader may still read and delete it, but not modify it.** Modification is for someone holding the module-wide permission or the per-type `Edit` grant.
+
+That set — `DuplicateSuspected`, `FieldExtractionIncomplete`, `FieldValidationWarning` — is `ReviewReasonPolicy.OwnerLocking`, **derived** as "every blocking reason except classification" so a blocking reason added later locks owners out by default and has to be excluded on purpose. Classification is the one exclusion: confirming or reclassifying one's own upload is exactly what an uploader is expected to do, and the target type is judged separately by **Declare a type**, which has no owner arm at all.
+
+The client sees this without a special case: `rights.canEdit` and `rights.canRetry` simply come back false for a locked owner, while `canRead` and `canDelete` stay true.
 
 **Restore** is the one row whose per-type arm is not its own resource permission: it reuses `Delete`. Undoing an operation is not a wider right than the operation, and a per-type deleter who could not restore would have to escalate a mistake of their own making to an admin.
 
@@ -85,6 +102,8 @@ Stays module-wide only, by decision: permanent delete (irreversible, and it dest
 **`Document.CreatorId`**, ABP's audit property, set at insert from `ICurrentUser.Id`. Nothing new is persisted and there is no migration.
 
 - **Derived sub-documents inherit the origin's owner.** Segmentation runs in a background job with no principal, so ABP would leave `CreatorId` null and the sub-documents of a bundle would be invisible to the person who uploaded the bundle. `Document.CreateDerived` takes the origin's `CreatorId`; ABP's audit setter returns early when `CreatorId` already has a value, so the explicit value survives.
+
+  Sub-documents split out **before** the upgrade have no owner (they were spawned with no principal and no inherited creator); the one-off backfill that corrects them is the deployment note in the [CHANGELOG](../../../CHANGELOG.md) entry for #635.
 - **Machine identities have no owner.** A client-credentials token has no `sub`, so `ICurrentUser.Id` is null and the ownership arm can never match. Such a principal reaches documents only through module-wide permissions or per-type grants. Today's MCP client is Authorization Code + PKCE, so real MCP callers are users and do carry ownership.
 - **Not transferable, and there is no UI for it.** Out of scope.
 - **Revoking `Upload` does not retract ownership.** Nothing short of removing entry stops an uploader from editing or soft-deleting their own document, including one that has already fired `DocumentReadyEto`. Approval workflows belong downstream, and downstream already handles `DocumentDeletedEto`.
@@ -106,18 +125,30 @@ Every lookup runs under ABP's ambient `IMultiTenant` filter, so a cross-layer id
 - **The subject is `DocumentAccessSubject(DocumentTypeId, CreatorId)`**, built from a loaded document, from a target type alone (no owner), or from nothing at all for an operation that reads neither fact.
 - **The checks are programmatic, not `[Authorize]` attributes.** MCP and reflection dispatch paths do not run attributes, and an attribute fires before the method body — so it would deny a per-type grant holder, or an owner, before the body could offer the other arms of the OR. No method of `DocumentAppService`, `DocumentExportAppService` or `DocumentReprocessingAppService` carries one, and neither does any of those classes.
 - **The scope is one object, `DocumentAccessScope`**, non-nullable, and the single source for the list predicate, the export's row narrowing, the recycle bin's rows and the per-row rights. `Unrestricted` is the module-wide holder; every other scope carries "the types I was granted OR the documents I uploaded" as an expression, and a scope that reaches nothing carries its own always-false predicate rather than making each caller branch on emptiness. It reaches the query through `DocumentQueries.ApplyMetadataFilter`, the single chain the operator list, the export and the MCP search all pass through, so the list's total count is narrowed by the same predicate as its rows.
-- **Grants are resolved once per request.** A scoped `DocumentTypeGrantMap` reads the layer's types once (traversing soft delete, so a document on an archived type stays visible to a caller granted on it) and asks ABP's multi-name `IResourcePermissionChecker` overload once per type, for all four grants together. The checker, the scope and the per-row rights all read that one map, so a list, its rights column and the detail page behind it cannot disagree and a request costs one grant check per type however many questions it asks. `IResourcePermissionStore.GetGrantedResourceKeysAsync` is deliberately not used: it filters on resource + permission name only and is not per-user, so it would report every type that carries a grant for anyone.
+- **Grants are resolved once per request.** A scoped `DocumentAccessMemo` reads the layer's types once (traversing soft delete, so a document on an archived type stays visible to a caller granted on it) and asks ABP's multi-name `IResourcePermissionChecker` overload once per type, for all four grants together. The checker, the scope and the per-row rights all read that one map, so a list, its rights column and the detail page behind it cannot disagree and a request costs one grant check per type however many questions it asks. `IResourcePermissionStore.GetGrantedResourceKeysAsync` is deliberately not used: it filters on resource + permission name only and is not per-user, so it would report every type that carries a grant for anyone.
 - **Rights are decided on the server.** `DocumentListItemDto` and `DocumentDto` carry a `rights` object (`canRead` / `canEdit` / `canReview` / `canDelete` / `canRestore` / `canRetry`) computed by the same checker; the client binds actions to it instead of re-deriving the rule. No `creatorId` is exposed — the client needs to know what it may do with a document, never who owns it.
 - **Background jobs are not affected.** They run without a principal and are not user-facing reads.
 
 ### Two orderings worth knowing
 
 - **The recycle bin is admitted by entry alone**, and its rows are the Read scope's soft-deleted documents, own included. It used to admit by the Restore arm and narrow by the Read arm — two different questions — so a caller holding only a `Delete` grant was let into a bin the UI then reported as empty while it was not.
-- **`GetListAsync` resolves the scope first.** A requested `DocumentTypeCode` the caller can produce no row of returns an **empty page**, not a 403, and returns it before any field filter is resolved — otherwise the unknown-field error would answer "type X has no field named Y" to a caller who cannot see a single document of X. An empty page rather than a refusal because an owner legitimately lists a type they hold no grant on and gets their own rows back; for that caller an unknown field name also yields an empty page instead of the correctable error, since describing a type's schema to someone holding no grant on it discloses more than their rows do.
+- **`GetListAsync` resolves the scope first**, because that is what asserts entry and what narrows the rows. A requested `DocumentTypeCode` the caller can produce no row of comes back as an **empty page**, not a 403 — an owner legitimately lists a type they hold no grant on and gets their own rows back, so a refusal would be wrong for the ordinary case. An unknown **field** name still loud-fails for everyone: it is a correctable signal, and the schema it names is not a secret (see below).
 
-### Existence, and what an export contains
+### The document type's schema is not confidential
+
+An unknown-field error names what a type does and does not define. That is deliberately **not** treated as a disclosure to narrow: `IFieldDefinitionAppService.GetListAsync` returns every field definition of the layer to any entry holder by recorded decision (#223 / #629), and the same schema also leaves through the export's column headers, the export's own unknown-field error and the detail page's missing-required-field names. A guard on this one path would have reduced nothing while costing an uploader the correctable message on their own documents.
+
+What *is* confidential is the **rows** — and those are narrowed, everywhere, by the same Read scope.
+
+### What an export contains
 
 `ExportAsync` admits on the **Export** row and narrows the rows in the file by the **Read** scope — the same predicate the screen runs, so "download the current view" keeps meaning the view. It no longer refuses a type the caller holds no `Read` grant on: after ownership that test could not distinguish "you may see nothing of this type" from "you may see your own", so it would have had to admit every caller with an owner arm, which is every real user. An unknown type **code** still loud-fails: "this type does not exist in your layer" is a statement about the layer, not about the caller.
+
+### What a response body contains
+
+Every method of the edit and review families returns the document's DTO. An `Edit`-grant holder with no `Read` grant is refused outright by `GetAsync` — so `MapToDtoAsync` checks the rights first, and when `canRead` is false it returns **only the id and the rights**: no title, body, field values, file origin or review detail. The write still happens; what comes back is not the read the caller was refused.
+
+The **duplicate-candidate panel** on the review detail names other documents by title and file name, so it is narrowed by the caller's Read scope too. A shared `(type, fingerprint)` is not a permission to see whoever else uploaded one. The pipeline's own collision check is deliberately unrestricted: it runs with no principal and only counts, and a duplicate the uploader may not see is still a duplicate.
 
 ## Upload: declaring a type
 

@@ -122,12 +122,18 @@ public class DocumentMetadataFilter
     /// <c>DocumentAccessChecker.ResolveScopeAsync(DocumentAccessRule.Read)</c>, never by a caller's DTO — a
     /// client cannot widen it.
     /// <para>
-    /// The default is <see cref="DocumentAccessScope.Unrestricted"/>, which matches every other member's "absent
-    /// means no filter". Unlike #632's nullable collection there is no third state to get wrong: a scope that
-    /// reaches nothing carries its own always-false predicate.
+    /// <b><c>required</c>, with no default.</b> Every other member of this filter is "absent means no filter",
+    /// and a default of <see cref="DocumentAccessScope.Unrestricted"/> would read the same way — which is exactly
+    /// the failure mode to avoid: a new query path that forgets to set it would return the whole layer, silently
+    /// and correctly-looking. Forgetting it is a compile error instead. An unrestricted read is still expressible,
+    /// by writing <c>ReadScope = DocumentAccessScope.Unrestricted</c> and meaning it.
+    /// </para>
+    /// <para>
+    /// Unlike #632's nullable collection there is no third state to get wrong: a scope that reaches nothing
+    /// carries its own always-false predicate.
     /// </para>
     /// </summary>
-    public DocumentAccessScope ReadScope { get; set; } = DocumentAccessScope.Unrestricted;
+    public required DocumentAccessScope ReadScope { get; set; }
 
     public DocumentLifecycleStatus? LifecycleStatus { get; set; }
 

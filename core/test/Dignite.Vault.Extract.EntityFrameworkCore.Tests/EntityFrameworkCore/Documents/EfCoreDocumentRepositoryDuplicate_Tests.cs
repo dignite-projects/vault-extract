@@ -48,7 +48,7 @@ public class EfCoreDocumentRepositoryDuplicate_Tests : VaultExtractEntityFramewo
         });
 
         var candidates = await WithUnitOfWorkAsync(() =>
-            _documentRepository.FindDuplicateCandidatesAsync(self, TypeAId, "fp-1", maxResults: 20));
+            _documentRepository.FindDuplicateCandidatesAsync(self, TypeAId, "fp-1", maxResults: 20, DocumentAccessScope.Unrestricted));
 
         candidates.Select(c => c.Id).ShouldBe(new[] { collides });
         // The projection carries the recognizable fields the operator UI shows.
@@ -73,7 +73,7 @@ public class EfCoreDocumentRepositoryDuplicate_Tests : VaultExtractEntityFramewo
         await WithUnitOfWorkAsync(() => _documentRepository.DeleteAsync(collides));
 
         var candidates = await WithUnitOfWorkAsync(() =>
-            _documentRepository.FindDuplicateCandidatesAsync(self, TypeAId, "fp-1", maxResults: 20));
+            _documentRepository.FindDuplicateCandidatesAsync(self, TypeAId, "fp-1", maxResults: 20, DocumentAccessScope.Unrestricted));
 
         candidates.ShouldBeEmpty();
     }
@@ -94,7 +94,7 @@ public class EfCoreDocumentRepositoryDuplicate_Tests : VaultExtractEntityFramewo
         });
 
         var candidates = await WithUnitOfWorkAsync(() =>
-            _documentRepository.FindDuplicateCandidatesAsync(self, TypeAId, "fp-1", maxResults: 2));
+            _documentRepository.FindDuplicateCandidatesAsync(self, TypeAId, "fp-1", maxResults: 2, DocumentAccessScope.Unrestricted));
 
         candidates.Count.ShouldBe(2);
     }
@@ -108,7 +108,47 @@ public class EfCoreDocumentRepositoryDuplicate_Tests : VaultExtractEntityFramewo
         }
     }
 
-    private async Task InsertAsync(Guid id, Guid documentTypeId, string fingerprint)
+    /// <summary>
+    /// #635: the candidates name other people's documents by title and file name, so the caller's read scope
+    /// narrows them. Against the real provider, because the scope arrives as an EF predicate here rather than as
+    /// a membership test.
+    /// </summary>
+    [Fact]
+    public async Task Candidates_Are_Narrowed_By_The_Callers_Read_Scope()
+    {
+        var self = Guid.NewGuid();
+        var mine = Guid.NewGuid();
+        var theirs = Guid.NewGuid();
+        var owner = Guid.Parse("11111111-1111-1111-1111-000000000635");
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            await EnsureTypeAsync(TypeAId, "type.a");
+            await InsertAsync(self, TypeAId, "fp-1", creatorId: owner);
+            await InsertAsync(mine, TypeAId, "fp-1", creatorId: owner);
+            await InsertAsync(theirs, TypeAId, "fp-1", creatorId: Guid.NewGuid());
+        });
+
+        // An owner-only uploader: no type in scope, their own id on the owner arm.
+        var ownerScope = DocumentAccessScope.Of(new HashSet<Guid>(), owner);
+        var ownerCandidates = await WithUnitOfWorkAsync(() =>
+            _documentRepository.FindDuplicateCandidatesAsync(self, TypeAId, "fp-1", maxResults: 20, ownerScope));
+        ownerCandidates.Select(c => c.Id).ShouldBe(new[] { mine });
+
+        // A Read-grant holder on the type still sees both, which is what the grant means.
+        var granted = DocumentAccessScope.Of(new HashSet<Guid> { TypeAId }, ownerId: null);
+        var grantedCandidates = await WithUnitOfWorkAsync(() =>
+            _documentRepository.FindDuplicateCandidatesAsync(self, TypeAId, "fp-1", maxResults: 20, granted));
+        grantedCandidates.Select(c => c.Id).ShouldBe(new[] { mine, theirs }, ignoreOrder: true);
+
+        // And a scope that reaches nothing returns nothing rather than everything.
+        var nothing = DocumentAccessScope.Of(new HashSet<Guid>(), ownerId: null);
+        (await WithUnitOfWorkAsync(() =>
+            _documentRepository.FindDuplicateCandidatesAsync(self, TypeAId, "fp-1", maxResults: 20, nothing)))
+            .ShouldBeEmpty();
+    }
+
+    private async Task InsertAsync(Guid id, Guid documentTypeId, string fingerprint, Guid? creatorId = null)
     {
         var doc = new Document(
             id, tenantId: null,
@@ -125,6 +165,11 @@ public class EfCoreDocumentRepositoryDuplicate_Tests : VaultExtractEntityFramewo
         // fingerprint as the field extraction stage would.
         doc.ApplyAutomaticClassificationResult(documentTypeId, 0.99);
         doc.SetFieldFingerprint(fingerprint);
+        if (creatorId.HasValue)
+        {
+            typeof(Document).GetProperty(nameof(Document.CreatorId))!.SetValue(doc, creatorId.Value);
+        }
+
         await _documentRepository.InsertAsync(doc, autoSave: true);
     }
 }

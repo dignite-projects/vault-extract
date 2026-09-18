@@ -117,11 +117,19 @@ public interface IDocumentRepository : IRepository<Document, Guid>
     /// projected with <c>AsNoTracking</c>), no raw SQL.
     /// </para>
     /// </summary>
+    /// <param name="readScope">
+    /// #635: the caller's read scope, applied as an additional predicate. The panel names <b>other people's</b>
+    /// documents by title and file name, so a caller who may not read them must not be handed them through the
+    /// review detail of a document they can read — a (type, fingerprint) pair is not a permission to see whoever
+    /// else uploaded one. The pipeline passes <see cref="DocumentAccessScope.Unrestricted"/>: it runs with no
+    /// principal and only counts, and a duplicate the uploader may not see is still a duplicate.
+    /// </param>
     Task<List<DuplicateCandidateModel>> FindDuplicateCandidatesAsync(
         Guid documentId,
         Guid documentTypeId,
         string fieldFingerprint,
         int maxResults,
+        DocumentAccessScope readScope,
         CancellationToken cancellationToken = default);
 
     Task HardDeleteAsync(Guid id, CancellationToken cancellationToken = default);
