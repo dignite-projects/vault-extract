@@ -139,7 +139,7 @@ public class DocumentRights_Tests : DocumentAccessTestBase
 
     /// <summary>
     /// The archived-type divergence the client-side table caused: the server keys grants by the type's immutable
-    /// <c>Id</c> and the grant map sweeps the layer across soft delete, so a document on a since-archived type
+    /// <c>Id</c> and the access memo sweeps the layer across soft delete, so a document on a since-archived type
     /// keeps exactly the rights the endpoints still admit.
     /// </summary>
     [Fact]

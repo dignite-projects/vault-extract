@@ -51,8 +51,8 @@ public class DocumentAccessTestModule : AbpModule
         context.Services.AddSingleton<IResourcePermissionStore>(sp => sp.GetRequiredService<InMemoryResourcePermissionStore>());
 
         // The scoped grant memo, plus one extra reason to forget: this host changes what a principal is granted
-        // inside one scope, which no request does. See TestDocumentTypeGrantMap.
-        context.Services.UseTestGrantMap();
+        // inside one scope, which no request does. See TestDocumentAccessMemo.
+        context.Services.UseTestAccessMemo();
 
         // Decorate rather than replace: ABP's real ResourcePermissionChecker still does the deciding, and the
         // wrapper only counts. A hand-written stand-in would have let the cost claim assert itself.
@@ -76,7 +76,7 @@ public class DocumentAccessTestModule : AbpModule
 /// <summary>Shared, resettable tally of multi-name resource-permission checks.</summary>
 public sealed class ResourcePermissionCheckCounter
 {
-    /// <summary>Calls to the multi-name overload — the one <c>DocumentTypeGrantMap</c> uses, one per type.</summary>
+    /// <summary>Calls to the multi-name overload — the one <c>DocumentAccessMemo</c> uses, one per type.</summary>
     public int MultiNameChecks { get; set; }
 
     /// <summary>Calls to the single-name overload. Nothing on the #635 path should use it.</summary>

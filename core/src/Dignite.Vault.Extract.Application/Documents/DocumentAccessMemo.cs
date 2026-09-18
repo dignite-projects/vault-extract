@@ -43,7 +43,7 @@ namespace Dignite.Vault.Extract.Documents;
 /// grants.
 /// </para>
 /// </summary>
-public class DocumentTypeGrantMap : IScopedDependency
+public class DocumentAccessMemo : IScopedDependency
 {
     /// <summary>
     /// The four names asked per type, in one call. Asking for all four regardless of which rule prompted the load
@@ -70,7 +70,7 @@ public class DocumentTypeGrantMap : IScopedDependency
     private bool _layerSwept;
     private (Guid? TenantId, Guid? UserId, string? ClientId)? _identity;
 
-    public DocumentTypeGrantMap(
+    public DocumentAccessMemo(
         IResourcePermissionChecker resourcePermissionChecker,
         IAuthorizationService authorizationService,
         IDocumentTypeRepository documentTypeRepository,

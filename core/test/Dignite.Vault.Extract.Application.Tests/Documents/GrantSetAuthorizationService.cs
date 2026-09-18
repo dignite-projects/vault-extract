@@ -45,8 +45,8 @@ public sealed class GrantSetAuthorizationService : IAbpAuthorizationService
 
     /// <summary>
     /// Bumped whenever the grant set is replaced. A real request never changes what its principal is granted
-    /// half way through, so DocumentTypeGrantMap memoises per scope -- and a test that does exactly that is
-    /// simulating a SECOND request. TestDocumentTypeGrantMap watches this counter and forgets its answers.
+    /// half way through, so DocumentAccessMemo memoises per scope -- and a test that does exactly that is
+    /// simulating a SECOND request. TestDocumentAccessMemo watches this counter and forgets its answers.
     /// </summary>
     public int Version { get; private set; }
 

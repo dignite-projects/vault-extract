@@ -10,7 +10,7 @@ using Volo.Abp.Users;
 namespace Dignite.Vault.Extract.Documents;
 
 /// <summary>
-/// <see cref="DocumentTypeGrantMap"/> with one extra reason to forget its answers: the test host changed what the
+/// <see cref="DocumentAccessMemo"/> with one extra reason to forget its answers: the test host changed what the
 /// principal is granted.
 /// <para>
 /// The production memo is scoped, and its only invalidation is the ambient identity, because <b>a real request
@@ -25,7 +25,7 @@ namespace Dignite.Vault.Extract.Documents;
 /// about caching across a grant change, which production has no way to reach.
 /// </para>
 /// </summary>
-public class TestDocumentTypeGrantMap : DocumentTypeGrantMap
+public class TestDocumentAccessMemo : DocumentAccessMemo
 {
     private readonly GrantSetAuthorizationService _authorization;
     private readonly InMemoryResourcePermissionStore _resourcePermissionStore;
@@ -33,7 +33,7 @@ public class TestDocumentTypeGrantMap : DocumentTypeGrantMap
     private int _seenGrantVersion = -1;
     private int _seenResourceVersion = -1;
 
-    public TestDocumentTypeGrantMap(
+    public TestDocumentAccessMemo(
         IResourcePermissionChecker resourcePermissionChecker,
         IAuthorizationService authorizationService,
         IDocumentTypeRepository documentTypeRepository,
@@ -69,11 +69,11 @@ public class TestDocumentTypeGrantMap : DocumentTypeGrantMap
     }
 }
 
-/// <summary>Registers <see cref="TestDocumentTypeGrantMap"/> in place of the production memo.</summary>
-public static class TestDocumentTypeGrantMapRegistration
+/// <summary>Registers <see cref="TestDocumentAccessMemo"/> in place of the production memo.</summary>
+public static class TestDocumentAccessMemoRegistration
 {
-    public static void UseTestGrantMap(this IServiceCollection services)
+    public static void UseTestAccessMemo(this IServiceCollection services)
     {
-        services.Replace(ServiceDescriptor.Scoped<DocumentTypeGrantMap, TestDocumentTypeGrantMap>());
+        services.Replace(ServiceDescriptor.Scoped<DocumentAccessMemo, TestDocumentAccessMemo>());
     }
 }

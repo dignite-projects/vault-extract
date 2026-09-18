@@ -233,7 +233,7 @@ public class DocumentAccessEntryGate_Tests : DocumentAccessTestBase
     /// a Read grant was no longer read-only.
     /// <para>
     /// The positive halves are separate facts rather than a second call in this one, because
-    /// <c>DocumentTypeGrantMap</c> is resolved once per scope by design — a grant handed out after the first
+    /// <c>DocumentAccessMemo</c> is resolved once per scope by design — a grant handed out after the first
     /// check of a request is deliberately not seen by that request, and the whole test shares one scope.
     /// </para>
     /// </summary>
@@ -364,7 +364,7 @@ public class DocumentAccessEntryGate_Tests : DocumentAccessTestBase
             .IsUnrestricted.ShouldBeTrue();
     }
 
-    // ===================== The per-request cost of the grant map =====================
+    // ===================== The per-request cost of the access memo =====================
 
     /// <summary>
     /// #635 decision 4's cost claim, per surface. A <b>set</b> of documents costs one type-layer read and one

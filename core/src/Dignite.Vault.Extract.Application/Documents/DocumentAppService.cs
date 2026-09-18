@@ -1447,7 +1447,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// rule — even one sitting next to the first — is exactly the divergence #635 removed from the browser.
     /// </para>
     /// <para>
-    /// The six share one <see cref="DocumentTypeGrantMap"/>, so between them they cost <b>at most</b> one
+    /// The six share one <see cref="DocumentAccessMemo"/>, so between them they cost <b>at most</b> one
     /// multi-name grant check (on the subject's type, if it has one and no earlier arm already answered) and one
     /// check of each distinct permission name they name — <c>Documents.Default</c> once rather than six times,
     /// <c>ConfirmClassification</c> once rather than twice. For a subject with no type, or one the caller owns

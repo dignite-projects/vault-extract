@@ -393,7 +393,7 @@ public class DocumentAppService_Review_Tests
             Substitute.For<Dignite.Vault.Extract.FlexFields.IVaultExtractFieldTypeRegistry>(),
             new DocumentAccessChecker(
                 Substitute.For<Volo.Abp.Users.ICurrentUser>(),
-                new DocumentTypeGrantMap(
+                new DocumentAccessMemo(
                     Substitute.For<Volo.Abp.Authorization.Permissions.Resources.IResourcePermissionChecker>(),
                     Substitute.For<Microsoft.AspNetCore.Authorization.IAuthorizationService>(),
                     Substitute.For<IDocumentTypeRepository>(),

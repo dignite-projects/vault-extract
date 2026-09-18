@@ -46,24 +46,24 @@ namespace Dignite.Vault.Extract.Documents;
 /// the edit family clears the same bits as a side effect and would otherwise reopen the door one along.
 /// </para>
 /// <para>
-/// The per-type arm runs through <see cref="DocumentTypeGrantMap"/> rather than through
+/// The per-type arm runs through <see cref="DocumentAccessMemo"/> rather than through
 /// <c>AuthorizationService.IsGrantedAsync(entity, name)</c>. Both end at ABP's own
 /// <c>IResourcePermissionChecker</c> — the keyed-object requirement handler resolves that very service — but the
-/// map also serves the two shapes that have no entity in hand, answers all four grants per type in one call, and
+/// memo also serves the two shapes that have no entity in hand, answers all four grants per type in one call, and
 /// holds the answers for the rest of the request.
 /// </para>
 /// </summary>
 public class DocumentAccessChecker : ITransientDependency
 {
     private readonly ICurrentUser _currentUser;
-    private readonly DocumentTypeGrantMap _grantMap;
+    private readonly DocumentAccessMemo _accessMemo;
 
     public DocumentAccessChecker(
         ICurrentUser currentUser,
-        DocumentTypeGrantMap grantMap)
+        DocumentAccessMemo accessMemo)
     {
         _currentUser = currentUser;
-        _grantMap = grantMap;
+        _accessMemo = accessMemo;
     }
 
     /// <summary>
@@ -91,7 +91,7 @@ public class DocumentAccessChecker : ITransientDependency
     /// </summary>
     protected virtual Task<bool> IsEntryGrantedAsync()
     {
-        return _grantMap.IsPermissionGrantedAsync(VaultExtractPermissions.Documents.Default);
+        return _accessMemo.IsPermissionGrantedAsync(VaultExtractPermissions.Documents.Default);
     }
 
     /// <summary>
@@ -127,7 +127,7 @@ public class DocumentAccessChecker : ITransientDependency
             return false;
         }
 
-        if (await _grantMap.IsPermissionGrantedAsync(rule.ModuleWidePermission))
+        if (await _accessMemo.IsPermissionGrantedAsync(rule.ModuleWidePermission))
         {
             return true;
         }
@@ -144,7 +144,7 @@ public class DocumentAccessChecker : ITransientDependency
         // subject belongs to no type, so no grant can name it: both fall through to false, fail-closed.
         if (rule.ResourcePermission is { } resourcePermission && subject.DocumentTypeId is { } documentTypeId)
         {
-            return await _grantMap.HasAsync(documentTypeId, resourcePermission);
+            return await _accessMemo.HasAsync(documentTypeId, resourcePermission);
         }
 
         return false;
@@ -195,13 +195,13 @@ public class DocumentAccessChecker : ITransientDependency
             throw new AbpAuthorizationException();
         }
 
-        if (await _grantMap.IsPermissionGrantedAsync(rule.ModuleWidePermission))
+        if (await _accessMemo.IsPermissionGrantedAsync(rule.ModuleWidePermission))
         {
             return DocumentAccessScope.Unrestricted;
         }
 
         var types = rule.ResourcePermission is { } resourcePermission
-            ? await _grantMap.TypesWithAsync(resourcePermission)
+            ? await _accessMemo.TypesWithAsync(resourcePermission)
             : EmptyTypeSet;
 
         return DocumentAccessScope.Of(

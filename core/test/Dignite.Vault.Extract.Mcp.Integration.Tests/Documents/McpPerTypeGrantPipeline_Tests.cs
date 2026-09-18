@@ -264,7 +264,7 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
     }
 
     /// <summary>
-    /// #635: the grant map sweeps the layer's types <b>across soft delete</b>, so a <c>Read</c> grant on a type
+    /// #635: the access memo sweeps the layer's types <b>across soft delete</b>, so a <c>Read</c> grant on a type
     /// that has since been archived still reaches that type's documents. Otherwise the narrow caller and a
     /// <c>Documents.ReadAll</c> holder would disagree about which rows exist — archiving a type is a schema
     /// decision, not a revocation.
