@@ -267,7 +267,7 @@
 <!-- Config pack import (#444) -->
 @if (importOpen()) {
   <lib-document-type-pack-import-modal
-    (imported)="refresh()"
+    (imported)="onPackImported()"
     (closed)="importOpen.set(false)"
   />
 }
@@ -279,6 +279,7 @@
     [resourceName]="RESOURCE_NAME"
     [resourceKey]="t.id!"
     [resourceDisplayName]="t.displayName ?? t.typeCode ?? ''"
-    [(visible)]="permissionsVisible"
+    [visible]="permissionsVisible()"
+    (visibleChange)="onPermissionsVisibleChange($event)"
   />
 }

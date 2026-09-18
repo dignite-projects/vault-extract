@@ -203,6 +203,10 @@ Because the answer comes from the server, an **untyped** document (unclassified,
 
 The **overview's statistics card** is hidden without `Documents.ReadAll`, and the request behind it is not made at all: these are whole-layer aggregates and the endpoint requires `ReadAll`, so an entry-only caller would only collect a 403. Routes are unchanged — `Documents` still gates entry to the documents area.
 
+The two rows of the table above that are questions about *types* rather than about a document — the type picker and the **Needs review** affordances — read the visible types from a single root-provided `DocumentTypesStore`, which owns one `GetVisibleAsync` call for the whole session and answers "still loading" and "the fetch failed" for itself. It exists because those are different answers: an empty type list because the request has not returned is not a statement about the caller's grants, and rendering it as one told operators to go ask an administrator for access they already had. A failed fetch does not stick for the session: every page that reads the store retries it on arrival and on each explicit Refresh — only when the last attempt failed, and never from background polling — and the type-management page reloads it after each successful write.
+
+The **recycle bin** asks nothing before it queries. Admission is entry, the rows are the caller's readable soft-deleted documents including their own, and each row carries its `rights` — so it has exactly one empty state, and an empty bin is empty by construction.
+
 ## Granting and revoking
 
 There is no Vault Extract API for managing these grants. They go through ABP's standard resource-permission endpoints (`/api/permission-management/permissions/resource…`), gated by `ManagePermissions`, and through ABP's `ResourcePermissionManagementComponent` dialog in the operator UI — which renders one checkbox per definition, so the four grants need no dialog work. User and role lookup comes from `Volo.Abp.PermissionManagement.Domain.Identity`, which the host already references.

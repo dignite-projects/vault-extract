@@ -29,6 +29,7 @@ export interface DocumentDto extends EntityDto<string> {
   extractionIncompleteReason?: string | null;
   extractedFields?: Record<string, any> | null;
   creationTime?: string;
+  rights?: DocumentRightsDto;
 }
 
 export interface DocumentFieldFilter {
@@ -54,6 +55,16 @@ export interface DocumentListItemDto extends EntityDto<string> {
   creationTime?: string;
   deletionTime?: string | null;
   extractedFields?: Record<string, any> | null;
+  rights?: DocumentRightsDto;
+}
+
+export interface DocumentRightsDto {
+  canRead?: boolean;
+  canEdit?: boolean;
+  canReview?: boolean;
+  canDelete?: boolean;
+  canRestore?: boolean;
+  canRetry?: boolean;
 }
 
 export interface DocumentStatisticsDto {

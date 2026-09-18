@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, Injector, OnInit, afterNextRender, computed, effect, inject, input, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, Injector, OnInit, afterNextRender, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterModule } from '@angular/router';
 import { CommonModule } from '@angular/common';
@@ -8,12 +8,13 @@ import { ToasterService } from '@abp/ng.theme.shared';
 import {
   CabinetDto,
   CabinetService,
-  DocumentTypeDto,
   DocumentUploadService,
   EXTRACT_PERMISSIONS,
 } from '@dignite/ng.vault-extract';
 import { from, of } from 'rxjs';
 import { catchError, map, mergeMap } from 'rxjs/operators';
+import { assignableDocumentTypes } from '../../shared/document-access';
+import { DocumentTypesStore } from '../../shared/document-types.store';
 import {
   MAX_UPLOAD_FILE_BYTES,
   UPLOAD_ACCEPT_ATTRIBUTE,
@@ -48,6 +49,10 @@ export class DocumentUploadComponent implements OnInit {
   private readonly permissionService = inject(PermissionService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly injector = inject(Injector);
+  // #635 decision 7: the visible types come from the one shared store, not from a parent input. The parent
+  // used to have to tell this card whether its own fetch was in flight or had failed, because an empty
+  // `documentTypes` input could not say which; the store answers both for itself.
+  readonly documentTypes = inject(DocumentTypesStore);
 
   // Primary file-picker trigger; used to restore focus after the result queue is
   // cleared, because the button the user just clicked is removed from the DOM.
@@ -67,11 +72,6 @@ export class DocumentUploadComponent implements OnInit {
   // per-type rule below — every type it does not cover still uploads through ordinary LLM
   // classification as before.
   //
-  // Code review (2026-09-05): the type list itself is no longer fetched by this component —
-  // its only mount site (DocumentOverviewComponent) already fetches it for its own quick-links
-  // section and passes it down via the `documentTypes` input, so there is no second request and
-  // no need to mirror the list-read permission (Documents.Default / DocumentTypes.Default) here.
-  //
   // #629: a caller without ConfirmClassification no longer has an untyped fallback (the backend
   // now requires ConfirmClassification for untyped upload too, to keep the per-type ACL from
   // being bypassed by letting the LLM pick the type). Its type scope narrows to the types it
@@ -80,22 +80,14 @@ export class DocumentUploadComponent implements OnInit {
   readonly canDeclareType = this.permissionService.getGrantedPolicy(
     EXTRACT_PERMISSIONS.Documents.ConfirmClassification,
   );
-  readonly documentTypes = input<DocumentTypeDto[]>([]);
-  // Whether the parent's own types fetch is still in flight / has failed (#629 code review): while
-  // loading, `documentTypes` still reads as its default `[]`, which is indistinguishable from "loaded,
-  // nothing granted" unless the parent tells us which state we are actually in.
-  readonly documentTypesLoading = input(false);
-  readonly documentTypesUnavailable = input(false);
   selectedDocumentTypeId = signal<string>('');
 
   // The types this caller may actually declare: every type of the layer for a ConfirmClassification
   // holder (unchanged #623 behaviour), otherwise only the ones carrying its own Upload resource grant.
-  readonly declarableTypes = computed(() =>
-    this.canDeclareType
-      ? this.documentTypes()
-      : this.documentTypes().filter(
-          t => t.resourcePermissions?.[EXTRACT_PERMISSIONS.DocumentTypes.Resources.Upload] === true,
-        ),
+  // #635: the same shared answer the confirm and reclassify pickers use — one implementation of
+  // "which types may I name", rather than this card's own third copy of it.
+  readonly assignableTypes = computed(() =>
+    assignableDocumentTypes(this.documentTypes.value(), this.canDeclareType),
   );
   readonly requiresTypeSelection = !this.canDeclareType;
   // Loading folds in here (not just into hasNoGrantableTypes): until the types fetch resolves, the
@@ -105,21 +97,21 @@ export class DocumentUploadComponent implements OnInit {
   readonly typeSelectionSatisfied = computed(
     () =>
       !this.requiresTypeSelection ||
-      (!this.documentTypesLoading() &&
-        this.declarableTypes().some(t => t.id === this.selectedDocumentTypeId())),
+      (!this.documentTypes.isLoading() &&
+        this.assignableTypes().some(t => t.id === this.selectedDocumentTypeId())),
   );
   readonly hasNoGrantableTypes = computed(
     () =>
       this.requiresTypeSelection &&
-      !this.documentTypesLoading() &&
-      !this.documentTypesUnavailable() &&
-      this.declarableTypes().length === 0,
+      !this.documentTypes.isLoading() &&
+      !this.documentTypes.error() &&
+      this.assignableTypes().length === 0,
   );
   // Distinct from hasNoGrantableTypes: the fetch itself failed, so "no types" cannot be trusted as
   // "nothing granted" — telling the operator to ask an admin for a grant they may already have would
   // be actively misleading.
   readonly showTypesUnavailable = computed(
-    () => this.requiresTypeSelection && !this.documentTypesLoading() && this.documentTypesUnavailable(),
+    () => this.requiresTypeSelection && !this.documentTypes.isLoading() && this.documentTypes.error(),
   );
 
   // Picker `accept` filter, derived from the shared whitelist (mirrors backend, #221).
@@ -148,7 +140,7 @@ export class DocumentUploadComponent implements OnInit {
     // choose, so pre-select it — otherwise every upload would need a pointless extra click on a
     // single-option dropdown. With two or more declarable types the caller still has to pick.
     effect(() => {
-      const types = this.declarableTypes();
+      const types = this.assignableTypes();
       if (this.requiresTypeSelection && types.length === 1 && !this.selectedDocumentTypeId()) {
         this.selectedDocumentTypeId.set(types[0].id ?? '');
       }
@@ -156,6 +148,9 @@ export class DocumentUploadComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    // #635: heal a failed type-store fetch on arrival (a no-op unless it failed). The retry button in the
+    // unavailable state only renders for a caller who must declare a type; everyone else relies on this.
+    this.documentTypes.retryIfFailed();
     if (this.canViewCabinets) {
       this.cabinetService.getList()
         .pipe(takeUntilDestroyed(this.destroyRef))
