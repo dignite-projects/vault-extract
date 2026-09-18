@@ -65,8 +65,10 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
     }
 
     /// <summary>
-    /// #629's rule, now exercised through the real chain rather than an in-memory store: an uploader holding
-    /// <c>Documents.Upload</c> and no <c>ConfirmClassification</c> may declare exactly the type it was granted.
+    /// #629's rule as #645 reshaped it, through the real chain rather than an in-memory store: the ordinary
+    /// uploader — entry plus an <c>Upload</c> grant on one type, and <b>no</b> <c>Documents.Upload</c> and no
+    /// <c>ConfirmClassification</c> — uploads into exactly the type it was granted, and is refused another type
+    /// and an untyped upload.
     /// </summary>
     [Fact]
     public async Task Upload_grant_on_a_type_admits_declaring_that_type_and_only_that_type()
@@ -77,7 +79,6 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
             typeA = await SeedTypeAsync("per.type.upload.a");
             typeB = await SeedTypeAsync("per.type.upload.b");
             await GrantAsync(UploaderId, VaultExtractPermissions.Documents.Default);
-            await GrantAsync(UploaderId, VaultExtractPermissions.Documents.Upload);
             await GrantResourceAsync(UploaderId, VaultExtractResourcePermissions.Upload, typeA);
         });
 
@@ -91,6 +92,9 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
 
             await Should.ThrowAsync<AbpAuthorizationException>(() =>
                 WithUnitOfWorkAsync(() => _documentAppService.UploadAsync(NewUpload("denied.txt", typeB))));
+
+            await Should.ThrowAsync<AbpAuthorizationException>(() =>
+                WithUnitOfWorkAsync(() => _documentAppService.UploadAsync(NewUpload("untyped.txt", null))));
         }
     }
 
@@ -375,7 +379,7 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
             autoSave: true);
     }
 
-    private static UploadDocumentInput NewUpload(string fileName, Guid documentTypeId)
+    private static UploadDocumentInput NewUpload(string fileName, Guid? documentTypeId)
     {
         return new UploadDocumentInput
         {

@@ -17,7 +17,7 @@ namespace Dignite.Vault.Extract.Documents;
 /// <c>entry (Documents) AND ( any module-wide member OR owner-where-allowed OR the grant on the subject's type )</c>.
 /// Entry gates all three arms, for every rule <b>including the module-wide-only ones</b> — that is what turned
 /// <c>PermanentDeleteAsync</c>, <c>RetryPipelineAsync</c>, the four <c>Reprocessing</c> methods, the export and
-/// the untyped upload branch from <c>[Authorize]</c> attributes sitting outside the table into rows on it.
+/// the untyped upload from <c>[Authorize]</c> attributes sitting outside the table into rows on it.
 /// </para>
 /// <para>
 /// Rules are static readonly fields rather than an enum precisely so a call site reads
@@ -55,7 +55,7 @@ namespace Dignite.Vault.Extract.Documents;
 /// (see <see cref="ReviewReasonPolicy.OwnerLocking"/>), so an owner is locked out of modifying a document that
 /// is blocked on anything but its classification. <c>Never</c> for Review — its three methods exist to be the
 /// second pair of eyes, and a suspected duplicate invoice is the adversarial case the review queue is for — for
-/// DeclareType, and for every row with no per-type arm.
+/// DeclareType, for Upload (nothing exists yet to own), and for every row with no per-type arm.
 /// </param>
 public sealed record DocumentAccessRule(
     IReadOnlyList<string> ModuleWidePermissions,
@@ -218,24 +218,36 @@ public sealed record DocumentAccessRule(
         OwnerArm: DocumentOwnerArm.UnlessUnderReview);
 
     /// <summary>
-    /// Declaring / assigning a type: <c>UploadAsync</c>'s <c>DocumentTypeId</c> and the <b>target</b> type of
-    /// Confirm / Reclassify. The #629 rule, unchanged — it is about the type being assigned, never about the
-    /// document's current type, which is <see cref="Edit"/>'s job, and never about who owns anything (owning a
-    /// document is not a licence to move it into a type the caller was never granted). An untyped subject reduces
-    /// it to entry plus <c>ConfirmClassification</c>, which is exactly #629's untyped-upload rule, now with entry.
+    /// Assigning a type to an existing document: the <b>target</b> type of Confirm / Reclassify. It is about the
+    /// type being assigned, never about the document's current type, which is <see cref="Edit"/>'s job, and never
+    /// about who owns anything (owning a document is not a licence to move it into a type the caller was never
+    /// granted).
+    /// <para>
+    /// <b>The only row whose role-level set has two members</b> (#645 decision 1): <c>ConfirmClassification</c> is
+    /// the reviewer assigning any type, and <c>Documents.Upload</c> is someone who could have uploaded into any type
+    /// in the first place, so may also move their document into any type. The per-type arm stays the
+    /// <c>Upload</c> grant for the same reason. The upload path itself no longer asks this rule — see
+    /// <see cref="Upload"/>.
+    /// </para>
     /// </summary>
     public static readonly DocumentAccessRule DeclareType = new(
-        [VaultExtractPermissions.Documents.ConfirmClassification],
+        [VaultExtractPermissions.Documents.ConfirmClassification, VaultExtractPermissions.Documents.Upload],
         VaultExtractResourcePermissions.Upload,
         OwnerArm: DocumentOwnerArm.Never);
 
     /// <summary>
-    /// <c>UploadAsync</c>'s admission, checked before <see cref="DeclareType"/>. Creating a document is not an
-    /// operation on an existing one, so there is nothing to own and no type to grant against.
+    /// <c>UploadAsync</c>, judged once (#645 decision 1): the role-level <c>Documents.Upload</c> uploads into any
+    /// type, and the <c>Upload</c> grant uploads into that one type <b>on its own</b>. The subject is the declared
+    /// type, or <see cref="DocumentAccessSubject.None"/> for an untyped upload — which drops the per-type arm and
+    /// leaves only <c>Documents.Upload</c>, #629's reason unchanged: the classifier may land the document in any
+    /// type, so a caller whose right is per type must name the type.
+    /// <para>
+    /// No owner arm: creating a document is not an operation on an existing one, so there is nothing to own yet.
+    /// </para>
     /// </summary>
     public static readonly DocumentAccessRule Upload = new(
         [VaultExtractPermissions.Documents.Upload],
-        ResourcePermission: null,
+        VaultExtractResourcePermissions.Upload,
         OwnerArm: DocumentOwnerArm.Never);
 
     /// <summary>

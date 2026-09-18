@@ -13,8 +13,8 @@ public enum DocumentOwnerArm
 {
     /// <summary>
     /// The uploader gets nothing from owning the document. Review (signing off a blocking reason is somebody
-    /// else's job), DeclareType (owning a document is not a licence to move it into an ungranted type), and every
-    /// row with no per-type arm either.
+    /// else's job), DeclareType (owning a document is not a licence to move it into an ungranted type), Upload
+    /// (nothing exists yet to own), and every row with no per-type arm either.
     /// </summary>
     Never = 0,
 

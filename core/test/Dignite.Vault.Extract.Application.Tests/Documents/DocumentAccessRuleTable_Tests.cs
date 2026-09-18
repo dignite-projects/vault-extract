@@ -53,13 +53,18 @@ public class DocumentAccessRuleTable_Tests
             DocumentOwnerArm.UnlessUnderReview
         },
         {
+            // #645: the one row with a two-member role-level set — the reviewer assigning any type, or someone
+            // who could have uploaded into any type.
             nameof(DocumentAccessRule.DeclareType), DocumentAccessRule.DeclareType,
-            [VaultExtractPermissions.Documents.ConfirmClassification], VaultExtractResourcePermissions.Upload,
+            [VaultExtractPermissions.Documents.ConfirmClassification, VaultExtractPermissions.Documents.Upload],
+            VaultExtractResourcePermissions.Upload,
             DocumentOwnerArm.Never
         },
         {
+            // #645: Documents.Upload means "into any type", and the Upload grant is enough on its own for its type.
             nameof(DocumentAccessRule.Upload), DocumentAccessRule.Upload,
-            [VaultExtractPermissions.Documents.Upload], null, DocumentOwnerArm.Never
+            [VaultExtractPermissions.Documents.Upload], VaultExtractResourcePermissions.Upload,
+            DocumentOwnerArm.Never
         },
         {
             nameof(DocumentAccessRule.PermanentDelete), DocumentAccessRule.PermanentDelete,
@@ -155,6 +160,24 @@ public class DocumentAccessRuleTable_Tests
         DocumentAccessRule.Review.ShouldNotBe(DocumentAccessRule.Edit);
         DocumentAccessRule.Review.OwnerArm.ShouldBe(DocumentOwnerArm.Never);
         DocumentAccessRule.Edit.OwnerArm.ShouldBe(DocumentOwnerArm.UnlessUnderReview);
+    }
+
+    /// <summary>
+    /// #645 decision 1, stated as one sentence about the table: <see cref="DocumentAccessRule.DeclareType"/> is the
+    /// only row whose role-level set has more than one member. A second multi-member row is a decision, not an
+    /// accident, and has to change this fact to land.
+    /// </summary>
+    [Fact]
+    public void DeclareType_is_the_only_rule_with_more_than_one_role_level_member()
+    {
+        // Read off the real rules rather than the hand-written table above, so it holds for a rule the table
+        // forgot as well.
+        typeof(DocumentAccessRule)
+            .GetFields(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
+            .Where(f => f.FieldType == typeof(DocumentAccessRule))
+            .Where(f => ((DocumentAccessRule)f.GetValue(null)!).ModuleWidePermissions.Count > 1)
+            .Select(f => f.Name)
+            .ShouldBe([nameof(DocumentAccessRule.DeclareType)]);
     }
 
     /// <summary>
