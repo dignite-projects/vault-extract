@@ -159,24 +159,19 @@ public class DocumentAccessEntryGate_Tests : DocumentAccessTestBase
     }
 
     /// <summary>
-    /// The untyped upload branch: #629 gated it with a bare <c>CheckPolicyAsync(ConfirmClassification)</c> that
-    /// never went through the checker and so never asserted entry. It is the DeclareType rule with an empty
-    /// subject now, which reduces to exactly the same permission — plus entry.
+    /// The untyped upload: #629 gated it with a bare <c>CheckPolicyAsync(ConfirmClassification)</c> that never
+    /// went through the checker and so never asserted entry. Since #645 it is the Upload rule on an empty subject,
+    /// which reduces to <c>Documents.Upload</c> — plus entry.
     /// </summary>
     [Fact]
     public async Task An_untyped_UploadAsync_refuses_the_permission_holder_without_entry()
     {
-        Grant(
-            VaultExtractPermissions.Documents.Upload,
-            VaultExtractPermissions.Documents.ConfirmClassification);
+        Grant(VaultExtractPermissions.Documents.Upload);
 
         await Should.ThrowAsync<AbpAuthorizationException>(
             () => AsStrangerAsync(() => AppService.UploadAsync(NewUpload())));
 
-        Grant(
-            VaultExtractPermissions.Documents.Default,
-            VaultExtractPermissions.Documents.Upload,
-            VaultExtractPermissions.Documents.ConfirmClassification);
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Upload);
 
         (await AsStrangerAsync(() => AppService.UploadAsync(NewUpload()))).ShouldNotBeNull();
     }
@@ -491,9 +486,10 @@ public class DocumentAccessEntryGate_Tests : DocumentAccessTestBase
 
         await AsStrangerAsync(() => AppService.GetAsync(document.Id));
 
-        // Entry + the six rules' module-wide names, of which Edit and Review share one: Documents.Default,
-        // ReadAll, ConfirmClassification, Delete, Restore, Pipelines.Retry.
-        Authorization.PolicyChecks.ShouldBeLessThanOrEqualTo(6);
+        // Entry + the six rules' module-wide names, of which Edit and Review share one and — since #645 merged the
+        // role-level restore permission into Documents.Delete — Delete and Restore share another:
+        // Documents.Default, ReadAll, ConfirmClassification, Delete, Pipelines.Retry.
+        Authorization.PolicyChecks.ShouldBeLessThanOrEqualTo(5);
     }
 
     private void ResetCounters()

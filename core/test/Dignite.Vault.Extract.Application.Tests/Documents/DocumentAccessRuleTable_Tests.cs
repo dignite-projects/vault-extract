@@ -20,75 +20,82 @@ namespace Dignite.Vault.Extract.Documents;
 /// </summary>
 public class DocumentAccessRuleTable_Tests
 {
-    public static TheoryData<string, DocumentAccessRule, string, string?, DocumentOwnerArm> Table => new()
+    public static TheoryData<string, DocumentAccessRule, string[], string?, DocumentOwnerArm> Table => new()
     {
         {
             nameof(DocumentAccessRule.Read), DocumentAccessRule.Read,
-            VaultExtractPermissions.Documents.ReadAll, VaultExtractResourcePermissions.Read,
+            [VaultExtractPermissions.Documents.ReadAll], VaultExtractResourcePermissions.Read,
             DocumentOwnerArm.Always
         },
         {
             nameof(DocumentAccessRule.Edit), DocumentAccessRule.Edit,
-            VaultExtractPermissions.Documents.ConfirmClassification, VaultExtractResourcePermissions.Edit,
+            [VaultExtractPermissions.Documents.ConfirmClassification], VaultExtractResourcePermissions.Edit,
             DocumentOwnerArm.UnlessUnderReview
         },
         {
             nameof(DocumentAccessRule.Review), DocumentAccessRule.Review,
-            VaultExtractPermissions.Documents.ConfirmClassification, VaultExtractResourcePermissions.Edit,
+            [VaultExtractPermissions.Documents.ConfirmClassification], VaultExtractResourcePermissions.Edit,
             DocumentOwnerArm.Never
         },
         {
             nameof(DocumentAccessRule.Delete), DocumentAccessRule.Delete,
-            VaultExtractPermissions.Documents.Delete, VaultExtractResourcePermissions.Delete,
+            [VaultExtractPermissions.Documents.Delete], VaultExtractResourcePermissions.Delete,
             DocumentOwnerArm.Always
         },
         {
+            // #645: whoever may delete may undo, at the role level too — the separate restore permission is gone.
             nameof(DocumentAccessRule.Restore), DocumentAccessRule.Restore,
-            VaultExtractPermissions.Documents.Restore, VaultExtractResourcePermissions.Delete,
+            [VaultExtractPermissions.Documents.Delete], VaultExtractResourcePermissions.Delete,
             DocumentOwnerArm.Always
         },
         {
             nameof(DocumentAccessRule.Retry), DocumentAccessRule.Retry,
-            VaultExtractPermissions.Documents.Pipelines.Retry, VaultExtractResourcePermissions.Edit,
+            [VaultExtractPermissions.Documents.Pipelines.Retry], VaultExtractResourcePermissions.Edit,
             DocumentOwnerArm.UnlessUnderReview
         },
         {
+            // #645: the one row with a two-member role-level set — the reviewer assigning any type, or someone
+            // who could have uploaded into any type.
             nameof(DocumentAccessRule.DeclareType), DocumentAccessRule.DeclareType,
-            VaultExtractPermissions.Documents.ConfirmClassification, VaultExtractResourcePermissions.Upload,
+            [VaultExtractPermissions.Documents.ConfirmClassification, VaultExtractPermissions.Documents.Upload],
+            VaultExtractResourcePermissions.Upload,
             DocumentOwnerArm.Never
         },
         {
+            // #645: Documents.Upload means "into any type", and the Upload grant is enough on its own for its type.
             nameof(DocumentAccessRule.Upload), DocumentAccessRule.Upload,
-            VaultExtractPermissions.Documents.Upload, null, DocumentOwnerArm.Never
+            [VaultExtractPermissions.Documents.Upload], VaultExtractResourcePermissions.Upload,
+            DocumentOwnerArm.Never
         },
         {
             nameof(DocumentAccessRule.PermanentDelete), DocumentAccessRule.PermanentDelete,
-            VaultExtractPermissions.Documents.PermanentDelete, null, DocumentOwnerArm.Never
+            [VaultExtractPermissions.Documents.PermanentDelete], null, DocumentOwnerArm.Never
         },
         {
             nameof(DocumentAccessRule.ReprocessFieldExtraction), DocumentAccessRule.ReprocessFieldExtraction,
-            VaultExtractPermissions.Documents.Reprocessing.FieldExtraction, null, DocumentOwnerArm.Never
+            [VaultExtractPermissions.Documents.Reprocessing.FieldExtraction], null, DocumentOwnerArm.Never
         },
         {
             nameof(DocumentAccessRule.ReprocessReclassification), DocumentAccessRule.ReprocessReclassification,
-            VaultExtractPermissions.Documents.Reprocessing.Reclassification, null, DocumentOwnerArm.Never
+            [VaultExtractPermissions.Documents.Reprocessing.Reclassification], null, DocumentOwnerArm.Never
         },
         {
             nameof(DocumentAccessRule.Export), DocumentAccessRule.Export,
-            VaultExtractPermissions.Documents.Export, null, DocumentOwnerArm.Never
+            [VaultExtractPermissions.Documents.Export], null, DocumentOwnerArm.Never
         },
         {
             nameof(DocumentAccessRule.Statistics), DocumentAccessRule.Statistics,
-            VaultExtractPermissions.Documents.ReadAll, null, DocumentOwnerArm.Never
+            [VaultExtractPermissions.Documents.ReadAll], null, DocumentOwnerArm.Never
         }
     };
 
     [Theory]
     [MemberData(nameof(Table))]
     public void Every_rule_carries_the_three_values_the_Issues_table_states(
-        string name, DocumentAccessRule rule, string moduleWide, string? resource, DocumentOwnerArm ownerArm)
+        string name, DocumentAccessRule rule, string[] moduleWide, string? resource, DocumentOwnerArm ownerArm)
     {
-        rule.ModuleWidePermission.ShouldBe(moduleWide, $"{name}: module-wide permission");
+        // A set: the order the row writes its members in is only the order they are asked in (#645).
+        rule.ModuleWidePermissions.ShouldBe(moduleWide, ignoreOrder: true, $"{name}: module-wide permissions");
         rule.ResourcePermission.ShouldBe(resource, $"{name}: per-type grant");
         rule.OwnerArm.ShouldBe(ownerArm, $"{name}: owner arm");
     }
@@ -147,10 +154,57 @@ public class DocumentAccessRuleTable_Tests
     [Fact]
     public void Review_differs_from_Edit_only_by_the_owner_arm()
     {
-        DocumentAccessRule.Review.ModuleWidePermission.ShouldBe(DocumentAccessRule.Edit.ModuleWidePermission);
-        DocumentAccessRule.Review.ResourcePermission.ShouldBe(DocumentAccessRule.Edit.ResourcePermission);
+        ShouldAdmitThroughTheSameGrants(DocumentAccessRule.Review, DocumentAccessRule.Edit);
         DocumentAccessRule.Review.OwnerArm.ShouldBe(DocumentOwnerArm.Never);
         DocumentAccessRule.Edit.OwnerArm.ShouldBe(DocumentOwnerArm.UnlessUnderReview);
+    }
+
+    /// <summary>
+    /// #645 decision 2: restore is delete's undo at every level, so the Restore row is the Delete row with the
+    /// same three values — not merely the same per-type grant, as #632 left it.
+    /// </summary>
+    [Fact]
+    public void Restore_is_the_Delete_row()
+    {
+        ShouldAdmitThroughTheSameGrants(DocumentAccessRule.Restore, DocumentAccessRule.Delete);
+        DocumentAccessRule.Restore.OwnerArm.ShouldBe(DocumentAccessRule.Delete.OwnerArm);
+    }
+
+    /// <summary>
+    /// #645 decision 1, stated as one sentence about the table: <see cref="DocumentAccessRule.DeclareType"/> is the
+    /// only row whose role-level set has more than one member. A second multi-member row is a decision, not an
+    /// accident, and has to change this fact to land.
+    /// </summary>
+    [Fact]
+    public void DeclareType_is_the_only_rule_with_more_than_one_role_level_member()
+    {
+        // Read off the real rules rather than the hand-written table above, so it holds for a rule the table
+        // forgot as well.
+        typeof(DocumentAccessRule)
+            .GetFields(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
+            .Where(f => f.FieldType == typeof(DocumentAccessRule))
+            .Where(f => ((DocumentAccessRule)f.GetValue(null)!).ModuleWidePermissions.Count > 1)
+            .Select(f => f.Name)
+            .ShouldBe([nameof(DocumentAccessRule.DeclareType)]);
+    }
+
+    /// <summary>
+    /// The set is frozen at construction and cannot be empty or name a permission twice. A caller's collection is
+    /// copied, so mutating it afterwards cannot change what the rule admits.
+    /// </summary>
+    [Fact]
+    public void A_rules_role_level_set_is_frozen_non_empty_and_distinct()
+    {
+        Should.Throw<ArgumentException>(() => new DocumentAccessRule([], null, DocumentOwnerArm.Never));
+        Should.Throw<ArgumentException>(() => new DocumentAccessRule(["A", "A"], null, DocumentOwnerArm.Never));
+        Should.Throw<ArgumentException>(() => new DocumentAccessRule(["A", " "], null, DocumentOwnerArm.Never));
+
+        var source = new List<string> { "A" };
+        var rule = new DocumentAccessRule(source, null, DocumentOwnerArm.Never);
+        source.Add("B");
+
+        rule.ModuleWidePermissions.ShouldBe(["A"]);
+        (rule.ModuleWidePermissions is ICollection<string> { IsReadOnly: false }).ShouldBeFalse();
     }
 
     /// <summary>
@@ -172,6 +226,17 @@ public class DocumentAccessRuleTable_Tests
         ReviewReasonPolicy.LocksOwnerEdits(
             DocumentReviewReasons.UnresolvedClassification | DocumentReviewReasons.FieldValidationWarning)
             .ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// The two grant arms of <paramref name="actual"/> are those of <paramref name="expected"/>: the same role-level
+    /// set (order is only the asking order, #645) and the same per-type grant. Stated field by field because a rule
+    /// has no value equality; the owner arm is left to each caller, since that is where the rows may differ.
+    /// </summary>
+    private static void ShouldAdmitThroughTheSameGrants(DocumentAccessRule actual, DocumentAccessRule expected)
+    {
+        actual.ModuleWidePermissions.ShouldBe(expected.ModuleWidePermissions, ignoreOrder: true);
+        actual.ResourcePermission.ShouldBe(expected.ResourcePermission);
     }
 
     private static List<string> RulesWith(DocumentOwnerArm arm)

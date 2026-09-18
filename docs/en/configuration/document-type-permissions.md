@@ -13,7 +13,7 @@ They are built on ABP's [resource-based authorization](https://abp.io/docs/lates
 | Standard permission | `VaultExtract.Documents` | **Entry.** May enter the documents area and work inside their own type scope. It is also the parent of every permission below it, and the SPA route gate. |
 | Standard permission | `VaultExtract.Documents.ReadAll` | May read **every** type of the caller's layer, plus untyped documents. |
 | Standard permission | `VaultExtract.DocumentTypes.ManagePermissions` | May open the per-type permission dialog and grant / revoke the grants below. |
-| Resource permission | `…DocumentType.Upload` | May upload a document declaring **one specific** document type. |
+| Resource permission | `…DocumentType.Upload` | May upload into **one specific** document type — on its own, without `Documents.Upload` — and assign it as a reclassification's target type. |
 | Resource permission | `…DocumentType.Read` | May read **all** documents of **one specific** type — other people's included. |
 | Resource permission | `…DocumentType.Edit` | May run the operator edit family, and resolve reviews, on **all** documents of **one specific** type. |
 | Resource permission | `…DocumentType.Delete` | May soft-delete **all** documents of **one specific** type, and restore them again. |
@@ -34,9 +34,32 @@ ABP documents `PermissionDefinition.Parent` as "this permission can be granted o
 
 > **Breaking change.** A role holding `VaultExtract.Documents` without `ReadAll` now sees only the types it holds a `Read` grant on. The seeded `DocumentManager` and `Viewer` roles gain `ReadAll` automatically on the next migration run (`VaultExtractHostRoleDataSeedContributor` applies it idempotently), and `admin` receives it from the migrator's permission seed. **Hand-made roles and MCP OAuth clients need a manual `ReadAll` grant** or their document lists go empty.
 
+## Configuring the three tiers
+
+Every document permission has three tiers, joined by OR, all behind entry (`VaultExtract.Documents`, "Access Documents"):
+
+1. **Role level — all types.** A module-wide permission, ticked in the ordinary permission grid.
+2. **Type level — this type.** A grant on one document type, made from **Document Types → row actions → Permissions**.
+3. **Ownership — your own documents.** Nothing to configure: whoever uploaded a document may read, edit and delete it (see the owner arm below).
+
+The first two read as a pair in the two dialogs:
+
+| Operation | Role level (all types) | Type level (this type) |
+| --- | --- | --- |
+| Read | Read Documents of All Types (`Documents.ReadAll`) | Read All Documents of this Type |
+| Edit and review | Edit Documents of All Types (`Documents.ConfirmClassification`) | Edit All Documents of this Type |
+| Delete and restore | Delete Documents of All Types (`Documents.Delete`) | Delete All Documents of this Type |
+| Upload | Upload into All Document Types (`Documents.Upload`) | Upload into this Document Type |
+
+The permission **names** are frozen contracts, which is why `ConfirmClassification` keeps a name narrower than what it grants; only the display names pair up.
+
+**Example: an ordinary uploader** who may only upload invoices. Grant **Access Documents**, and on the *Invoice* type grant **Upload into this Document Type**. Nothing else. They can upload into *Invoice* and nowhere else; they cannot upload without choosing a type, because the classifier could put the document into a type they were never granted; and through ownership they see, correct (unless it is held for review) and withdraw what they uploaded. Adding a second type is one more grant on that type.
+
+Other shapes follow the same way: a reviewer for one type is entry plus the *Read* and *Edit* grants on it; an operator for every type holds the role-level permissions instead. The seeded `DocumentManager` role is entry plus `ReadAll`, `Upload`, `Export` and `ConfirmClassification`.
+
 ## The rule every enforcement point applies
 
-**An operation on a document is authorized by `VaultExtract.Documents` (entry) AND either the module-wide permission for that operation, OR the caller owns the document and the rule allows it, OR the matching grant on the document's current type.** Within the OR, the module-wide permission remains sufficient on its own; the other two are the narrower alternatives.
+**An operation on a document is authorized by `VaultExtract.Documents` (entry) AND either the module-wide permission for that operation, OR the caller owns the document and the rule allows it, OR the matching grant on the document's current type.** Within the OR, the module-wide permission remains sufficient on its own; the other two are the narrower alternatives. (For one row, *Declare a type*, two module-wide permissions each admit — see the table.)
 
 Put the other way round, which is the sentence to remember:
 
@@ -58,17 +81,19 @@ It matters most for the per-type arm: handing out a resource grant is gated by `
 | **Edit** | `Documents.ConfirmClassification` | `Edit` | **unless under review** | `ConfirmClassificationAsync` / `ReclassifyAsync` (whose **target** type is judged by *Declare a type*), `RerecognizeAsync`, `ReextractFieldsAsync`, `UpdateExtractedFieldsAsync`, `UpdateMarkdownAsync`, `UpdateCabinetAsync` |
 | **Review** | `Documents.ConfirmClassification` | `Edit` | **never** | `AllowDuplicateAsync`, `ResolveFieldValidationWarningsAsync`, `RejectReviewAsync` |
 | **Delete** | `Documents.Delete` | `Delete` | **always** | `DeleteAsync` (soft delete) |
-| **Restore** | `Documents.Restore` | `Delete` — **whoever may delete may undo** | **always** | `RestoreAsync` |
+| **Restore** | `Documents.Delete` — **whoever may delete may undo** | `Delete` — likewise | **always** | `RestoreAsync` |
 | **Retry** | `Documents.Pipelines.Retry` | `Edit` | **unless under review** | `RetryPipelineAsync` |
-| **Declare a type** | `Documents.ConfirmClassification` | `Upload` on the **target** type | never | `UploadAsync`'s `DocumentTypeId`, and the target type of `ConfirmClassificationAsync` / `ReclassifyAsync` |
-| **Upload** | `Documents.Upload` | — | never | `UploadAsync` admission, checked before *Declare a type* |
+| **Declare a type** | `Documents.ConfirmClassification` **or** `Documents.Upload` | `Upload` on the **target** type | never | the target type of `ConfirmClassificationAsync` / `ReclassifyAsync` |
+| **Upload** | `Documents.Upload` | `Upload` on the declared type | never | `UploadAsync`, judged once; an untyped upload has no type, so only `Documents.Upload` admits it |
 | **Permanent delete** | `Documents.PermanentDelete` | — | never | `PermanentDeleteAsync` |
 | **Reprocess (fields)** | `Documents.Reprocessing.FieldExtraction` | — | never | `PreviewFieldExtractionAsync`, `StartFieldExtractionAsync` |
 | **Reprocess (classification)** | `Documents.Reprocessing.Reclassification` | — | never | `PreviewReclassificationAsync`, `StartReclassificationAsync` |
 | **Export** | `Documents.Export` | — | never | `ExportAsync` admission; the rows in the file are narrowed by the **Read** scope |
 | **Statistics** | `Documents.ReadAll` | — | never | the overview statistics, which is also where the list page's review-count badge comes from |
 
-Reclassifying a document from type A to type B needs two rows: **Edit** on A (it is an edit of that document) and **Declare a type** on B (it is a decision about B), or the module-wide permission in place of either. Owning the document satisfies the first and never the second — owning a document is not a licence to move it into a type you were never granted.
+The module-wide column of each row is a set, and any member admits. Every row has one member except **Declare a type**: a reviewer holding `ConfirmClassification` assigns any type, and so does anyone holding `Documents.Upload`, who could have uploaded the document into any type in the first place.
+
+Reclassifying a document from type A to type B needs two rows: **Edit** on A (it is an edit of that document) and **Declare a type** on B (it is a decision about B), or a module-wide permission in place of either. Owning the document satisfies the first and never the second — owning a document is not a licence to move it into a type you were never granted.
 
 ### The owner arm has three values, and Review is why
 
@@ -89,7 +114,7 @@ That set — `DuplicateSuspected`, `FieldExtractionIncomplete`, `FieldValidation
 
 The client sees this without a special case: `rights.canEdit` and `rights.canRetry` simply come back false for a locked owner, while `canRead` and `canDelete` stay true.
 
-**Restore** is the one row whose per-type arm is not its own resource permission: it reuses `Delete`. Undoing an operation is not a wider right than the operation, and a per-type deleter who could not restore would have to escalate a mistake of their own making to an admin.
+**Restore** is the **Delete** row: at the role level it is `Documents.Delete`, at the type level the `Delete` grant, and the owner may always restore their own. Undoing an operation is not a wider right than the operation, and a deleter who could not restore would have to escalate a mistake of their own making to an admin. There is no separate restore permission any more — see the CHANGELOG entry for #645 if a role of yours held one.
 
 **Retry** used to be module-wide only, by decision. It is not any more: it is a single-document operator action on the detail page, the same act as `RerecognizeAsync` beside it, and none of the reasons the remaining module-wide-only rows have (irreversible, admin-level bulk, whole-layer aggregate) applies to it. Left as it was, a caller holding a `Read` grant plus `Pipelines.Retry` re-ran OCR and classification on any readable document, around the per-type `Edit` gate.
 
@@ -120,7 +145,7 @@ Every lookup runs under ABP's ambient `IMultiTenant` filter, so a cross-layer id
 
 ## Where the rule lives in the code
 
-- **The table is data.** `DocumentAccessRule` is a record of three fields — module-wide permission, optional per-type grant, and whether the owner may perform it — with one static member per row above. A call site reads `CheckAsync(DocumentAccessRule.Edit, subject)` and cannot pair "edit" with the read permission.
+- **The table is data.** `DocumentAccessRule` is a class of three read-only fields — the module-wide permissions (a set; any member admits), an optional per-type grant, and whether the owner may perform it — with one static member per row above. Rules are never compared: the checker reads their fields. A call site reads `CheckAsync(DocumentAccessRule.Edit, subject)` and cannot pair "edit" with the read permission.
 - **One helper, `DocumentAccessChecker`**, evaluates every row, in two shapes and no more: `IsGrantedAsync` / `CheckAsync` answer "may this caller do this to this one subject", and `ResolveScopeAsync` answers "what may this caller reach at all". **Entry is asserted in exactly one place**, reached by both, so there is no way to ask the checker a question and get a permissive answer for a caller who may not open the documents area.
 - **The subject is `DocumentAccessSubject(DocumentTypeId, CreatorId)`**, built from a loaded document, from a target type alone (no owner), or from nothing at all for an operation that reads neither fact.
 - **The checks are programmatic, not `[Authorize]` attributes.** MCP and reflection dispatch paths do not run attributes, and an attribute fires before the method body — so it would deny a per-type grant holder, or an owner, before the body could offer the other arms of the OR. No method of `DocumentAppService`, `DocumentExportAppService` or `DocumentReprocessingAppService` carries one, and neither does any of those classes.
@@ -150,27 +175,34 @@ Every method of the edit and review families returns the document's DTO. An `Edi
 
 The **duplicate-candidate panel** on the review detail names other documents by title and file name, so it is narrowed by the caller's Read scope too. A shared `(type, fingerprint)` is not a permission to see whoever else uploaded one. The pipeline's own collision check is deliberately unrestricted: it runs with no principal and only counts, and a duplicate the uploader may not see is still a duplicate.
 
-## Upload: declaring a type
+## Upload
 
-A caller's **type scope** for upload is:
+Upload follows the same pattern as every other row. A caller's **type scope** for upload is:
 
-- **every type of the caller's own layer** if the caller holds `Documents.ConfirmClassification`;
-- otherwise, **the types the caller holds an `Upload` resource grant on**, directly or through a role.
+- **every type of the caller's own layer**, and an untyped upload, if the caller holds `Documents.Upload`;
+- otherwise, **the types the caller holds an `Upload` resource grant on**, directly or through a role. The grant is enough on its own; `Documents.Upload` is not also required.
 
 | Request | Requirement |
 | --- | --- |
-| `DocumentTypeId` supplied | The id must resolve to a type in the caller's own layer, **then** `ConfirmClassification` **or** the `Upload` grant on that type. Otherwise `AbpAuthorizationException`, with no blob written and no document inserted. |
-| `DocumentTypeId` omitted (untyped) | `ConfirmClassification`. |
+| `DocumentTypeId` supplied | The id must resolve to a type in the caller's own layer, **then** `Documents.Upload` **or** the `Upload` grant on that type. Otherwise `AbpAuthorizationException`, with no blob written and no document inserted. |
+| `DocumentTypeId` omitted (untyped) | `Documents.Upload`. |
 
-A resource-granted declaration keeps the same semantics as any other declared type: classification confidence `1.0`, `ReviewDisposition = Confirmed`, no classification LLM call. The grant is precisely the delegation of that decision, for that one type. See [classification](../pipeline/classification.md).
+`ConfirmClassification` plays no part in uploading: a reviewer holding it and nothing else is refused every upload.
 
-### Untyped upload requires `ConfirmClassification`
+A declared type keeps the same semantics whichever permission admitted it: classification confidence `1.0`, `ReviewDisposition = Confirmed`, no classification LLM call. The grant is precisely the delegation of that decision, for that one type. See [classification](../pipeline/classification.md).
 
-This was a behaviour change in the release that introduced `Upload` grants. An `Upload`-only caller used to be able to upload without a type and let the pipeline classify.
+### An untyped upload needs `Documents.Upload`
 
-Keeping that would make the per-type grant trivially bypassable: upload untyped, let the LLM classify the document into a type the caller was never granted, and the document still reaches the downstream consumers that subscribe by `(TenantId, DocumentTypeCode)`.
+An untyped upload hands the type decision to the classifier, which may land the document in any type of the layer — and the document then reaches the downstream consumers that subscribe by `(TenantId, DocumentTypeCode)`. A caller whose upload right is per type must therefore name the type; only the all-types permission uploads untyped.
 
-**Migration:** any role that holds `Documents.Upload` without `Documents.ConfirmClassification` and relies on untyped upload must be granted `ConfirmClassification`. The seeded `DocumentManager` role already carries it, applied idempotently on the next migration run — roles created by hand still need the manual grant.
+This is also what `Documents.Upload` meant in every released version (v0.3.x, v0.4.x and the v0.5.0 previews), so upgrading changes nothing for an existing uploader.
+
+### The order `UploadAsync` checks in
+
+1. **Entry.**
+2. **The declared type exists** in the caller's own layer (see *Existence is validated before permission*). The visible types are readable by any entry holder, so this discloses nothing.
+3. **One judgment by the Upload row**, on the declared type or — for an untyped upload — on no type at all.
+4. Only then the business validation: that the layer has any document type, the cabinet (`Cabinets.Default`, then its existence), the file type, the size, and the content-hash duplicate. None of them can answer anything to a caller who may not upload.
 
 ## Picking a type in the UI
 

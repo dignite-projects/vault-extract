@@ -20,9 +20,9 @@ namespace Dignite.Vault.Extract.Documents;
 /// </summary>
 /// <param name="DocumentTypeId">
 /// The type the operation is judged against: a document's <b>current</b> type for Read / Edit / Review / Delete /
-/// Restore / Retry, the <b>target</b> type for DeclareType. <c>null</c> is an untyped document (unclassified,
-/// failed classification, container) or an upload that declares no type — no grant can name it, so only the
-/// module-wide arm (and, where the rule allows it, ownership) can reach it.
+/// Restore / Retry, the <b>target</b> type for DeclareType, the declared type for Upload. <c>null</c> is an
+/// untyped document (unclassified, failed classification, container) or an upload that declares no type — no
+/// grant can name it, so only the module-wide arm (and, where the rule allows it, ownership) can reach it.
 /// </param>
 /// <param name="CreatorId">
 /// Who uploaded the document — ABP's <see cref="Volo.Abp.Auditing.IHasCreationTime"/> sibling
@@ -40,9 +40,9 @@ namespace Dignite.Vault.Extract.Documents;
 public sealed record DocumentAccessSubject(Guid? DocumentTypeId, Guid? CreatorId, bool UnderReview)
 {
     /// <summary>
-    /// No document and no type: <c>UploadAsync</c>'s admission and its untyped branch, and every rule whose
-    /// per-type arm is <c>null</c> anyway (PermanentDelete / Reprocessing / Export / Statistics). Both arms that
-    /// need a subject fact are absent, so such a rule reduces to entry plus its module-wide permission.
+    /// No document and no type: an untyped <c>UploadAsync</c>, and every rule whose per-type arm is <c>null</c>
+    /// anyway (PermanentDelete / Reprocessing / Export / Statistics). Both arms that need a subject fact are
+    /// absent, so such a rule reduces to entry plus its module-wide permissions.
     /// </summary>
     public static readonly DocumentAccessSubject None = new(null, null, UnderReview: false);
 

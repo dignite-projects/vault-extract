@@ -33,10 +33,12 @@ public static class VaultExtractResourcePermissions
     public const string Name = "Dignite.Vault.Extract.Documents.DocumentTypes.DocumentType";
 
     /// <summary>
-    /// May upload a document declaring <b>this</b> document type. Admits the caller to the #623
-    /// declared-type path (confidence 1.0, <c>Confirmed</c>, no classification LLM call) for one
-    /// type only; <c>Documents.ConfirmClassification</c> remains the module-wide equivalent that
-    /// admits every type of the layer.
+    /// May upload a document declaring <b>this</b> document type, on its own — without
+    /// <see cref="VaultExtractPermissions.Documents.Upload"/> (#645). Admits the caller to the #623 declared-type
+    /// path (confidence 1.0, <c>Confirmed</c>, no classification LLM call) for one type only; the module-wide
+    /// equivalent that admits every type of the layer, and an untyped upload, is
+    /// <see cref="VaultExtractPermissions.Documents.Upload"/>. It is also the per-type arm of a reclassification's
+    /// <b>target</b> type.
     /// </summary>
     public const string Upload = Name + ".Upload";
 
@@ -52,15 +54,16 @@ public static class VaultExtractResourcePermissions
     /// re-recognize / re-extract fields / update fields / correct Markdown / reject review / allow
     /// duplicate / resolve field validation warnings (#632). Module-wide equivalent:
     /// <see cref="VaultExtractPermissions.Documents.ConfirmClassification"/>. Reclassifying to another type
-    /// additionally needs <see cref="Upload"/> (or the module-wide permission) on the <b>target</b> type.
+    /// additionally needs <see cref="Upload"/> on the <b>target</b> type, or one of the two module-wide permissions
+    /// that admit every target type: <c>ConfirmClassification</c> or <c>Documents.Upload</c> (#645).
     /// </summary>
     public const string Edit = Name + ".Edit";
 
     /// <summary>
-    /// May soft-delete documents of <b>this</b> document type (#632). Module-wide equivalent:
-    /// <see cref="VaultExtractPermissions.Documents.Delete"/>. <see cref="VaultExtractPermissions.Documents.Restore"/>
-    /// reuses this same grant — whoever may delete may undo (#632: <c>DocumentAccessRule.Restore</c>) — while
-    /// permanent delete stays module-wide only, by decision.
+    /// May soft-delete documents of <b>this</b> document type, and restore them from the recycle bin (#632).
+    /// Module-wide equivalent: <see cref="VaultExtractPermissions.Documents.Delete"/>, which likewise covers both —
+    /// whoever may delete may undo (<c>DocumentAccessRule.Restore</c>; #645 merged the role level too). Permanent
+    /// delete stays module-wide only, by decision.
     /// </summary>
     public const string Delete = Name + ".Delete";
 }

@@ -87,10 +87,11 @@ public class DocumentAccessMemo : IScopedDependency
     }
 
     /// <summary>
-    /// Whether the caller holds one <b>standard</b> permission — entry, or a rule's module-wide name. Memoised
-    /// for the same reason the grants are: resolving a document's six rights would otherwise ask
+    /// Whether the caller holds one <b>standard</b> permission — entry, or one member of a rule's role-level set.
+    /// Memoised for the same reason the grants are: resolving a document's six rights would otherwise ask
     /// <c>Documents.Default</c> six times and <c>ConfirmClassification</c> twice, and a list page multiplies that
-    /// by its distinct subjects.
+    /// by its distinct subjects. It is keyed by the name, never by the rule, so a name that sits in several rules'
+    /// sets (#645) is still asked at most once per request.
     /// </summary>
     public virtual async Task<bool> IsPermissionGrantedAsync(string permissionName)
     {

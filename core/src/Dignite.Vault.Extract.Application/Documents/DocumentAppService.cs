@@ -264,16 +264,62 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
 
     public virtual async Task<DocumentDto> UploadAsync(UploadDocumentInput input)
     {
-        // #635: admission, as a row on the rule table rather than a [Authorize(Documents.Upload)] attribute
-        // outside it. The attribute never asserted entry, so Documents.Upload alone used to reach this method;
-        // the Upload rule is entry AND Documents.Upload. It runs first, before the business fast-fail below, for
-        // the same reason every other check in this file moved ahead of its guards: a business error is an oracle.
-        await _documentAccess.CheckAsync(DocumentAccessRule.Upload, DocumentAccessSubject.None);
+        // #645: the order is entry -> the declared type's existence -> ONE judgment by the Upload rule -> every
+        // business validation. Nothing below the judgment (no-types-configured, cabinet, file type, size, content
+        // hash) can answer anything to a caller who may not upload, for the reason every check in this file sits
+        // ahead of its guards: a business error is an oracle.
+        //
+        // Entry first, before the type lookup, so a caller who may not open the documents area learns nothing
+        // about which type ids exist.
+        await _documentAccess.CheckEntryAsync();
 
-        // Pre-check: the current layer must have at least one DocumentType (CLAUDE.md "two-layer document type system", exact single-layer match).
-        // Host startup seeding entry points were removed (HostDocumentTypeDataSeedContributor / DocumentTypeOptions).
-        // DocumentTypes can now only be created at runtime through IDocumentTypeAppService, so a new deployment / tenant must create types before upload.
-        // Without this fail-fast check, upload would succeed, classification candidates would be empty, and the document would stay in the manual-review queue forever.
+        // Existence before permission (#629), the same way ApplyManualClassificationAsync validates its target:
+        // an IDocumentTypeRepository.FindAsync under the ambient IMultiTenant filter, so a cross-layer id resolves
+        // to null -> EntityNotFoundException before any grant is consulted, never a hand-written tenant predicate.
+        // That ordering is why a grant on a Host-layer type id cannot authorize a tenant caller. It discloses
+        // nothing an entry holder cannot already read: the visible types are GetVisibleAsync's answer to any of
+        // them. The resolved entity is what the checker is handed, so the judgment cannot be satisfied by an
+        // unvalidated id off the wire.
+        DocumentType? declaredType = null;
+        if (input.DocumentTypeId.HasValue)
+        {
+            declaredType = await _documentTypeRepository.FindAsync(input.DocumentTypeId.Value);
+            if (declaredType == null)
+            {
+                throw new EntityNotFoundException(typeof(DocumentType), input.DocumentTypeId.Value);
+            }
+        }
+
+        // #645 decision 1: the upload right, judged once. Documents.Upload uploads into any type (and untyped); an
+        // Upload grant on the declared type uploads into that type on its own. Declaring a type bypasses the
+        // classification LLM call and the UnresolvedClassification review queue (#623), and the grant is exactly
+        // the delegation of that decision for one type.
+        //
+        // An untyped upload is judged on the empty subject, which leaves only the role-level Documents.Upload. That
+        // is #629's rule, and its reason stands: the classifier may land the document in any type, and it then
+        // reaches the downstream consumers that subscribe by (TenantId, DocumentTypeCode) — so a caller whose
+        // upload right is per type must name the type. Constraining the classification candidate set to the
+        // uploader's scope instead would mean persisting that scope at upload, because the classification job
+        // runs without the uploader's principal.
+        //
+        // The separate admission check (#635) and the DeclareType check this replaces are gone: DeclareType now
+        // judges only a reclassification's target type.
+        await _documentAccess.CheckAsync(
+            DocumentAccessRule.Upload,
+            declaredType != null ? DocumentAccessSubject.OfType(declaredType) : DocumentAccessSubject.None);
+
+        // No-types-configured guards the UNTYPED upload. DocumentTypes are created only at runtime through
+        // IDocumentTypeAppService (no startup seed, no registration path — CLAUDE.md "no built-in document types"),
+        // so a new deployment or tenant starts with none. Classification matches the document's own layer exactly,
+        // so an untyped upload into an empty layer would be stored with an empty candidate set and sit in the
+        // manual-review queue forever; this fails it fast instead.
+        //
+        // A typed upload that reaches this line always passes it: the lookup above resolved its declared type in
+        // this layer, so the layer has at least one. A typed upload into an EMPTY layer never reaches it — its id
+        // cannot resolve there, and the lookup answers 404 (EntityNotFoundException). That answer is accurate (the
+        // id names no type in the caller's layer) and deliberate: moving this check above the lookup would also put
+        // it above the upload judgment, which needs the resolved type, and a business error answered ahead of the
+        // judgment is an oracle for a caller who may not upload.
         var hasType = await _documentTypeRepository.GetCountAsync() > 0;
         if (!hasType)
         {
@@ -281,7 +327,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         }
 
         // Cabinet ownership validation (#194): when cabinetId is specified, assert Cabinets permission first
-        // (fail-closed, symmetric with the frontend canViewCabinets gate). [Authorize(Documents.Upload)] does not cover cabinet ownership;
+        // (fail-closed, symmetric with the frontend canViewCabinets gate). The upload right above does not cover cabinet ownership;
         // without this assertion, a user without Cabinets permission could bypass the UI and assign a document to a hidden cabinet.
         // Then validate cabinet existence. Tenant isolation is enforced by the ambient IMultiTenant filter, so cross-tenant FindAsync returns null.
         // Cabinets are orthogonal to pipelines; this only validates manual ownership during upload, and later pipelines do not touch it.
@@ -295,59 +341,6 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
                 throw new BusinessException(VaultExtractErrorCodes.Cabinet.InvalidId)
                     .WithData("CabinetId", input.CabinetId.Value);
             }
-        }
-
-        // Declared-type authorization (#623, rewritten by #629): the caller's TYPE SCOPE for upload.
-        //
-        // Declaring a type at upload is equivalent to an operator ConfirmClassificationAsync call — it bypasses
-        // the classification LLM call and the UnresolvedClassification review queue entirely — so it is gated
-        // by an additive permission on top of the method-level Documents.Upload, symmetric with the CabinetId
-        // check above. #629 makes that gate per-type instead of all-or-nothing:
-        //
-        //   - Documents.ConfirmClassification  -> every type of the caller's own layer (the #623 rule, unchanged);
-        //   - resource grant Upload on ONE type -> that type only (ABP resource-based authorization, granted
-        //     per row in AbpResourcePermissionGrants and keyed by the type's immutable Id);
-        //   - no DocumentTypeId at all          -> requires ConfirmClassification (see the untyped branch below).
-        //
-        // The OR itself lives in DocumentAccessChecker (#632): ABP's ResourcePermissionChecker only consults
-        // the resource value providers and never falls back to the module-wide permission, so the fallback has to
-        // be written by hand — but exactly once, for all four grants, instead of inline here as #629 left it.
-        // Both halves are programmatic, not [Authorize], because MCP / reflection dispatch paths do not run the
-        // attribute.
-        //
-        // Existence is validated FIRST, the same way ApplyManualClassificationAsync validates it: an
-        // IDocumentTypeRepository.FindAsync under the ambient IMultiTenant filter, so a cross-layer id resolves
-        // to null -> EntityNotFoundException before any permission is consulted, never a hand-written tenant
-        // predicate. That ordering is also why a grant on a Host-layer type id cannot authorize a tenant caller.
-        // The resolved entity is what is handed to the checker, precisely so the signature cannot be satisfied
-        // by an unvalidated id off the wire.
-        DocumentType? declaredType = null;
-        if (input.DocumentTypeId.HasValue)
-        {
-            declaredType = await _documentTypeRepository.FindAsync(input.DocumentTypeId.Value);
-            if (declaredType == null)
-            {
-                throw new EntityNotFoundException(typeof(DocumentType), input.DocumentTypeId.Value);
-            }
-
-            await _documentAccess.CheckAsync(
-                DocumentAccessRule.DeclareType, DocumentAccessSubject.OfType(declaredType));
-        }
-        else
-        {
-            // #629 decision 2, a deliberate behaviour change: an untyped upload requires ConfirmClassification
-            // too. Leaving it open to any Documents.Upload holder would make the per-type ACL trivially
-            // bypassable — upload untyped, let the LLM classify the document into a type the caller was never
-            // granted, and it still reaches the downstream consumers that subscribe by (TenantId,
-            // DocumentTypeCode). Constraining the classification candidate set to the uploader's scope instead
-            // would require capturing and persisting that scope at upload, because the classification job runs
-            // without the uploader's principal; that is deferred to phase 2.
-            //
-            // #635: the same rule, expressed as the same row. With no type in hand the DeclareType rule's
-            // resource arm is structurally unreachable and its owner arm is off, so it reduces to exactly
-            // ConfirmClassification — plus entry, which the bare CheckPolicyAsync call it replaces never
-            // asserted. That was the last untyped escape on the table.
-            await _documentAccess.CheckAsync(DocumentAccessRule.DeclareType, DocumentAccessSubject.None);
         }
 
         var fileName = input.File.FileName ?? "document";
@@ -677,10 +670,11 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         {
             var document = await _documentRepository.GetAsync(id);
 
-            // #632: Documents.Restore, OR a Delete grant on this document's own type — "whoever may delete may
-            // undo". The method-level [Authorize(Documents.Restore)] had to go rather than stay alongside: the
-            // attribute fires before the body and would deny a per-type Delete-grant holder before the OR could
-            // offer its other half, the same reason the edit family and DeleteAsync lost theirs.
+            // The Restore rule: Documents.Delete, OR a Delete grant on this document's own type, OR ownership —
+            // "whoever may delete may undo", at the role level since #645 as at the type level since #632. The
+            // method-level [Authorize] that #632 removed had to go rather than stay alongside: the attribute fires
+            // before the body and would deny a per-type Delete-grant holder before the OR could offer its other
+            // half, the same reason the edit family and DeleteAsync lost theirs.
             //
             // Placement, deliberately, is immediately after the load and BEFORE everything else in this method:
             //   * before the two business guards (RestoreConflict / RestoreTypeDeleted), so an unauthorized caller
@@ -1316,9 +1310,11 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
             throw new EntityNotFoundException(typeof(DocumentType), documentTypeId);
         }
 
-        // #632, half two: the TARGET type. Deciding a document's type is the same act UploadAsync's declared type
-        // performs, so it rides the same #629 rule — ConfirmClassification, or an Upload grant on the type being
-        // assigned. Existence is validated first, above, so a cross-layer id is a 404 before permission — the
+        // #632, half two: the TARGET type, judged by the DeclareType rule. Deciding a document's type is the same
+        // act UploadAsync's declared type performs, so the rule admits the same per-type grant — an Upload grant
+        // on the type being assigned — and, at the role level (#645), either ConfirmClassification (a reviewer
+        // assigning any type) or Documents.Upload (someone who could have uploaded into any type in the first
+        // place). Existence is validated first, above, so a cross-layer id is a 404 before permission — the
         // #629 existence-before-permission ordering, which is why the FindAsync had to move up with the check
         // rather than the check moving up alone.
         //

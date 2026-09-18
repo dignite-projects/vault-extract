@@ -60,7 +60,9 @@ public class VaultExtractHostRoleDataSeedContributor : IDataSeedContributor, ITr
                 VaultExtractPermissions.Documents.ReadAll,
                 VaultExtractPermissions.Documents.Upload,
                 VaultExtractPermissions.Documents.Export,
-                // #629 made Upload alone inert (untyped upload requires ConfirmClassification, typed upload requires a per-type resource grant), so the seeded operator role carries ConfirmClassification;
+                // DocumentManager is an operator role that edits and reviews: ConfirmClassification is the role-level
+                // "edit (and review) documents of every type", and it is also what lets the role assign any type on
+                // confirm / reclassify. (Uploading into any type, untyped included, is Documents.Upload above since #645.)
                 // SeedRoleAsync re-applies each listed permission idempotently, so existing deployments pick this up on their next migration run.
                 VaultExtractPermissions.Documents.ConfirmClassification,
             }, context?.TenantId);

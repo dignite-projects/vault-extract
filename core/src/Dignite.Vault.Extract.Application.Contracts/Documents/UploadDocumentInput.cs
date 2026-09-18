@@ -24,17 +24,15 @@ public class UploadDocumentInput
     /// classification LLM call is made. On upload, this must resolve to an existing document type in the current
     /// layer (<c>CurrentTenant.Id</c>), the same exact single-layer matching as every other document-type lookup.
     /// <para>
-    /// Because declaring a type bypasses the review queue, supplying it requires an additive permission on top
-    /// of the method-level <c>Documents.Upload</c> — the same shape as <see cref="CabinetId"/>'s
-    /// <c>Cabinets.Default</c> check — but the additive permission is <b>per type</b> (#629): either the
-    /// module-wide <c>VaultExtractPermissions.Documents.ConfirmClassification</c>, which admits every type of
-    /// the caller's layer, or a resource grant of
-    /// <c>VaultExtractResourcePermissions.Upload</c> on this specific type.
+    /// The upload right is judged once, against this type (#645): the module-wide
+    /// <c>VaultExtractPermissions.Documents.Upload</c>, which uploads into every type of the caller's layer, or a
+    /// resource grant of <c>VaultExtractResourcePermissions.Upload</c> on this specific type, which is sufficient
+    /// on its own.
     /// </para>
     /// <para>
-    /// <b>Leaving this null is not the unprivileged fallback it used to be</b>: an untyped upload hands the type
-    /// decision to LLM classification, which would otherwise be a way around the per-type grant, so it requires
-    /// <c>ConfirmClassification</c> as well (#629 decision 2).
+    /// <b>Leaving this null needs the module-wide <c>Documents.Upload</c></b>: an untyped upload hands the type
+    /// decision to LLM classification, which may land the document in any type, so a caller whose upload right is
+    /// per type must name the type (#629 decision 2).
     /// </para>
     /// </summary>
     public Guid? DocumentTypeId { get; set; }

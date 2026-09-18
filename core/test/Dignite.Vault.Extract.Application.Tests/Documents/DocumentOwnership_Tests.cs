@@ -26,14 +26,106 @@ namespace Dignite.Vault.Extract.Documents;
 /// no <c>ConfirmClassification</c>. Before #635 that principal could upload an invoice and then never see it
 /// again.
 /// </para>
+/// <para>
+/// #645 made that shape exactly the ordinary uploader: it no longer carries <c>Documents.Upload</c>, which since
+/// #645 means "upload into <b>all</b> document types" and would also let this principal move its documents into
+/// any type — the opposite of what a per-type uploader is.
+/// </para>
 /// </summary>
 public class DocumentOwnership_Tests : DocumentAccessTestBase
 {
     /// <summary>The Issue's day-one principal, in one place so every fact starts from the same grants.</summary>
     private void GrantUploaderOnTypeA()
     {
-        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Upload);
+        Grant(VaultExtractPermissions.Documents.Default);
         GrantResource(VaultExtractResourcePermissions.Upload, TypeA.Id);
+    }
+
+    // ===================== Uploading: entry + a type-level Upload grant is the whole uploader =====================
+
+    /// <summary>
+    /// #645 decision 1: configuring an ordinary uploader is entry + an <c>Upload</c> grant on each type they may
+    /// upload into. That principal uploads into A — no <c>Documents.Upload</c> — is refused B, and is refused an
+    /// untyped upload, which only the role-level <c>Documents.Upload</c> admits.
+    /// </summary>
+    [Fact]
+    public async Task Entry_and_an_Upload_grant_on_A_upload_into_A_and_nowhere_else()
+    {
+        GrantUploaderOnTypeA();
+
+        var created = await AsOwnerAsync(() => AppService.UploadAsync(NewUpload("a.txt", TypeA.Id)));
+        created.Id.ShouldNotBe(Guid.Empty);
+        await DocumentRepository.Received(1).InsertAsync(
+            Arg.Is<Document>(d => d.DocumentTypeId == TypeA.Id), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+
+        await Should.ThrowAsync<AbpAuthorizationException>(
+            () => AsOwnerAsync(() => AppService.UploadAsync(NewUpload("b.txt", TypeB.Id))));
+        await Should.ThrowAsync<AbpAuthorizationException>(
+            () => AsOwnerAsync(() => AppService.UploadAsync(NewUpload("untyped.txt", documentTypeId: null))));
+
+        await DocumentRepository.Received(1).InsertAsync(
+            Arg.Any<Document>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+    }
+
+    // ===================== A reclassification's target type (DeclareType) =====================
+
+    /// <summary>
+    /// #645 acceptance: the target type of a reclassification admits <c>ConfirmClassification</c>,
+    /// <c>Documents.Upload</c>, or an <c>Upload</c> grant on the target — and refuses a caller holding none of them.
+    /// Every fact below reclassifies the caller's own type-B document, so the <b>current</b>-type half of the rule
+    /// (Edit) is answered by ownership each time and the outcome is about the target alone.
+    /// </summary>
+    [Fact]
+    public async Task A_reclassification_target_is_refused_without_ConfirmClassification_Documents_Upload_or_a_grant()
+    {
+        var own = StubDocument(TypeB.Id, creatorId: OwnerId, markdown: "# body");
+        GrantEntryOnly();
+
+        await Should.ThrowAsync<AbpAuthorizationException>(() => AsOwnerAsync(() =>
+            AppService.ReclassifyAsync(own.Id, new ReclassifyDocumentInput { DocumentTypeId = TypeA.Id })));
+
+        own.DocumentTypeId.ShouldBe(TypeB.Id);
+    }
+
+    [Fact]
+    public async Task A_reclassification_target_admits_ConfirmClassification()
+    {
+        var own = StubDocument(TypeB.Id, creatorId: OwnerId, markdown: "# body");
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.ConfirmClassification);
+
+        var reclassified = await AsOwnerAsync(() =>
+            AppService.ReclassifyAsync(own.Id, new ReclassifyDocumentInput { DocumentTypeId = TypeA.Id }));
+
+        reclassified.DocumentTypeCode.ShouldBe(TypeA.TypeCode);
+    }
+
+    /// <summary>
+    /// The member #645 added to DeclareType's role-level set: someone who could have uploaded into any type may
+    /// also move their document into any type. The caller holds no grant on A and no
+    /// <c>ConfirmClassification</c>, so <c>Documents.Upload</c> is the only thing that can admit the target.
+    /// </summary>
+    [Fact]
+    public async Task A_reclassification_target_admits_Documents_Upload()
+    {
+        var own = StubDocument(TypeB.Id, creatorId: OwnerId, markdown: "# body");
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Upload);
+
+        var reclassified = await AsOwnerAsync(() =>
+            AppService.ReclassifyAsync(own.Id, new ReclassifyDocumentInput { DocumentTypeId = TypeA.Id }));
+
+        reclassified.DocumentTypeCode.ShouldBe(TypeA.TypeCode);
+    }
+
+    [Fact]
+    public async Task A_reclassification_target_admits_an_Upload_grant_on_the_target()
+    {
+        var own = StubDocument(TypeB.Id, creatorId: OwnerId, markdown: "# body");
+        GrantUploaderOnTypeA();
+
+        var reclassified = await AsOwnerAsync(() =>
+            AppService.ReclassifyAsync(own.Id, new ReclassifyDocumentInput { DocumentTypeId = TypeA.Id }));
+
+        reclassified.DocumentTypeCode.ShouldBe(TypeA.TypeCode);
     }
 
     // ===================== The four-way: read / edit / delete / restore on one's own =====================
@@ -140,6 +232,30 @@ public class DocumentOwnership_Tests : DocumentAccessTestBase
 
         await AsOwnerAsync(() => AppService.RestoreAsync(own.Id));
         own.IsDeleted.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// #645 acceptance: a caller holding neither <c>Documents.Delete</c> nor a <c>Delete</c> grant restores only
+    /// their own documents — ownership is the one arm left, and it reaches nobody else's, of the same type or
+    /// untyped. (A role holding the removed role-level restore permission without <c>Documents.Delete</c> lands
+    /// exactly here after the upgrade.)
+    /// </summary>
+    [Fact]
+    public async Task Without_Documents_Delete_or_a_Delete_grant_a_caller_restores_only_their_own_documents()
+    {
+        var own = StubDocument(TypeA.Id, creatorId: OwnerId, deleted: true);
+        var theirs = StubDocument(TypeA.Id, creatorId: StrangerId, deleted: true);
+        var theirsUntyped = StubDocument(documentTypeId: null, creatorId: StrangerId, deleted: true);
+        GrantUploaderOnTypeA();
+
+        await AsOwnerAsync(() => AppService.RestoreAsync(own.Id));
+        own.IsDeleted.ShouldBeFalse();
+
+        await Should.ThrowAsync<AbpAuthorizationException>(() => AsOwnerAsync(() => AppService.RestoreAsync(theirs.Id)));
+        await Should.ThrowAsync<AbpAuthorizationException>(
+            () => AsOwnerAsync(() => AppService.RestoreAsync(theirsUntyped.Id)));
+        theirs.IsDeleted.ShouldBeTrue();
+        theirsUntyped.IsDeleted.ShouldBeTrue();
     }
 
     [Fact]
@@ -597,4 +713,13 @@ public class DocumentOwnership_Tests : DocumentAccessTestBase
         var run = await manager.StartAsync(document, VaultExtractPipelines.Parse);
         await manager.FailAsync(document, run, errorMessage: "parse failed");
     }
+
+    /// <summary>A small text upload whose body is its file name, so two uploads never share a content hash.</summary>
+    private static UploadDocumentInput NewUpload(string fileName, Guid? documentTypeId)
+        => new()
+        {
+            File = new RemoteStreamContent(
+                new MemoryStream(System.Text.Encoding.UTF8.GetBytes(fileName)), fileName, "text/plain"),
+            DocumentTypeId = documentTypeId
+        };
 }

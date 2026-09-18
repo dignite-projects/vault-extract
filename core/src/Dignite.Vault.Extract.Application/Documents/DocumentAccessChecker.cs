@@ -11,8 +11,8 @@ namespace Dignite.Vault.Extract.Documents;
 
 /// <summary>
 /// The single implementation of the #635 rule: <b>an operation on a document is authorized by
-/// <c>Documents.Default</c> (entry) AND either the module-wide permission for that operation, OR the caller owns
-/// the document and the rule allows it, OR the matching grant on the subject's type.</b> The rows live in
+/// <c>Documents.Default</c> (entry) AND either a module-wide permission of that operation's role-level set, OR the
+/// caller owns the document and the rule allows it, OR the matching grant on the subject's type.</b> The rows live in
 /// <see cref="DocumentAccessRule"/>; this class is the only place that evaluates them.
 /// <para>
 /// <b>Two shapes, not five.</b> <see cref="IsGrantedAsync"/> / <see cref="CheckAsync"/> answer "may this caller
@@ -127,7 +127,7 @@ public class DocumentAccessChecker : ITransientDependency
             return false;
         }
 
-        if (await _accessMemo.IsPermissionGrantedAsync(rule.ModuleWidePermission))
+        if (await IsModuleWideGrantedAsync(rule))
         {
             return true;
         }
@@ -185,7 +185,7 @@ public class DocumentAccessChecker : ITransientDependency
         {
             throw new AbpException(
                 $"A scope cannot be resolved for a rule whose owner arm is " +
-                $"{nameof(DocumentOwnerArm.UnlessUnderReview)} ({rule.ModuleWidePermission}): the scope is a row " +
+                $"{nameof(DocumentOwnerArm.UnlessUnderReview)} ({string.Join(" | ", rule.ModuleWidePermissions)}): the scope is a row " +
                 $"predicate and has no review-state term, so it would silently admit the caller's own documents " +
                 $"that are locked for review. Use CheckEntryAsync + IsGrantedAsync per document instead.");
         }
@@ -195,7 +195,7 @@ public class DocumentAccessChecker : ITransientDependency
             throw new AbpAuthorizationException();
         }
 
-        if (await _accessMemo.IsPermissionGrantedAsync(rule.ModuleWidePermission))
+        if (await IsModuleWideGrantedAsync(rule))
         {
             return DocumentAccessScope.Unrestricted;
         }
@@ -206,6 +206,26 @@ public class DocumentAccessChecker : ITransientDependency
 
         return DocumentAccessScope.Of(
             types, rule.OwnerArm == DocumentOwnerArm.Always ? _currentUser.Id : null);
+    }
+
+    /// <summary>
+    /// The role-level arm: <b>any</b> member of <see cref="DocumentAccessRule.ModuleWidePermissions"/> admits
+    /// (#645). Asked in the order the row writes them and stopping at the first granted one, sequentially rather
+    /// than in parallel for the reason <see cref="DocumentAccessMemo"/> gives. Each name goes through the memo, so
+    /// a name two rules share — <c>ConfirmClassification</c> is on Edit, Review and DeclareType — still costs one
+    /// check per request however many rules ask it.
+    /// </summary>
+    protected virtual async Task<bool> IsModuleWideGrantedAsync(DocumentAccessRule rule)
+    {
+        foreach (var permissionName in rule.ModuleWidePermissions)
+        {
+            if (await _accessMemo.IsPermissionGrantedAsync(permissionName))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

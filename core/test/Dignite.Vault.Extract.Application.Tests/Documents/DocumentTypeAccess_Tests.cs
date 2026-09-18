@@ -385,7 +385,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
 
     /// <summary>
     /// #632 change 2, "whoever may delete may undo": the SAME <c>Delete</c> grant that admits
-    /// <c>DeleteAsync</c> admits <c>RestoreAsync</c>. No <c>Documents.Restore</c> is held here, so the
+    /// <c>DeleteAsync</c> admits <c>RestoreAsync</c>. No <c>Documents.Delete</c> is held here, so the
     /// module-wide half of the OR contributes nothing.
     /// </summary>
     [Fact]
@@ -404,9 +404,18 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
         denied.IsDeleted.ShouldBeTrue();
     }
 
+    /// <summary>
+    /// #645 acceptance: the module-wide <c>Documents.Delete</c> restores a document of <b>any</b> type — type A, type
+    /// B, and an untyped one no grant can name. There is no separate restore permission any more; restoring is
+    /// deleting's undo at the role level as it already was at the type level. The untyped document is first
+    /// refused to a caller holding only a type-level <c>Delete</c> grant, so the admission below is the role-level
+    /// arm's.
+    /// </summary>
     [Fact]
-    public async Task RestoreAsync_is_unchanged_for_a_module_wide_Restore_holder_including_untyped_documents()
+    public async Task RestoreAsync_is_admitted_for_every_type_by_a_module_wide_Delete_holder_including_untyped_documents()
     {
+        var ofTypeA = StubDocument(_typeA.Id, deleted: true);
+        var ofTypeB = StubDocument(_typeB.Id, deleted: true);
         var untyped = StubDocument(documentTypeId: null, deleted: true);
         GrantEntryOnly();
         GrantResource(VaultExtractResourcePermissions.Delete, _typeA.Id);
@@ -416,9 +425,14 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
             () => AsPrincipalAsync(() => _appService.RestoreAsync(untyped.Id)));
         untyped.IsDeleted.ShouldBeTrue();
 
-        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Restore);
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Delete);
 
+        await AsPrincipalAsync(() => _appService.RestoreAsync(ofTypeA.Id));
+        await AsPrincipalAsync(() => _appService.RestoreAsync(ofTypeB.Id));
         await AsPrincipalAsync(() => _appService.RestoreAsync(untyped.Id));
+
+        ofTypeA.IsDeleted.ShouldBeFalse();
+        ofTypeB.IsDeleted.ShouldBeFalse();
         untyped.IsDeleted.ShouldBeFalse();
     }
 
@@ -523,20 +537,26 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
         page.Items.ShouldBeEmpty();
     }
 
+    /// <summary>
+    /// A module-wide holder sees the whole bin and may restore every row of it: <c>ReadAll</c> decides the rows,
+    /// and since #645 <c>Documents.Delete</c> — not a separate restore permission — is what makes each row's
+    /// <c>canRestore</c> true, untyped rows included.
+    /// </summary>
     [Fact]
-    public async Task The_recycle_bin_is_unchanged_for_a_module_wide_Restore_holder()
+    public async Task The_recycle_bin_offers_restore_on_every_row_to_a_module_wide_Delete_holder()
     {
         StubQueryable(
             NewDocument(_typeA.Id, deleted: true), NewDocument(documentTypeId: null, deleted: true));
         Grant(
             VaultExtractPermissions.Documents.Default,
-            VaultExtractPermissions.Documents.Restore,
+            VaultExtractPermissions.Documents.Delete,
             VaultExtractPermissions.Documents.ReadAll);
 
         var page = await AsPrincipalAsync(
             () => _appService.GetListAsync(new GetDocumentListInput { IsDeleted = true }));
 
         page.TotalCount.ShouldBe(2);
+        page.Items.ShouldAllBe(i => i.Rights.CanRestore);
     }
 
     // ===================== List / export read scope =====================
