@@ -65,9 +65,14 @@ export function rightsOf(document: DocumentRightsCarrier | null | undefined): Re
   };
 }
 
-/** Whether this type carries the caller's own type-level `Upload` grant ("上传到此文档类型"). */
-function hasUploadGrant(type: DocumentTypeDto): boolean {
-  return type.resourcePermissions?.[EXTRACT_PERMISSIONS.DocumentTypes.Resources.Upload] === true;
+const RESOURCES = EXTRACT_PERMISSIONS.DocumentTypes.Resources;
+
+/** A type-level grant — every `Resources` member except `Name`, which names the resource, not a grant. */
+type DocumentTypeGrant = (typeof RESOURCES)[Exclude<keyof typeof RESOURCES, 'Name'>];
+
+/** Whether this type carries the caller's own type-level `grant` (e.g. `Upload`, "上传到此文档类型"). */
+function hasGrant(type: DocumentTypeDto, grant: DocumentTypeGrant): boolean {
+  return type.resourcePermissions?.[grant] === true;
 }
 
 /**
@@ -93,7 +98,7 @@ export function assignableDocumentTypes(
   if (canAssignAllTypes) {
     return [...types];
   }
-  return types.filter(hasUploadGrant);
+  return types.filter(t => hasGrant(t, RESOURCES.Upload));
 }
 
 /**
@@ -128,7 +133,7 @@ export function canUploadIntoAnyDocumentType(
   types: readonly DocumentTypeDto[],
   canUploadIntoAllTypes: boolean,
 ): boolean {
-  return canUploadIntoAllTypes || types.some(hasUploadGrant);
+  return canUploadIntoAllTypes || types.some(t => hasGrant(t, RESOURCES.Upload));
 }
 
 /**
@@ -145,8 +150,5 @@ export function canEditAnyDocumentType(
   types: readonly DocumentTypeDto[],
   canConfirmClassification: boolean,
 ): boolean {
-  return (
-    canConfirmClassification ||
-    types.some(t => t.resourcePermissions?.[EXTRACT_PERMISSIONS.DocumentTypes.Resources.Edit] === true)
-  );
+  return canConfirmClassification || types.some(t => hasGrant(t, RESOURCES.Edit));
 }
