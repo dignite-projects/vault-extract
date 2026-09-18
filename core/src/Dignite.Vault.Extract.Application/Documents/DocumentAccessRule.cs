@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
-using System.Text;
 using Dignite.Vault.Extract.Permissions;
 
 namespace Dignite.Vault.Extract.Documents;
@@ -34,91 +33,56 @@ namespace Dignite.Vault.Extract.Documents;
 /// removed. Entry is asserted so "may not open the documents area" still means "may not bulk-unfile documents in
 /// it".
 /// </para>
+/// <para>
+/// A class, not a record. Every rule is one of the static rows below and nothing compares two rules — the checker
+/// reads their members — so a rule's only equality is reference equality, and <c>==</c> says exactly that. A record
+/// would promise value equality and, with a collection member, compare the collection by reference.
+/// </para>
 /// </summary>
-/// <param name="ModuleWidePermissions">
-/// The role-level arm: standard permissions any <b>one</b> of which admits every type of the caller's layer, and
-/// untyped documents with it (#645 decision 1). Almost every row has exactly one member; a second member is the
-/// statement "this other all-types right implies this one too", written on the row instead of as a second check
-/// at the call site. Never empty — a rule with no role-level arm at all would be unreachable for every untyped
-/// subject, and no row is meant to be. The members are asked in the order written, so the one most callers hold
-/// goes first; the order is not part of the rule's meaning and <see cref="Equals(DocumentAccessRule?)"/> ignores it.
-/// </param>
-/// <param name="ResourcePermission">
-/// The per-type grant that admits exactly the subject's type, or <c>null</c> for a family that has no per-type
-/// arm: a <c>null</c> here is the statement "this operation is module-wide only, by decision", and it is stated
-/// on the row rather than by the operation's absence from the table.
-/// </param>
-/// <param name="OwnerArm">
-/// How far the document's own uploader gets without any grant (#635 decision 1). <c>Always</c> for Read /
-/// Delete / Restore — an uploader must be able to see and withdraw their own work whatever state it is in.
-/// <c>UnlessUnderReview</c> for Edit and Retry: both clear blocking review reasons as a <i>side effect</i>
-/// (see <see cref="ReviewReasonPolicy.OwnerLocking"/>), so an owner is locked out of modifying a document that
-/// is blocked on anything but its classification. <c>Never</c> for Review — its three methods exist to be the
-/// second pair of eyes, and a suspected duplicate invoice is the adversarial case the review queue is for — for
-/// DeclareType, for Upload (nothing exists yet to own), and for every row with no per-type arm.
-/// </param>
-public sealed record DocumentAccessRule(
-    IReadOnlyList<string> ModuleWidePermissions,
-    string? ResourcePermission,
-    DocumentOwnerArm OwnerArm)
+public sealed class DocumentAccessRule
 {
-    /// <summary>
-    /// The role-level arm, copied and frozen at construction: a caller's collection is never kept, so nothing
-    /// that built a rule can change what it admits afterwards.
-    /// </summary>
-    public IReadOnlyList<string> ModuleWidePermissions { get; } = Freeze(ModuleWidePermissions);
-
-    /// <summary>
-    /// <b>Equality is by content</b>, with the role-level arm compared as a set. The compiler-generated equality
-    /// of a record would compare the collection by reference, so two rules admitting exactly the same callers
-    /// would be unequal and a rule would stop equalling its own <c>with</c> copy. No production path compares
-    /// rules — the checker reads their members — but a record that silently changed what <c>==</c> means when one
-    /// member became a collection is a trap for the first caller that does.
-    /// </summary>
-    public bool Equals(DocumentAccessRule? other)
+    // The parameter names match the properties so a row reads `ResourcePermission: null, OwnerArm: ...`.
+    public DocumentAccessRule(
+        IReadOnlyList<string> ModuleWidePermissions,
+        string? ResourcePermission,
+        DocumentOwnerArm OwnerArm)
     {
-        if (other is null)
-        {
-            return false;
-        }
-
-        if (ReferenceEquals(this, other))
-        {
-            return true;
-        }
-
-        // Freeze rejects duplicates, so equal counts plus one-way containment is set equality.
-        return OwnerArm == other.OwnerArm
-            && string.Equals(ResourcePermission, other.ResourcePermission, StringComparison.Ordinal)
-            && ModuleWidePermissions.Count == other.ModuleWidePermissions.Count
-            && ModuleWidePermissions.All(name => other.ModuleWidePermissions.Contains(name, StringComparer.Ordinal));
-    }
-
-    public override int GetHashCode()
-    {
-        var hash = new HashCode();
-        hash.Add(OwnerArm);
-        hash.Add(ResourcePermission, StringComparer.Ordinal);
-        foreach (var name in ModuleWidePermissions.Order(StringComparer.Ordinal))
-        {
-            hash.Add(name, StringComparer.Ordinal);
-        }
-
-        return hash.ToHashCode();
+        this.ModuleWidePermissions = Freeze(ModuleWidePermissions);
+        this.ResourcePermission = ResourcePermission;
+        this.OwnerArm = OwnerArm;
     }
 
     /// <summary>
-    /// Prints the members of the role-level arm rather than the collection's type name, which is what the
-    /// compiler-generated <c>ToString</c> would show — this is the text an assertion failure or a log line quotes.
+    /// The role-level arm: standard permissions any <b>one</b> of which admits every type of the caller's layer, and
+    /// untyped documents with it (#645 decision 1). Almost every row has exactly one member; a second member is the
+    /// statement "this other all-types right implies this one too", written on the row instead of as a second check
+    /// at the call site. Never empty — a rule with no role-level arm at all would be unreachable for every untyped
+    /// subject, and no row is meant to be. The members are asked in the order written, so the one most callers hold
+    /// goes first; the order is not part of the rule's meaning.
+    /// <para>
+    /// Copied and frozen at construction: a caller's collection is never kept, so nothing that built a rule can
+    /// change what it admits afterwards.
+    /// </para>
     /// </summary>
-    private bool PrintMembers(StringBuilder builder)
-    {
-        builder.Append(nameof(ModuleWidePermissions)).Append(" = [")
-            .Append(string.Join(", ", ModuleWidePermissions)).Append("], ")
-            .Append(nameof(ResourcePermission)).Append(" = ").Append(ResourcePermission ?? "null").Append(", ")
-            .Append(nameof(OwnerArm)).Append(" = ").Append(OwnerArm);
-        return true;
-    }
+    public IReadOnlyList<string> ModuleWidePermissions { get; }
+
+    /// <summary>
+    /// The per-type grant that admits exactly the subject's type, or <c>null</c> for a family that has no per-type
+    /// arm: a <c>null</c> here is the statement "this operation is module-wide only, by decision", and it is stated
+    /// on the row rather than by the operation's absence from the table.
+    /// </summary>
+    public string? ResourcePermission { get; }
+
+    /// <summary>
+    /// How far the document's own uploader gets without any grant (#635 decision 1). <c>Always</c> for Read /
+    /// Delete / Restore — an uploader must be able to see and withdraw their own work whatever state it is in.
+    /// <c>UnlessUnderReview</c> for Edit and Retry: both clear blocking review reasons as a <i>side effect</i>
+    /// (see <see cref="ReviewReasonPolicy.OwnerLocking"/>), so an owner is locked out of modifying a document that
+    /// is blocked on anything but its classification. <c>Never</c> for Review — its three methods exist to be the
+    /// second pair of eyes, and a suspected duplicate invoice is the adversarial case the review queue is for — for
+    /// DeclareType, for Upload (nothing exists yet to own), and for every row with no per-type arm.
+    /// </summary>
+    public DocumentOwnerArm OwnerArm { get; }
 
     private static IReadOnlyList<string> Freeze(IReadOnlyList<string> permissions)
     {
