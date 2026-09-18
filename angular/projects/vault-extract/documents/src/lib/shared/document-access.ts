@@ -84,8 +84,8 @@ function hasGrant(type: DocumentTypeDto, grant: DocumentTypeGrant): boolean {
  *
  * - **uploading** — `Documents.Upload` ("上传到所有文档类型") alone. `ConfirmClassification` left the upload
  *   path in #645;
- * - **reclassifying** — `ConfirmClassification` ("编辑所有类型的文档") **or** `Documents.Upload`. Use
- *   {@link reclassificationTargetTypes}, which holds that OR in one place.
+ * - **reclassifying** — `ConfirmClassification` ("编辑所有类型的文档") **or** `Documents.Upload`, which is
+ *   {@link canAssignAnyDocumentType}; {@link reclassificationTargetTypes} applies it.
  *
  * The role-level answer is snapshotted once per component: ABP's `PermissionService.getGrantedPolicy`
  * re-parses the policy expression and re-reads the config-state snapshot on every call, and these accessors
@@ -102,20 +102,37 @@ export function assignableDocumentTypes(
 }
 
 /**
- * The target types a confirm / reclassify picker may list — the server's `DeclareType` row (#645). Its
- * role-level arm is the only two-member set on the rule table: a reviewer holding `ConfirmClassification`
- * assigns any type, and so does someone holding `Documents.Upload`, who could have uploaded the document
- * into any type in the first place. Otherwise, the types carrying an `Upload` grant.
+ * The role-level arm of the server's `DeclareType` row (#645) — the only two-member set on the rule table: a
+ * reviewer holding `ConfirmClassification` assigns any type, and so does someone holding `Documents.Upload`,
+ * who could have uploaded the document into any type in the first place.
  *
- * One function so the OR exists once: the list's confirm dialog and the detail page's confirm / reclassify
- * dialog both call it, and a second hand-written copy is how the two pickers would drift apart.
+ * #648: AI re-classification needs exactly this, because the classifier — not the caller — names the target,
+ * so the server judges `DeclareType` on the empty subject and only this arm can answer. Exported so the OR
+ * exists in one place on the client: the pickers below and the detail page's "重新分类" button read it.
+ */
+export function canAssignAnyDocumentType(
+  canConfirmClassification: boolean,
+  canUploadIntoAllTypes: boolean,
+): boolean {
+  return canConfirmClassification || canUploadIntoAllTypes;
+}
+
+/**
+ * The target types a confirm / reclassify picker may list — the server's `DeclareType` row (#645). Every type
+ * for {@link canAssignAnyDocumentType}; otherwise the types carrying an `Upload` grant.
+ *
+ * One function so the picker's answer exists once: the list's confirm dialog and the detail page's confirm /
+ * reclassify dialog both call it, and a second hand-written copy is how the two pickers would drift apart.
  */
 export function reclassificationTargetTypes(
   types: readonly DocumentTypeDto[],
   canConfirmClassification: boolean,
   canUploadIntoAllTypes: boolean,
 ): DocumentTypeDto[] {
-  return assignableDocumentTypes(types, canConfirmClassification || canUploadIntoAllTypes);
+  return assignableDocumentTypes(
+    types,
+    canAssignAnyDocumentType(canConfirmClassification, canUploadIntoAllTypes),
+  );
 }
 
 /**

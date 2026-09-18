@@ -177,14 +177,19 @@
           }
         </div>
         <!-- #412: one remediation hint per active reason, so each reason states its own expected action
-             instead of leaning on the single (reason-neutral) headline above. -->
-        @for (detail of document()!.reviewReasonDetails; track detail.reason) {
-          <div class="small text-muted mt-2">
-            {{ reviewReasonHint(detail.reason) | abpLocalization }}
-            @if (detail.missingFieldNames?.length) {
-              <span class="fw-semibold">{{ detail.missingFieldNames!.join('、') }}</span>
-            }
-          </div>
+             instead of leaning on the single (reason-neutral) headline above.
+             #648: each hint is an instruction, so it is shown only to a caller who may follow it — the same
+             gate as the CTA row above. For everyone else the waiting line in the metadata card is the
+             guidance, and the two conditions are complements on a blocking reason. -->
+        @if (canEdit() || canReview()) {
+          @for (detail of document()!.reviewReasonDetails; track detail.reason) {
+            <div class="small text-muted mt-2">
+              {{ reviewReasonHint(detail.reason) | abpLocalization }}
+              @if (detail.missingFieldNames?.length) {
+                <span class="fw-semibold">{{ detail.missingFieldNames!.join('、') }}</span>
+              }
+            </div>
+          }
         }
       </div>
     } @else if (isProcessing()) {
