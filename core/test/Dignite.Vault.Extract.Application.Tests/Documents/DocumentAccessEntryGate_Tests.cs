@@ -486,9 +486,10 @@ public class DocumentAccessEntryGate_Tests : DocumentAccessTestBase
 
         await AsStrangerAsync(() => AppService.GetAsync(document.Id));
 
-        // Entry + the six rules' module-wide names, of which Edit and Review share one: Documents.Default,
-        // ReadAll, ConfirmClassification, Delete, Restore, Pipelines.Retry.
-        Authorization.PolicyChecks.ShouldBeLessThanOrEqualTo(6);
+        // Entry + the six rules' module-wide names, of which Edit and Review share one and — since #645 merged the
+        // role-level restore permission into Documents.Delete — Delete and Restore share another:
+        // Documents.Default, ReadAll, ConfirmClassification, Delete, Pipelines.Retry.
+        Authorization.PolicyChecks.ShouldBeLessThanOrEqualTo(5);
     }
 
     private void ResetCounters()

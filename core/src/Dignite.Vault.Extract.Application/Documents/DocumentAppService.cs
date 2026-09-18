@@ -662,10 +662,11 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         {
             var document = await _documentRepository.GetAsync(id);
 
-            // #632: Documents.Restore, OR a Delete grant on this document's own type — "whoever may delete may
-            // undo". The method-level [Authorize(Documents.Restore)] had to go rather than stay alongside: the
-            // attribute fires before the body and would deny a per-type Delete-grant holder before the OR could
-            // offer its other half, the same reason the edit family and DeleteAsync lost theirs.
+            // The Restore rule: Documents.Delete, OR a Delete grant on this document's own type, OR ownership —
+            // "whoever may delete may undo", at the role level since #645 as at the type level since #632. The
+            // method-level [Authorize] that #632 removed had to go rather than stay alongside: the attribute fires
+            // before the body and would deny a per-type Delete-grant holder before the OR could offer its other
+            // half, the same reason the edit family and DeleteAsync lost theirs.
             //
             // Placement, deliberately, is immediately after the load and BEFORE everything else in this method:
             //   * before the two business guards (RestoreConflict / RestoreTypeDeleted), so an unauthorized caller

@@ -60,10 +60,10 @@ public static class VaultExtractResourcePermissions
     public const string Edit = Name + ".Edit";
 
     /// <summary>
-    /// May soft-delete documents of <b>this</b> document type (#632). Module-wide equivalent:
-    /// <see cref="VaultExtractPermissions.Documents.Delete"/>. <see cref="VaultExtractPermissions.Documents.Restore"/>
-    /// reuses this same grant — whoever may delete may undo (#632: <c>DocumentAccessRule.Restore</c>) — while
-    /// permanent delete stays module-wide only, by decision.
+    /// May soft-delete documents of <b>this</b> document type, and restore them from the recycle bin (#632).
+    /// Module-wide equivalent: <see cref="VaultExtractPermissions.Documents.Delete"/>, which likewise covers both —
+    /// whoever may delete may undo (<c>DocumentAccessRule.Restore</c>; #645 merged the role level too). Permanent
+    /// delete stays module-wide only, by decision.
     /// </summary>
     public const string Delete = Name + ".Delete";
 }

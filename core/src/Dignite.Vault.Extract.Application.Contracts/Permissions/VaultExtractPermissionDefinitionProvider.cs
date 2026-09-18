@@ -20,7 +20,9 @@ public class VaultExtractPermissionDefinitionProvider : PermissionDefinitionProv
         documents.AddChild(VaultExtractPermissions.Documents.Upload, L("Permission:Documents.Upload"));
         documents.AddChild(VaultExtractPermissions.Documents.Delete, L("Permission:Documents.Delete"));
         documents.AddChild(VaultExtractPermissions.Documents.PermanentDelete, L("Permission:Documents.PermanentDelete"));
-        documents.AddChild(VaultExtractPermissions.Documents.Restore, L("Permission:Documents.Restore"));
+        // #645: no separate restore permission. Restoring is Documents.Delete (or the Delete grant, or ownership):
+        // whoever may delete may undo. A grant row still naming the removed permission is inert — ABP ignores
+        // undefined permission names, so no data step is needed.
         documents.AddChild(VaultExtractPermissions.Documents.Export, L("Permission:Documents.Export"));
         documents.AddChild(VaultExtractPermissions.Documents.ConfirmClassification, L("Permission:Documents.ConfirmClassification"));
 

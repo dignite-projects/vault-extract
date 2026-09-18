@@ -228,7 +228,8 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
     /// <summary>
     /// #632 change 2, through the real chain: the same <c>Delete</c> grant that admits <c>DeleteAsync</c> admits
     /// <c>RestoreAsync</c> — whoever may delete may undo. There is no <c>Restore</c> resource permission to grant,
-    /// and this caller holds no module-wide <c>Documents.Restore</c>, so the grant row is doing all the work.
+    /// and this caller holds no module-wide <c>Documents.Delete</c> (which since #645 is also the role-level
+    /// restore), so the grant row is doing all the work.
     /// </summary>
     [Fact]
     public async Task Delete_grant_on_a_type_admits_RestoreAsync_for_that_type_only()

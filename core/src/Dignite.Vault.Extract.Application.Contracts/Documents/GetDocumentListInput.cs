@@ -22,10 +22,9 @@ public class GetDocumentListInput : PagedAndSortedResultRequestDto
 
     /// <summary>
     /// Soft-delete filter: null or false returns only non-deleted documents, the default behavior via
-    /// EF DataFilter; true returns only soft-deleted documents (recycle-bin view), requiring
-    /// <see cref="Documents.VaultExtractPermissions.Documents.Restore"/> — or, since #632, a per-type
-    /// <c>Delete</c> grant on at least one of the layer's document types. The rows themselves stay narrowed by
-    /// the caller's read scope either way.
+    /// EF DataFilter; true returns only soft-deleted documents (recycle-bin view). Admission is entry alone
+    /// (#635): the rows are the caller's read scope's soft-deleted documents, their own included, and whether
+    /// each one may be restored is that row's own <c>rights.canRestore</c>.
     /// </summary>
     public bool? IsDeleted { get; set; }
 

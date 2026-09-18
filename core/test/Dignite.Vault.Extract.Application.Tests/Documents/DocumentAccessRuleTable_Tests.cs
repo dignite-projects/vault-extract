@@ -43,8 +43,9 @@ public class DocumentAccessRuleTable_Tests
             DocumentOwnerArm.Always
         },
         {
+            // #645: whoever may delete may undo, at the role level too — the separate restore permission is gone.
             nameof(DocumentAccessRule.Restore), DocumentAccessRule.Restore,
-            [VaultExtractPermissions.Documents.Restore], VaultExtractResourcePermissions.Delete,
+            [VaultExtractPermissions.Documents.Delete], VaultExtractResourcePermissions.Delete,
             DocumentOwnerArm.Always
         },
         {
@@ -160,6 +161,16 @@ public class DocumentAccessRuleTable_Tests
         DocumentAccessRule.Review.ShouldNotBe(DocumentAccessRule.Edit);
         DocumentAccessRule.Review.OwnerArm.ShouldBe(DocumentOwnerArm.Never);
         DocumentAccessRule.Edit.OwnerArm.ShouldBe(DocumentOwnerArm.UnlessUnderReview);
+    }
+
+    /// <summary>
+    /// #645 decision 2: restore is delete's undo at every level, so the Restore row is the Delete row with the
+    /// same three values — not merely the same per-type grant, as #632 left it.
+    /// </summary>
+    [Fact]
+    public void Restore_is_the_Delete_row()
+    {
+        DocumentAccessRule.Restore.ShouldBe(DocumentAccessRule.Delete);
     }
 
     /// <summary>

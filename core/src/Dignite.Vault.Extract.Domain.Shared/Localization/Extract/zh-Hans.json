@@ -398,7 +398,6 @@
     "Permission:Documents.Delete": "删除文档",
     "Permission:Documents.PermanentDelete": "彻底删除文档",
     "Permission:Documents.Export": "下载数据",
-    "Permission:Documents.Restore": "恢复文档",
     "Permission:Documents.ConfirmClassification": "确认分类",
     "Permission:Documents.Pipelines": "文档流水线",
     "Permission:Documents.Pipelines.Retry": "重试失败的流水线",

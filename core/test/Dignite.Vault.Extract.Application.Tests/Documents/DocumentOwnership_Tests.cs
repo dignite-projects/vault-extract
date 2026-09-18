@@ -234,6 +234,30 @@ public class DocumentOwnership_Tests : DocumentAccessTestBase
         own.IsDeleted.ShouldBeFalse();
     }
 
+    /// <summary>
+    /// #645 acceptance: a caller holding neither <c>Documents.Delete</c> nor a <c>Delete</c> grant restores only
+    /// their own documents — ownership is the one arm left, and it reaches nobody else's, of the same type or
+    /// untyped. (A role holding the removed role-level restore permission without <c>Documents.Delete</c> lands
+    /// exactly here after the upgrade.)
+    /// </summary>
+    [Fact]
+    public async Task Without_Documents_Delete_or_a_Delete_grant_a_caller_restores_only_their_own_documents()
+    {
+        var own = StubDocument(TypeA.Id, creatorId: OwnerId, deleted: true);
+        var theirs = StubDocument(TypeA.Id, creatorId: StrangerId, deleted: true);
+        var theirsUntyped = StubDocument(documentTypeId: null, creatorId: StrangerId, deleted: true);
+        GrantUploaderOnTypeA();
+
+        await AsOwnerAsync(() => AppService.RestoreAsync(own.Id));
+        own.IsDeleted.ShouldBeFalse();
+
+        await Should.ThrowAsync<AbpAuthorizationException>(() => AsOwnerAsync(() => AppService.RestoreAsync(theirs.Id)));
+        await Should.ThrowAsync<AbpAuthorizationException>(
+            () => AsOwnerAsync(() => AppService.RestoreAsync(theirsUntyped.Id)));
+        theirs.IsDeleted.ShouldBeTrue();
+        theirsUntyped.IsDeleted.ShouldBeTrue();
+    }
+
     [Fact]
     public async Task An_uploader_files_their_own_document_into_a_cabinet()
     {

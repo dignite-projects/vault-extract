@@ -191,13 +191,15 @@ public sealed record DocumentAccessRule(
         OwnerArm: DocumentOwnerArm.Always);
 
     /// <summary>
-    /// Restore from the recycle bin. <b>Whoever may delete may undo:</b> the per-type arm is deliberately
-    /// <see cref="VaultExtractResourcePermissions.Delete"/> — the same grant <see cref="Delete"/> uses — rather
-    /// than a fifth resource permission, and the owner arm follows for the same reason. Undoing an operation is
-    /// not a wider right than the operation (#632).
+    /// Restore from the recycle bin. <b>Whoever may delete may undo, at every level:</b> the row is
+    /// <see cref="Delete"/>'s three arms verbatim — <c>Documents.Delete</c>, the <c>Delete</c> grant, owner always.
+    /// Undoing an operation is not a wider right than the operation. #632 made the per-type arm reuse the
+    /// <c>Delete</c> grant rather than add a fifth resource permission; #645 did the same at the role level and
+    /// removed the separate role-level restore permission, which had left role-level restore and role-level delete as
+    /// two rights a role could hold one of.
     /// </summary>
     public static readonly DocumentAccessRule Restore = new(
-        [VaultExtractPermissions.Documents.Restore],
+        [VaultExtractPermissions.Documents.Delete],
         VaultExtractResourcePermissions.Delete,
         OwnerArm: DocumentOwnerArm.Always);
 

@@ -398,7 +398,6 @@
     "Permission:Documents.Delete": "刪除文件",
     "Permission:Documents.PermanentDelete": "永久刪除文件",
     "Permission:Documents.Export": "下載資料",
-    "Permission:Documents.Restore": "還原文件",
     "Permission:Documents.ConfirmClassification": "確認分類",
     "Permission:Documents.Pipelines": "文件管線",
     "Permission:Documents.Pipelines.Retry": "重試失敗的管線",

@@ -398,7 +398,6 @@
     "Permission:Documents.Delete": "Delete Documents",
     "Permission:Documents.PermanentDelete": "Permanently Delete Documents",
     "Permission:Documents.Export": "Download Data",
-    "Permission:Documents.Restore": "Restore Documents",
     "Permission:Documents.ConfirmClassification": "Confirm Classification",
     "Permission:Documents.Pipelines": "Document Pipelines",
     "Permission:Documents.Pipelines.Retry": "Retry Failed Pipelines",

@@ -33,9 +33,15 @@ public class VaultExtractPermissions
         public const string ReadAll = Default + ".ReadAll";
 
         public const string Upload = Default + ".Upload";
+
+        /// <summary>
+        /// Soft-delete documents of <b>every</b> type of the caller's layer, and restore them from the recycle bin
+        /// (#645 merged the former separate restore permission into this name: whoever may delete may undo). The
+        /// per-type counterpart is <see cref="VaultExtractResourcePermissions.Delete"/>.
+        /// </summary>
         public const string Delete = Default + ".Delete";
+
         public const string PermanentDelete = Default + ".PermanentDelete";
-        public const string Restore = Default + ".Restore";
         public const string Export = Default + ".Export";
         public const string ConfirmClassification = Default + ".ConfirmClassification";
 
