@@ -64,7 +64,7 @@
        answer is the caller's whole read scope of deleted documents — their own included — so "no rows" can
        only mean the bin is empty for this caller. The "you may restore nothing" state it used to have has
        no remaining case: admission is entry alone. Being able to SEE a deleted row is not being able to
-       restore it — Restore is Documents.Restore, a Delete grant on the type, or ownership, while Read is a
+       restore it — Restore is Documents.Delete, a Delete grant on the type, or ownership, while Read is a
        separate rule — so a Read-grant-only caller sees rows here with no restore action. Each row's action
        comes from that row's own `rights`, below. -->
   @if (!isLoading() && documents().totalCount === 0) {

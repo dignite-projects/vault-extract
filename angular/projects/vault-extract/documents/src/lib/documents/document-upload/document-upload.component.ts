@@ -66,50 +66,40 @@ export class DocumentUploadComponent implements OnInit {
   cabinets = signal<CabinetDto[]>([]);
   selectedCabinetId = signal<string>('');
 
-  // Declaring a type at upload is equivalent to an operator confirming classification
-  // (#623): it skips the LLM classification call entirely, so it requires
-  // ConfirmClassification. Without permission, the caller falls back to #629's narrower
-  // per-type rule below — every type it does not cover still uploads through ordinary LLM
-  // classification as before.
-  //
-  // #629: a caller without ConfirmClassification no longer has an untyped fallback (the backend
-  // now requires ConfirmClassification for untyped upload too, to keep the per-type ACL from
-  // being bypassed by letting the LLM pick the type). Its type scope narrows to the types it
-  // holds the Resources.Upload grant on, reported per-type on DocumentTypeDto.resourcePermissions
-  // by GetVisibleAsync. Such a caller therefore MUST declare a type to upload at all.
-  readonly canDeclareType = this.permissionService.getGrantedPolicy(
-    EXTRACT_PERMISSIONS.Documents.ConfirmClassification,
+  // #645: `Documents.Upload` ("上传到所有文档类型") means "upload into every type", and that includes
+  // an untyped upload the AI then classifies. Without it, a caller uploads through type-level Upload grants
+  // alone ("上传到此文档类型"), each of which suffices on its own since #645 — and such a caller MUST name
+  // one of those types, because the classifier may land an untyped document in any type (#629's reason,
+  // unchanged). ConfirmClassification plays no part in uploading any more.
+  readonly canUploadIntoAllTypes = this.permissionService.getGrantedPolicy(
+    EXTRACT_PERMISSIONS.Documents.Upload,
   );
   selectedDocumentTypeId = signal<string>('');
 
-  // The types this caller may actually declare: every type of the layer for a ConfirmClassification
-  // holder (unchanged #623 behaviour), otherwise only the ones carrying its own Upload resource grant.
-  // #635: the same shared answer the confirm and reclassify pickers use — one implementation of
-  // "which types may I name", rather than this card's own third copy of it.
+  // The types this caller may upload into: every type of the layer with `Documents.Upload`, otherwise only
+  // the ones carrying its own Upload grant. The same shared answer the confirm and reclassify pickers
+  // build on (#635) — one implementation of "which types may I name".
   readonly assignableTypes = computed(() =>
-    assignableDocumentTypes(this.documentTypes.value(), this.canDeclareType),
+    assignableDocumentTypes(this.documentTypes.value(), this.canUploadIntoAllTypes),
   );
-  readonly requiresTypeSelection = !this.canDeclareType;
-  // Loading folds in here (not just into hasNoGrantableTypes): until the types fetch resolves, the
-  // declarable set cannot be trusted, so the picker/dropzone must stay disabled rather than briefly
-  // usable with a set that is about to change. Membership (not just non-empty) guards a stale selection
-  // that no longer names one of the caller's currently declarable types (#629 code review).
+  // Also the gate on the untyped option ("交由 AI 分类"): the template offers it exactly when no type has
+  // to be chosen.
+  readonly requiresTypeSelection = !this.canUploadIntoAllTypes;
+  // Until the types fetch resolves, the declarable set cannot be trusted, so the picker/dropzone must stay
+  // disabled rather than briefly usable with a set that is about to change. Membership (not just non-empty)
+  // guards a stale selection that no longer names one of the caller's currently declarable types (#629 code
+  // review).
   readonly typeSelectionSatisfied = computed(
     () =>
       !this.requiresTypeSelection ||
       (!this.documentTypes.isLoading() &&
         this.assignableTypes().some(t => t.id === this.selectedDocumentTypeId())),
   );
-  readonly hasNoGrantableTypes = computed(
-    () =>
-      this.requiresTypeSelection &&
-      !this.documentTypes.isLoading() &&
-      !this.documentTypes.error() &&
-      this.assignableTypes().length === 0,
-  );
-  // Distinct from hasNoGrantableTypes: the fetch itself failed, so "no types" cannot be trusted as
-  // "nothing granted" — telling the operator to ask an admin for a grant they may already have would
-  // be actively misleading.
+  // The types fetch failed, so whether this caller holds any Upload grant is unknown. This is the way back
+  // for the grant-only uploader (#645): the overview still shows this card when the type store has FAILED,
+  // precisely so that this state and its retry are reachable — while an ANSWERED store with no grant shows
+  // the overview's read-only card instead. That is also why this card no longer has a "you have been granted
+  // no type" state: in the answered state the overview only mounts it when a grant exists.
   readonly showTypesUnavailable = computed(
     () => this.requiresTypeSelection && !this.documentTypes.isLoading() && this.documentTypes.error(),
   );

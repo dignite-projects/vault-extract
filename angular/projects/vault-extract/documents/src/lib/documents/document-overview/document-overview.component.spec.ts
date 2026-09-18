@@ -58,9 +58,10 @@ function setup(
     ],
   });
 
-  const component = TestBed.createComponent(DocumentOverviewComponent).componentInstance;
+  const fixture = TestBed.createComponent(DocumentOverviewComponent);
+  const component = fixture.componentInstance;
   component.ngOnInit();
-  return { component, statisticsSpy };
+  return { component, fixture, statisticsSpy };
 }
 
 const READ_ALL = new Set<string>([
@@ -154,5 +155,99 @@ describe('DocumentOverviewComponent — the types come from the store (#635)', (
 
     expect(component.documentTypes.error()).toBe(true);
     expect(component.documentTypes.value()).toEqual([]);
+  });
+});
+
+// #645 decision 4: the upload slot. A type-level Upload grant alone now admits an upload, so whether this
+// caller may upload depends on the visible types — and the store holding them can be loading, answered or
+// failed. Each state has one rendering; see DocumentOverviewComponent.uploadSlot.
+describe('DocumentOverviewComponent — who sees the upload card (#645)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  const UPLOAD_GRANTED: DocumentTypeDto = {
+    id: 'type-u',
+    typeCode: 'receipt',
+    displayName: 'Receipt',
+    resourcePermissions: { [RESOURCES.Upload]: true },
+  };
+  const UPLOAD_INTO_ALL = new Set<string>([
+    EXTRACT_PERMISSIONS.Documents.Default,
+    EXTRACT_PERMISSIONS.Documents.Upload,
+  ]);
+
+  it('shows the card to a grant-only uploader — entry plus an Upload grant, no Documents.Upload', () => {
+    const { component, fixture } = setup(ENTRY_ONLY, [TYPE_WITHOUT_EDIT, UPLOAD_GRANTED]);
+    fixture.detectChanges();
+
+    expect(component.uploadSlot()).toBe('card');
+    expect(fixture.nativeElement.querySelector('lib-document-upload')).not.toBeNull();
+  });
+
+  it('shows the card to a Documents.Upload holder with no grant on any type', () => {
+    const { component } = setup(UPLOAD_INTO_ALL, [TYPE_WITHOUT_EDIT]);
+
+    expect(component.uploadSlot()).toBe('card');
+  });
+
+  it('shows the card to a Documents.Upload holder without waiting for the types', () => {
+    // Its untyped upload needs no type list, so there is nothing to wait for.
+    const pending = new Subject<DocumentTypeDto[]>();
+    const { component } = setup(UPLOAD_INTO_ALL, [], () => pending.asObservable());
+
+    expect(component.documentTypes.isLoading()).toBe(true);
+    expect(component.uploadSlot()).toBe('card');
+  });
+
+  it('shows the read-only card, not the upload card, to a caller with neither once the store has answered', () => {
+    const { component, fixture } = setup(ENTRY_ONLY, [TYPE_WITHOUT_EDIT]);
+    fixture.detectChanges();
+
+    expect(component.uploadSlot()).toBe('readOnly');
+    expect(fixture.nativeElement.querySelector('lib-document-upload')).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Document:Home:ReadOnlyTitle');
+  });
+
+  it('shows neither card while the store has not answered — no flash of either', () => {
+    const pending = new Subject<DocumentTypeDto[]>();
+    const { component, fixture } = setup(ENTRY_ONLY, [], () => pending.asObservable());
+    fixture.detectChanges();
+
+    expect(component.uploadSlot()).toBe('pending');
+    expect(fixture.nativeElement.querySelector('lib-document-upload')).toBeNull();
+    expect(fixture.nativeElement.textContent).not.toContain('Document:Home:ReadOnlyTitle');
+
+    // The answer arrives: a grant, so the card — never the read-only card first.
+    pending.next([UPLOAD_GRANTED]);
+    expect(component.uploadSlot()).toBe('card');
+  });
+
+  it('mounts the card when the store FAILED, so its retry can bring a grant-only uploader back', () => {
+    // A failure is not an answer about grants. The card's unavailable state is the only retry a grant-only
+    // uploader has; showing the read-only card here would tell them they may not upload, which is unknown.
+    // The server stays down until the test says otherwise. Every automatic retry — the overview's on arrival,
+    // the card's when it mounts — therefore fails too, and only the operator's retry can succeed.
+    let serverUp = false;
+    const getVisible = vi.fn(() =>
+      serverUp ? of([UPLOAD_GRANTED]) : throwError(() => new Error('offline')),
+    );
+    const { component, fixture } = setup(ENTRY_ONLY, [], getVisible);
+    fixture.detectChanges();
+
+    expect(component.documentTypes.error()).toBe(true);
+    expect(component.uploadSlot()).toBe('card');
+    expect(fixture.nativeElement.textContent).toContain('Document:Upload:TypesUnavailable');
+
+    serverUp = true;
+    const retry = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>)
+      .find(b => b.textContent?.includes('::Refresh'));
+    expect(retry).toBeDefined();
+    retry!.click();
+    fixture.detectChanges();
+
+    expect(component.uploadSlot()).toBe('card');
+    expect(component.documentTypes.value()).toEqual([UPLOAD_GRANTED]);
+    expect(fixture.nativeElement.textContent).not.toContain('Document:Upload:TypesUnavailable');
   });
 });

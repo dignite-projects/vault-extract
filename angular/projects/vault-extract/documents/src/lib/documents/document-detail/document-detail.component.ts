@@ -36,7 +36,7 @@ import {
   EXTRACT_PERMISSIONS,
   PipelineRunStatus,
 } from '@dignite/ng.vault-extract';
-import { assignableDocumentTypes, rightsOf } from '../../shared/document-access';
+import { reclassificationTargetTypes, rightsOf } from '../../shared/document-access';
 import { DocumentTypesStore } from '../../shared/document-types.store';
 import { stripMarkdownCodeFences } from '../../shared/strip-code-fences';
 import { DocumentFileBlobService } from '../../shared/document-file-blob.service';
@@ -133,10 +133,15 @@ export class DocumentDetailComponent implements OnInit {
   readonly canViewCabinets = this.permissionService.getGrantedPolicy(
     EXTRACT_PERMISSIONS.Cabinets.Default,
   );
-  // The module-wide half of "which types may I assign" — the only question about this page that is still
+  // The role-level half of "which types may I assign" — the only question about this page that is still
   // the client's to answer, because a reclassification's TARGET type is not the document being judged.
+  // #645: two permissions admit every target type — ConfirmClassification ("编辑所有类型的文档") and
+  // Documents.Upload ("上传到所有文档类型"), mirroring the server's DeclareType row.
   readonly canConfirmClassification = this.permissionService.getGrantedPolicy(
     EXTRACT_PERMISSIONS.Documents.ConfirmClassification,
+  );
+  readonly canUploadIntoAllTypes = this.permissionService.getGrantedPolicy(
+    EXTRACT_PERMISSIONS.Documents.Upload,
   );
 
   document = signal<DocumentDto | null>(null);
@@ -188,11 +193,16 @@ export class DocumentDetailComponent implements OnInit {
   isSavingMarkdown = signal(false);
   markdownDraft = signal('');
   reprocessOnSave = signal(false);
-  // #632: the types this caller may ASSIGN — ConfirmClassification module-wide, or an Upload grant on that
-  // particular type. Confirming and reclassifying both go through the one picker below, and both are judged
-  // against the TARGET type by the backend, so offering a type outside this set only builds a 403.
+  // #632: the types this caller may ASSIGN. #645: every type for ConfirmClassification or Documents.Upload,
+  // otherwise the types carrying an Upload grant. Confirming and reclassifying both go through the one
+  // picker below, and both are judged against the TARGET type by the backend, so offering a type outside
+  // this set only builds a 403.
   readonly assignableTypes = computed(() =>
-    assignableDocumentTypes(this.documentTypes.value(), this.canConfirmClassification),
+    reclassificationTargetTypes(
+      this.documentTypes.value(),
+      this.canConfirmClassification,
+      this.canUploadIntoAllTypes,
+    ),
   );
 
   // #395: manual confirm/assign classification — the authoritative override for UnresolvedClassification,

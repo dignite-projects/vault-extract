@@ -21,7 +21,7 @@ import {
 import { EMPTY, Subject } from 'rxjs';
 import { catchError, switchMap, tap } from 'rxjs/operators';
 import { DocumentUploadComponent } from '../document-upload/document-upload.component';
-import { canEditAnyDocumentType } from '../../shared/document-access';
+import { canEditAnyDocumentType, canUploadIntoAnyDocumentType } from '../../shared/document-access';
 import { DocumentTypesStore } from '../../shared/document-types.store';
 import { formatBytes } from '../../shared/format-bytes';
 
@@ -41,9 +41,34 @@ export class DocumentOverviewComponent implements OnInit {
   // and keep its own typesLoading / typesUnavailable pair, which it then had to forward to the upload card.
   readonly documentTypes = inject(DocumentTypesStore);
 
-  readonly canUpload = this.permissionService.getGrantedPolicy(
+  // #645: `Documents.Upload` ("上传到所有文档类型") — the role-level half of "may this caller upload".
+  readonly canUploadIntoAllTypes = this.permissionService.getGrantedPolicy(
     EXTRACT_PERMISSIONS.Documents.Upload,
   );
+
+  /**
+   * What the upload slot shows (#645). A type-level `Upload` grant alone now admits an upload, so "may this
+   * caller upload" is no longer one permission: it needs the visible types too, and those come from a store
+   * that can be loading, answered, or failed. Each state has one honest rendering.
+   *
+   * - `'card'` — the caller may upload: `Documents.Upload`, or an `Upload` grant on some visible type. A
+   *   `Documents.Upload` holder never waits on the store, because the untyped upload needs no type list.
+   * - `'pending'` — no role-level right and the store has not answered yet. Neither the card nor the
+   *   read-only card: either could be wrong a moment later, and flashing one then swapping it is exactly the
+   *   misreport this avoids.
+   * - `'card'` again when the store FAILED. That is not an answer about grants, and the card's own
+   *   "types unavailable" state carries the retry — the only way back for a grant-only uploader.
+   * - `'readOnly'` — the store answered and there is no grant: the caller may not upload.
+   */
+  readonly uploadSlot = computed<'card' | 'pending' | 'readOnly'>(() => {
+    if (canUploadIntoAnyDocumentType(this.documentTypes.value(), this.canUploadIntoAllTypes)) {
+      return 'card';
+    }
+    if (this.documentTypes.isLoading()) {
+      return 'pending';
+    }
+    return this.documentTypes.error() ? 'card' : 'readOnly';
+  });
   // #632: the statistics card is a WHOLE-LAYER aggregate (per-lifecycle counts, needs-review count, total
   // upload size) and DocumentStatisticsAppService now requires Documents.ReadAll — recomputing it inside one
   // caller's type scope would be a different statistic wearing the same name. Without ReadAll the card is

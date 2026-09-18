@@ -10,16 +10,22 @@ import { DocumentRightsDto, DocumentTypeDto, EXTRACT_PERMISSIONS } from '@dignit
  * could not express ownership at all, which is not a property of a type. The judgment now happens once, on
  * the server, and rides down with the row as {@link DocumentRightsDto} — see {@link rightsOf}.
  *
- * What is left here are the two questions that are genuinely about **types** rather than about a document,
- * and so have no row to carry their answer:
+ * What is left here are the questions that are genuinely about **types** rather than about a document, and
+ * so have no row to carry their answer:
  *
- * - {@link assignableDocumentTypes} — which types may this caller *declare* (the upload card's picker, and
- *   the confirm / reclassify pickers, whose target type is judged separately from the document itself);
+ * - {@link assignableDocumentTypes} — which types may this caller *name*: the upload card's picker, and via
+ *   {@link reclassificationTargetTypes} the confirm / reclassify pickers, whose target type is judged
+ *   separately from the document itself;
+ * - {@link canUploadIntoAnyDocumentType} — may this caller upload at all, which gates the upload entry points;
  * - {@link canEditAnyDocumentType} — may this caller run the edit family on *anything* at all, which gates
  *   the navigational review-queue affordances that have no single document to judge.
  *
- * Both are answered from `IDocumentTypeAppService.GetVisibleAsync`'s per-type `resourcePermissions`, exactly
- * as before. Neither is a security boundary; both only decide what the UI offers.
+ * All are answered from `IDocumentTypeAppService.GetVisibleAsync`'s per-type `resourcePermissions`. None is
+ * a security boundary; they only decide what the UI offers.
+ *
+ * #645: every one of them follows the server's one pattern — a role-level permission means "every type", a
+ * type-level grant means "this type" — so each takes the role-level answer as a boolean and reads the
+ * type-level answer from the list.
  */
 
 /** Everything denied — the fail-closed answer when a row carries no rights at all. */
@@ -59,27 +65,70 @@ export function rightsOf(document: DocumentRightsCarrier | null | undefined): Re
   };
 }
 
+/** Whether this type carries the caller's own type-level `Upload` grant ("上传到此文档类型"). */
+function hasUploadGrant(type: DocumentTypeDto): boolean {
+  return type.resourcePermissions?.[EXTRACT_PERMISSIONS.DocumentTypes.Resources.Upload] === true;
+}
+
 /**
- * The types this caller may **assign** to a document — the only ones a declare / confirm / reclassify picker
- * may list. `Documents.ConfirmClassification` admits every type of the layer; otherwise it is the types
- * carrying this caller's own `Upload` grant. That is the `DeclareType` row of the server's rule table
- * (#629, unchanged by #635): deciding a document's type at upload is the same act as confirming its
- * classification afterwards.
+ * The types this caller may **name** for a document — the only ones a picker may list. Every type of the
+ * layer when `canAssignAllTypes`; otherwise the types carrying the caller's own `Upload` grant, which is the
+ * type-level arm of both the server's `Upload` and `DeclareType` rows.
  *
- * `canConfirmClassification` is the module-wide half, snapshotted once per component: ABP's
- * `PermissionService.getGrantedPolicy` re-parses the policy expression and re-reads the config-state snapshot
- * on every call, and these accessors run inside templates on every change-detection pass.
+ * `canAssignAllTypes` is the role-level arm, and which permission it is depends on the question (#645):
+ *
+ * - **uploading** — `Documents.Upload` ("上传到所有文档类型") alone. `ConfirmClassification` left the upload
+ *   path in #645;
+ * - **reclassifying** — `ConfirmClassification` ("编辑所有类型的文档") **or** `Documents.Upload`. Use
+ *   {@link reclassificationTargetTypes}, which holds that OR in one place.
+ *
+ * The role-level answer is snapshotted once per component: ABP's `PermissionService.getGrantedPolicy`
+ * re-parses the policy expression and re-reads the config-state snapshot on every call, and these accessors
+ * run inside templates on every change-detection pass.
  */
 export function assignableDocumentTypes(
   types: readonly DocumentTypeDto[],
-  canConfirmClassification: boolean,
+  canAssignAllTypes: boolean,
 ): DocumentTypeDto[] {
-  if (canConfirmClassification) {
+  if (canAssignAllTypes) {
     return [...types];
   }
-  return types.filter(
-    t => t.resourcePermissions?.[EXTRACT_PERMISSIONS.DocumentTypes.Resources.Upload] === true,
-  );
+  return types.filter(hasUploadGrant);
+}
+
+/**
+ * The target types a confirm / reclassify picker may list — the server's `DeclareType` row (#645). Its
+ * role-level arm is the only two-member set on the rule table: a reviewer holding `ConfirmClassification`
+ * assigns any type, and so does someone holding `Documents.Upload`, who could have uploaded the document
+ * into any type in the first place. Otherwise, the types carrying an `Upload` grant.
+ *
+ * One function so the OR exists once: the list's confirm dialog and the detail page's confirm / reclassify
+ * dialog both call it, and a second hand-written copy is how the two pickers would drift apart.
+ */
+export function reclassificationTargetTypes(
+  types: readonly DocumentTypeDto[],
+  canConfirmClassification: boolean,
+  canUploadIntoAllTypes: boolean,
+): DocumentTypeDto[] {
+  return assignableDocumentTypes(types, canConfirmClassification || canUploadIntoAllTypes);
+}
+
+/**
+ * Whether the caller may upload at all: `Documents.Upload` ("upload into every type", which also admits an
+ * untyped upload the AI classifies), or a type-level `Upload` grant on at least one visible type — which
+ * since #645 suffices **on its own**. Gates the upload entry points (the overview's upload card, the list's
+ * upload button), which would otherwise hide from exactly the ordinary uploader #645 describes: entry plus
+ * an `Upload` grant on each type they may upload into, and nothing else.
+ *
+ * The type-level half can only answer once the visible types are in hand. Callers must therefore not read
+ * `false` from an empty, still-loading or failed type list as "may not upload" — see the overview's upload
+ * slot for how the three states are told apart.
+ */
+export function canUploadIntoAnyDocumentType(
+  types: readonly DocumentTypeDto[],
+  canUploadIntoAllTypes: boolean,
+): boolean {
+  return canUploadIntoAllTypes || types.some(hasUploadGrant);
 }
 
 /**

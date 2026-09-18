@@ -14,14 +14,11 @@ import {
 import { DocumentTypesStore } from '../../shared/document-types.store';
 import { DocumentUploadComponent } from './document-upload.component';
 
-// #623: the "declared document type" selector is an operator-confirmation shortcut that
-// skips LLM classification on the backend (ConfirmClassification semantics), so it must
-// only render for callers holding that permission, and the selection must flow through to
-// every file in a batch upload.
+// #645: `Documents.Upload` means "upload into every type" (untyped included); a type-level Upload grant
+// means "upload into this type" and suffices on its own; ConfirmClassification is not part of uploading.
 //
-// #635 decision 7: the type list is neither fetched here nor handed down by the parent any more — it comes
-// from the shared DocumentTypesStore, which also answers "still loading" and "the fetch failed" for itself.
-// These specs drive the real store by stubbing the one call behind it.
+// #635 decision 7: the type list comes from the shared DocumentTypesStore, which also answers "still loading"
+// and "the fetch failed" for itself. These specs drive the real store by stubbing the one call behind it.
 
 const DOCUMENT_TYPES: DocumentTypeDto[] = [
   { id: 'type-1', displayName: 'Contract' },
@@ -68,253 +65,202 @@ async function setup(
   return { fixture, uploadSpy, toasterSpy, store: TestBed.inject(DocumentTypesStore) };
 }
 
-describe('DocumentUploadComponent — declared document type (#623)', () => {
+const UPLOAD_RESOURCE_KEY = EXTRACT_PERMISSIONS.DocumentTypes.Resources.Upload;
+
+/** `Documents.Upload` ("上传到所有文档类型"): upload into every type, and untyped. */
+const UPLOAD_INTO_ALL = new Set([EXTRACT_PERMISSIONS.Documents.Default, EXTRACT_PERMISSIONS.Documents.Upload]);
+/** #645's ordinary uploader: entry, plus type-level Upload grants carried on the types themselves. */
+const GRANT_ONLY = new Set([EXTRACT_PERMISSIONS.Documents.Default]);
+/** A reviewer who may edit every type but holds no upload right of any kind. */
+const CONFIRM_ONLY = new Set([
+  EXTRACT_PERMISSIONS.Documents.Default,
+  EXTRACT_PERMISSIONS.Documents.ConfirmClassification,
+]);
+
+const GRANTED_A = { id: 'type-1', displayName: 'Contract', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: true } };
+const GRANTED_B = { id: 'type-2', displayName: 'Invoice', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: true } };
+const NOT_GRANTED = { id: 'type-3', displayName: 'Resume', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: false } };
+
+function optionValues(fixture: ComponentFixture<DocumentUploadComponent>): string[] {
+  const select = fixture.nativeElement.querySelector('.document-type-select select');
+  if (!select) return [];
+  return Array.from(select.querySelectorAll('option') as NodeListOf<HTMLOptionElement>).map(o => o.value);
+}
+
+function hasUntypedOption(fixture: ComponentFixture<DocumentUploadComponent>): boolean {
+  return (fixture.nativeElement.textContent as string).includes('Document:LetAiClassify');
+}
+
+// #645 decision 4: the untyped option ("交由 AI 分类") exists exactly for `Documents.Upload`. A caller whose
+// upload right is per-type must name the type — the classifier may land an untyped document in any type,
+// which is #629's reason and is unchanged. ConfirmClassification no longer plays any part here.
+describe('DocumentUploadComponent — the untyped option (#645)', () => {
   beforeEach(() => {
     TestBed.resetTestingModule();
   });
 
-  it('hides the selector without ConfirmClassification (Upload only)', async () => {
-    const { fixture } = await setup(new Set([EXTRACT_PERMISSIONS.Documents.Upload]));
+  it('is offered with Documents.Upload, and an untyped upload sends no DocumentTypeId', async () => {
+    const { fixture, uploadSpy } = await setup(UPLOAD_INTO_ALL, [GRANTED_A, NOT_GRANTED]);
     const component = fixture.componentInstance;
 
-    expect(component.canDeclareType).toBe(false);
-    expect(fixture.nativeElement.querySelector('.document-type-select')).toBeNull();
-  });
-
-  it('hides the selector with Upload + Documents.Default but without ConfirmClassification', async () => {
-    // Proves the ConfirmClassification conjunct is required on its own — holding the list-read
-    // permission (Documents.Default) is not a substitute for the confirmation permission.
-    const { fixture } = await setup(
-      new Set([EXTRACT_PERMISSIONS.Documents.Upload, EXTRACT_PERMISSIONS.Documents.Default]),
-    );
-    const component = fixture.componentInstance;
-
-    expect(component.canDeclareType).toBe(false);
-    expect(fixture.nativeElement.querySelector('.document-type-select')).toBeNull();
-  });
-
-  it('shows the selector with Upload + ConfirmClassification, rendering options from the input', async () => {
-    const { fixture } = await setup(
-      new Set([EXTRACT_PERMISSIONS.Documents.Upload, EXTRACT_PERMISSIONS.Documents.ConfirmClassification]),
-    );
-    const component = fixture.componentInstance;
-
-    expect(component.canDeclareType).toBe(true);
-    const select = fixture.nativeElement.querySelector('.document-type-select');
-    expect(select).not.toBeNull();
-    const options = select.querySelectorAll('option');
-    // "Let AI classify" placeholder + one option per declared type.
-    expect(options.length).toBe(DOCUMENT_TYPES.length + 1);
-  });
-
-  it('hides the selector when granted but the input list is empty', async () => {
-    const { fixture } = await setup(
-      new Set([EXTRACT_PERMISSIONS.Documents.Upload, EXTRACT_PERMISSIONS.Documents.ConfirmClassification]),
-      [],
-    );
-    const component = fixture.componentInstance;
-
-    expect(component.canDeclareType).toBe(true);
-    expect(fixture.nativeElement.querySelector('.document-type-select')).toBeNull();
-  });
-
-  it('passes the selected DocumentTypeId through to every file in a batch upload', async () => {
-    const { fixture, uploadSpy } = await setup(
-      new Set([EXTRACT_PERMISSIONS.Documents.Upload, EXTRACT_PERMISSIONS.Documents.ConfirmClassification]),
-    );
-    const component = fixture.componentInstance;
-    component.selectedDocumentTypeId.set('type-1');
-
-    (component as any).uploadFiles([fakeFile('a.pdf'), fakeFile('b.pdf')]);
-
-    expect(uploadSpy).toHaveBeenCalledTimes(2);
-    expect(uploadSpy).toHaveBeenNthCalledWith(1, expect.any(File), undefined, 'type-1');
-    expect(uploadSpy).toHaveBeenNthCalledWith(2, expect.any(File), undefined, 'type-1');
-  });
-
-  it('does not send a DocumentTypeId when no type is declared', async () => {
-    const { fixture, uploadSpy } = await setup(
-      new Set([EXTRACT_PERMISSIONS.Documents.Upload, EXTRACT_PERMISSIONS.Documents.ConfirmClassification]),
-    );
-    const component = fixture.componentInstance;
+    expect(component.canUploadIntoAllTypes).toBe(true);
+    expect(component.requiresTypeSelection).toBe(false);
+    expect(hasUntypedOption(fixture)).toBe(true);
 
     (component as any).uploadFiles([fakeFile('a.pdf')]);
-
     expect(uploadSpy).toHaveBeenCalledWith(expect.any(File), undefined, undefined);
+  });
+
+  it('is not offered to a grant-only uploader', async () => {
+    const { fixture } = await setup(GRANT_ONLY, [GRANTED_A, GRANTED_B]);
+
+    expect(fixture.componentInstance.requiresTypeSelection).toBe(true);
+    expect(hasUntypedOption(fixture)).toBe(false);
+  });
+
+  it('is not offered for ConfirmClassification, which left the upload path', async () => {
+    const { fixture } = await setup(CONFIRM_ONLY, [GRANTED_A]);
+
+    expect(fixture.componentInstance.canUploadIntoAllTypes).toBe(false);
+    expect(hasUntypedOption(fixture)).toBe(false);
   });
 });
 
-// #629: an Upload-only caller (no ConfirmClassification) no longer gets an untyped fallback — the
-// backend now requires ConfirmClassification for untyped upload too, to keep the per-type ACL from
-// being bypassed by letting the LLM pick the type. Such a caller's declarable scope narrows to the
-// types DocumentTypeDto.resourcePermissions reports its own Upload grant on.
-const UPLOAD_RESOURCE_KEY = EXTRACT_PERMISSIONS.DocumentTypes.Resources.Upload;
-
-describe('DocumentUploadComponent — per-type upload grant (#629)', () => {
+// #645 decision 4: the picker is `assignableDocumentTypes(types, Documents.Upload)` — every type with the
+// role-level permission, otherwise exactly the types carrying the caller's own Upload grant.
+describe('DocumentUploadComponent — the type picker (#645)', () => {
   beforeEach(() => {
     TestBed.resetTestingModule();
   });
 
-  it('offers only the granted type, hides LetAiClassify, and pre-selects it when exactly one type is granted', async () => {
-    const types = [
-      { id: 'type-1', displayName: 'Contract', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: true } },
-      { id: 'type-2', displayName: 'Invoice', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: false } },
-    ];
-    const { fixture, uploadSpy } = await setup(new Set([EXTRACT_PERMISSIONS.Documents.Upload]), types);
+  it('lists every type, after the untyped option, for Documents.Upload', async () => {
+    const { fixture } = await setup(UPLOAD_INTO_ALL, [GRANTED_A, NOT_GRANTED]);
+
+    expect(fixture.componentInstance.assignableTypes()).toEqual([GRANTED_A, NOT_GRANTED]);
+    // The leading '' is the untyped option here, not a placeholder.
+    expect(optionValues(fixture)).toEqual(['', 'type-1', 'type-3']);
+  });
+
+  it('lists only the granted types for a grant-only uploader, behind a disabled placeholder', async () => {
+    const { fixture } = await setup(GRANT_ONLY, [GRANTED_A, GRANTED_B, NOT_GRANTED]);
     const component = fixture.componentInstance;
 
-    expect(component.canDeclareType).toBe(false);
-    expect(component.assignableTypes()).toEqual([types[0]]);
+    expect(component.assignableTypes()).toEqual([GRANTED_A, GRANTED_B]);
+    expect(optionValues(fixture)).toEqual(['', 'type-1', 'type-2']);
+    const placeholder = fixture.nativeElement.querySelector('.document-type-select option') as HTMLOptionElement;
+    expect(placeholder.disabled).toBe(true);
+    // Two choices: nothing is pre-selected.
+    expect(component.selectedDocumentTypeId()).toBe('');
+  });
 
-    const select = fixture.nativeElement.querySelector('.document-type-select');
-    expect(select).not.toBeNull();
-    const options: HTMLOptionElement[] = Array.from(select.querySelectorAll('option'));
-    // Disabled placeholder first (required mode), then the single granted type — no LetAiClassify.
-    expect(options.length).toBe(2);
-    expect(options[0].value).toBe('');
-    expect(options[0].disabled).toBe(true);
-    expect(options[1].value).toBe('type-1');
+  it('lists only the Upload-granted types for ConfirmClassification — editing every type is not uploading into it', async () => {
+    const { fixture } = await setup(CONFIRM_ONLY, [GRANTED_A, NOT_GRANTED]);
 
-    // Pre-selected: exactly one declarable type, nothing to actually pick. The placeholder is never
-    // the visible choice here — selectedDocumentTypeId already points at the real option.
+    expect(fixture.componentInstance.assignableTypes()).toEqual([GRANTED_A]);
+    expect(optionValues(fixture)).toEqual(['', 'type-1']);
+  });
+
+  it('pre-selects the only granted type, and uploads into it', async () => {
+    const { fixture, uploadSpy } = await setup(GRANT_ONLY, [GRANTED_A, NOT_GRANTED]);
+    const component = fixture.componentInstance;
+
+    // Exactly one declarable type: nothing to actually pick.
     expect(component.selectedDocumentTypeId()).toBe('type-1');
 
     (component as any).uploadFiles([fakeFile('a.pdf')]);
     expect(uploadSpy).toHaveBeenCalledWith(expect.any(File), undefined, 'type-1');
   });
 
-  it('offers only the granted types among several and does not pre-select when more than one is granted', async () => {
-    const types = [
-      { id: 'type-1', displayName: 'Contract', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: true } },
-      { id: 'type-2', displayName: 'Invoice', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: true } },
-      { id: 'type-3', displayName: 'Resume', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: false } },
-    ];
-    const { fixture } = await setup(new Set([EXTRACT_PERMISSIONS.Documents.Upload]), types);
+  it('passes the selected DocumentTypeId through to every file in a batch upload', async () => {
+    const { fixture, uploadSpy } = await setup(UPLOAD_INTO_ALL, [GRANTED_A, NOT_GRANTED]);
     const component = fixture.componentInstance;
+    component.selectedDocumentTypeId.set('type-3');
 
-    expect(component.assignableTypes()).toEqual([types[0], types[1]]);
+    (component as any).uploadFiles([fakeFile('a.pdf'), fakeFile('b.pdf')]);
 
-    const select = fixture.nativeElement.querySelector('.document-type-select');
-    expect(select).not.toBeNull();
-    const options: HTMLOptionElement[] = Array.from(select.querySelectorAll('option'));
-    // No LetAiClassify — instead a disabled placeholder leads, since nothing is pre-selected when
-    // more than one type is granted; the two granted types follow it.
-    expect(options[0].value).toBe('');
-    expect(options[0].disabled).toBe(true);
-    expect(options.map(o => o.value)).toEqual(['', 'type-1', 'type-2']);
-    expect(component.selectedDocumentTypeId()).toBe('');
+    expect(uploadSpy).toHaveBeenCalledTimes(2);
+    expect(uploadSpy).toHaveBeenNthCalledWith(1, expect.any(File), undefined, 'type-3');
+    expect(uploadSpy).toHaveBeenNthCalledWith(2, expect.any(File), undefined, 'type-3');
   });
 
-  it('renders the empty state and keeps the file input out of reach when no type is granted', async () => {
-    const types = [
-      { id: 'type-1', displayName: 'Contract', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: false } },
-    ];
-    const { fixture } = await setup(new Set([EXTRACT_PERMISSIONS.Documents.Upload]), types);
-    const component = fixture.componentInstance;
+  it('hides the selector for Documents.Upload when the layer has no types, and still uploads untyped', async () => {
+    const { fixture, uploadSpy } = await setup(UPLOAD_INTO_ALL, []);
 
-    expect(component.assignableTypes()).toEqual([]);
-    expect(component.hasNoGrantableTypes()).toBe(true);
     expect(fixture.nativeElement.querySelector('.document-type-select')).toBeNull();
-    expect(fixture.nativeElement.querySelector('input[type="file"]')).toBeNull();
-    expect(fixture.nativeElement.textContent).toContain('Document:Upload:NoGrantableTypes');
-  });
-
-  it('a ConfirmClassification caller still sees every type plus LetAiClassify (unchanged #623 behaviour)', async () => {
-    const { fixture } = await setup(
-      new Set([EXTRACT_PERMISSIONS.Documents.Upload, EXTRACT_PERMISSIONS.Documents.ConfirmClassification]),
-      DOCUMENT_TYPES,
-    );
-    const component = fixture.componentInstance;
-
-    expect(component.assignableTypes()).toEqual(DOCUMENT_TYPES);
-    const select = fixture.nativeElement.querySelector('.document-type-select');
-    const options = select.querySelectorAll('option');
-    expect(options.length).toBe(DOCUMENT_TYPES.length + 1);
+    (fixture.componentInstance as any).uploadFiles([fakeFile('a.pdf')]);
+    expect(uploadSpy).toHaveBeenCalledWith(expect.any(File), undefined, undefined);
   });
 });
 
-// Code review (2026-09-15): the empty state must not flash or mask a load error, a drop before a
-// required type is chosen must be refused visibly rather than silently dropped, and a stale selection
-// (the declarable set changed out from under it) must not stay valid.
-describe('DocumentUploadComponent — loading / unavailable states and refused drop (#629 code review)', () => {
+// The card's remaining states. #645 removed one: "you have been granted no type" can no longer render,
+// because the overview shows its read-only card instead once the type store has answered with no grant —
+// see DocumentOverviewComponent.uploadSlot. What stays is loading (a reload in flight) and the failed fetch,
+// which is the grant-only uploader's only way back.
+describe('DocumentUploadComponent — loading / unavailable states and refused drop', () => {
   beforeEach(() => {
     TestBed.resetTestingModule();
   });
 
-  it('while types are still loading, shows neither empty state, disables the buttons, and offers no selector', async () => {
-    // The store holds `loading` for as long as the underlying call has not answered. Reading its empty list
-    // as "nothing is granted to you" is the exact misinformation this state exists to prevent.
+  it('while types are still loading, disables the buttons and offers no selector', async () => {
     const pending = new Subject<DocumentTypeDto[]>();
-    const { fixture, store } = await setup(
-      new Set([EXTRACT_PERMISSIONS.Documents.Upload]),
-      [],
-      () => pending.asObservable(),
-    );
+    const { fixture, store } = await setup(GRANT_ONLY, [], () => pending.asObservable());
     const component = fixture.componentInstance;
 
     expect(store.isLoading()).toBe(true);
-
-    expect(component.hasNoGrantableTypes()).toBe(false);
     expect(component.showTypesUnavailable()).toBe(false);
     expect(fixture.nativeElement.querySelector('.document-type-select')).toBeNull();
-    expect(fixture.nativeElement.textContent).not.toContain('Document:Upload:NoGrantableTypes');
 
     const browseButton = fixture.nativeElement.querySelector('button.btn-primary');
     expect(browseButton).not.toBeNull();
     expect(browseButton.disabled).toBe(true);
   });
 
-  it('shows the TypesUnavailable state (not NoGrantableTypes) when the types fetch failed', async () => {
-    const { fixture, store } = await setup(new Set([EXTRACT_PERMISSIONS.Documents.Upload]), [], () =>
-      throwError(() => new Error('offline')),
-    );
-    const component = fixture.componentInstance;
+  it('shows the TypesUnavailable state with its retry when the types fetch failed', async () => {
+    const { fixture, store } = await setup(GRANT_ONLY, [], () => throwError(() => new Error('offline')));
 
     expect(store.error()).toBe(true);
-    expect(component.showTypesUnavailable()).toBe(true);
-    expect(component.hasNoGrantableTypes()).toBe(false);
+    expect(fixture.componentInstance.showTypesUnavailable()).toBe(true);
     expect(fixture.nativeElement.textContent).toContain('Document:Upload:TypesUnavailable');
-    expect(fixture.nativeElement.textContent).not.toContain('Document:Upload:NoGrantableTypes');
+    // No file input: without the grant list, a grant-only uploader has nothing it could legally upload.
+    expect(fixture.nativeElement.querySelector('input[type="file"]')).toBeNull();
+  });
+
+  it('does not show the unavailable state to Documents.Upload, whose untyped upload needs no type list', async () => {
+    const { fixture } = await setup(UPLOAD_INTO_ALL, [], () => throwError(() => new Error('offline')));
+
+    expect(fixture.componentInstance.showTypesUnavailable()).toBe(false);
+    expect(fixture.nativeElement.querySelector('input[type="file"]')).not.toBeNull();
   });
 
   it('recovers from the failed fetch through the retry, for this page and every other', async () => {
-    // #635: the retry reloads the STORE, so the types the recycle bin, the list and the detail page all
-    // read recover with it — there is one fetch left to recover.
-    // Fails twice: once for the store's own first fetch, once for the retryIfFailed() this card makes on
-    // arrival (the synchronous stub has already failed by ngOnInit; over real HTTP the first fetch would
-    // still be in flight and that retry would be a no-op). Only then is the button the way out.
+    // #645 (a): the grant-only uploader's way back. The retry reloads the STORE (#635), so every page that
+    // reads it recovers too. Fails twice: once for the store's own first fetch, once for the retryIfFailed()
+    // this card makes on arrival (the synchronous stub has already failed by ngOnInit; over real HTTP the
+    // first fetch would still be in flight and that retry would be a no-op). Only then is the button the way
+    // out.
     const getVisible = vi
       .fn()
       .mockReturnValueOnce(throwError(() => new Error('offline')))
       .mockReturnValueOnce(throwError(() => new Error('offline')))
-      .mockReturnValue(of([{ id: 'type-1', displayName: 'Contract', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: true } }]));
-    const { fixture, store } = await setup(
-      new Set([EXTRACT_PERMISSIONS.Documents.Upload]),
-      [],
-      getVisible,
-    );
+      .mockReturnValue(of([GRANTED_A]));
+    const { fixture } = await setup(GRANT_ONLY, [], getVisible);
     const component = fixture.componentInstance;
-
     expect(component.showTypesUnavailable()).toBe(true);
 
-    store.reload();
+    const retry = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>)
+      .find(b => b.textContent?.includes('::Refresh'));
+    expect(retry).toBeDefined();
+    retry!.click();
     fixture.detectChanges();
 
     expect(getVisible).toHaveBeenCalledTimes(3);
     expect(component.showTypesUnavailable()).toBe(false);
-    expect(component.assignableTypes().length).toBe(1);
+    expect(component.assignableTypes()).toEqual([GRANTED_A]);
     expect(fixture.nativeElement.textContent).not.toContain('Document:Upload:TypesUnavailable');
   });
 
   it('refuses a drop before a required type is selected with a warning toast, not a silent no-op', async () => {
-    const types = [
-      { id: 'type-1', displayName: 'Contract', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: true } },
-      { id: 'type-2', displayName: 'Invoice', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: true } },
-    ];
-    const { fixture, uploadSpy, toasterSpy } = await setup(
-      new Set([EXTRACT_PERMISSIONS.Documents.Upload]),
-      types,
-    );
+    const { fixture, uploadSpy, toasterSpy } = await setup(GRANT_ONLY, [GRANTED_A, GRANTED_B]);
     const component = fixture.componentInstance;
     // Two granted types: the pre-selection effect only fires for exactly one, so nothing is chosen yet.
     expect(component.selectedDocumentTypeId()).toBe('');
@@ -332,14 +278,8 @@ describe('DocumentUploadComponent — loading / unavailable states and refused d
   });
 
   it('invalidates a stale selection when the declarable set changes out from under it', async () => {
-    const typeA = { id: 'type-1', displayName: 'Contract', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: true } };
-    const typeB = { id: 'type-2', displayName: 'Invoice', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: true } };
-    const getVisible = vi.fn().mockReturnValueOnce(of([typeA])).mockReturnValue(of([typeB]));
-    const { fixture, store } = await setup(
-      new Set([EXTRACT_PERMISSIONS.Documents.Upload]),
-      [typeA],
-      getVisible,
-    );
+    const getVisible = vi.fn().mockReturnValueOnce(of([GRANTED_A])).mockReturnValue(of([GRANTED_B]));
+    const { fixture, store } = await setup(GRANT_ONLY, [GRANTED_A], getVisible);
     const component = fixture.componentInstance;
 
     // Single declarable type: the pre-selection effect fires.
