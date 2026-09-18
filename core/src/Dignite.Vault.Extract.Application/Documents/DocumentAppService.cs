@@ -806,6 +806,11 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // per-type Edit holder before this body could offer the other half of the OR).
         await _documentAccess.CheckAsync(DocumentAccessRule.Edit, DocumentAccessSubject.Of(document));
 
+        // #648: the classifier picks the target, and it may be any type of the layer, so DeclareType is judged on
+        // the empty subject — leaving its role-level arm only. Same judgment UploadAsync makes for an untyped
+        // upload, and the same Edit-then-DeclareType pair as ApplyManualClassificationAsync.
+        await _documentAccess.CheckAsync(DocumentAccessRule.DeclareType, DocumentAccessSubject.None);
+
         EnsureNotDeleted(document);
 
         // Automatic classification input is Document.Markdown. If text extraction has not produced text yet, reclassification cannot run.

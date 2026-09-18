@@ -128,6 +128,91 @@ public class DocumentOwnership_Tests : DocumentAccessTestBase
         reclassified.DocumentTypeCode.ShouldBe(TypeA.TypeCode);
     }
 
+    // ===================== AI re-classification asks DeclareType too (#648) =====================
+
+    /// <summary>
+    /// #648: the classifier picks the target and may land the document in any type of the layer, so
+    /// <c>RerecognizeAsync</c> judges <see cref="DocumentAccessRule.DeclareType"/> on the empty subject — leaving
+    /// its role-level arm only, exactly as an untyped upload is judged. A per-type uploader keeps the manual
+    /// path, which names a type their grant covers.
+    /// </summary>
+    [Fact]
+    public async Task An_uploader_is_refused_AI_reclassification_of_their_own_document_but_still_reclassifies_it()
+    {
+        var own = StubDocument(TypeA.Id, creatorId: OwnerId, markdown: "# body");
+        GrantUploaderOnTypeA();
+
+        await Should.ThrowAsync<AbpAuthorizationException>(
+            () => AsOwnerAsync(() => AppService.RerecognizeAsync(own.Id)));
+
+        var reclassified = await AsOwnerAsync(() =>
+            AppService.ReclassifyAsync(own.Id, new ReclassifyDocumentInput { DocumentTypeId = TypeA.Id }));
+
+        reclassified.DocumentTypeCode.ShouldBe(TypeA.TypeCode);
+    }
+
+    /// <summary>
+    /// The other half of #648's report: an <c>Edit</c> grant admits editing a type's documents, not pushing them
+    /// out of the type the grant was given on.
+    /// </summary>
+    [Fact]
+    public async Task An_Edit_grant_alone_does_not_admit_AI_reclassification_of_someone_elses_document()
+    {
+        var theirs = StubDocument(TypeA.Id, creatorId: OwnerId, markdown: "# body");
+        Grant(VaultExtractPermissions.Documents.Default);
+        GrantResource(VaultExtractResourcePermissions.Edit, TypeA.Id, StrangerId);
+
+        await Should.ThrowAsync<AbpAuthorizationException>(
+            () => AsStrangerAsync(() => AppService.RerecognizeAsync(theirs.Id)));
+
+        (await LatestClassificationRunAsync(theirs)).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task AI_reclassification_admits_ConfirmClassification_on_someone_elses_document()
+    {
+        var theirs = StubDocument(TypeA.Id, creatorId: OwnerId, markdown: "# body");
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.ConfirmClassification);
+
+        await AsStrangerAsync(() => AppService.RerecognizeAsync(theirs.Id));
+
+        (await LatestClassificationRunAsync(theirs))!.Status.ShouldBe(PipelineRunStatus.Pending);
+    }
+
+    /// <summary>
+    /// <c>Documents.Upload</c> is not on the Edit rule, so ownership answers that half and this fact is about the
+    /// DeclareType half alone.
+    /// </summary>
+    [Fact]
+    public async Task AI_reclassification_admits_Documents_Upload_on_ones_own_document()
+    {
+        var own = StubDocument(TypeA.Id, creatorId: OwnerId, markdown: "# body");
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Upload);
+
+        await AsOwnerAsync(() => AppService.RerecognizeAsync(own.Id));
+
+        (await LatestClassificationRunAsync(own))!.Status.ShouldBe(PipelineRunStatus.Pending);
+    }
+
+    /// <summary>
+    /// Authorization outranks the fast-fail, the same ordering Confirm / Reclassify already carry: a business
+    /// error is an oracle for this document's processing state.
+    /// </summary>
+    [Fact]
+    public async Task AI_reclassification_denies_before_the_NotTextExtracted_guard_can_answer()
+    {
+        var own = StubDocument(TypeA.Id, creatorId: OwnerId);
+        own.Markdown.ShouldBeNullOrEmpty();
+        GrantUploaderOnTypeA();
+
+        await Should.ThrowAsync<AbpAuthorizationException>(
+            () => AsOwnerAsync(() => AppService.RerecognizeAsync(own.Id)));
+    }
+
+    private Task<DocumentPipelineRun?> LatestClassificationRunAsync(Document document)
+        => GetRequiredService<IDocumentPipelineRunRepository>()
+            .FindLatestByDocumentAndCodeAsync(document.Id, VaultExtractPipelines.Classification);
+
     // ===================== The four-way: read / edit / delete / restore on one's own =====================
 
     [Fact]
