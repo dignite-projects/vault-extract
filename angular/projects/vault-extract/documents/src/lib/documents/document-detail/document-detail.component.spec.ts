@@ -141,6 +141,18 @@ const MODULE_WIDE = new Set<string>([
 
 const ENTRY_ONLY = new Set<string>([EXTRACT_PERMISSIONS.Documents.Default]);
 
+/** Entry plus the role-level right to assign any type, which #648 additionally requires of "重新分类". */
+const ENTRY_AND_CONFIRM = new Set<string>([
+  EXTRACT_PERMISSIONS.Documents.Default,
+  EXTRACT_PERMISSIONS.Documents.ConfirmClassification,
+]);
+
+/** The same right through the other member of DeclareType's role-level set. */
+const ENTRY_AND_UPLOAD_ALL = new Set<string>([
+  EXTRACT_PERMISSIONS.Documents.Default,
+  EXTRACT_PERMISSIONS.Documents.Upload,
+]);
+
 describe('DocumentDetailComponent — the rights come with the document (#635)', () => {
   beforeEach(() => {
     TestBed.resetTestingModule();
@@ -196,7 +208,9 @@ describe('DocumentDetailComponent — the rights come with the document (#635)',
   });
 
   it('carries the whole edit family with it', () => {
-    const { component } = setup(ENTRY_ONLY);
+    // #648 adds a second term to re-recognize only, so the caller here holds the role-level assign right and
+    // the row stays the thing under test. The added term is covered on its own below.
+    const { component } = setup(ENTRY_AND_CONFIRM);
     component.isLoading.set(false);
 
     component.document.set(documentOf(FULL));
@@ -343,6 +357,46 @@ describe('DocumentDetailComponent — classify picker (#632, #645)', () => {
   });
 });
 
+// #648: the classifier picks the target type, so "重新分类" additionally needs the role-level right to assign
+// any type — the same OR the picker above applies, through the one shared helper.
+describe('DocumentDetailComponent — AI re-classification needs the assign-any-type right (#648)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  function render(grantedPolicies: Set<string>) {
+    const { component, fixture } = setup(grantedPolicies);
+    component.isLoading.set(false);
+    component.document.set(documentOf(FULL));
+    fixture.detectChanges();
+    return { component, text: fixture.nativeElement.textContent as string };
+  }
+
+  it('hides the button from a caller who may edit the document but holds neither permission', () => {
+    // The Issue's caller: entry plus an Upload grant on one type. The row admits the edit family, but the
+    // classifier could move the document into any type of the layer.
+    const { component, text } = render(ENTRY_ONLY);
+
+    expect(component.canEdit()).toBe(true);
+    expect(component.canRerecognize()).toBe(false);
+    expect(text).not.toContain('Document:Rerecognize');
+  });
+
+  it('shows it to a ConfirmClassification holder', () => {
+    const { component, text } = render(ENTRY_AND_CONFIRM);
+
+    expect(component.canRerecognize()).toBe(true);
+    expect(text).toContain('Document:Rerecognize');
+  });
+
+  it('shows it to a Documents.Upload holder', () => {
+    const { component, text } = render(ENTRY_AND_UPLOAD_ALL);
+
+    expect(component.canRerecognize()).toBe(true);
+    expect(text).toContain('Document:Rerecognize');
+  });
+});
+
 // #635 (after the #638 review): an edit- or review-family call whose result the caller may not read comes back
 // redacted to `{ id, rights }`. The write happened; the body is not a document to show.
 describe('DocumentDetailComponent — a mutation result the caller may not read (#635)', () => {
@@ -454,6 +508,27 @@ describe('DocumentDetailComponent — "waiting for a reviewer" (#635)', () => {
     const { text } = render(LOCKED_OWNER, false);
 
     expect(text).not.toContain('Document:Review:WaitingForReviewer');
+  });
+
+  // #648: a per-reason hint is an instruction. On a blocking reason the two lines are complements — whoever
+  // reads the hint does not read the waiting line, and the other way round.
+  it('replaces the per-reason hints for a caller who may neither edit nor review', () => {
+    const { text } = render(LOCKED_OWNER, true);
+
+    expect(text).not.toContain('Document:Review:Hint:DuplicateSuspected');
+    expect(text).toContain('Document:Review:WaitingForReviewer');
+  });
+
+  it('shows the per-reason hints to a caller who may edit it', () => {
+    const { text } = render({ ...LOCKED_OWNER, canEdit: true }, true);
+
+    expect(text).toContain('Document:Review:Hint:DuplicateSuspected');
+  });
+
+  it('shows the per-reason hints to a caller who may review it', () => {
+    const { text } = render({ ...LOCKED_OWNER, canReview: true }, true);
+
+    expect(text).toContain('Document:Review:Hint:DuplicateSuspected');
   });
 });
 

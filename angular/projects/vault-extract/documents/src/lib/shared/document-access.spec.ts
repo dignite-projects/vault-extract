@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DocumentTypeDto, EXTRACT_PERMISSIONS } from '@dignite/ng.vault-extract';
 import {
   assignableDocumentTypes,
+  canAssignAnyDocumentType,
   canEditAnyDocumentType,
   canUploadIntoAnyDocumentType,
   reclassificationTargetTypes,
@@ -161,6 +162,19 @@ describe('canUploadIntoAnyDocumentType — the upload entry points (#645)', () =
   it('is false when no visible type carries an Upload grant', () => {
     // TYPE_C carries Edit only: editing a type's documents is not uploading into it.
     expect(canUploadIntoAnyDocumentType([TYPE_B, TYPE_C], false)).toBe(false);
+  });
+});
+
+// #648: the role-level arm on its own, because AI re-classification has no target type to judge.
+describe('canAssignAnyDocumentType — the DeclareType role-level arm (#648)', () => {
+  it('is true for ConfirmClassification, for Documents.Upload, and for both', () => {
+    expect(canAssignAnyDocumentType(true, false)).toBe(true);
+    expect(canAssignAnyDocumentType(false, true)).toBe(true);
+    expect(canAssignAnyDocumentType(true, true)).toBe(true);
+  });
+
+  it('is false for a caller holding neither', () => {
+    expect(canAssignAnyDocumentType(false, false)).toBe(false);
   });
 });
 

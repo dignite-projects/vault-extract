@@ -187,7 +187,8 @@ public sealed class DocumentAccessRule
     /// Assigning a type to an existing document: the <b>target</b> type of Confirm / Reclassify. It is about the
     /// type being assigned, never about the document's current type, which is <see cref="Edit"/>'s job, and never
     /// about who owns anything (owning a document is not a licence to move it into a type the caller was never
-    /// granted).
+    /// granted). It also gates AI re-classification (<c>RerecognizeAsync</c>, #648), judged on
+    /// <see cref="DocumentAccessSubject.None"/> because the classifier — not the caller — names the target type.
     /// <para>
     /// <b>The only row whose role-level set has two members</b> (#645 decision 1): <c>ConfirmClassification</c> is
     /// the reviewer assigning any type, and <c>Documents.Upload</c> is someone who could have uploaded into any type

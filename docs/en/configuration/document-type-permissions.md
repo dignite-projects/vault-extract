@@ -57,6 +57,8 @@ The permission **names** are frozen contracts, which is why `ConfirmClassificati
 
 Other shapes follow the same way: a reviewer for one type is entry plus the *Read* and *Edit* grants on it; an operator for every type holds the role-level permissions instead. The seeded `DocumentManager` role is entry plus `ReadAll`, `Upload`, `Export` and `ConfirmClassification`.
 
+**Read is the only visibility axis.** The list, the recycle bin and the review queue show the documents the caller's **Read** right reaches; every other right acts inside that set. So grant Read alongside the rest: `Documents.Delete` or `Documents.ConfirmClassification` at the role level needs `Documents.ReadAll`, and a type-level *Delete* or *Edit* grant needs the *Read* grant on the same type. Without it, the right is real but the UI only ever offers it on the caller's own documents, which are the only ones ownership makes visible.
+
 ## The rule every enforcement point applies
 
 **An operation on a document is authorized by `VaultExtract.Documents` (entry) AND either the module-wide permission for that operation, OR the caller owns the document and the rule allows it, OR the matching grant on the document's current type.** Within the OR, the module-wide permission remains sufficient on its own; the other two are the narrower alternatives. (For one row, *Declare a type*, two module-wide permissions each admit — see the table.)
@@ -78,12 +80,12 @@ It matters most for the per-type arm: handing out a resource grant is gated by `
 | Rule | Module-wide | Per-type grant | Owner arm | Operations it gates |
 | --- | --- | --- | --- | --- |
 | **Read** | `Documents.ReadAll` | `Read` | **always** | `GetAsync`, `GetBlobAsync`, list and recycle-bin membership, export rows, `DocumentPipelineRunAppService.GetListAsync`, MCP `get_document` / `search_documents` / document resources |
-| **Edit** | `Documents.ConfirmClassification` | `Edit` | **unless under review** | `ConfirmClassificationAsync` / `ReclassifyAsync` (whose **target** type is judged by *Declare a type*), `RerecognizeAsync`, `ReextractFieldsAsync`, `UpdateExtractedFieldsAsync`, `UpdateMarkdownAsync`, `UpdateCabinetAsync` |
+| **Edit** | `Documents.ConfirmClassification` | `Edit` | **unless under review** | `ConfirmClassificationAsync` / `ReclassifyAsync` (whose **target** type is judged by *Declare a type*), `RerecognizeAsync` (likewise, on the empty subject), `ReextractFieldsAsync`, `UpdateExtractedFieldsAsync`, `UpdateMarkdownAsync`, `UpdateCabinetAsync` |
 | **Review** | `Documents.ConfirmClassification` | `Edit` | **never** | `AllowDuplicateAsync`, `ResolveFieldValidationWarningsAsync`, `RejectReviewAsync` |
 | **Delete** | `Documents.Delete` | `Delete` | **always** | `DeleteAsync` (soft delete) |
 | **Restore** | `Documents.Delete` — **whoever may delete may undo** | `Delete` — likewise | **always** | `RestoreAsync` |
 | **Retry** | `Documents.Pipelines.Retry` | `Edit` | **unless under review** | `RetryPipelineAsync` |
-| **Declare a type** | `Documents.ConfirmClassification` **or** `Documents.Upload` | `Upload` on the **target** type | never | the target type of `ConfirmClassificationAsync` / `ReclassifyAsync` |
+| **Declare a type** | `Documents.ConfirmClassification` **or** `Documents.Upload` | `Upload` on the **target** type | never | the target type of `ConfirmClassificationAsync` / `ReclassifyAsync`; and `RerecognizeAsync`, judged on the **empty subject** — the classifier names the target, so only the module-wide column can admit it |
 | **Upload** | `Documents.Upload` | `Upload` on the declared type | never | `UploadAsync`, judged once; an untyped upload has no type, so only `Documents.Upload` admits it |
 | **Permanent delete** | `Documents.PermanentDelete` | — | never | `PermanentDeleteAsync` |
 | **Reprocess (fields)** | `Documents.Reprocessing.FieldExtraction` | — | never | `PreviewFieldExtractionAsync`, `StartFieldExtractionAsync` |
@@ -94,6 +96,8 @@ It matters most for the per-type arm: handing out a resource grant is gated by `
 The module-wide column of each row is a set, and any member admits. Every row has one member except **Declare a type**: a reviewer holding `ConfirmClassification` assigns any type, and so does anyone holding `Documents.Upload`, who could have uploaded the document into any type in the first place.
 
 Reclassifying a document from type A to type B needs two rows: **Edit** on A (it is an edit of that document) and **Declare a type** on B (it is a decision about B), or a module-wide permission in place of either. Owning the document satisfies the first and never the second — owning a document is not a licence to move it into a type you were never granted.
+
+AI re-classification (`RerecognizeAsync`, the detail page's *Re-recognize*) needs the same two rows: **Edit** on the document, and **Declare a type** on the empty subject, because the classifier picks the target and it may be any type of the layer. That leaves `ConfirmClassification` or `Documents.Upload` as the only ways in — the same judgment an untyped upload gets, for the same reason. A caller whose right to assign types is per type uses the manual path instead and names one their grant covers.
 
 ### The owner arm has three values, and Review is why
 
@@ -220,7 +224,8 @@ The lists themselves are narrowed on the server, so the UI never hides a row it 
 
 | Surface | Shown when |
 | --- | --- |
-| Document list / detail → Confirm classification, Reclassify, Re-recognize, Re-extract fields, Edit fields, Correct Markdown, Change cabinet | `rights.canEdit` |
+| Document list / detail → Confirm classification, Reclassify, Re-extract fields, Edit fields, Correct Markdown, Change cabinet | `rights.canEdit` |
+| Document detail → Re-recognize | `rights.canEdit` **and** `ConfirmClassification` or `Documents.Upload` — the `DeclareType` row's module-wide column, since the classifier names the target type |
 | Document list / detail → Delete | `rights.canDelete` |
 | Document list → selection checkboxes and bulk delete | `rights.canDelete` on at least one row of the page; rows without it drop out of the selection |
 | Document detail → Reject review, Allow duplicate, Resolve warnings | `rights.canReview` |

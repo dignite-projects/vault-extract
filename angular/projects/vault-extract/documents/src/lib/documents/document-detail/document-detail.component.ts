@@ -36,7 +36,11 @@ import {
   EXTRACT_PERMISSIONS,
   PipelineRunStatus,
 } from '@dignite/ng.vault-extract';
-import { reclassificationTargetTypes, rightsOf } from '../../shared/document-access';
+import {
+  canAssignAnyDocumentType,
+  reclassificationTargetTypes,
+  rightsOf,
+} from '../../shared/document-access';
 import { DocumentTypesStore } from '../../shared/document-types.store';
 import { stripMarkdownCodeFences } from '../../shared/strip-code-fences';
 import { DocumentFileBlobService } from '../../shared/document-file-blob.service';
@@ -375,14 +379,17 @@ export class DocumentDetailComponent implements OnInit {
     this.pipelineRows().some(r => r.isKnown && r.inProgress)
   );
 
-  // #263 "rerecognize" availability: extracted text exists, ConfirmClassification permission is present
-  // (same as canEdit), no critical pipeline is currently running, and the page is not loading. This
-  // avoids stacking reclassification onto a document already being processed or reprocessed.
+  // #263 "rerecognize" availability: the edit right on this document, extracted text exists, no critical
+  // pipeline is currently running, and the page is not loading. This avoids stacking reclassification onto a
+  // document already being processed or reprocessed.
+  // #648: plus the role-level right to assign ANY type — the classifier picks the target, so the server
+  // judges DeclareType on the empty subject and a per-type uploader is refused here.
   // Use pipelineInProgress instead of !isProcessing(): the latter is always false when needsReview() is
   // true, which would still expose the button on a pending-review document while reclassification is in
   // progress (review #5). The in-flight POST is covered by button [disabled]="isRerecognizing()".
   canRerecognize = computed(() =>
     this.canEdit() &&
+    canAssignAnyDocumentType(this.canConfirmClassification, this.canUploadIntoAllTypes) &&
     !!this.document()?.markdown &&
     !this.pipelineInProgress() &&
     !this.isLoading()
