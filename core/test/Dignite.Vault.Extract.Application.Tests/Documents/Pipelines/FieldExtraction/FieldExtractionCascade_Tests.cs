@@ -338,7 +338,7 @@ public class FieldExtractionCascade_Tests
             .Returns(WorkflowResult(new Dictionary<string, JsonElement?> { ["receipt_no"] = JsonDocument.Parse("\"R-001\"").RootElement }));
         // A colliding document exists in the same layer + type.
         _documentRepository.FindDuplicateCandidatesAsync(
-                doc.Id, TypeId("receipt.general"), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+                doc.Id, TypeId("receipt.general"), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<DocumentAccessScope>(), Arg.Any<CancellationToken>())
             .Returns(new List<DuplicateCandidateModel> { new() { Id = Guid.NewGuid(), Title = "Existing receipt" } });
 
         await Extract(doc.Id, null, "receipt.general");
@@ -359,7 +359,7 @@ public class FieldExtractionCascade_Tests
         _workflow.ExtractAsync(Arg.Any<IReadOnlyList<FieldExtractionDescriptor>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(WorkflowResult(new Dictionary<string, JsonElement?> { ["receipt_no"] = JsonDocument.Parse("\"R-001\"").RootElement }));
         _documentRepository.FindDuplicateCandidatesAsync(
-                doc.Id, TypeId("receipt.general"), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+                doc.Id, TypeId("receipt.general"), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<DocumentAccessScope>(), Arg.Any<CancellationToken>())
             .Returns(new List<DuplicateCandidateModel>());
 
         await Extract(doc.Id, null, "receipt.general");
@@ -386,7 +386,7 @@ public class FieldExtractionCascade_Tests
         (doc.ReviewReasons & DocumentReviewReasons.DuplicateSuspected).ShouldBe(DocumentReviewReasons.None);
         // The override short-circuits the collision query entirely.
         await _documentRepository.DidNotReceive().FindDuplicateCandidatesAsync(
-            Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+            Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<DocumentAccessScope>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -415,7 +415,7 @@ public class FieldExtractionCascade_Tests
         doc.FieldFingerprint.ShouldBeNull();
         (doc.ReviewReasons & DocumentReviewReasons.DuplicateSuspected).ShouldBe(DocumentReviewReasons.None);
         await _documentRepository.DidNotReceive().FindDuplicateCandidatesAsync(
-            Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+            Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<DocumentAccessScope>(), Arg.Any<CancellationToken>());
     }
 
     // ─── #527 §5/§7: field validation warning persistence ───────────────────

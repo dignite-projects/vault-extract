@@ -23,6 +23,37 @@ public static class ReviewReasonPolicy
     public static bool HasBlocking(DocumentReviewReasons reasons) => (reasons & Blocking) != DocumentReviewReasons.None;
 
     /// <summary>
+    /// The blocking reasons that <b>close the ownership arm of the edit family</b> (#635): every blocking reason
+    /// except <see cref="DocumentReviewReasons.UnresolvedClassification"/>.
+    /// <para>
+    /// #635 first put "an uploader must not clear a blocking review reason on their own document" on the three
+    /// explicit review methods. That does not hold, because the edit family clears the same bits as a side
+    /// effect: <c>UpdateExtractedFieldsAsync</c> clears <see cref="DocumentReviewReasons.FieldExtractionIncomplete"/>
+    /// outright (#491's escape path — an empty field set is enough), re-extraction and a retried field-extraction
+    /// run replace the whole validation-warning set and recompute the duplicate fingerprint from the new values,
+    /// and <c>ConfirmClassification</c> resets duplicate state and clears warnings. So the rule has to live where
+    /// it can actually hold: while one of these is present, an owner may still <b>read</b> and <b>delete</b>
+    /// their document, but modifying it is for someone holding the module-wide permission or the per-type grant.
+    /// </para>
+    /// <para>
+    /// <b>Derived</b> from <see cref="Blocking"/> rather than listed, so a blocking reason added later is
+    /// owner-locking by default and has to be excluded deliberately.
+    /// <see cref="DocumentReviewReasons.UnresolvedClassification"/> is the one exclusion: confirming or
+    /// reclassifying one's own upload is exactly what an uploader is expected to do, and the target type is
+    /// judged separately by the DeclareType rule, which has no ownership arm at all.
+    /// </para>
+    /// </summary>
+    public const DocumentReviewReasons OwnerLocking =
+        Blocking & ~DocumentReviewReasons.UnresolvedClassification;
+
+    /// <summary>
+    /// Whether this document's review state closes the ownership arm of the edit family — see
+    /// <see cref="OwnerLocking"/>. A document blocked only on classification is <b>not</b> locked.
+    /// </summary>
+    public static bool LocksOwnerEdits(DocumentReviewReasons reasons)
+        => (reasons & OwnerLocking) != DocumentReviewReasons.None;
+
+    /// <summary>
     /// Whether the operator still needs to pay attention to this document. This is the <b>only
     /// criterion</b> for outbound <c>RequiresReview</c> / review queue (#284 review-fix): unresolved
     /// reasons are present <b>and</b> the document is not rejected. <c>RejectReview</c> intentionally

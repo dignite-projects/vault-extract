@@ -6,8 +6,6 @@ using Dignite.Vault.Extract.Ai;
 using Dignite.Vault.Extract.Documents;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
-using Volo.Abp.Authorization;
-using Volo.Abp.Domain.Entities;
 
 namespace Dignite.Vault.Extract.Mcp.Documents;
 
@@ -49,21 +47,14 @@ public sealed class DocumentTools
             throw new McpException($"Invalid document id: {id}");
         }
 
-        DocumentDto document;
-        try
-        {
-            // Delegate to the IDocumentAppService.GetAsync use case. Fail-closed authorization
-            // assertions (CheckPolicyAsync inside the method body), ambient tenant isolation, and
-            // DocumentTypeCode resolution through soft-delete are all centralized in the AppService.
-            document = await documentAppService.GetAsync(documentId);
-        }
-        catch (Exception ex) when (ex is EntityNotFoundException or AbpAuthorizationException)
-        {
-            // Same remap as DocumentResources.ReadCoreAsync, and for the same reason: nonexistent, cross-tenant
-            // (filtered by IMultiTenant into EntityNotFound) and — since #632 — in-tenant-but-outside-the-read-scope
-            // must all answer identically, or the error itself reports whether a document exists.
-            throw new McpException($"Document not found: {id}");
-        }
+        // #636: delegate to the IDocumentAppService.FindForCallerAsync use case, which folds not-found,
+        // cross-tenant, and out-of-read-scope into null itself — the same remap DocumentResources.ReadCoreAsync
+        // uses, now shared through the AppService instead of duplicated per adapter. Fail-closed authorization
+        // assertions (CheckPolicyAsync inside the method body), ambient tenant isolation, and DocumentTypeCode
+        // resolution through soft-delete are all centralized in the AppService. A caller with no entry
+        // (Documents.Default) still gets AbpAuthorizationException, propagated unchanged.
+        var document = await documentAppService.FindForCallerAsync(documentId)
+            ?? throw new McpException($"Document not found: {id}");
 
         // #491: cap the body before it enters the client's context. Take(N) bounds how many rows an LLM-triggered
         // query returns but says nothing about one row's payload, so an uncapped body is the same context-window

@@ -2,13 +2,14 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { LIST_QUERY_DEBOUNCE_TIME, LocalizationService, PermissionService } from '@abp/ng.core';
 import { ConfirmationService, ToasterService } from '@abp/ng.theme.shared';
-import { of, throwError } from 'rxjs';
+import { Observable, Subject, of, throwError } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CabinetService,
   DocumentExportService,
   DocumentListItemDto,
   DocumentListQueryService,
+  DocumentRightsDto,
   DocumentService,
   DocumentStatisticsService,
   DocumentTypeDto,
@@ -18,13 +19,13 @@ import {
 } from '@dignite/ng.vault-extract';
 import { DocumentListComponent } from './document-list.component';
 
-// #632: per-row action gating. The list no longer asks "does this caller hold Documents.Delete /
-// ConfirmClassification"; it asks documentRights, which ORs that module-wide permission with the matching
-// grant on the ROW's own document type. Rows are already narrowed server-side, so nothing here hides a row —
-// only its actions.
+// #635 decision 5: per-row action gating. The list no longer re-derives what it may do with a row from the
+// caller's grants and the row's type — the server decided and sent the verdict down as `rights`. Rows are
+// already narrowed server-side, so nothing here hides a row; only its actions.
 //
 // The component is constructed but never rendered: ngOnInit fires a page's worth of requests and the
 // extensible table needs a live datatable, while every gate under test is a computed on the instance.
+// TestBed.tick() is what flushes the store-following effect without rendering.
 
 const RESOURCES = EXTRACT_PERMISSIONS.DocumentTypes.Resources;
 
@@ -52,79 +53,78 @@ const TYPE_B: DocumentTypeDto = {
   },
 };
 
-function row(id: string, documentTypeCode: string | null): DocumentListItemDto {
-  return { id, documentTypeCode } as DocumentListItemDto;
+function row(
+  id: string,
+  rights: DocumentRightsDto,
+  extra: Partial<DocumentListItemDto> = {},
+): DocumentListItemDto {
+  return { id, rights, ...extra } as DocumentListItemDto;
 }
 
-const A_ROW = row('doc-a', 'contract');
-const B_ROW = row('doc-b', 'invoice');
-const UNTYPED_ROW = row('doc-u', null);
+/** Everything admitted — a module-wide operator, or the owner of this row. */
+const FULL: DocumentRightsDto = {
+  canRead: true,
+  canEdit: true,
+  canReview: true,
+  canDelete: true,
+  canRestore: true,
+  canRetry: true,
+};
+/** Visible, and nothing more. */
+const READ_ONLY: DocumentRightsDto = {
+  canRead: true,
+  canEdit: false,
+  canReview: false,
+  canDelete: false,
+  canRestore: false,
+  canRetry: false,
+};
 
-function setup(grantedPolicies: Set<string>) {
+const FULL_ROW = row('doc-a', FULL, { documentTypeCode: 'contract' });
+const READ_ONLY_ROW = row('doc-b', READ_ONLY, { documentTypeCode: 'invoice' });
+/** A row from a server that sends no rights — fail closed rather than fall through. */
+const NO_RIGHTS_ROW = { id: 'doc-c' } as DocumentListItemDto;
+
+function providers(
+  grantedPolicies: Set<string>,
+  statisticsSpy: ReturnType<typeof vi.fn>,
+  getVisible: () => Observable<DocumentTypeDto[]>,
+) {
+  return [
+    provideRouter([]),
+    // ListService debounces its query stream by 300ms by default; ngOnInit hooks it, and the request
+    // should land during the call rather than after the assertions.
+    { provide: LIST_QUERY_DEBOUNCE_TIME, useValue: 0 },
+    {
+      provide: PermissionService,
+      useValue: { getGrantedPolicy: (key: string) => grantedPolicies.has(key) },
+    },
+    { provide: LocalizationService, useValue: { instant: (key: string) => key } },
+    { provide: ToasterService, useValue: { success: vi.fn(), error: vi.fn(), warn: vi.fn() } },
+    { provide: ConfirmationService, useValue: { warn: vi.fn().mockReturnValue(of(null)) } },
+    { provide: DocumentService, useValue: {} },
+    { provide: DocumentListQueryService, useValue: { getList: () => of({ totalCount: 0, items: [] }) } },
+    { provide: DocumentStatisticsService, useValue: { get: statisticsSpy } },
+    { provide: DocumentTypeService, useValue: { getVisible } },
+    { provide: FieldDefinitionService, useValue: { getFieldTypes: () => of([]) } },
+    { provide: CabinetService, useValue: { getList: () => of([]) } },
+    { provide: DocumentExportService, useValue: {} },
+  ];
+}
+
+function setup(
+  grantedPolicies: Set<string>,
+  getVisible: () => Observable<DocumentTypeDto[]> = () => of([TYPE_A, TYPE_B]),
+) {
   const statisticsSpy = vi.fn().mockReturnValue(of({ needsReviewCount: 3 }));
 
   TestBed.configureTestingModule({
     imports: [DocumentListComponent],
-    providers: [
-      provideRouter([]),
-      {
-        provide: PermissionService,
-        useValue: { getGrantedPolicy: (key: string) => grantedPolicies.has(key) },
-      },
-      { provide: LocalizationService, useValue: { instant: (key: string) => key } },
-      { provide: ToasterService, useValue: { success: vi.fn(), error: vi.fn(), warn: vi.fn() } },
-      { provide: ConfirmationService, useValue: { warn: vi.fn().mockReturnValue(of(null)) } },
-      { provide: DocumentService, useValue: {} },
-      { provide: DocumentListQueryService, useValue: { getList: () => of({ totalCount: 0, items: [] }) } },
-      { provide: DocumentStatisticsService, useValue: { get: statisticsSpy } },
-      { provide: DocumentTypeService, useValue: { getVisible: () => of([TYPE_A, TYPE_B]) } },
-      { provide: FieldDefinitionService, useValue: { getFieldTypes: () => of([]) } },
-      { provide: CabinetService, useValue: { getList: () => of([]) } },
-      { provide: DocumentExportService, useValue: {} },
-    ],
+    providers: providers(grantedPolicies, statisticsSpy, getVisible),
   });
 
   const fixture = TestBed.createComponent(DocumentListComponent);
-  const component = fixture.componentInstance;
-  component.documentTypes.set([TYPE_A, TYPE_B]);
-  return { component, statisticsSpy };
-}
-
-/**
- * Same wiring as setup(), minus the documentTypes seed — so the component starts in the state ngOnInit
- * really starts in, with an empty type list and a getVisible call still in flight. Anything that depends on
- * the types has to get them from that call, which is the point of the facts that use this.
- */
-function setupUnseeded(grantedPolicies: Set<string>, types: DocumentTypeDto[] | 'error' = [TYPE_A, TYPE_B]) {
-  const statisticsSpy = vi.fn().mockReturnValue(of({ needsReviewCount: 3 }));
-  const getVisible = () => (types === 'error' ? throwError(() => new Error('offline')) : of(types));
-
-  TestBed.configureTestingModule({
-    imports: [DocumentListComponent],
-    providers: [
-      provideRouter([]),
-      // ListService debounces its query stream by 300ms by default; ngOnInit hooks it, and the request
-      // should land during the call rather than after the assertions.
-      { provide: LIST_QUERY_DEBOUNCE_TIME, useValue: 0 },
-      {
-        provide: PermissionService,
-        useValue: { getGrantedPolicy: (key: string) => grantedPolicies.has(key) },
-      },
-      { provide: LocalizationService, useValue: { instant: (key: string) => key } },
-      { provide: ToasterService, useValue: { success: vi.fn(), error: vi.fn(), warn: vi.fn() } },
-      { provide: ConfirmationService, useValue: { warn: vi.fn().mockReturnValue(of(null)) } },
-      { provide: DocumentService, useValue: {} },
-      { provide: DocumentListQueryService, useValue: { getList: () => of({ totalCount: 0, items: [] }) } },
-      { provide: DocumentStatisticsService, useValue: { get: statisticsSpy } },
-      { provide: DocumentTypeService, useValue: { getVisible } },
-      { provide: FieldDefinitionService, useValue: { getFieldTypes: () => of([]) } },
-      { provide: CabinetService, useValue: { getList: () => of([]) } },
-      { provide: DocumentExportService, useValue: {} },
-    ],
-  });
-
-  const fixture = TestBed.createComponent(DocumentListComponent);
-  return { component: fixture.componentInstance, statisticsSpy };
+  return { component: fixture.componentInstance, fixture, statisticsSpy };
 }
 
 /** Pre-#632 operator: every module-wide permission. */
@@ -136,74 +136,43 @@ const MODULE_WIDE = new Set<string>([
   EXTRACT_PERMISSIONS.Documents.Restore,
 ]);
 
-/** The persona #632 exists for: entry only, everything else through per-type grants. */
+/** The persona #629/#632 exist for: entry only, everything else through per-type grants. */
 const ENTRY_ONLY = new Set<string>([EXTRACT_PERMISSIONS.Documents.Default]);
 
-describe('DocumentListComponent — per-row rights (#632)', () => {
+describe('DocumentListComponent — per-row rights come from the row (#635)', () => {
   beforeEach(() => {
     TestBed.resetTestingModule();
   });
 
-  it('gives a module-wide holder every action on every row, typed or not', () => {
+  it('reads each row verdict exactly as the server sent it', () => {
+    const { component } = setup(ENTRY_ONLY);
+
+    expect(component.rightsOf(FULL_ROW)).toEqual(FULL);
+    expect(component.rightsOf(READ_ONLY_ROW)).toEqual(READ_ONLY);
+  });
+
+  it('denies a row that carries no rights at all', () => {
     const { component } = setup(MODULE_WIDE);
 
-    expect(component.rightsFor(A_ROW)).toEqual({
-      canRead: true,
-      canEdit: true,
-      canDelete: true,
-      canRestore: true,
-    });
-    expect(component.rightsFor(B_ROW)).toEqual({
-      canRead: true,
-      canEdit: true,
-      canDelete: true,
-      canRestore: true,
-    });
-    expect(component.rightsFor(UNTYPED_ROW)).toEqual({
-      canRead: true,
-      canEdit: true,
-      canDelete: true,
-      canRestore: true,
-    });
-  });
-
-  it('gives a grant-only holder actions on the granted type only', () => {
-    const { component } = setup(ENTRY_ONLY);
-
-    // canRestore rides on the same Delete grant (#632 change 2): whoever may delete may undo.
-    expect(component.rightsFor(A_ROW)).toEqual({
-      canRead: true,
-      canEdit: true,
-      canDelete: true,
-      canRestore: true,
-    });
-    // Type B carries Read but neither Edit nor Delete — the row is visible, its actions are not.
-    expect(component.rightsFor(B_ROW)).toEqual({
-      canRead: true,
-      canEdit: false,
-      canDelete: false,
-      canRestore: false,
-    });
-  });
-
-  it('gives a grant-only holder nothing on an untyped row', () => {
-    const { component } = setup(ENTRY_ONLY);
-
-    expect(component.rightsFor(UNTYPED_ROW)).toEqual({
+    // Not "the caller holds Documents.Delete, so let it through": the row is the authority now, and a row
+    // with no verdict is a row with no actions.
+    expect(component.rightsOf(NO_RIGHTS_ROW)).toEqual({
       canRead: false,
       canEdit: false,
+      canReview: false,
       canDelete: false,
       canRestore: false,
+      canRetry: false,
     });
   });
 
   it('shows the actions column when at least one row carries an action', () => {
     const { component } = setup(ENTRY_ONLY);
 
-    component.documents.set({ totalCount: 1, items: [B_ROW] });
+    component.documents.set({ totalCount: 1, items: [READ_ONLY_ROW] });
     expect(component.showActionsColumn()).toBe(false);
 
-    component.documents.set({ totalCount: 2, items: [B_ROW, A_ROW] });
+    component.documents.set({ totalCount: 2, items: [READ_ONLY_ROW, FULL_ROW] });
     expect(component.showActionsColumn()).toBe(true);
   });
 
@@ -212,13 +181,27 @@ describe('DocumentListComponent — per-row rights (#632)', () => {
 
     component.documents.set({
       totalCount: 1,
-      items: [{ ...B_ROW, isContainer: true } as DocumentListItemDto],
+      items: [row('doc-x', READ_ONLY, { isContainer: true })],
     });
     expect(component.showActionsColumn()).toBe(true);
   });
+
+  // #635: the client-side rule table keyed types by CODE against the ACTIVE visible types, so a document
+  // whose type had since been archived resolved to no type at all and lost every action — while the API,
+  // which keys by id across soft-deleted types, would have admitted them. With the verdict on the row there
+  // is nothing left to look up, and this is the fact that says so.
+  it('offers the full action set on a document whose type is not in the visible list', () => {
+    const { component } = setup(ENTRY_ONLY);
+    const archivedTypeRow = row('doc-archived', FULL, { documentTypeCode: 'since-archived' });
+
+    expect(component.rightsOf(archivedTypeRow)).toEqual(FULL);
+    component.documents.set({ totalCount: 1, items: [archivedTypeRow] });
+    expect(component.showActionsColumn()).toBe(true);
+    expect(component.canDeleteAnyRow()).toBe(true);
+  });
 });
 
-describe('DocumentListComponent — bulk-delete selection (#632)', () => {
+describe('DocumentListComponent — bulk-delete selection (#635)', () => {
   beforeEach(() => {
     TestBed.resetTestingModule();
   });
@@ -226,28 +209,20 @@ describe('DocumentListComponent — bulk-delete selection (#632)', () => {
   it('offers the checkboxes only while some row on the page is deletable', () => {
     const { component } = setup(ENTRY_ONLY);
 
-    component.documents.set({ totalCount: 1, items: [B_ROW] });
+    component.documents.set({ totalCount: 1, items: [READ_ONLY_ROW] });
     expect(component.canDeleteAnyRow()).toBe(false);
 
-    component.documents.set({ totalCount: 2, items: [A_ROW, B_ROW] });
+    component.documents.set({ totalCount: 2, items: [FULL_ROW, READ_ONLY_ROW] });
     expect(component.canDeleteAnyRow()).toBe(true);
   });
 
   it('drops rows the caller may not delete out of the selection', () => {
     const { component } = setup(ENTRY_ONLY);
 
-    component.onSelectionChange([A_ROW, B_ROW, UNTYPED_ROW]);
+    component.onSelectionChange([FULL_ROW, READ_ONLY_ROW, NO_RIGHTS_ROW]);
 
-    expect(component.selectedDocuments()).toEqual([A_ROW]);
+    expect(component.selectedDocuments()).toEqual([FULL_ROW]);
     expect(component.selectedCount()).toBe(1);
-  });
-
-  it('keeps every selected row for a module-wide holder', () => {
-    const { component } = setup(MODULE_WIDE);
-
-    component.onSelectionChange([A_ROW, B_ROW, UNTYPED_ROW]);
-
-    expect(component.selectedDocuments()).toEqual([A_ROW, B_ROW, UNTYPED_ROW]);
   });
 });
 
@@ -271,10 +246,10 @@ describe('DocumentListComponent — confirm-classification picker (#632)', () =>
   it('never pre-selects a type the caller may not assign', () => {
     const { component } = setup(ENTRY_ONLY);
 
-    component.openConfirmDialog(B_ROW, new Event('click'));
+    component.openConfirmDialog(READ_ONLY_ROW, new Event('click'));
     expect(component.selectedTypeId()).toBe('');
 
-    component.openConfirmDialog(A_ROW, new Event('click'));
+    component.openConfirmDialog(FULL_ROW, new Event('click'));
     expect(component.selectedTypeId()).toBe('type-a');
   });
 });
@@ -291,9 +266,8 @@ describe('DocumentListComponent — needs-review affordances (#632)', () => {
   });
 
   it('hides the review toggle when no type carries an Edit grant', () => {
-    const { component } = setup(ENTRY_ONLY);
+    const { component } = setup(ENTRY_ONLY, () => of([TYPE_B]));
 
-    component.documentTypes.set([TYPE_B]);
     expect(component.canReviewAnyType()).toBe(false);
   });
 
@@ -314,12 +288,11 @@ describe('DocumentListComponent — needs-review affordances (#632)', () => {
   });
 });
 
-// The two facts above call loadReviewQueueCount() by hand, on a component whose documentTypes signal setup()
-// has already seeded — so neither of them can see WHEN ngOnInit calls it, which is where the badge was
-// actually broken: the call sat ahead of the types fetch, and its gate reads the type list. These facts drive
-// ngOnInit instead, on an unseeded component, so the gate answers from whatever the real load sequence
-// produced.
-describe('DocumentListComponent — the badge is fetched once its gate can answer (#632)', () => {
+// The badge's gate is a function of the visible types, so a fetch issued before they land answers "no" and,
+// with nothing asking again, leaves the badge at a permanent 0 for exactly the persona per-type grants exist
+// for. #632 solved that by hanging the fetch off this page's own getVisible callbacks; #635 moved the fetch
+// into a shared store, so it follows the store's state instead. These facts drive that path.
+describe('DocumentListComponent — the badge follows the store (#635 decision 7)', () => {
   beforeEach(() => {
     TestBed.resetTestingModule();
   });
@@ -330,46 +303,78 @@ describe('DocumentListComponent — the badge is fetched once its gate can answe
     EXTRACT_PERMISSIONS.Documents.ReadAll,
   ]);
 
-  it('fetches it for a caller whose only edit right is a per-type Edit grant', () => {
-    const { component, statisticsSpy } = setupUnseeded(READ_ALL_GRANTS_ONLY);
-
-    // The state ngOnInit starts from, and the whole difficulty: with no types loaded the gate is false, so a
-    // fetch issued at this instant is skipped and — since nothing asks again — the badge stays at 0 forever.
-    expect(component.canReviewAnyType()).toBe(false);
-
+  it('waits for the types, then fetches it for a caller whose only edit right is a per-type grant', () => {
+    const pending = new Subject<DocumentTypeDto[]>();
+    const { component, fixture, statisticsSpy } = setup(READ_ALL_GRANTS_ONLY, () =>
+      pending.asObservable(),
+    );
     component.ngOnInit();
+    TestBed.tick();
+
+    // Still loading: the gate cannot answer anything but "module-wide only", so nothing is asked yet.
+    expect(component.canReviewAnyType()).toBe(false);
+    expect(statisticsSpy).not.toHaveBeenCalled();
+
+    pending.next([TYPE_A, TYPE_B]);
+    TestBed.tick();
 
     expect(component.canReviewAnyType()).toBe(true);
     expect(statisticsSpy).toHaveBeenCalled();
     expect(component.reviewQueueCount()).toBe(3);
+    expect(fixture).toBeTruthy();
   });
 
   it('still fetches it for a module-wide holder, whose gate never needed the types', () => {
-    const { component, statisticsSpy } = setupUnseeded(MODULE_WIDE);
+    const { component, statisticsSpy } = setup(MODULE_WIDE);
 
     component.ngOnInit();
+    TestBed.tick();
 
     expect(statisticsSpy).toHaveBeenCalled();
     expect(component.reviewQueueCount()).toBe(3);
   });
 
   it('skips it for a caller with no edit right on any visible type', () => {
-    const { component, statisticsSpy } = setupUnseeded(READ_ALL_GRANTS_ONLY, [TYPE_B]);
+    const { component, statisticsSpy } = setup(READ_ALL_GRANTS_ONLY, () => of([TYPE_B]));
 
     component.ngOnInit();
+    TestBed.tick();
 
     expect(component.canReviewAnyType()).toBe(false);
     expect(statisticsSpy).not.toHaveBeenCalled();
   });
 
+  it('heals a failed type store from the explicit Refresh (#639 review)', () => {
+    // The store fetches once per session. Before it existed, every navigation re-fetched and a transient
+    // failure healed by itself; without this, an operator whose first fetch failed would have no type filter
+    // and no dynamic columns until a full page reload. ngOnInit is deliberately not called, so the recovery
+    // can only have come from refresh().
+    const getVisible = vi
+      .fn()
+      .mockReturnValueOnce(throwError(() => new Error('offline')))
+      .mockReturnValue(of([TYPE_A, TYPE_B]));
+    const { component } = setup(MODULE_WIDE, getVisible);
+    expect(component.documentTypes.error()).toBe(true);
+
+    component.refresh();
+
+    expect(getVisible).toHaveBeenCalledTimes(2);
+    expect(component.documentTypes.error()).toBe(false);
+    expect(component.documentTypes.value()).toEqual([TYPE_A, TYPE_B]);
+  });
+
   it('falls back to the module-wide answer when the types fetch fails', () => {
-    // The error branch has to reach the fetch too: an empty type list reduces the gate to its module-wide
-    // half, which is exactly the pre-#632 answer, and a module-wide reviewer must still get their badge.
-    const { component, statisticsSpy } = setupUnseeded(MODULE_WIDE, 'error');
+    // The failure branch has to reach the fetch too: an empty type list reduces the gate to its module-wide
+    // half, which is a real answer, and a module-wide reviewer must still get their badge.
+    const { component, statisticsSpy } = setup(MODULE_WIDE, () =>
+      throwError(() => new Error('offline')),
+    );
 
     component.ngOnInit();
+    TestBed.tick();
 
-    expect(component.documentTypes()).toEqual([]);
+    expect(component.documentTypes.error()).toBe(true);
+    expect(component.documentTypes.value()).toEqual([]);
     expect(statisticsSpy).toHaveBeenCalled();
   });
 });

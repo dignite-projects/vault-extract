@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Dignite.Vault.Extract.Permissions;
+using Volo.Abp.Authorization;
 
 namespace Dignite.Vault.Extract.Documents.Pipelines;
 
@@ -18,23 +18,25 @@ public class DocumentPipelineRunAppService : VaultExtractAppService, IDocumentPi
     private readonly IDocumentRepository _documentRepository;
     private readonly IDocumentPipelineRunRepository _runRepository;
     private readonly DocumentPipelineRunToDocumentPipelineRunDtoMapper _runMapper;
-    private readonly DocumentTypeAccessChecker _documentTypeAccess;
+    private readonly DocumentAccessChecker _documentAccess;
 
     public DocumentPipelineRunAppService(
         IDocumentRepository documentRepository,
         IDocumentPipelineRunRepository runRepository,
         DocumentPipelineRunToDocumentPipelineRunDtoMapper runMapper,
-        DocumentTypeAccessChecker documentTypeAccess)
+        DocumentAccessChecker documentAccess)
     {
         _documentRepository = documentRepository;
         _runRepository = runRepository;
         _runMapper = runMapper;
-        _documentTypeAccess = documentTypeAccess;
+        _documentAccess = documentAccess;
     }
 
     public virtual async Task<List<DocumentPipelineRunDto>> GetListAsync(Guid documentId)
     {
-        await CheckPolicyAsync(VaultExtractPermissions.Documents.Default);
+        // #635: entry is asserted before the load — see DocumentAppService.GetAsync. A bare entry check, not a
+        // resolved scope: judging one document needs at most one grant check, never a sweep of the layer.
+        await _documentAccess.CheckEntryAsync();
 
         // Fail-closed safety gate: assert visibility through the document read path before returning
         // its orchestration state. CheckPolicyAsync alone is insufficient. PipelineRun has its own
@@ -46,11 +48,11 @@ public class DocumentPipelineRunAppService : VaultExtractAppService, IDocumentPi
         // filters: not found -> EntityNotFoundException -> 404, matching the contract.
         var document = await _documentRepository.GetAsync(documentId, includeDetails: false);
 
-        // #632: orchestration state is part of reading the document, so it rides the same rule as
-        // DocumentAppService.GetAsync — Documents.ReadAll, or a Read grant on this document's own type; an
-        // untyped document is reachable only through the module-wide permission. Without this, a caller narrowed
-        // to one type could read the pipeline history of every document in the layer by id.
-        await _documentTypeAccess.CheckAsync(DocumentAccessRule.Read, document);
+        // Orchestration state is part of reading the document, so it rides the same rule as
+        // DocumentAppService.GetAsync — Documents.ReadAll, a Read grant on this document's own type, or this
+        // caller uploaded it. Without this, a caller narrowed to one type could read the pipeline history of
+        // every document in the layer by id.
+        await _documentAccess.CheckAsync(DocumentAccessRule.Read, DocumentAccessSubject.Of(document));
 
         var runs = await _runRepository.GetListByDocumentAsync(documentId);
         // Call the child mapper Map(source) directly instead of ObjectMapper so AfterMap decodes

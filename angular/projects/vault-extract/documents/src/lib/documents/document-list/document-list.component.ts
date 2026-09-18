@@ -5,8 +5,10 @@ import {
   LOCALE_ID,
   OnInit,
   computed,
+  effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule, DOCUMENT, formatDate } from '@angular/common';
@@ -40,8 +42,6 @@ import {
   DocumentReviewReasons,
   DocumentService,
   DocumentStatisticsService,
-  DocumentTypeDto,
-  DocumentTypeService,
   ExportFormat,
   DocumentExportService,
   FieldDefinitionDto,
@@ -57,9 +57,9 @@ import { executeBulkOperations } from '../../shared/bulk-operation';
 import {
   assignableDocumentTypes,
   canEditAnyDocumentType,
-  documentRightsAccessor,
-  readDocumentModuleWidePolicies,
-} from '../../shared/document-rights';
+  rightsOf,
+} from '../../shared/document-access';
+import { DocumentTypesStore } from '../../shared/document-types.store';
 import { DocumentListFilter, toExportDocumentsInput } from './export-current-view';
 
 interface TableActivateEvent {
@@ -104,7 +104,6 @@ export class DocumentListComponent implements OnInit {
   // "[object Object]"). All other document operations still use the generated DocumentService.
   private readonly documentListQueryService = inject(DocumentListQueryService);
   private readonly statisticsService = inject(DocumentStatisticsService);
-  private readonly documentTypeService = inject(DocumentTypeService);
   private readonly fieldDefinitionService = inject(FieldDefinitionService);
   private readonly cabinetService = inject(CabinetService);
   private readonly documentExportService = inject(DocumentExportService);
@@ -118,12 +117,18 @@ export class DocumentListComponent implements OnInit {
   private readonly domDocument = inject(DOCUMENT);
   private readonly extensions = inject(ExtensionsService);
   private readonly locale = inject(LOCALE_ID);
+  // #635 decision 7: the visible types come from the one shared store — the type filter, the dynamic
+  // extracted-field columns, the confirm picker and the review-queue gate all read the same fetch.
+  readonly documentTypes = inject(DocumentTypesStore);
 
   readonly list = inject(ListService);
 
-  // #632: the module-wide half of the Read / Edit / Delete rules, snapshotted once. Per-row rights come
-  // from rightsFor() below, which ORs these with the row type's own grant.
-  private readonly moduleWideRights = readDocumentModuleWidePolicies(this.permissionService);
+  // #635: the module-wide half of the two questions the client still answers for itself — which types may
+  // this caller declare, and may it review anything at all. Snapshotted once, per the repo convention:
+  // getGrantedPolicy re-parses its policy expression on every call and these run inside templates.
+  readonly canConfirmClassification = this.permissionService.getGrantedPolicy(
+    EXTRACT_PERMISSIONS.Documents.ConfirmClassification,
+  );
   readonly canUpload = this.permissionService.getGrantedPolicy(
     EXTRACT_PERMISSIONS.Documents.Upload,
   );
@@ -136,7 +141,7 @@ export class DocumentListComponent implements OnInit {
   readonly canExport = this.permissionService.getGrantedPolicy(EXTRACT_PERMISSIONS.Documents.Export);
   // #632: whole-layer statistics (DocumentStatisticsAppService) now require Documents.ReadAll, so the
   // needs-review badge count must not be fetched without it — the call would 403.
-  readonly canReadAll = this.moduleWideRights.readAll;
+  readonly canReadAll = this.permissionService.getGrantedPolicy(EXTRACT_PERMISSIONS.Documents.ReadAll);
 
   documents = signal<ClientPagedResult<DocumentListItemDto>>({ totalCount: 0, items: [] });
   isLoading = signal(true);
@@ -158,7 +163,6 @@ export class DocumentListComponent implements OnInit {
   originDocumentIdFilter = signal<string>('');
   subDocumentsParent = signal<DocumentListItemDto | null>(null);
   confirmingDoc = signal<DocumentListItemDto | null>(null);
-  documentTypes = signal<DocumentTypeDto[]>([]);
   cabinets = signal<CabinetDto[]>([]);
   // Dynamic ExtractedFields columns — populated only while a single documentTypeCode
   // filter is active (then the page shares one field schema). Empty for no-type /
@@ -194,17 +198,18 @@ export class DocumentListComponent implements OnInit {
   // #333), not a page-local count, so it stays correct across pagination and once the list is unfiltered.
   reviewQueueCount = signal(0);
 
-  // #632: per-row rights — "the module-wide permission for the operation, OR the matching grant on this
-  // row's document type", with untyped rows reduced to the module-wide half. One shared implementation
-  // (shared/document-rights.ts) serves this component, the detail page and their specs; the accessor reads
-  // the documentTypes signal, so rows re-evaluate as soon as the type list (and its grant dictionary) lands.
-  readonly rightsFor = documentRightsAccessor(this.documentTypes, this.moduleWideRights);
+  // #635 decision 5: every per-row action reads the verdict the server sent down with the row. The client no
+  // longer re-derives it from the caller's grants and the row's type — that copy could not see ownership at
+  // all, and keyed types by code against the ACTIVE types, so a document on an archived type lost every
+  // action the API would in fact have admitted.
+  readonly rightsOf = rightsOf;
 
   // #632: only the types this caller may ASSIGN may appear in the confirm picker — ConfirmClassification
   // module-wide, or an Upload grant on that particular type (the #629 rule, unchanged). Offering any other
-  // type would build a request the server refuses.
+  // type would build a request the server refuses. Still a client-side answer after #635 because it is a
+  // question about TYPES: the target type of a reclassification is not the row being judged.
   readonly assignableTypes = computed(() =>
-    assignableDocumentTypes(this.documentTypes(), this.moduleWideRights),
+    assignableDocumentTypes(this.documentTypes.value(), this.canConfirmClassification),
   );
 
   // #632: the needs-review toggle is a FILTER, not a per-document action, so there is no single document to
@@ -212,14 +217,14 @@ export class DocumentListComponent implements OnInit {
   // or through an Edit grant on at least one visible type). The badge beside it is a whole-layer statistic and
   // is gated separately on ReadAll (loadReviewQueueCount).
   readonly canReviewAnyType = computed(() =>
-    canEditAnyDocumentType(this.documentTypes(), this.moduleWideRights),
+    canEditAnyDocumentType(this.documentTypes.value(), this.canConfirmClassification),
   );
 
   // #632: any row on the current page the caller may delete. Drives the selection checkboxes, which
   // abp-extensible-table only exposes as a single table-wide flag — the per-row narrowing happens in
   // onSelectionChange instead.
   readonly canDeleteAnyRow = computed(() =>
-    this.documents().items.some(d => this.rightsFor(d).canDelete),
+    this.documents().items.some(d => rightsOf(d).canDelete),
   );
 
   // #354: render the row actions column when the user has confirm/delete actions on some row OR any row is a
@@ -228,7 +233,7 @@ export class DocumentListComponent implements OnInit {
   // #632: "has confirm/delete actions" is now decided per row rather than by a module-wide permission pair.
   readonly showActionsColumn = computed(() =>
     this.documents().items.some(d => {
-      const rights = this.rightsFor(d);
+      const rights = rightsOf(d);
       return rights.canEdit || rights.canDelete || d.isContainer || d.originDocumentId;
     }),
   );
@@ -269,6 +274,22 @@ export class DocumentListComponent implements OnInit {
       this.domDocument.removeEventListener('visibilitychange', onVisibilityChange);
       this.clearPollTimer();
     });
+    // #635 decision 7: the two loads that depend on the visible types used to be continuations of this
+    // page's own getVisible() callbacks. The types now come from a shared store that may already hold them,
+    // so both follow the store's state instead: run once it has settled, ready or failed. The error case has
+    // to reach them too — an empty type list is the module-wide-only answer, which is a real answer.
+    effect(() => {
+      if (this.documentTypes.isLoading()) {
+        return;
+      }
+      // Read so the effect re-runs when a reload changes the answer; the body is untracked so its own signal
+      // reads (the type filter, the request states it writes) cannot make it a dependency of itself.
+      this.documentTypes.value();
+      untracked(() => {
+        this.loadReviewQueueCount();
+        this.rebuildExtractedFieldColumns();
+      });
+    });
   }
 
   ngOnInit(): void {
@@ -281,12 +302,9 @@ export class DocumentListComponent implements OnInit {
     // filters.
     this.applyQueryParamPaging();
     this.hookListQuery();
-    // Document types drive the type filter, the dynamic extracted-field columns, the confirm-classification
-    // picker — and, since #632, the review-queue badge's own gate. Every Documents.Default user needs them,
-    // and the read is decoupled from schema-admin permission (#223 — GetVisible no longer requires
-    // DocumentTypes.Default), so load unconditionally; the error fallback keeps the list usable if it ever
-    // 403s. loadDocumentTypes triggers the badge fetch on BOTH of its branches; see loadReviewQueueCount.
-    this.loadDocumentTypes();
+    // #635: the type store fetches once per session; a failed first fetch would otherwise leave this page
+    // without its type filter and dynamic columns until a full reload. A no-op unless it failed.
+    this.documentTypes.retryIfFailed();
     // Cabinet getList is gated by Cabinets.Default; only fetch when granted to
     // avoid a 403 for users without cabinet access (cabinet filter/labels hidden).
     if (this.canViewCabinets) {
@@ -295,6 +313,7 @@ export class DocumentListComponent implements OnInit {
   }
 
   refresh(): void {
+    this.documentTypes.retryIfFailed();
     this.list.getWithoutPageReset();
   }
 
@@ -689,31 +708,17 @@ export class DocumentListComponent implements OnInit {
     }
   }
 
-  // Visible document types for the current layer (Host admin → Host types;
-  // tenant admin → that tenant's types). Drives the confirm-classification picker.
-  private loadDocumentTypes(): void {
-    this.documentTypeService.getVisible()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: types => {
-          this.documentTypes.set(types);
-          // #632 code review: the badge's gate is a function of this very signal, so its fetch is a
-          // continuation of this load rather than a separate statement in ngOnInit that happened to run
-          // first. The error branch calls it too, on the empty type list, which is the module-wide-only
-          // answer — the same answer the gate gave before #632.
-          this.loadReviewQueueCount();
-          if (this.typeFilter()) {
-            this.loadExtractedFieldColumns(this.typeFilter());
-            return;
-          }
-          this.rebuildTableProps([]);
-        },
-        error: () => {
-          this.documentTypes.set([]);
-          this.loadReviewQueueCount();
-          this.applyExtractedFieldColumns([]);
-        },
-      });
+  // The dynamic extracted-field columns need a type ID, and the filter carries a type CODE, so they can only
+  // be built once the visible types are in hand. Called from the store-following effect in the constructor.
+  private rebuildExtractedFieldColumns(): void {
+    const typeCode = this.typeFilter();
+    if (typeCode && this.documentTypes.value().length > 0) {
+      this.loadExtractedFieldColumns(typeCode);
+      return;
+    }
+    // No single type selected, or the types could not be loaded at all: no dynamic columns, and the list
+    // itself stays usable.
+    this.applyExtractedFieldColumns([]);
   }
 
   // Visible cabinets for the current layer — drives the cabinet filter and the
@@ -781,7 +786,7 @@ export class DocumentListComponent implements OnInit {
   // cabinets() remains available for the top filter dropdown.
   documentTypeDisplayName(code: string | null | undefined): string | null {
     if (!code) return null;
-    return this.documentTypes().find(t => t.typeCode === code)?.displayName ?? code;
+    return this.documentTypes.value().find(t => t.typeCode === code)?.displayName ?? code;
   }
 
   // Load the selected type's field definitions and turn them into dynamic columns
@@ -791,7 +796,7 @@ export class DocumentListComponent implements OnInit {
   // API is keyed by immutable DocumentTypeId (#207), so we resolve code → id via the
   // already-loaded visible types before querying.
   private loadExtractedFieldColumns(typeCode: string): void {
-    const documentTypeId = this.documentTypes().find(t => t.typeCode === typeCode)?.id;
+    const documentTypeId = this.documentTypes.value().find(t => t.typeCode === typeCode)?.id;
     if (!documentTypeId) {
       if (this.typeFilter() === typeCode) {
         this.applyExtractedFieldColumns([]);
@@ -844,7 +849,7 @@ export class DocumentListComponent implements OnInit {
   // refuses to stay checked (including via the header "select all"), and the bulk bar's count never promises
   // a deletion the server would refuse.
   onSelectionChange(selected: DocumentListItemDto[]): void {
-    this.selectedDocuments.set(selected.filter(doc => this.rightsFor(doc).canDelete));
+    this.selectedDocuments.set(selected.filter(doc => rightsOf(doc).canDelete));
   }
 
   clearSelection(): void {

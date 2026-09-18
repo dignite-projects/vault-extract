@@ -22,7 +22,7 @@
         </div>
       }
 
-      @if (declarableTypes().length > 0 && canAcceptFiles()) {
+      @if (assignableTypes().length > 0 && canAcceptFiles()) {
         <div class="document-type-select">
           <label class="form-label fw-semibold">
             {{
@@ -44,7 +44,7 @@
             } @else {
               <option value="">{{ '::Document:LetAiClassify' | abpLocalization }}</option>
             }
-            @for (t of declarableTypes(); track t.id) {
+            @for (t of assignableTypes(); track t.id) {
               <option [value]="t.id">{{ t.displayName }}</option>
             }
           </select>
@@ -78,6 +78,16 @@
           <i class="fas fa-exclamation-triangle"></i>
         </span>
         <h3 class="h5 mb-2">{{ '::Document:Upload:TypesUnavailable' | abpLocalization }}</h3>
+        <!-- #635: the store owns the fetch now, so the retry is a reload of the store rather than of this
+             page — recovering it here recovers it for every other page of the session too. -->
+        <button
+          type="button"
+          class="btn btn-sm btn-outline-secondary"
+          (click)="documentTypes.reload()"
+          [disabled]="documentTypes.isLoading()"
+        >
+          {{ '::Refresh' | abpLocalization }}
+        </button>
       </div>
     } @else {
       <input

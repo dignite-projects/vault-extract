@@ -258,7 +258,7 @@ public class DocumentParentDelete_Tests
                     tenantId: null,
                     fileOrigin: null,
                     originDocumentId: sourceId,
-                    originConstituentKey: $"constituent-{i}");
+                    originConstituentKey: $"constituent-{i}", creatorId: null);
                 await _documentRepository.InsertAsync(derived, autoSave: true);
             }
         });

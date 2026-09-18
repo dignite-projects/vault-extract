@@ -10,6 +10,28 @@ paths:
 
 > **Docs**: https://abp.io/docs/latest/framework/fundamentals/authorization
 
+## ⚠️ The documents domain does NOT follow the patterns below (#629 / #632 / #635)
+
+Everything after this section is the ABP default and applies to `Cabinet`, `DocumentType`, `FieldDefinition` and anything new. **The documents domain is different, and the differences are load-bearing.** If you are editing `DocumentAppService`, `DocumentExportAppService`, `DocumentReprocessingAppService`, `DocumentStatisticsAppService`, `DocumentPipelineRunAppService` or `CabinetAppService.DeleteAsync`, read `docs/en/configuration/document-type-permissions.md` first.
+
+**1. No `[Authorize]` — ever.** The three documents-domain app services carry no `[Authorize]` attribute on any method, and none at class level. A structural test enforces it (`DocumentTypeAccess_Tests.No_method_of_the_documents_domain_app_services_carries_an_Authorize_attribute`). Two reasons, and the second is the one that bites: MCP / reflection / tool-dispatch paths never run attributes, **and** an attribute fires before the method body, so it would deny a per-type grant holder or a document's own uploader before the body could offer the other arms of the rule.
+
+**2. Authorization is a row on `DocumentAccessRule`, evaluated by `DocumentAccessChecker`.** Every public operation's first authorization act is one of:
+
+```csharp
+await _documentAccess.CheckEntryAsync();                                   // before the load
+await _documentAccess.CheckAsync(DocumentAccessRule.Edit, DocumentAccessSubject.Of(document));
+var scope = await _documentAccess.ResolveScopeAsync(DocumentAccessRule.Read);   // row sets only
+```
+
+Adding an operation means **adding a row to the table**, not writing a check. `CheckPolicyAsync(...)` on a `Documents.*` permission in this domain is a bug: it bypasses the ownership and per-type arms, and it asserts no entry.
+
+**3. Ownership goes through the rule's owner arm. Never hand-write `CreatorId != CurrentUser.Id`.** The "Ownership Validation" snippet further down this file is exactly what not to do here. The arm is three-valued (`DocumentOwnerArm`: `Never` / `Always` / `UnlessUnderReview`) because an uploader may always read and delete their own document, may never sign off its review, and may not modify it while it is blocked on a review reason other than classification — a hand-written comparison expresses none of that, and each copy of it would drift.
+
+**4. Rights are decided on the server.** `DocumentListItemDto` / `DocumentDto` carry a `rights` object from the same checker. Never re-derive the rule anywhere else, client or server.
+
+**5. Row sets are narrowed by `DocumentAccessScope`**, carried through `DocumentQueries.ApplyMetadataFilter`'s `required` `ReadScope`. A new query over `Document` must set it; a new repository method that returns documents (or names them, like the duplicate-candidate projection) must take it.
+
 ## Permission Definition
 Define permissions in `*.Application.Contracts` project:
 

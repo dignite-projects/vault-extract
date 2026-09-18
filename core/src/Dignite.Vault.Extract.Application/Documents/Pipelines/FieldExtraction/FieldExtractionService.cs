@@ -461,6 +461,11 @@ public class FieldExtractionService : ITransientDependency
                     documentTypeId,
                     fingerprint,
                     DocumentConsts.MaxDuplicateCandidates,
+                    // #635: unrestricted, explicitly. This runs in a background job with no principal and only
+                    // counts the candidates to decide the flag — a duplicate the uploader may not see is still a
+                    // duplicate, and narrowing here would make the review reason depend on who happened to upload
+                    // the other copy. The operator-facing panel narrows instead (DocumentAppService).
+                    DocumentAccessScope.Unrestricted,
                     _cancellationTokenProvider.Token);
                 duplicateSuspected = candidates.Count > 0;
             }

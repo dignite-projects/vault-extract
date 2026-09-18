@@ -18,9 +18,17 @@ public class DocumentTypeController : VaultExtractController, IDocumentTypeAppSe
     }
 
     [HttpGet]
-    public virtual Task<List<DocumentTypeDto>> GetVisibleAsync([FromQuery] bool includeResourcePermissions = true)
+    public virtual Task<List<DocumentTypeDto>> GetVisibleAsync()
     {
-        return _documentTypeAppService.GetVisibleAsync(includeResourcePermissions);
+        return _documentTypeAppService.GetVisibleAsync();
+    }
+
+    // #636: an in-process use case (the MCP adapters), not part of the REST contract. Explicit interface
+    // implementation satisfies IDocumentTypeAppService without adding a public action method — the conventional
+    // C# way to keep an interface member off a plain ASP.NET controller's routable, Swagger-visible surface.
+    Task<List<DocumentTypeSummaryDto>> IDocumentTypeAppService.GetVisibleSummariesAsync()
+    {
+        return _documentTypeAppService.GetVisibleSummariesAsync();
     }
 
     [HttpGet("deleted")]

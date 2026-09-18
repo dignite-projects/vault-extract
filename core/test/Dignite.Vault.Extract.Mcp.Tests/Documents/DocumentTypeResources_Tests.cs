@@ -90,10 +90,10 @@ public class DocumentTypeResources_Tests : VaultExtractTestBase<DocumentTypeReso
         var tenantId = Guid.NewGuid();
         var typeId = Guid.NewGuid();
         var currentTenant = GetRequiredService<ICurrentTenant>();
-        _documentTypeAppService.GetVisibleAsync(Arg.Any<bool>()).Returns(_ =>
+        _documentTypeAppService.GetVisibleSummariesAsync().Returns(_ =>
         {
             currentTenant.Id.ShouldBe(tenantId);
-            return Task.FromResult<List<DocumentTypeDto>>(
+            return Task.FromResult<List<DocumentTypeSummaryDto>>(
             [new() { Id = typeId, TypeCode = "contract.general", DisplayName = "General Contract" }]);
         });
         _fieldDefinitionAppService.GetListAsync(Arg.Any<GetFieldDefinitionListInput>())
@@ -135,18 +135,18 @@ public class DocumentTypeResources_Tests : VaultExtractTestBase<DocumentTypeReso
                 _fieldTypeExtensionRegistry,
                 serviceProvider: ServiceProvider));
 
-        await _documentTypeAppService.DidNotReceive().GetVisibleAsync(Arg.Any<bool>());
+        await _documentTypeAppService.DidNotReceive().GetVisibleSummariesAsync();
     }
 
     [Fact]
     public async Task Returns_schema_with_wrapped_display_names_ordered_by_display_order()
     {
-        // #222: ReadAsync delegates to GetVisibleAsync to filter type by code, then GetListAsync
+        // #222: ReadAsync delegates to GetVisibleSummariesAsync to filter type by code, then GetListAsync
         // (DocumentTypeId) to load fields (#207).
         var typeId = Guid.NewGuid();
         _documentTypeAppService
-            .GetVisibleAsync(Arg.Any<bool>())
-            .Returns(new List<DocumentTypeDto>
+            .GetVisibleSummariesAsync()
+            .Returns(new List<DocumentTypeSummaryDto>
             {
                 new() { Id = typeId, TypeCode = "contract.general", DisplayName = "合同" }
             });
@@ -197,8 +197,8 @@ public class DocumentTypeResources_Tests : VaultExtractTestBase<DocumentTypeReso
         // client never has to know which registration keys happen to be multi-valued.
         var typeId = Guid.NewGuid();
         _documentTypeAppService
-            .GetVisibleAsync(Arg.Any<bool>())
-            .Returns(new List<DocumentTypeDto>
+            .GetVisibleSummariesAsync()
+            .Returns(new List<DocumentTypeSummaryDto>
             {
                 new() { Id = typeId, TypeCode = "contract.general", DisplayName = "合同" }
             });
@@ -235,10 +235,10 @@ public class DocumentTypeResources_Tests : VaultExtractTestBase<DocumentTypeReso
     public async Task Throws_when_type_not_found()
     {
         // Cross-tenant / nonexistent code is absent from the current-layer type set returned by
-        // GetVisibleAsync; tenant isolation is enforced by ambient filters.
+        // GetVisibleSummariesAsync; tenant isolation is enforced by ambient filters.
         _documentTypeAppService
-            .GetVisibleAsync(Arg.Any<bool>())
-            .Returns(new List<DocumentTypeDto>());
+            .GetVisibleSummariesAsync()
+            .Returns(new List<DocumentTypeSummaryDto>());
 
         await Should.ThrowAsync<McpException>(async () =>
             await DocumentTypeResources.ReadAsync(
@@ -252,8 +252,8 @@ public class DocumentTypeResources_Tests : VaultExtractTestBase<DocumentTypeReso
         // Within-limit behavior: one Resource per visible type, URI / Name by TypeCode, sorted stably by
         // TypeCode.
         _documentTypeAppService
-            .GetVisibleAsync(Arg.Any<bool>())
-            .Returns(new List<DocumentTypeDto>
+            .GetVisibleSummariesAsync()
+            .Returns(new List<DocumentTypeSummaryDto>
             {
                 new() { Id = Guid.NewGuid(), TypeCode = "invoice.vat", DisplayName = "增值税发票" },
                 new() { Id = Guid.NewGuid(), TypeCode = "contract.general", DisplayName = "合同" }
@@ -278,7 +278,7 @@ public class DocumentTypeResources_Tests : VaultExtractTestBase<DocumentTypeReso
         // tool.
         var total = VaultExtractMcpConsts.MaxDocumentTypeResults + 3;
         var types = Enumerable.Range(0, total)
-            .Select(i => new DocumentTypeDto
+            .Select(i => new DocumentTypeSummaryDto
             {
                 Id = Guid.NewGuid(),
                 TypeCode = $"type.{i:D4}",
@@ -288,7 +288,7 @@ public class DocumentTypeResources_Tests : VaultExtractTestBase<DocumentTypeReso
             // stable TypeCode sorting.
             .OrderByDescending(t => t.TypeCode, StringComparer.Ordinal)
             .ToList();
-        _documentTypeAppService.GetVisibleAsync(Arg.Any<bool>()).Returns(types);
+        _documentTypeAppService.GetVisibleSummariesAsync().Returns(types);
 
         var result = await DocumentTypeResources.ListVisibleAsync(_documentTypeAppService);
 
@@ -299,17 +299,18 @@ public class DocumentTypeResources_Tests : VaultExtractTestBase<DocumentTypeReso
     }
 
     /// <summary>
-    /// #632 (#629 leftover): both resource entry points — the resources/list projection and the per-type schema
-    /// read — must ask <c>GetVisibleAsync</c> to skip ABP's <c>ResourcePermissionPopulator</c>. Neither reads
-    /// <c>DocumentTypeDto.ResourcePermissions</c>; filling it is one multi-permission check per type for nothing.
+    /// #636 (#629/#632 leftover): both resource entry points — the resources/list projection and the per-type
+    /// schema read — must call the narrow <c>GetVisibleSummariesAsync</c> read, not the full
+    /// <c>GetVisibleAsync</c>. Neither reads a caller's per-type grants, so ABP's <c>ResourcePermissionPopulator</c>
+    /// would run for nothing; <c>GetVisibleSummariesAsync</c> skips it structurally instead.
     /// </summary>
     [Fact]
-    public async Task Both_resource_entry_points_skip_the_resource_permission_populator()
+    public async Task Both_resource_entry_points_use_the_narrow_summary_read()
     {
         var typeId = Guid.NewGuid();
         _documentTypeAppService
-            .GetVisibleAsync(Arg.Any<bool>())
-            .Returns(new List<DocumentTypeDto>
+            .GetVisibleSummariesAsync()
+            .Returns(new List<DocumentTypeSummaryDto>
             {
                 new() { Id = typeId, TypeCode = "contract.general", DisplayName = "合同" }
             });
@@ -325,7 +326,7 @@ public class DocumentTypeResources_Tests : VaultExtractTestBase<DocumentTypeReso
             _fieldTypeResolver,
             _fieldTypeExtensionRegistry);
 
-        await _documentTypeAppService.Received(2).GetVisibleAsync(false);
-        await _documentTypeAppService.DidNotReceive().GetVisibleAsync(true);
+        await _documentTypeAppService.Received(2).GetVisibleSummariesAsync();
+        await _documentTypeAppService.DidNotReceive().GetVisibleAsync();
     }
 }

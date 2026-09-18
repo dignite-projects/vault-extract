@@ -7,14 +7,16 @@ import {
   inject,
   signal,
   computed,
+  untracked,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { forkJoin, of, switchMap, tap, timer, Subscription } from 'rxjs';
+import { forkJoin, timer, Subscription } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
 import { CommonModule, DOCUMENT, Location } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
 import { FormBuilder, FormGroup, FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { marked } from 'marked';
-import { LocalizationPipe, PermissionService } from '@abp/ng.core';
+import { HttpErrorReporterService, LocalizationPipe, PermissionService } from '@abp/ng.core';
 import { Confirmation, ConfirmationService, ToasterService } from '@abp/ng.theme.shared';
 import { FlexFieldControlComponent, FlexFieldData, FlexFieldValue, FlexFieldViewComponent } from '@dignite/ng.flex-fields';
 import {
@@ -28,18 +30,14 @@ import {
   DocumentReviewReasons,
   DocumentService,
   DocumentTypeDto,
-  DocumentTypeService,
   FieldDefinitionDto,
   FieldDefinitionService,
   FieldValidationWarningDto,
   EXTRACT_PERMISSIONS,
   PipelineRunStatus,
 } from '@dignite/ng.vault-extract';
-import {
-  assignableDocumentTypes,
-  documentRightsAccessor,
-  readDocumentModuleWidePolicies,
-} from '../../shared/document-rights';
+import { assignableDocumentTypes, rightsOf } from '../../shared/document-access';
+import { DocumentTypesStore } from '../../shared/document-types.store';
 import { stripMarkdownCodeFences } from '../../shared/strip-code-fences';
 import { DocumentFileBlobService } from '../../shared/document-file-blob.service';
 import { isImageContentType, isPdfContentType } from '../../shared/content-type';
@@ -96,11 +94,13 @@ export class DocumentDetailComponent implements OnInit {
   private readonly location = inject(Location);
   private readonly documentService = inject(DocumentService);
   private readonly documentPipelineRunService = inject(DocumentPipelineRunService);
-  private readonly documentTypeService = inject(DocumentTypeService);
   private readonly fieldDefinitionService = inject(FieldDefinitionService);
   private readonly cabinetService = inject(CabinetService);
   private readonly fb = inject(FormBuilder);
   private readonly toaster = inject(ToasterService);
+  // #635: the document fetch opts out of ABP's global error handling to catch a 403, and hands every other
+  // error back through this — the same call RestService.handleError makes.
+  private readonly httpErrorReporter = inject(HttpErrorReporterService);
   private readonly confirmation = inject(ConfirmationService);
   private readonly permissionService = inject(PermissionService);
   private readonly destroyRef = inject(DestroyRef);
@@ -109,19 +109,34 @@ export class DocumentDetailComponent implements OnInit {
   // Original-file blob load / sanitize / revoke lifecycle (#277), shared with the file-preview page.
   protected readonly fileBlob = inject(DocumentFileBlobService);
 
-  // #632: the module-wide half of the Delete / Edit rules, snapshotted once. The per-document answer is
-  // rightsFor(document()) below — the module-wide permission OR the matching grant on THIS document's type.
-  private readonly moduleWideRights = readDocumentModuleWidePolicies(this.permissionService);
-  // #632: was a plain Documents.Delete boolean; now judged against the loaded document's own type, so a
-  // caller holding only a per-type Delete grant sees the button on its own types and nowhere else.
-  readonly canDelete = computed(() => this.rightsFor(this.document()).canDelete);
-  // #632: was a plain Documents.ConfirmClassification boolean. Every edit-family affordance on this page
-  // (confirm / reclassify / re-recognize / re-extract / field editing / Markdown correction / reject / allow
-  // duplicate / resolve warnings) already derives from this one gate, so making it per-document carries the
-  // whole family over at once — matching the backend, where all nine endpoints share DocumentAccessRule.Edit.
-  readonly canEditFields = computed(() => this.rightsFor(this.document()).canEdit);
+  // #635 decision 7: the visible types come from the one shared store — the type displayName mapping, the
+  // confirm / reclassify picker, and the code → id lookup the field-definition fetch needs.
+  readonly documentTypes = inject(DocumentTypesStore);
+
+  // #635 decision 5: what this caller may do with THIS document, decided on the server and sent down with
+  // it. Everything is denied until the document is in hand.
+  private readonly rights = computed(() => rightsOf(this.document()));
+  readonly canDelete = computed(() => this.rights().canDelete);
+  // The operator edit family: confirm / reclassify / re-recognize / re-extract / field editing / Markdown
+  // correction / cabinet re-filing. One gate, matching the backend, where all of them share
+  // DocumentAccessRule.Edit.
+  readonly canEdit = computed(() => this.rights().canEdit);
+  // #635 decision 2: NARROWER than the edit family on purpose. Allowing a suspected duplicate, resolving
+  // field-validation warnings and rejecting review each clear a BLOCKING review reason — the channel's
+  // data-quality gate on the way to DocumentReadyEto — so an uploader is deliberately not admitted to them
+  // on their own document, while an Edit grant or module-wide ConfirmClassification is.
+  readonly canReview = computed(() => this.rights().canReview);
+  // #635 decision 2: retry moved onto the Edit arm. It used to be reachable by anyone holding
+  // Pipelines.Retry on any readable document, which walked around the per-type Edit gate that its neighbour
+  // "re-recognize" already had.
+  readonly canRetry = computed(() => this.rights().canRetry);
   readonly canViewCabinets = this.permissionService.getGrantedPolicy(
     EXTRACT_PERMISSIONS.Cabinets.Default,
+  );
+  // The module-wide half of "which types may I assign" — the only question about this page that is still
+  // the client's to answer, because a reclassification's TARGET type is not the document being judged.
+  readonly canConfirmClassification = this.permissionService.getGrantedPolicy(
+    EXTRACT_PERMISSIONS.Documents.ConfirmClassification,
   );
 
   document = signal<DocumentDto | null>(null);
@@ -147,6 +162,12 @@ export class DocumentDetailComponent implements OnInit {
   isEditingFields = signal(false);
   isSavingFields = signal(false);
   fieldDefinitions = signal<FieldDefinitionDto[]>([]);
+  // #635: the field schema this page wants, waiting for the shared type store to be able to resolve its
+  // code → id. null until a document is loaded. See the constructor effect and requestFieldSchema.
+  private readonly fieldSchemaRequest = signal<{
+    readonly typeCode: string | null;
+    readonly nonce: number;
+  } | null>(null);
   // The extracted-fields edit form. Its "values" group is where each <ff-flex-field-control> registers
   // its own field's control (FieldTypeControlBase.rebuild); undefined means the fields card is not in
   // edit mode.
@@ -167,19 +188,11 @@ export class DocumentDetailComponent implements OnInit {
   isSavingMarkdown = signal(false);
   markdownDraft = signal('');
   reprocessOnSave = signal(false);
-  // Document types visible in the current layer, used for typeCode-to-displayName mapping and the
-  // confirm-classification picker. Populated together with field definition loading.
-  documentTypes = signal<DocumentTypeDto[]>([]);
-
-  // #632: the shared rule (shared/document-rights.ts) bound to this page's type list. Declared after
-  // documentTypes so the accessor captures the initialized signal; the gates above read it lazily.
-  readonly rightsFor = documentRightsAccessor(this.documentTypes, this.moduleWideRights);
-
   // #632: the types this caller may ASSIGN — ConfirmClassification module-wide, or an Upload grant on that
   // particular type. Confirming and reclassifying both go through the one picker below, and both are judged
   // against the TARGET type by the backend, so offering a type outside this set only builds a 403.
   readonly assignableTypes = computed(() =>
-    assignableDocumentTypes(this.documentTypes(), this.moduleWideRights),
+    assignableDocumentTypes(this.documentTypes.value(), this.canConfirmClassification),
   );
 
   // #395: manual confirm/assign classification — the authoritative override for UnresolvedClassification,
@@ -265,15 +278,18 @@ export class DocumentDetailComponent implements OnInit {
   // CTA. Mirrors the list's needsConfirmation; the blocking UnresolvedClassification reason is the only one
   // a manual type assignment resolves.
   needsClassification = computed(() =>
-    this.canEditFields() &&
+    this.canEdit() &&
     (((this.document()?.reviewReasons ?? DocumentReviewReasons.None) & DocumentReviewReasons.UnresolvedClassification)
       !== DocumentReviewReasons.None),
   );
 
   // #411: a suspected duplicate AND the operator may act — drives the "Allow" CTA (release as not a duplicate).
   // The opposite resolution (confirm the duplicate) is the existing Delete action.
+  // #635 decision 2: "may act" here is canReview, not canEdit. Releasing a suspected duplicate clears a
+  // blocking review reason, and a duplicate invoice is the adversarial case the review queue exists for, so
+  // the uploader does not get to release their own.
   needsDuplicateReview = computed(() =>
-    this.canEditFields() &&
+    this.canReview() &&
     (((this.document()?.reviewReasons ?? DocumentReviewReasons.None) & DocumentReviewReasons.DuplicateSuspected)
       !== DocumentReviewReasons.None),
   );
@@ -285,7 +301,7 @@ export class DocumentDetailComponent implements OnInit {
   // manual entry is likewise its only remedy. Unlike MissingRequiredFields this one is blocking, so filling the
   // fields is what releases the document to Ready.
   needsFieldCompletion = computed(() =>
-    this.canEditFields() &&
+    this.canEdit() &&
     (((this.document()?.reviewReasons ?? DocumentReviewReasons.None) &
       (DocumentReviewReasons.MissingRequiredFields | DocumentReviewReasons.FieldExtractionIncomplete))
       !== DocumentReviewReasons.None),
@@ -295,8 +311,10 @@ export class DocumentDetailComponent implements OnInit {
   // is blocking (gates Ready): the pipeline kept each flagged value but reported a concern, so the operator compares
   // it against the source (left column) and either re-extracts or resolves. Resolving clears the bit and releases the
   // document; editing a field value on its own does NOT clear a warning (#527 §9).
+  // #635 decision 2: gated on canReview rather than canEdit — this is the second pair of eyes on the
+  // uploader's work, and #527 §9 (a field edit never clears a warning) is exactly what keeps that true.
   needsFieldValidationResolution = computed(() =>
-    this.canEditFields() &&
+    this.canReview() &&
     (((this.document()?.reviewReasons ?? DocumentReviewReasons.None) & DocumentReviewReasons.FieldValidationWarning)
       !== DocumentReviewReasons.None),
   );
@@ -304,6 +322,20 @@ export class DocumentDetailComponent implements OnInit {
   // #527: the warnings carried by the FieldValidationWarning review-reason detail (at most one such detail, one entry
   // per flagged field). Drives both the itemised list rendered in the metadata card and the id set sent to the resolve
   // endpoint. Empty when there is no such detail.
+  // #635: the document is held by a blocking review reason and this caller can do nothing about it — the
+  // explanation an uploader needs once their own document is locked for review (they keep read and delete,
+  // lose edit and retry, never had review). Built ONLY from what the server sent: each detail's
+  // `isBlocking` and the row's `rights`. Re-deriving which reasons block on the client would be a second
+  // copy of ReviewReasonPolicy, which is the kind of copy #635 removed. The `canEdit` term is what keeps it
+  // off a document blocked only on classification: its uploader may still confirm or reclassify it, so
+  // there is something they can do, and the line would be false.
+  readonly waitingForReviewer = computed(
+    () =>
+      (this.document()?.reviewReasonDetails ?? []).some(detail => detail.isBlocking === true) &&
+      !this.canEdit() &&
+      !this.canReview(),
+  );
+
   fieldValidationWarnings = computed<FieldValidationWarningDto[]>(() =>
     (this.document()?.reviewReasonDetails ?? [])
       .find(d => d.reason === DocumentReviewReasons.FieldValidationWarning)
@@ -334,13 +366,13 @@ export class DocumentDetailComponent implements OnInit {
   );
 
   // #263 "rerecognize" availability: extracted text exists, ConfirmClassification permission is present
-  // (same as canEditFields), no critical pipeline is currently running, and the page is not loading. This
+  // (same as canEdit), no critical pipeline is currently running, and the page is not loading. This
   // avoids stacking reclassification onto a document already being processed or reprocessed.
   // Use pipelineInProgress instead of !isProcessing(): the latter is always false when needsReview() is
   // true, which would still expose the button on a pending-review document while reclassification is in
   // progress (review #5). The in-flight POST is covered by button [disabled]="isRerecognizing()".
   canRerecognize = computed(() =>
-    this.canEditFields() &&
+    this.canEdit() &&
     !!this.document()?.markdown &&
     !this.pipelineInProgress() &&
     !this.isLoading()
@@ -352,7 +384,7 @@ export class DocumentDetailComponent implements OnInit {
   // classified with documentTypeCode. Field extraction is attached to a type, so unclassified documents
   // have nothing to extract from; this mirrors the backend NotClassified guard.
   canReextractFields = computed(() =>
-    this.canEditFields() &&
+    this.canEdit() &&
     !!this.document()?.documentTypeCode &&
     !!this.document()?.markdown &&
     !this.pipelineInProgress() &&
@@ -365,7 +397,7 @@ export class DocumentDetailComponent implements OnInit {
   // CannotCorrectContainerMarkdown, so the affordance is hidden here rather than exposing an action that is
   // guaranteed to fail.
   canEditMarkdown = computed(() =>
-    this.canEditFields() &&
+    this.canEdit() &&
     !!this.document()?.markdown &&
     !this.document()?.isContainer &&
     !this.pipelineInProgress() &&
@@ -430,7 +462,7 @@ export class DocumentDetailComponent implements OnInit {
   documentTypeDisplayName = computed<string | null>(() => {
     const code = this.document()?.documentTypeCode;
     if (!code) return null;
-    return this.documentTypes().find(t => t.typeCode === code)?.displayName ?? code;
+    return this.documentTypes.value().find(t => t.typeCode === code)?.displayName ?? code;
   });
 
   // Type-bound extracted fields (field architecture v2). Show only values corresponding to currently
@@ -481,7 +513,7 @@ export class DocumentDetailComponent implements OnInit {
   // definitions on this type so empty fields can be completed.
   showFieldsCard = computed(() =>
     this.extractedFieldEntries().length > 0 ||
-    (this.canEditFields() && this.fieldDefinitions().length > 0)
+    (this.canEdit() && this.fieldDefinitions().length > 0)
   );
 
   // Snapshot of the document being edited, captured once by startEditFields() and held fixed until
@@ -575,6 +607,19 @@ export class DocumentDetailComponent implements OnInit {
       this.domDocument.removeEventListener('visibilitychange', onVisibilityChange);
       this.clearPollTimer();
     });
+
+    // #635 decision 7: the field-definition fetch needs a type ID, the document carries a type CODE, and
+    // only the visible types resolve one to the other. That used to be a single chained getVisible() call
+    // owned by this page; the types now come from a shared store which may already hold them or may still
+    // be loading, so the fetch follows the store's state and the page's own request instead.
+    effect(() => {
+      const request = this.fieldSchemaRequest();
+      if (request === null || this.documentTypes.isLoading()) {
+        return;
+      }
+      const types = this.documentTypes.value();
+      untracked(() => this.loadFieldDefinitions(request.typeCode, types));
+    });
   }
 
   ngOnInit(): void {
@@ -599,11 +644,17 @@ export class DocumentDetailComponent implements OnInit {
         this.isEditingMarkdown.set(false);
         this.markdownDraft.set('');
         this.reprocessOnSave.set(false);
+        // #635: opening a document is this page's init, also when the instance is reused for another id.
+        this.documentTypes.retryIfFailed();
         this.loadDocument();
       });
   }
 
   refresh(): void {
+    // #635: an explicit refresh also heals a failed type-store fetch (a no-op otherwise), without which this
+    // page cannot resolve its field schema or fill the confirm / reclassify picker for the rest of the
+    // session. Not from pollReload: a background tick must not become a retry loop against an outage.
+    this.documentTypes.retryIfFailed();
     this.loadDocument();
   }
 
@@ -625,9 +676,15 @@ export class DocumentDetailComponent implements OnInit {
   private fetchDocument(quiet: boolean): void {
     // doc and runs are independent after #216, so load them once in parallel; fieldDefinitions still
     // depend on doc.documentTypeCode and remain sequential.
+    //
+    // #635: skipHandleError on BOTH, and the error branch below owns the outcome. This fetch serves the
+    // poll, the manual Refresh and the reload after re-recognize / re-extract / retry — and a re-recognition
+    // can move the document into a type this caller may not read (the classifier's candidates are every type
+    // of the layer, the caller's Read scope is not). Left to ABP's global handler, that 403 pops the
+    // authorization modal — once per refused call, and both calls are refused — and leaves the page stale.
     forkJoin({
-      doc: this.documentService.get(this.documentId),
-      runs: this.documentPipelineRunService.getList(this.documentId),
+      doc: this.documentService.get(this.documentId, { skipHandleError: true }),
+      runs: this.documentPipelineRunService.getList(this.documentId, { skipHandleError: true }),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -655,7 +712,7 @@ export class DocumentDetailComponent implements OnInit {
           // resolved) — otherwise the fields card would flash empty on every tick.
           if (!quiet || (doc.documentTypeCode ?? null) !== previousTypeCode) {
             this.fieldDefinitions.set([]);
-            this.loadDocumentTypesAndFields(doc.documentTypeCode);
+            this.requestFieldSchema(doc.documentTypeCode);
           }
           // #306/#354: a sub-document carries its source (container) id. Fetch the parent's lightweight
           // metadata so the provenance banner can show its title; reset first so a previous document's
@@ -677,13 +734,25 @@ export class DocumentDetailComponent implements OnInit {
           // #440: (re)schedule or stop the poll based on the freshly loaded state.
           this.syncPolling();
         },
-        error: () => {
+        error: (err: unknown) => {
+          // #635: refused because the caller may no longer read this document — not a failure to report,
+          // an answer. Same exit as a mutation whose result is unreadable, with a message that does not
+          // claim an operation just completed (on a poll, none did).
+          if (err instanceof HttpErrorResponse && err.status === 403) {
+            this.leaveDocument('::Document:NoLongerVisible');
+            return;
+          }
           if (!quiet) {
             this.isLoading.set(false);
           }
           // #440: stop polling on a failed tick rather than hammering a failing endpoint. Manual Refresh
           // stays available, and any successful (re)load restarts it.
           this.stopPolling();
+          // Everything else keeps exactly the behaviour it had before skipHandleError: this is the call
+          // RestService.handleError makes, and ABP's theme shows its error modal from it. That holds for a
+          // quiet poll tick too — a background failure that silently stopped live updates would leave the
+          // operator watching a spinner that will never move.
+          this.httpErrorReporter.reportError(err as HttpErrorResponse);
         },
       });
   }
@@ -726,32 +795,60 @@ export class DocumentDetailComponent implements OnInit {
     this.pollIntervalMs = POLL_BASE_INTERVAL_MS;
   }
 
+  // Asks the constructor's effect for this document's field schema. The nonce makes a repeat request for the
+  // SAME type code a distinct value, so an explicit Refresh re-reads a schema an administrator may have
+  // edited — which the old chained call did implicitly by simply running again.
+  private requestFieldSchema(typeCode: string | null | undefined): void {
+    this.fieldSchemaRequest.update(previous => ({
+      typeCode: typeCode ?? null,
+      nonce: (previous?.nonce ?? 0) + 1,
+    }));
+  }
+
   // doc.documentTypeCode is the current code projection in the Document output contract (#207). The
-  // field definition API associates by immutable DocumentTypeId, so first resolve code to id from types
-  // visible in the current layer, then query. #395: visible types are always stored (the
-  // confirm-classification picker needs them even when the document is unclassified); field definitions
-  // are only fetched when the document already has a type.
-  private loadDocumentTypesAndFields(typeCode: string | null | undefined): void {
-    this.documentTypeService.getVisible()
-      .pipe(
-        // One getVisible call serves two purposes: store documentTypes for document type displayName
-        // mapping + the confirm picker, then resolve typeId for field definition lookup.
-        tap(types => this.documentTypes.set(types)),
-        switchMap(types => {
-          if (!typeCode) return of<FieldDefinitionDto[]>([]);
-          const documentTypeId = types.find(t => t.typeCode === typeCode)?.id;
-          if (!documentTypeId) return of<FieldDefinitionDto[]>([]);
-          return this.fieldDefinitionService.getList({ documentTypeId });
-        }),
-        takeUntilDestroyed(this.destroyRef),
-      )
+  // field definition API associates by immutable DocumentTypeId, so the code is resolved against the types
+  // visible in the current layer first. An unclassified document — or a type the caller cannot see — simply
+  // has no schema to fetch; the page stays fully usable and the confirm picker still has its options,
+  // because those come from the store rather than from this call.
+  //
+  // #635: two guards, because a schema request can be overtaken two different ways. A NEWER request (a
+  // reclassification, a Refresh, the type store recovering) cancels this one outright — without that, a
+  // slower earlier response could land after a faster later one and put A's schema on a document that is
+  // now B. And the response is checked against the document's CURRENT type when it arrives: a poll can
+  // change the type in the gap before the effect that issues the next request has run, and in that gap no
+  // newer request exists yet to cancel this one.
+  private loadFieldDefinitions(
+    typeCode: string | null,
+    types: readonly DocumentTypeDto[],
+  ): void {
+    this.fieldDefinitionsRequest?.unsubscribe();
+    this.fieldDefinitionsRequest = null;
+
+    const documentTypeId = typeCode ? types.find(t => t.typeCode === typeCode)?.id : undefined;
+    if (!documentTypeId) {
+      this.fieldDefinitions.set([]);
+      return;
+    }
+
+    const stillCurrent = () => (this.document()?.documentTypeCode ?? null) === typeCode;
+    this.fieldDefinitionsRequest = this.fieldDefinitionService.getList({ documentTypeId })
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: defs => this.fieldDefinitions.set(
-          [...defs].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0) || (a.name ?? '').localeCompare(b.name ?? '')),
-        ),
-        error: () => this.fieldDefinitions.set([]),
+        next: defs => {
+          if (!stillCurrent()) return;
+          this.fieldDefinitions.set(
+            [...defs].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0) || (a.name ?? '').localeCompare(b.name ?? '')),
+          );
+        },
+        error: () => {
+          if (!stillCurrent()) return;
+          this.fieldDefinitions.set([]);
+        },
       });
   }
+
+  /** The in-flight field-schema fetch, cancelled by the next one. See loadFieldDefinitions. */
+  private fieldDefinitionsRequest: Subscription | null = null;
 
   // Cabinet candidates for name mapping display plus reassignment dropdown (#257). Called only with
   // Cabinets.Default permission.
@@ -806,9 +903,10 @@ export class DocumentDetailComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: updated => {
-          this.document.set(updated);
           this.isSavingCabinet.set(false);
           this.isEditingCabinet.set(false);
+          if (this.leaveIfNoLongerReadable(updated)) return;
+          this.document.set(updated);
           this.toaster.success('::Document:CabinetUpdated', '::Success');
         },
         error: () => {
@@ -869,6 +967,7 @@ export class DocumentDetailComponent implements OnInit {
         next: updated => {
           this.isSavingMarkdown.set(false);
           this.isEditingMarkdown.set(false);
+          if (this.leaveIfNoLongerReadable(updated)) return;
           if (reprocessDropped) {
             // #555 review: the operator checked "also re-extract fields" and confirmed the warning
             // dialog, but the document went unclassified before Save actually ran -- surface that
@@ -955,6 +1054,49 @@ export class DocumentDetailComponent implements OnInit {
   // error signal.
   onPreviewError(): void {
     this.fileBlob.markError();
+  }
+
+  /**
+   * #635: every edit- and review-family endpoint answers with the document as the caller may see it AFTER
+   * the write — and when that is nothing, with a body redacted to `{ id, rights }`, `rights.canRead` false.
+   * The write has happened either way. All seven of this page's mutations that return a `DocumentDto` pass
+   * their response through here first; it returns `true` when it has taken the page away, and the caller
+   * must then stop.
+   *
+   * The case that reaches it is a reclassification out of the caller's read scope: an `Edit` grant on type
+   * X and an `Upload` grant on type Y, but no `Read` on Y, moving a document from X to Y. Neither of the two
+   * things the page would otherwise do is right. Putting the redacted DTO into `document` renders an empty
+   * page with every action off; and the four calls that ignore the body and reload would send a `GetAsync`
+   * this caller is now refused, which surfaces as ABP's authorization-error modal straight after a success
+   * toast, over the stale pre-mutation document. The other six calls cannot move a document out of scope
+   * by themselves — they reach this only if a grant is revoked mid-session — but one guard costs less than
+   * reasoning about which calls can race.
+   *
+   * Only an EXPLICIT `canRead === false` leaves. `rightsOf` fails closed — a missing `rights` reads as
+   * all-denied — which is right for deciding which buttons to show and wrong for navigating someone off a
+   * page: a response without a verdict is not a verdict that the caller is out.
+   */
+  private leaveIfNoLongerReadable(result: DocumentDto | null | undefined): boolean {
+    if (result?.rights?.canRead !== false) {
+      return false;
+    }
+    this.leaveDocument('::Document:SavedOutOfView', '::Success');
+    return true;
+  }
+
+  /**
+   * #635: the one exit for "this caller may no longer read the document on screen", shared by the
+   * mutation guard above and the document fetch's 403. Each path brings its own message: after a mutation
+   * the operation did complete; after a poll, nothing happened except that the answer changed.
+   *
+   * The list, not `goBack()`: the previous page may be another view of this same document (its file
+   * preview), which the caller can no longer open either. The poll is stopped first so no tick can fire in
+   * the gap before navigation tears the component down.
+   */
+  private leaveDocument(messageKey: string, titleKey?: string): void {
+    this.stopPolling();
+    this.toaster.info(messageKey, titleKey);
+    this.router.navigate(['/documents/list']);
   }
 
   goBack(): void {
@@ -1093,9 +1235,12 @@ export class DocumentDetailComponent implements OnInit {
     this.documentService.confirmClassification(doc.id!, { documentTypeId: this.selectedTypeId() })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => {
+        next: updated => {
           this.isConfirmingClassification.set(false);
           this.closeClassifyDialog();
+          // The one call on this page that routinely moves a document out of the caller's read scope: the
+          // TARGET type is judged by DeclareType (an Upload grant suffices), not by Read.
+          if (this.leaveIfNoLongerReadable(updated)) return;
           this.toaster.success('::Document:ClassificationConfirmed', '::Success');
           this.loadDocument();
         },
@@ -1131,9 +1276,10 @@ export class DocumentDetailComponent implements OnInit {
     this.documentService.rejectReview(doc.id!, { reason })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => {
+        next: updated => {
           this.isRejecting.set(false);
           this.closeRejectDialog();
+          if (this.leaveIfNoLongerReadable(updated)) return;
           this.toaster.success('::Document:Review:RejectedSuccessfully', '::Success');
           this.loadDocument();
         },
@@ -1154,8 +1300,9 @@ export class DocumentDetailComponent implements OnInit {
     this.documentService.allowDuplicate(doc.id!)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => {
+        next: updated => {
           this.isAllowingDuplicate.set(false);
+          if (this.leaveIfNoLongerReadable(updated)) return;
           this.toaster.success('::Document:Review:DuplicateAllowed', '::Success');
           this.loadDocument();
         },
@@ -1187,8 +1334,9 @@ export class DocumentDetailComponent implements OnInit {
         this.documentService.resolveFieldValidationWarnings(doc.id!, { fieldDefinitionIds })
           .pipe(takeUntilDestroyed(this.destroyRef))
           .subscribe({
-            next: () => {
+            next: updated => {
               this.isResolvingWarnings.set(false);
+              if (this.leaveIfNoLongerReadable(updated)) return;
               this.toaster.success('::Document:Review:FieldValidationWarningsResolved', '::Success');
               this.loadDocument();
             },
@@ -1277,7 +1425,7 @@ export class DocumentDetailComponent implements OnInit {
   // #412: "Complete fields" CTA — jump to the extracted-fields card and open the edit form so the missing
   // required values can be filled. Filling them clears MissingRequiredFields server-side on the next save.
   completeFields(): void {
-    if (this.canEditFields() && this.fieldDefinitions().length > 0 && !this.isEditingFields()) {
+    if (this.canEdit() && this.fieldDefinitions().length > 0 && !this.isEditingFields()) {
       this.startEditFields();
     }
     document.getElementById('extracted-fields-card')
@@ -1373,11 +1521,12 @@ export class DocumentDetailComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: updated => {
-          this.document.set(updated);
           this.isSavingFields.set(false);
           this.isEditingFields.set(false);
           this.fieldsForm.set(undefined);
           this.editingDocument.set(undefined);
+          if (this.leaveIfNoLongerReadable(updated)) return;
+          this.document.set(updated);
           this.toaster.success('::Document:FieldsUpdated', '::Success');
         },
         error: () => {

@@ -59,25 +59,14 @@ public class DocumentTypeResourcePermissions_Tests
     [Fact]
     public void Resource_name_equals_the_entity_type_full_name()
     {
-        VaultExtractPermissions.DocumentTypes.Resources.Name.ShouldBe(typeof(DocumentType).FullName);
+        VaultExtractResourcePermissions.Name.ShouldBe(typeof(DocumentType).FullName);
     }
 
     [Fact]
     public void Resource_permission_names_are_prefixed_with_the_resource_name()
     {
-        // Not cosmetic: VaultExtractPermissions.GetAll() filters the resource family out by exactly this prefix.
-        VaultExtractPermissions.DocumentTypes.Resources.Upload
-            .ShouldStartWith(VaultExtractPermissions.DocumentTypes.Resources.Name + ".");
-    }
-
-    [Fact]
-    public void GetAll_returns_standard_permissions_only()
-    {
-        var all = VaultExtractPermissions.GetAll();
-
-        all.ShouldContain(VaultExtractPermissions.DocumentTypes.ManagePermissions);
-        all.ShouldNotContain(VaultExtractPermissions.DocumentTypes.Resources.Name);
-        all.ShouldNotContain(VaultExtractPermissions.DocumentTypes.Resources.Upload);
+        VaultExtractResourcePermissions.Upload
+            .ShouldStartWith(VaultExtractResourcePermissions.Name + ".");
     }
 
     // ---- Registration ----
@@ -96,11 +85,11 @@ public class DocumentTypeResourcePermissions_Tests
     public async Task Definition_provider_registers_the_upload_resource_permission()
     {
         var definition = await _permissionDefinitionManager.GetResourcePermissionOrNullAsync(
-            VaultExtractPermissions.DocumentTypes.Resources.Name,
-            VaultExtractPermissions.DocumentTypes.Resources.Upload);
+            VaultExtractResourcePermissions.Name,
+            VaultExtractResourcePermissions.Upload);
 
         definition.ShouldNotBeNull();
-        definition.ResourceName.ShouldBe(VaultExtractPermissions.DocumentTypes.Resources.Name);
+        definition.ResourceName.ShouldBe(VaultExtractResourcePermissions.Name);
 
         // The gate on ABP's /api/permission-management/permissions/resource* endpoints. It is deliberately NOT
         // DocumentTypes.Update: handing out access is a different responsibility from editing the schema.
@@ -117,7 +106,7 @@ public class DocumentTypeResourcePermissions_Tests
         // A resource permission must never be grantable from the ordinary permission-management grid, or an
         // operator could hand out "upload into every type" while believing they granted one type.
         (await _permissionDefinitionManager.GetOrNullAsync(
-            VaultExtractPermissions.DocumentTypes.Resources.Upload)).ShouldBeNull();
+            VaultExtractResourcePermissions.Upload)).ShouldBeNull();
     }
 
     // ---- GetVisibleAsync fills ResourcePermissions ----
@@ -135,9 +124,9 @@ public class DocumentTypeResourcePermissions_Tests
         var result = await GetVisibleAsPrincipalAsync(PrincipalWithUser());
 
         result.Single(t => t.Id == granted.Id)
-            .ResourcePermissions[VaultExtractPermissions.DocumentTypes.Resources.Upload].ShouldBeTrue();
+            .ResourcePermissions[VaultExtractResourcePermissions.Upload].ShouldBeTrue();
         result.Single(t => t.Id == other.Id)
-            .ResourcePermissions[VaultExtractPermissions.DocumentTypes.Resources.Upload].ShouldBeFalse();
+            .ResourcePermissions[VaultExtractResourcePermissions.Upload].ShouldBeFalse();
     }
 
     [Fact]
@@ -151,7 +140,7 @@ public class DocumentTypeResourcePermissions_Tests
 
         var result = await GetVisibleAsPrincipalAsync(PrincipalWithUserAndRole());
 
-        result.Single().ResourcePermissions[VaultExtractPermissions.DocumentTypes.Resources.Upload].ShouldBeTrue();
+        result.Single().ResourcePermissions[VaultExtractResourcePermissions.Upload].ShouldBeTrue();
     }
 
     [Fact]
@@ -169,8 +158,8 @@ public class DocumentTypeResourcePermissions_Tests
 
         var dto = result.Single();
         dto.TypeCode.ShouldBe("invoice.general");
-        dto.ResourcePermissions.ShouldContainKey(VaultExtractPermissions.DocumentTypes.Resources.Upload);
-        dto.ResourcePermissions[VaultExtractPermissions.DocumentTypes.Resources.Upload].ShouldBeFalse();
+        dto.ResourcePermissions.ShouldContainKey(VaultExtractResourcePermissions.Upload);
+        dto.ResourcePermissions[VaultExtractResourcePermissions.Upload].ShouldBeFalse();
     }
 
     [Fact]
@@ -186,7 +175,7 @@ public class DocumentTypeResourcePermissions_Tests
 
         var result = await GetVisibleAsPrincipalAsync(PrincipalWithUser());
 
-        result.Single().ResourcePermissions[VaultExtractPermissions.DocumentTypes.Resources.Upload].ShouldBeFalse();
+        result.Single().ResourcePermissions[VaultExtractResourcePermissions.Upload].ShouldBeFalse();
     }
 
     // ---- helpers ----
@@ -196,8 +185,8 @@ public class DocumentTypeResourcePermissions_Tests
     private void GrantResource(string providerName, string providerKey, Guid documentTypeId)
     {
         _resourcePermissionStore.Grant(
-            VaultExtractPermissions.DocumentTypes.Resources.Upload,
-            VaultExtractPermissions.DocumentTypes.Resources.Name,
+            VaultExtractResourcePermissions.Upload,
+            VaultExtractResourcePermissions.Name,
             documentTypeId.ToString(),
             providerName,
             providerKey);

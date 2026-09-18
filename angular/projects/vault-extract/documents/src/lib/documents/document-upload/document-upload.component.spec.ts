@@ -2,9 +2,16 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { LocalizationService, PermissionService } from '@abp/ng.core';
 import { ToasterService } from '@abp/ng.theme.shared';
-import { of } from 'rxjs';
+import { Observable, Subject, of, throwError } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CabinetService, DocumentUploadService, EXTRACT_PERMISSIONS } from '@dignite/ng.vault-extract';
+import {
+  CabinetService,
+  DocumentTypeDto,
+  DocumentTypeService,
+  DocumentUploadService,
+  EXTRACT_PERMISSIONS,
+} from '@dignite/ng.vault-extract';
+import { DocumentTypesStore } from '../../shared/document-types.store';
 import { DocumentUploadComponent } from './document-upload.component';
 
 // #623: the "declared document type" selector is an operator-confirmation shortcut that
@@ -12,12 +19,11 @@ import { DocumentUploadComponent } from './document-upload.component';
 // only render for callers holding that permission, and the selection must flow through to
 // every file in a batch upload.
 //
-// Code review (2026-09-05): the type list is no longer fetched by this component — it is
-// supplied by the parent (DocumentOverviewComponent, its only mount site) via the
-// `documentTypes` input, so these specs set the input directly instead of stubbing
-// DocumentTypeService.
+// #635 decision 7: the type list is neither fetched here nor handed down by the parent any more — it comes
+// from the shared DocumentTypesStore, which also answers "still loading" and "the fetch failed" for itself.
+// These specs drive the real store by stubbing the one call behind it.
 
-const DOCUMENT_TYPES = [
+const DOCUMENT_TYPES: DocumentTypeDto[] = [
   { id: 'type-1', displayName: 'Contract' },
   { id: 'type-2', displayName: 'Invoice' },
 ];
@@ -28,8 +34,10 @@ function fakeFile(name = 'contract.pdf'): File {
 
 async function setup(
   grantedPolicies: Set<string>,
-  documentTypes = DOCUMENT_TYPES,
-  options: { documentTypesLoading?: boolean; documentTypesUnavailable?: boolean } = {},
+  documentTypes: DocumentTypeDto[] = DOCUMENT_TYPES,
+  // Overriding this is how a fact puts the store in a state other than "resolved": a Subject holds it
+  // loading, throwError puts it in its failure state.
+  getVisible: () => Observable<DocumentTypeDto[]> = () => of(documentTypes),
 ) {
   const uploadSpy = vi.fn().mockReturnValue(of({ id: 'doc-1' }));
   const toasterSpy = { success: vi.fn(), error: vi.fn(), warn: vi.fn() };
@@ -46,24 +54,18 @@ async function setup(
       { provide: ToasterService, useValue: toasterSpy },
       { provide: CabinetService, useValue: { getList: () => of([]) } },
       { provide: DocumentUploadService, useValue: { upload: uploadSpy } },
+      { provide: DocumentTypeService, useValue: { getVisible } },
     ],
   }).compileComponents();
 
   const fixture: ComponentFixture<DocumentUploadComponent> = TestBed.createComponent(
     DocumentUploadComponent,
   );
-  fixture.componentRef.setInput('documentTypes', documentTypes);
-  if (options.documentTypesLoading !== undefined) {
-    fixture.componentRef.setInput('documentTypesLoading', options.documentTypesLoading);
-  }
-  if (options.documentTypesUnavailable !== undefined) {
-    fixture.componentRef.setInput('documentTypesUnavailable', options.documentTypesUnavailable);
-  }
   fixture.detectChanges();
   await fixture.whenStable();
   fixture.detectChanges();
 
-  return { fixture, uploadSpy, toasterSpy };
+  return { fixture, uploadSpy, toasterSpy, store: TestBed.inject(DocumentTypesStore) };
 }
 
 describe('DocumentUploadComponent — declared document type (#623)', () => {
@@ -162,7 +164,7 @@ describe('DocumentUploadComponent — per-type upload grant (#629)', () => {
     const component = fixture.componentInstance;
 
     expect(component.canDeclareType).toBe(false);
-    expect(component.declarableTypes()).toEqual([types[0]]);
+    expect(component.assignableTypes()).toEqual([types[0]]);
 
     const select = fixture.nativeElement.querySelector('.document-type-select');
     expect(select).not.toBeNull();
@@ -190,7 +192,7 @@ describe('DocumentUploadComponent — per-type upload grant (#629)', () => {
     const { fixture } = await setup(new Set([EXTRACT_PERMISSIONS.Documents.Upload]), types);
     const component = fixture.componentInstance;
 
-    expect(component.declarableTypes()).toEqual([types[0], types[1]]);
+    expect(component.assignableTypes()).toEqual([types[0], types[1]]);
 
     const select = fixture.nativeElement.querySelector('.document-type-select');
     expect(select).not.toBeNull();
@@ -210,7 +212,7 @@ describe('DocumentUploadComponent — per-type upload grant (#629)', () => {
     const { fixture } = await setup(new Set([EXTRACT_PERMISSIONS.Documents.Upload]), types);
     const component = fixture.componentInstance;
 
-    expect(component.declarableTypes()).toEqual([]);
+    expect(component.assignableTypes()).toEqual([]);
     expect(component.hasNoGrantableTypes()).toBe(true);
     expect(fixture.nativeElement.querySelector('.document-type-select')).toBeNull();
     expect(fixture.nativeElement.querySelector('input[type="file"]')).toBeNull();
@@ -224,7 +226,7 @@ describe('DocumentUploadComponent — per-type upload grant (#629)', () => {
     );
     const component = fixture.componentInstance;
 
-    expect(component.declarableTypes()).toEqual(DOCUMENT_TYPES);
+    expect(component.assignableTypes()).toEqual(DOCUMENT_TYPES);
     const select = fixture.nativeElement.querySelector('.document-type-select');
     const options = select.querySelectorAll('option');
     expect(options.length).toBe(DOCUMENT_TYPES.length + 1);
@@ -240,10 +242,17 @@ describe('DocumentUploadComponent — loading / unavailable states and refused d
   });
 
   it('while types are still loading, shows neither empty state, disables the buttons, and offers no selector', async () => {
-    const { fixture } = await setup(new Set([EXTRACT_PERMISSIONS.Documents.Upload]), [], {
-      documentTypesLoading: true,
-    });
+    // The store holds `loading` for as long as the underlying call has not answered. Reading its empty list
+    // as "nothing is granted to you" is the exact misinformation this state exists to prevent.
+    const pending = new Subject<DocumentTypeDto[]>();
+    const { fixture, store } = await setup(
+      new Set([EXTRACT_PERMISSIONS.Documents.Upload]),
+      [],
+      () => pending.asObservable(),
+    );
     const component = fixture.componentInstance;
+
+    expect(store.isLoading()).toBe(true);
 
     expect(component.hasNoGrantableTypes()).toBe(false);
     expect(component.showTypesUnavailable()).toBe(false);
@@ -256,15 +265,45 @@ describe('DocumentUploadComponent — loading / unavailable states and refused d
   });
 
   it('shows the TypesUnavailable state (not NoGrantableTypes) when the types fetch failed', async () => {
-    const { fixture } = await setup(new Set([EXTRACT_PERMISSIONS.Documents.Upload]), [], {
-      documentTypesUnavailable: true,
-    });
+    const { fixture, store } = await setup(new Set([EXTRACT_PERMISSIONS.Documents.Upload]), [], () =>
+      throwError(() => new Error('offline')),
+    );
     const component = fixture.componentInstance;
 
+    expect(store.error()).toBe(true);
     expect(component.showTypesUnavailable()).toBe(true);
     expect(component.hasNoGrantableTypes()).toBe(false);
     expect(fixture.nativeElement.textContent).toContain('Document:Upload:TypesUnavailable');
     expect(fixture.nativeElement.textContent).not.toContain('Document:Upload:NoGrantableTypes');
+  });
+
+  it('recovers from the failed fetch through the retry, for this page and every other', async () => {
+    // #635: the retry reloads the STORE, so the types the recycle bin, the list and the detail page all
+    // read recover with it — there is one fetch left to recover.
+    // Fails twice: once for the store's own first fetch, once for the retryIfFailed() this card makes on
+    // arrival (the synchronous stub has already failed by ngOnInit; over real HTTP the first fetch would
+    // still be in flight and that retry would be a no-op). Only then is the button the way out.
+    const getVisible = vi
+      .fn()
+      .mockReturnValueOnce(throwError(() => new Error('offline')))
+      .mockReturnValueOnce(throwError(() => new Error('offline')))
+      .mockReturnValue(of([{ id: 'type-1', displayName: 'Contract', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: true } }]));
+    const { fixture, store } = await setup(
+      new Set([EXTRACT_PERMISSIONS.Documents.Upload]),
+      [],
+      getVisible,
+    );
+    const component = fixture.componentInstance;
+
+    expect(component.showTypesUnavailable()).toBe(true);
+
+    store.reload();
+    fixture.detectChanges();
+
+    expect(getVisible).toHaveBeenCalledTimes(3);
+    expect(component.showTypesUnavailable()).toBe(false);
+    expect(component.assignableTypes().length).toBe(1);
+    expect(fixture.nativeElement.textContent).not.toContain('Document:Upload:TypesUnavailable');
   });
 
   it('refuses a drop before a required type is selected with a warning toast, not a silent no-op', async () => {
@@ -295,14 +334,21 @@ describe('DocumentUploadComponent — loading / unavailable states and refused d
   it('invalidates a stale selection when the declarable set changes out from under it', async () => {
     const typeA = { id: 'type-1', displayName: 'Contract', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: true } };
     const typeB = { id: 'type-2', displayName: 'Invoice', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: true } };
-    const { fixture } = await setup(new Set([EXTRACT_PERMISSIONS.Documents.Upload]), [typeA]);
+    const getVisible = vi.fn().mockReturnValueOnce(of([typeA])).mockReturnValue(of([typeB]));
+    const { fixture, store } = await setup(
+      new Set([EXTRACT_PERMISSIONS.Documents.Upload]),
+      [typeA],
+      getVisible,
+    );
     const component = fixture.componentInstance;
 
     // Single declarable type: the pre-selection effect fires.
     expect(component.selectedDocumentTypeId()).toBe('type-1');
     expect(component.typeSelectionSatisfied()).toBe(true);
 
-    fixture.componentRef.setInput('documentTypes', [typeB]);
+    // A grant revoked between one reload and the next: the selection still names type-1, which is no
+    // longer declarable, so it must stop counting as a satisfied choice.
+    store.reload();
     fixture.detectChanges();
 
     expect(component.selectedDocumentTypeId()).toBe('type-1');

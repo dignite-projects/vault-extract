@@ -102,7 +102,7 @@ public class McpResourceCatalog_Tests : VaultExtractTestBase<McpResourceCatalogT
         {
             VaultExtractPermissions.DocumentTypes.Default
         };
-        _documentTypeAppService.GetVisibleAsync(Arg.Any<bool>()).Returns(new List<DocumentTypeDto>
+        _documentTypeAppService.GetVisibleSummariesAsync().Returns(new List<DocumentTypeSummaryDto>
         {
             new()
             {
@@ -138,7 +138,7 @@ public class McpResourceCatalog_Tests : VaultExtractTestBase<McpResourceCatalogT
 
         result.Resources.Count.ShouldBe(1);
         result.Resources[0].Uri.ShouldBe(CabinetResourceUri.Format(cabinetId));
-        await _documentTypeAppService.DidNotReceive().GetVisibleAsync(Arg.Any<bool>());
+        await _documentTypeAppService.DidNotReceive().GetVisibleSummariesAsync();
     }
 
     [Fact]
@@ -150,7 +150,7 @@ public class McpResourceCatalog_Tests : VaultExtractTestBase<McpResourceCatalogT
         {
             VaultExtractPermissions.Documents.Default
         };
-        _documentTypeAppService.GetVisibleAsync(Arg.Any<bool>()).Returns(new List<DocumentTypeDto>
+        _documentTypeAppService.GetVisibleSummariesAsync().Returns(new List<DocumentTypeSummaryDto>
         {
             new()
             {

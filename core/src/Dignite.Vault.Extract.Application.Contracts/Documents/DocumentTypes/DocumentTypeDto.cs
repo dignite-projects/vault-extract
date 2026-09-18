@@ -16,7 +16,7 @@ public class DocumentTypeDto : EntityDto<Guid>, IHasResourcePermissions
 
     /// <summary>
     /// The caller's own resource-permission grants on this type (#629), keyed by permission name — phase 1
-    /// defines exactly one, <see cref="Permissions.VaultExtractPermissions.DocumentTypes.Resources.Upload"/>.
+    /// defines exactly one, <see cref="Permissions.VaultExtractResourcePermissions.Upload"/>.
     /// Populated by <c>DocumentTypeAppService.GetVisibleAsync</c> only, through ABP's
     /// <c>ResourcePermissionPopulator</c>, so the UI does not have to guess which types it may act on.
     /// Every other endpoint returning this DTO (<c>GetDeletedAsync</c>, <c>CreateAsync</c>, <c>UpdateAsync</c>,

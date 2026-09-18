@@ -78,7 +78,7 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
             typeB = await SeedTypeAsync("per.type.upload.b");
             await GrantAsync(UploaderId, VaultExtractPermissions.Documents.Default);
             await GrantAsync(UploaderId, VaultExtractPermissions.Documents.Upload);
-            await GrantResourceAsync(UploaderId, VaultExtractPermissions.DocumentTypes.Resources.Upload, typeA);
+            await GrantResourceAsync(UploaderId, VaultExtractResourcePermissions.Upload, typeA);
         });
 
         using (_principalAccessor.Change(Principal(UploaderId)))
@@ -112,7 +112,7 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
             untyped = await SeedDocumentAsync(documentTypeId: null);
 
             await GrantAsync(ReaderId, VaultExtractPermissions.Documents.Default);
-            await GrantResourceAsync(ReaderId, VaultExtractPermissions.DocumentTypes.Resources.Read, typeA);
+            await GrantResourceAsync(ReaderId, VaultExtractResourcePermissions.Read, typeA);
         });
 
         using (_principalAccessor.Change(Principal(ReaderId)))
@@ -149,9 +149,9 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
             documentB = await SeedDocumentAsync(typeB, markdown: "# B");
 
             await GrantAsync(EditorId, VaultExtractPermissions.Documents.Default);
-            await GrantResourceAsync(EditorId, VaultExtractPermissions.DocumentTypes.Resources.Edit, typeA);
+            await GrantResourceAsync(EditorId, VaultExtractResourcePermissions.Edit, typeA);
             // The TARGET-type half of Confirm / Reclassify, which is the #629 Upload rule, not Edit.
-            await GrantResourceAsync(EditorId, VaultExtractPermissions.DocumentTypes.Resources.Upload, typeA);
+            await GrantResourceAsync(EditorId, VaultExtractResourcePermissions.Upload, typeA);
         });
 
         using (_principalAccessor.Change(Principal(EditorId)))
@@ -160,7 +160,23 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
             {
                 var dto = await _documentAppService.ConfirmClassificationAsync(
                     documentA, new ConfirmClassificationInput { DocumentTypeId = typeA });
-                dto.DocumentTypeCode.ShouldBe("per.type.edit.a");
+
+                // #635: this caller holds Edit and Upload on the type but no Read grant and no ReadAll, so the
+                // edit succeeds and the response body is redacted to the id and the rights — through the REAL
+                // permission chain, not a fake. Reading the type code off the response would have been the read
+                // GetAsync refuses this principal.
+                dto.Id.ShouldBe(documentA);
+                dto.Rights.CanEdit.ShouldBeTrue();
+                dto.Rights.CanRead.ShouldBeFalse();
+                dto.DocumentTypeCode.ShouldBeNull();
+                dto.FileOrigin.ShouldBeNull();
+            });
+
+            // The write itself landed, which is what the Edit grant is for.
+            await WithUnitOfWorkAsync(async () =>
+            {
+                var reloaded = await _documentRepository.GetAsync(documentA);
+                reloaded.DocumentTypeId.ShouldBe(typeA);
             });
 
             // Same target type (granted), but the document being edited is of type B — denied on the current-type
@@ -187,7 +203,7 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
             documentB = await SeedDocumentAsync(typeB);
 
             await GrantAsync(DeleterId, VaultExtractPermissions.Documents.Default);
-            await GrantResourceAsync(DeleterId, VaultExtractPermissions.DocumentTypes.Resources.Delete, typeA);
+            await GrantResourceAsync(DeleterId, VaultExtractResourcePermissions.Delete, typeA);
         });
 
         using (_principalAccessor.Change(Principal(DeleterId)))
@@ -222,7 +238,7 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
             documentB = await SeedDocumentAsync(typeB);
 
             await GrantAsync(RestorerId, VaultExtractPermissions.Documents.Default);
-            await GrantResourceAsync(RestorerId, VaultExtractPermissions.DocumentTypes.Resources.Delete, typeA);
+            await GrantResourceAsync(RestorerId, VaultExtractResourcePermissions.Delete, typeA);
         });
 
         // Both land in the recycle bin out of band, so the fact below is about Restore alone.
@@ -245,6 +261,49 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
             (await _documentRepository.FindAsync(documentA)).ShouldNotBeNull();
             (await _documentRepository.FindAsync(documentB)).ShouldBeNull();
         });
+    }
+
+    /// <summary>
+    /// #635: the access memo sweeps the layer's types <b>across soft delete</b>, so a <c>Read</c> grant on a type
+    /// that has since been archived still reaches that type's documents. Otherwise the narrow caller and a
+    /// <c>Documents.ReadAll</c> holder would disagree about which rows exist — archiving a type is a schema
+    /// decision, not a revocation.
+    /// <para>
+    /// A real-provider fact: the Application-layer rights test that claims the same thing stubs
+    /// <c>IDocumentTypeRepository</c>, so the <c>DataFilter.Disable&lt;ISoftDelete&gt;()</c> the claim rests on is
+    /// never exercised there — a substitute returns the archived type whether the filter is disabled or not.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Read_grant_on_an_archived_type_still_reaches_that_types_documents()
+    {
+        var archivedReaderId = Guid.Parse("66666666-0000-0000-0000-000000000635");
+        Guid documentId = default;
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var typeId = await SeedTypeAsync("per.type.archived");
+            documentId = await SeedDocumentAsync(typeId);
+
+            await GrantAsync(archivedReaderId, VaultExtractPermissions.Documents.Default);
+            await GrantResourceAsync(archivedReaderId, VaultExtractResourcePermissions.Read, typeId);
+
+            // Archive the type AFTER the grant, exactly as an operator would.
+            await _documentTypeRepository.DeleteAsync(typeId, autoSave: true);
+        });
+
+        using (_principalAccessor.Change(Principal(archivedReaderId)))
+        {
+            await WithUnitOfWorkAsync(async () =>
+            {
+                var page = await _documentAppService.GetListAsync(new GetDocumentListInput());
+                page.TotalCount.ShouldBe(1);
+                page.Items[0].Id.ShouldBe(documentId);
+                page.Items[0].Rights.CanRead.ShouldBeTrue();
+
+                (await _documentAppService.GetAsync(documentId)).Id.ShouldBe(documentId);
+            });
+        }
     }
 
     // ---- seeding / grant helpers ----
@@ -308,7 +367,7 @@ public class McpPerTypeGrantPipeline_Tests : McpPermissionPipelineTestBase<McpPe
             new ResourcePermissionGrant(
                 _guidGenerator.Create(),
                 permissionName,
-                VaultExtractPermissions.DocumentTypes.Resources.Name,
+                VaultExtractResourcePermissions.Name,
                 documentTypeId.ToString(),
                 UserProviderName,
                 userId.ToString(),

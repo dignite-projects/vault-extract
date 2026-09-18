@@ -120,5 +120,5 @@ public class DocumentRestoreConflict_Tests : VaultExtractTestBase<DocumentRestor
                 fileSize: 2048,
                 originalFileName: "bundle.pdf"),
             originDocumentId: sourceId,
-            originConstituentKey: constituentKey);
+            originConstituentKey: constituentKey, creatorId: null);
 }

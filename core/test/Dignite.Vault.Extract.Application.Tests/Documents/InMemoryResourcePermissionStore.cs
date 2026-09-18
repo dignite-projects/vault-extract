@@ -27,9 +27,13 @@ public sealed class InMemoryResourcePermissionStore : IResourcePermissionStore
     /// <summary>Number of store lookups, so a test can assert the permission layer was never consulted.</summary>
     public int LookupCount { get; private set; }
 
+    /// <summary>Bumped on every write, for the same reason GrantSetAuthorizationService.Version is.</summary>
+    public int Version { get; private set; }
+
     public void Grant(string name, string resourceName, string resourceKey, string providerName, string providerKey)
     {
         _grants.Add(new GrantRow(name, resourceName, resourceKey, providerName, providerKey));
+        Version++;
     }
 
     /// <summary>Zeroes <see cref="LookupCount"/> without touching the grants, to time a single assertion.</summary>

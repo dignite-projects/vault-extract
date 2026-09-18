@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Reflection;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,6 +21,7 @@ using Volo.Abp.Authorization;
 using Volo.Abp.Authorization.Permissions.Resources;
 using Volo.Abp.BackgroundJobs;
 using Volo.Abp.BlobStoring;
+using Volo.Abp.Content;
 using Volo.Abp.EventBus.Distributed;
 using Volo.Abp.Modularity;
 using Volo.Abp.Security.Claims;
@@ -46,6 +48,10 @@ public class DocumentTypeAccessTestModule : AbpModule
         context.Services.AddSingleton<InMemoryResourcePermissionStore>();
         context.Services.RemoveAll<IResourcePermissionStore>();
         context.Services.AddSingleton<IResourcePermissionStore>(sp => sp.GetRequiredService<InMemoryResourcePermissionStore>());
+
+        // The scoped grant memo, plus one extra reason to forget: this host changes what a principal is granted
+        // inside one scope, which no request does. See TestDocumentAccessMemo.
+        context.Services.UseTestAccessMemo();
 
         context.Services.AddSingleton(Substitute.For<IDocumentRepository>());
         context.Services.AddSingleton(Substitute.For<IDocumentTypeRepository>());
@@ -130,7 +136,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         var document = StubDocument(_typeA.Id);
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Read, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
 
         var dto = await AsPrincipalAsync(() => _appService.GetAsync(document.Id));
 
@@ -143,7 +149,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         var document = StubDocument(_typeB.Id);
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Read, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
 
         await Should.ThrowAsync<AbpAuthorizationException>(
             () => AsPrincipalAsync(() => _appService.GetAsync(document.Id)));
@@ -158,8 +164,8 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         var document = StubDocument(documentTypeId: null);
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Read, _typeA.Id);
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Read, _typeB.Id);
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Read, _typeB.Id);
 
         await Should.ThrowAsync<AbpAuthorizationException>(
             () => AsPrincipalAsync(() => _appService.GetAsync(document.Id)));
@@ -185,13 +191,86 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
             .Returns(_ => new MemoryStream([1, 2, 3]));
 
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Read, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
 
         var stream = await AsPrincipalAsync(() => _appService.GetBlobAsync(granted.Id));
         stream.ShouldNotBeNull();
 
         await Should.ThrowAsync<AbpAuthorizationException>(
             () => AsPrincipalAsync(() => _appService.GetBlobAsync(denied.Id)));
+    }
+
+    // ===================== FindForCallerAsync (#636) =====================
+
+    [Fact]
+    public async Task FindForCallerAsync_returns_the_dto_when_granted()
+    {
+        var document = StubDocument(_typeA.Id);
+        GrantEntryOnly();
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
+
+        var dto = await AsPrincipalAsync(() => _appService.FindForCallerAsync(document.Id));
+
+        dto.ShouldNotBeNull();
+        dto!.Id.ShouldBe(document.Id);
+        dto.DocumentTypeCode.ShouldBe(_typeA.TypeCode);
+    }
+
+    /// <summary>Mirrors <see cref="GetAsync_is_denied_for_a_document_of_another_type"/>: null instead of a throw.</summary>
+    [Fact]
+    public async Task FindForCallerAsync_returns_null_for_a_document_of_another_type()
+    {
+        var document = StubDocument(_typeB.Id);
+        GrantEntryOnly();
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
+
+        var dto = await AsPrincipalAsync(() => _appService.FindForCallerAsync(document.Id));
+
+        dto.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// Mirrors <see cref="GetAsync_is_denied_for_an_untyped_document_however_many_grants_the_caller_holds"/>: the
+    /// fail-closed half — an untyped document belongs to no type, so no per-type grant can reach it.
+    /// </summary>
+    [Fact]
+    public async Task FindForCallerAsync_returns_null_for_an_untyped_document_however_many_grants_the_caller_holds()
+    {
+        var document = StubDocument(documentTypeId: null);
+        GrantEntryOnly();
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Read, _typeB.Id);
+
+        var dto = await AsPrincipalAsync(() => _appService.FindForCallerAsync(document.Id));
+
+        dto.ShouldBeNull();
+    }
+
+    /// <summary>Nonexistent id (unstubbed on the repository) — the third null case, alongside wrong-type and untyped.</summary>
+    [Fact]
+    public async Task FindForCallerAsync_returns_null_for_a_nonexistent_document()
+    {
+        GrantEntryOnly();
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
+
+        var dto = await AsPrincipalAsync(() => _appService.FindForCallerAsync(Guid.NewGuid()));
+
+        dto.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// The one case that does NOT fold to null: a caller with no entry (Documents.Default) at all still throws
+    /// AbpAuthorizationException, unrelated to whether the id names a real document — entry is a caller-wide fact,
+    /// not an id-specific one, and folding it into null would make "no permission" indistinguishable from "wrong id".
+    /// </summary>
+    [Fact]
+    public async Task FindForCallerAsync_throws_when_the_caller_has_no_entry()
+    {
+        var document = StubDocument(_typeA.Id);
+        GrantNothing();
+
+        await Should.ThrowAsync<AbpAuthorizationException>(
+            () => AsPrincipalAsync(() => _appService.FindForCallerAsync(document.Id)));
     }
 
     // ===================== Edit =====================
@@ -202,7 +281,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
         var granted = StubDocument(_typeA.Id);
         var denied = StubDocument(_typeB.Id);
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Edit, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Edit, _typeA.Id);
 
         // RejectReviewAsync stands in for the whole edit family: all nine methods share the one helper call, so a
         // per-method repeat would assert the same line nine times. The family membership itself is asserted
@@ -220,7 +299,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         var document = StubDocument(documentTypeId: null);
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Edit, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Edit, _typeA.Id);
 
         await Should.ThrowAsync<AbpAuthorizationException>(() => AsPrincipalAsync(() =>
             _appService.RejectReviewAsync(document.Id, new RejectReviewInput { Reason = "x" })));
@@ -233,42 +312,43 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     }
 
     /// <summary>
-    /// Every method whose rule has a per-type half had to LOSE its module-wide <c>[Authorize]</c> attribute, not
-    /// merely gain a body check: the attribute fires before the body and would deny a per-type grant holder
-    /// outright, making the OR unreachable. Re-adding one would break exactly one grant path and nothing else,
-    /// which is the kind of regression a behavioural test on one method does not catch.
+    /// #635: <b>no</b> method of the three documents-domain app services carries an <c>[Authorize]</c> attribute
+    /// any more, and neither does the class. The documents domain has one way to declare authorization and it is
+    /// a row in <see cref="DocumentAccessRule"/>'s table.
+    /// <para>
+    /// This is structural rather than behavioural on purpose. An attribute fires before the method body, so
+    /// re-adding one would deny a per-type grant holder — or an owner — before the body could offer the other
+    /// arms of the OR, breaking exactly one path and leaving every other fact in this file green. The previous
+    /// version of this test allowed the module-wide-only operations to keep theirs, which is exactly how
+    /// <c>PermanentDeleteAsync</c> / <c>RetryPipelineAsync</c> / the <c>Reprocessing</c> four / the export kept
+    /// asserting no entry at all.
+    /// </para>
     /// </summary>
     [Fact]
-    public void Every_per_type_checked_method_lost_its_module_wide_Authorize_attribute()
+    public void No_method_of_the_documents_domain_app_services_carries_an_Authorize_attribute()
     {
-        string[] perTypeChecked =
+        Type[] services =
         [
-            nameof(IDocumentAppService.ConfirmClassificationAsync),
-            nameof(IDocumentAppService.ReclassifyAsync),
-            nameof(IDocumentAppService.RerecognizeAsync),
-            nameof(IDocumentAppService.ReextractFieldsAsync),
-            nameof(IDocumentAppService.UpdateExtractedFieldsAsync),
-            nameof(IDocumentAppService.UpdateMarkdownAsync),
-            nameof(IDocumentAppService.RejectReviewAsync),
-            nameof(IDocumentAppService.AllowDuplicateAsync),
-            nameof(IDocumentAppService.ResolveFieldValidationWarningsAsync),
-            nameof(IDocumentAppService.DeleteAsync),
-            // #632 change 2: Restore reuses the Delete grant, so it needs the body check for the same reason.
-            nameof(IDocumentAppService.RestoreAsync)
+            typeof(DocumentAppService),
+            typeof(DocumentExportAppService),
+            typeof(Reprocessing.DocumentReprocessingAppService)
         ];
 
-        foreach (var name in perTypeChecked)
+        foreach (var service in services)
         {
-            var method = typeof(DocumentAppService).GetMethod(name).ShouldNotBeNull();
-            method.GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true)
-                .ShouldBeEmpty($"{name} must not carry [Authorize]: it would short-circuit the per-type OR.");
+            service.GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true)
+                .ShouldBeEmpty($"{service.Name} must not carry a class-level [Authorize] (#635).");
+
+            foreach (var method in service.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+            {
+                method.GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true).ShouldBeEmpty(
+                    $"{service.Name}.{method.Name} must not carry [Authorize]: authorization is a rule-table row.");
+            }
         }
 
-        // The counter-cases, so this test cannot pass by the attribute type simply never being found: the
-        // module-wide-only operations still carry theirs.
-        typeof(DocumentAppService).GetMethod(nameof(IDocumentAppService.PermanentDeleteAsync))!
-            .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true).ShouldNotBeEmpty();
-        typeof(DocumentAppService).GetMethod(nameof(IDocumentAppService.RetryPipelineAsync))!
+        // Counter-case, so this cannot pass by the attribute type simply never being found anywhere: a service
+        // outside the documents domain still declares its gate the ordinary way.
+        typeof(DocumentTypes.DocumentTypeAppService).GetMethod(nameof(DocumentTypes.IDocumentTypeAppService.CreateAsync))!
             .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true).ShouldNotBeEmpty();
     }
 
@@ -280,7 +360,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
         var granted = StubDocument(_typeA.Id);
         var denied = StubDocument(_typeB.Id);
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Delete, _typeA.Id);
 
         await AsPrincipalAsync(() => _appService.DeleteAsync(granted.Id));
         await _documentRepository.Received(1).DeleteAsync(granted.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>());
@@ -314,7 +394,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
         var granted = StubDocument(_typeA.Id, deleted: true);
         var denied = StubDocument(_typeB.Id, deleted: true);
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Delete, _typeA.Id);
 
         await AsPrincipalAsync(() => _appService.RestoreAsync(granted.Id));
         granted.IsDeleted.ShouldBeFalse();
@@ -329,7 +409,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         var untyped = StubDocument(documentTypeId: null, deleted: true);
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Delete, _typeA.Id);
 
         // Untyped: no grant can name it, so the per-type half cannot reach it.
         await Should.ThrowAsync<AbpAuthorizationException>(
@@ -352,7 +432,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         var live = StubDocument(_typeB.Id, deleted: false);
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Delete, _typeA.Id);
 
         await Should.ThrowAsync<AbpAuthorizationException>(
             () => AsPrincipalAsync(() => _appService.RestoreAsync(live.Id)));
@@ -369,7 +449,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
         var document = StubDocument(_typeB.Id, deleted: true);
         _typeB.IsDeleted = true;
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Delete, _typeA.Id);
 
         await Should.ThrowAsync<AbpAuthorizationException>(
             () => AsPrincipalAsync(() => _appService.RestoreAsync(document.Id)));
@@ -378,8 +458,8 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     // ===================== Recycle-bin admission =====================
 
     /// <summary>
-    /// The entry gate is the layer-scoped form of the same rule. Without it the per-type deleter could never
-    /// reach the restore action and change 2 would be cosmetic.
+    /// #635 decision 6: admission to the recycle bin is entry and nothing else — asserted by resolving the Read
+    /// scope, exactly as the ordinary list does. A Delete grant is no longer required to open it.
     /// </summary>
     [Fact]
     public async Task The_recycle_bin_admits_a_caller_holding_only_a_Delete_grant()
@@ -389,8 +469,8 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
             NewDocument(_typeB.Id, deleted: true),
             NewDocument(_typeA.Id));
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Read, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Delete, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
 
         var page = await AsPrincipalAsync(
             () => _appService.GetListAsync(new GetDocumentListInput { IsDeleted = true }));
@@ -399,28 +479,42 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
         page.Items.ShouldAllBe(i => i.DocumentTypeCode == _typeA.TypeCode);
     }
 
+    /// <summary>
+    /// #635 decision 6, the behaviour change: a caller who may READ type A but holds no Delete grant anywhere is
+    /// now admitted and sees its deleted type-A documents, instead of being refused outright.
+    /// <para>
+    /// Under #632 the bin admitted by the Restore arm and narrowed by the Read arm — two different questions, so
+    /// a Delete-grant-only caller was let into a bin the UI then reported as empty while it was not, and a
+    /// Read-only caller could not look at their own layer's recycle bin at all. Rows are the Read scope's
+    /// soft-deleted documents now; whether each one can actually be restored is the row's own
+    /// <c>rights.canRestore</c>.
+    /// </para>
+    /// </summary>
     [Fact]
-    public async Task The_recycle_bin_is_refused_to_a_caller_who_may_read_but_not_delete()
+    public async Task The_recycle_bin_admits_a_caller_who_may_read_but_not_delete_and_shows_their_readable_rows()
     {
-        StubQueryable(NewDocument(_typeA.Id, deleted: true));
+        StubQueryable(NewDocument(_typeA.Id, deleted: true), NewDocument(_typeB.Id, deleted: true));
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Read, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
 
-        await Should.ThrowAsync<AbpAuthorizationException>(() => AsPrincipalAsync(
-            () => _appService.GetListAsync(new GetDocumentListInput { IsDeleted = true })));
+        var page = await AsPrincipalAsync(
+            () => _appService.GetListAsync(new GetDocumentListInput { IsDeleted = true }));
+
+        page.TotalCount.ShouldBe(1);
+        page.Items.ShouldAllBe(i => i.DocumentTypeCode == _typeA.TypeCode);
     }
 
     /// <summary>
-    /// Admission and visibility are two different questions, and the delete grant only answers the first: a
-    /// caller who may delete type A but not read it is admitted to an EMPTY recycle bin. Fail-closed, asserted
-    /// rather than special-cased.
+    /// The other half of the same change: a Delete grant grants nothing on the read side, so a caller who may
+    /// delete type A but not read it still sees an empty bin. Fail-closed, and now genuinely empty by
+    /// construction rather than as an admitted-then-narrowed special case.
     /// </summary>
     [Fact]
     public async Task The_recycle_bin_rows_stay_narrowed_by_the_read_scope_not_by_the_delete_grant()
     {
         StubQueryable(NewDocument(_typeA.Id, deleted: true), NewDocument(_typeB.Id, deleted: true));
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Delete, _typeA.Id);
 
         var page = await AsPrincipalAsync(
             () => _appService.GetListAsync(new GetDocumentListInput { IsDeleted = true }));
@@ -454,7 +548,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
             NewDocument(_typeA.Id), NewDocument(_typeA.Id), NewDocument(_typeB.Id), NewDocument(documentTypeId: null));
 
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Read, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
 
         var page = await AsPrincipalAsync(() => _appService.GetListAsync(new GetDocumentListInput()));
 
@@ -491,29 +585,70 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
         page.Items.Count.ShouldBe(3);
     }
 
+    /// <summary>
+    /// #635: the export's rows are narrowed by the Read scope, the same predicate the operator list runs, so a
+    /// caller holding a Read grant on A only gets A's rows in the file and none of B's — <b>as rows</b>, not as a
+    /// refusal. #632's second, per-type gate ("throw unless you hold Read on this type") is gone: it could not
+    /// survive ownership, because an uploader legitimately exports their own documents of a type they hold no
+    /// grant on, so the gate would have had to admit every caller carrying an owner arm, which is every real user.
+    /// </summary>
     [Fact]
-    public async Task ExportAsync_is_admitted_for_a_granted_type_and_refused_for_another()
+    public async Task ExportAsync_narrows_its_rows_by_the_read_scope_rather_than_refusing_an_ungranted_type()
     {
         StubQueryable(NewDocument(_typeA.Id), NewDocument(_typeB.Id));
         Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Export);
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Read, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
+
+        var granted = await AsPrincipalAsync(() => _exportAppService.ExportAsync(new ExportDocumentsInput
+        {
+            DocumentTypeCode = _typeA.TypeCode,
+            Format = ExportFormat.Csv
+        }));
+        RowCount(granted).ShouldBe(1);
+
+        var ungranted = await AsPrincipalAsync(() => _exportAppService.ExportAsync(new ExportDocumentsInput
+        {
+            DocumentTypeCode = _typeB.TypeCode,
+            Format = ExportFormat.Csv
+        }));
+        RowCount(ungranted).ShouldBe(0);
+    }
+
+    /// <summary>
+    /// The escape #635 closes on this service: it carried a class-level <c>[Authorize(Documents.Export)]</c> and
+    /// narrowed by a read scope that deliberately did not assert entry, so <c>Documents.Export</c> plus a Read
+    /// grant bulk-downloaded out of an area the caller could not open.
+    /// </summary>
+    [Fact]
+    public async Task ExportAsync_needs_entry_even_with_the_module_wide_Export_permission()
+    {
+        StubQueryable(NewDocument(_typeA.Id));
+        Grant(VaultExtractPermissions.Documents.Export);
+        GrantResource(VaultExtractResourcePermissions.Read, _typeA.Id);
+
+        await Should.ThrowAsync<AbpAuthorizationException>(() => AsPrincipalAsync(() =>
+            _exportAppService.ExportAsync(new ExportDocumentsInput
+            {
+                DocumentTypeCode = _typeA.TypeCode,
+                Format = ExportFormat.Csv
+            })));
+
+        Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Export);
 
         var file = await AsPrincipalAsync(() => _exportAppService.ExportAsync(new ExportDocumentsInput
         {
             DocumentTypeCode = _typeA.TypeCode,
             Format = ExportFormat.Csv
         }));
-        file.ShouldNotBeNull();
+        RowCount(file).ShouldBe(1);
+    }
 
-        // Refused loudly rather than handed back a header-only file: this service's own doctrine is that an empty
-        // export "is a silent lie about what the layer contains", and that holds whether the rows are missing
-        // because none exist or because the caller may not read them.
-        await Should.ThrowAsync<AbpAuthorizationException>(() => AsPrincipalAsync(() =>
-            _exportAppService.ExportAsync(new ExportDocumentsInput
-            {
-                DocumentTypeCode = _typeB.TypeCode,
-                Format = ExportFormat.Csv
-            })));
+    /// <summary>Data rows in a CSV export, excluding the header line.</summary>
+    private static int RowCount(IRemoteStreamContent file)
+    {
+        using var reader = new StreamReader(file.GetStream());
+        var text = reader.ReadToEnd();
+        return text.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length - 1;
     }
 
     // ===================== Entry (Documents.Default) is a precondition of every rule =====================
@@ -535,7 +670,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         var document = StubDocument(_typeA.Id);
         GrantNothing();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Edit, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Edit, _typeA.Id);
 
         await Should.ThrowAsync<AbpAuthorizationException>(() => AsPrincipalAsync(() =>
             _appService.RejectReviewAsync(document.Id, new RejectReviewInput { Reason = "x" })));
@@ -552,7 +687,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         var document = StubDocument(_typeA.Id);
         GrantNothing();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Delete, _typeA.Id);
 
         await Should.ThrowAsync<AbpAuthorizationException>(
             () => AsPrincipalAsync(() => _appService.DeleteAsync(document.Id)));
@@ -571,7 +706,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         var document = StubDocument(_typeA.Id, deleted: true);
         GrantNothing();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Delete, _typeA.Id);
 
         await Should.ThrowAsync<AbpAuthorizationException>(
             () => AsPrincipalAsync(() => _appService.RestoreAsync(document.Id)));
@@ -609,11 +744,10 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     /// <summary>
     /// The recycle bin refuses a caller with no entry permission, and admits the same caller once entry is added.
     /// <para>
-    /// <b>Honest about what this pins:</b> mutation-testing #632's entry assertion showed this fact stays green
-    /// with the assertion removed, because <c>GetListAsync</c> asserts <c>Documents.Default</c> itself before it
-    /// ever reaches <c>IsGrantedOnAnyTypeAsync</c> — the layer-scope gate's own copy of the assertion is currently
-    /// unreachable, and exists so a future caller of that shape cannot skip entry. So this is a statement about the
-    /// endpoint's behaviour, not a guard on the checker; the four facts above are the ones that guard it.
+    /// #635 makes this a guard on the checker rather than only a statement about the endpoint: the recycle bin has
+    /// no gate of its own any more, so the refusal comes from <c>ResolveScopeAsync</c>'s entry assertion and
+    /// nothing else. Under #632 this fact stayed green with that assertion removed, because <c>GetListAsync</c>
+    /// carried its own <c>CheckPolicyAsync(Documents.Default)</c> in front of it.
     /// </para>
     /// </summary>
     [Fact]
@@ -621,7 +755,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         StubQueryable(NewDocument(_typeA.Id, deleted: true));
         GrantNothing();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Delete, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Delete, _typeA.Id);
 
         await Should.ThrowAsync<AbpAuthorizationException>(() => AsPrincipalAsync(
             () => _appService.GetListAsync(new GetDocumentListInput { IsDeleted = true })));
@@ -652,7 +786,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
         var document = StubDocument(_typeA.Id);
         document.Markdown.ShouldBeNullOrEmpty();
         GrantEntryOnly();
-        GrantResource(VaultExtractPermissions.DocumentTypes.Resources.Edit, _typeA.Id);
+        GrantResource(VaultExtractResourcePermissions.Edit, _typeA.Id);
 
         await Should.ThrowAsync<AbpAuthorizationException>(() => AsPrincipalAsync(() =>
             _appService.ReclassifyAsync(document.Id, new ReclassifyDocumentInput { DocumentTypeId = _typeB.Id })));
@@ -672,7 +806,7 @@ public class DocumentTypeAccess_Tests : VaultExtractApplicationTestBase<Document
     {
         _resourcePermissionStore.Grant(
             permissionName,
-            VaultExtractPermissions.DocumentTypes.Resources.Name,
+            VaultExtractResourcePermissions.Name,
             documentTypeId.ToString(),
             UserResourcePermissionValueProvider.ProviderName,
             UserId.ToString());

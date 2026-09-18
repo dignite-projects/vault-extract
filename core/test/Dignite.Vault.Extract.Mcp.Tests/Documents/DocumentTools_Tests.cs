@@ -7,10 +7,8 @@ using Dignite.Vault.Extract.Documents;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol;
 using NSubstitute;
-using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Volo.Abp.Authorization;
-using Volo.Abp.Domain.Entities;
 using Volo.Abp.Modularity;
 using Volo.Abp.MultiTenancy;
 using Xunit;
@@ -33,8 +31,8 @@ public class DocumentToolsTestModule : AbpModule
 
 /// <summary>
 /// Thin-shell behavior of <see cref="DocumentTools.GetAsync"/>: delegates to
-/// <see cref="IDocumentAppService.GetAsync"/> and maps to <see cref="DocumentDetailResult"/>, with title
-/// / markdown wrapped by <c>PromptBoundary</c>.
+/// <see cref="IDocumentAppService.FindForCallerAsync"/> (#636) and maps to <see cref="DocumentDetailResult"/>,
+/// with title / markdown wrapped by <c>PromptBoundary</c>.
 /// </summary>
 public class DocumentTools_Tests : VaultExtractTestBase<DocumentToolsTestModule>
 {
@@ -51,7 +49,7 @@ public class DocumentTools_Tests : VaultExtractTestBase<DocumentToolsTestModule>
         var tenantId = Guid.NewGuid();
         var documentId = Guid.NewGuid();
         var currentTenant = GetRequiredService<ICurrentTenant>();
-        _documentAppService.GetAsync(documentId).Returns(_ =>
+        _documentAppService.FindForCallerAsync(documentId).Returns(_ =>
         {
             currentTenant.Id.ShouldBe(tenantId);
             return Task.FromResult(new DocumentDto
@@ -86,7 +84,7 @@ public class DocumentTools_Tests : VaultExtractTestBase<DocumentToolsTestModule>
     {
         var docId = Guid.NewGuid();
         var body = new string('x', VaultExtractMcpConsts.MaxDocumentMarkdownChars + 500);
-        _documentAppService.GetAsync(docId).Returns(new DocumentDto
+        _documentAppService.FindForCallerAsync(docId).Returns(new DocumentDto
         {
             Id = docId,
             LifecycleStatus = DocumentLifecycleStatus.Ready,
@@ -112,7 +110,7 @@ public class DocumentTools_Tests : VaultExtractTestBase<DocumentToolsTestModule>
     public async Task Declined_field_extraction_is_surfaced_to_direct_read_clients()
     {
         var docId = Guid.NewGuid();
-        _documentAppService.GetAsync(docId).Returns(new DocumentDto
+        _documentAppService.FindForCallerAsync(docId).Returns(new DocumentDto
         {
             Id = docId,
             LifecycleStatus = DocumentLifecycleStatus.Processing,
@@ -131,7 +129,7 @@ public class DocumentTools_Tests : VaultExtractTestBase<DocumentToolsTestModule>
     public async Task Another_review_reason_does_not_report_a_decline()
     {
         var docId = Guid.NewGuid();
-        _documentAppService.GetAsync(docId).Returns(new DocumentDto
+        _documentAppService.FindForCallerAsync(docId).Returns(new DocumentDto
         {
             Id = docId,
             LifecycleStatus = DocumentLifecycleStatus.Ready,
@@ -150,7 +148,7 @@ public class DocumentTools_Tests : VaultExtractTestBase<DocumentToolsTestModule>
     public async Task Body_under_the_cap_reports_no_truncation()
     {
         var docId = Guid.NewGuid();
-        _documentAppService.GetAsync(docId).Returns(new DocumentDto
+        _documentAppService.FindForCallerAsync(docId).Returns(new DocumentDto
         {
             Id = docId,
             LifecycleStatus = DocumentLifecycleStatus.Ready,
@@ -169,7 +167,7 @@ public class DocumentTools_Tests : VaultExtractTestBase<DocumentToolsTestModule>
     {
         var docId = Guid.NewGuid();
         _documentAppService
-            .GetAsync(docId)
+            .FindForCallerAsync(docId)
             .Returns(new DocumentDto
             {
                 Id = docId,
@@ -208,7 +206,7 @@ public class DocumentTools_Tests : VaultExtractTestBase<DocumentToolsTestModule>
     {
         var docId = Guid.NewGuid();
         _documentAppService
-            .GetAsync(docId)
+            .FindForCallerAsync(docId)
             .Returns(new DocumentDto
             {
                 Id = docId,
@@ -241,8 +239,8 @@ public class DocumentTools_Tests : VaultExtractTestBase<DocumentToolsTestModule>
     {
         var docId = Guid.NewGuid();
         _documentAppService
-            .GetAsync(docId)
-            .Throws(new EntityNotFoundException());
+            .FindForCallerAsync(docId)
+            .Returns((DocumentDto?)null);
 
         var ex = await Should.ThrowAsync<McpException>(async () =>
             await DocumentTools.GetAsync(docId.ToString(), _documentAppService));
@@ -251,20 +249,21 @@ public class DocumentTools_Tests : VaultExtractTestBase<DocumentToolsTestModule>
     }
 
     /// <summary>
-    /// #632: a document that exists in the caller's own tenant but sits outside the caller's read scope — no
-    /// <c>Documents.ReadAll</c> and no per-type <c>Read</c> grant on its type — makes <c>GetAsync</c> throw
-    /// <see cref="AbpAuthorizationException"/> rather than <see cref="EntityNotFoundException"/>. It must answer
-    /// with the SAME message as a nonexistent id: otherwise the error distinguishes "exists but not yours" from
-    /// "does not exist", which is the existence disclosure the not-found remap exists to prevent. Per-type Read is
-    /// the first rule that can produce an authorization failure for an id the tenant filter admits.
+    /// #636: the fold that used to live here (catching <c>EntityNotFoundException</c> /
+    /// <see cref="AbpAuthorizationException"/> around <c>GetAsync</c>) moved into
+    /// <see cref="IDocumentAppService.FindForCallerAsync"/> itself — nonexistent, cross-tenant, and #632's
+    /// in-tenant-but-outside-the-read-scope case all collapse to <c>null</c> before this adapter ever sees them, so
+    /// the adapter cannot distinguish "exists but not yours" from "does not exist" even in principle. What remains
+    /// to verify at this layer is that a <c>null</c> result, whatever id produced it, always throws the same
+    /// "Document not found" shape.
     /// </summary>
     [Fact]
     public async Task Throws_the_same_not_found_when_the_document_is_outside_the_callers_read_scope()
     {
         var missingId = Guid.NewGuid();
         var forbiddenId = Guid.NewGuid();
-        _documentAppService.GetAsync(missingId).Throws(new EntityNotFoundException());
-        _documentAppService.GetAsync(forbiddenId).Throws(new AbpAuthorizationException());
+        _documentAppService.FindForCallerAsync(missingId).Returns((DocumentDto?)null);
+        _documentAppService.FindForCallerAsync(forbiddenId).Returns((DocumentDto?)null);
 
         var missing = await Should.ThrowAsync<McpException>(async () =>
             await DocumentTools.GetAsync(missingId.ToString(), _documentAppService));
@@ -281,7 +280,7 @@ public class DocumentTools_Tests : VaultExtractTestBase<DocumentToolsTestModule>
     {
         var docId = Guid.NewGuid();
         _documentAppService
-            .GetAsync(docId)
+            .FindForCallerAsync(docId)
             .Returns(new DocumentDto
             {
                 Id = docId,

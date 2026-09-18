@@ -7,10 +7,7 @@ using System.Threading.Tasks;
 using Dignite.Vault.Extract.Documents.DocumentTypes;
 using Dignite.Vault.Extract.Documents.Fields;
 using Dignite.Vault.Extract.FlexFields;
-using Dignite.Vault.Extract.Permissions;
-using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
-using Volo.Abp.Authorization;
 using Volo.Abp.Content;
 using Volo.Abp.Domain.Entities;
 
@@ -20,7 +17,6 @@ namespace Dignite.Vault.Extract.Documents.Exports;
 /// #499: the document-scoped export. Replaces <c>ExportTemplateAppService</c>, whose saved column projections
 /// were deleted along with the template layer.
 /// </summary>
-[Authorize(VaultExtractPermissions.Documents.Export)]
 public class DocumentExportAppService : VaultExtractAppService, IDocumentExportAppService
 {
     // Fixed exported system field headers (#207 / #287): LifecycleStatus / ReviewStatus (disposition axis) /
@@ -37,7 +33,7 @@ public class DocumentExportAppService : VaultExtractAppService, IDocumentExportA
     private readonly IFieldTypeResolver _fieldTypeResolver;
     private readonly IFlexFieldQueryExecutor<Document> _flexFieldQueryExecutor;
     private readonly IVaultExtractFieldTypeRegistry _fieldTypeExtensionRegistry;
-    private readonly DocumentTypeAccessChecker _documentTypeAccess;
+    private readonly DocumentAccessChecker _documentAccess;
 
     public DocumentExportAppService(
         IDocumentRepository documentRepository,
@@ -46,7 +42,7 @@ public class DocumentExportAppService : VaultExtractAppService, IDocumentExportA
         IFieldTypeResolver fieldTypeResolver,
         IFlexFieldQueryExecutor<Document> flexFieldQueryExecutor,
         IVaultExtractFieldTypeRegistry fieldTypeExtensionRegistry,
-        DocumentTypeAccessChecker documentTypeAccess)
+        DocumentAccessChecker documentAccess)
     {
         _documentRepository = documentRepository;
         _documentTypeRepository = documentTypeRepository;
@@ -54,11 +50,17 @@ public class DocumentExportAppService : VaultExtractAppService, IDocumentExportA
         _fieldTypeResolver = fieldTypeResolver;
         _flexFieldQueryExecutor = flexFieldQueryExecutor;
         _fieldTypeExtensionRegistry = fieldTypeExtensionRegistry;
-        _documentTypeAccess = documentTypeAccess;
+        _documentAccess = documentAccess;
     }
 
     public virtual async Task<IRemoteStreamContent> ExportAsync(ExportDocumentsInput input)
     {
+        // #635: admission is a row on the rule table now, not the class-level [Authorize(Documents.Export)] this
+        // service used to carry. The attribute never asserted entry, and the read scope deliberately did not
+        // either, so Documents.Export plus a Read grant used to bulk-download out of an area the caller could not
+        // open. Admission first, before the type code is even looked up.
+        await _documentAccess.CheckAsync(DocumentAccessRule.Export, DocumentAccessSubject.None);
+
         // An unknown type code loud-fails rather than yielding an empty file. The list may legitimately show an
         // empty page for a type that does not exist in this layer, but an export is an artifact the operator
         // will hand to an accountant — a header-only CSV is a silent lie about what the layer contains.
@@ -68,18 +70,16 @@ public class DocumentExportAppService : VaultExtractAppService, IDocumentExportA
             throw new EntityNotFoundException(typeof(DocumentType), input.DocumentTypeCode);
         }
 
-        // #632: the caller's read scope, resolved ONCE and used twice below — as the loud gate here, and as the
-        // filter handed to the shared query chain. Null means the caller holds the module-wide Documents.ReadAll.
+        // The caller's read scope, which narrows the rows below.
         //
-        // The gate is deliberate rather than leaving the narrowing to the filter alone: an export is single-type by
-        // contract, so "the caller may not read this type" has an exact answer at this point, and this service's own
-        // doctrine is that a header-only file "is a silent lie about what the layer contains" — which is just as
-        // true when the rows are missing because the caller may not read them as when the type is empty.
-        var readableTypeIds = await _documentTypeAccess.GetReadableDocumentTypeIdsAsync();
-        if (readableTypeIds is { } readable && !readable.Contains(documentType.Id))
-        {
-            throw new AbpAuthorizationException();
-        }
+        // #635 removes the second, per-type gate #632 put here (throw when the caller holds no Read grant on the
+        // requested type). It cannot survive ownership: an uploader legitimately exports their own documents of a
+        // type they hold no grant on, so the gate would have to admit any caller carrying an owner arm — which is
+        // every real user — and would then refuse only a machine identity. A gate that answers "yes" for
+        // everyone who can ask is not a gate. The rows are narrowed by the predicate instead, exactly as the
+        // operator list narrows the view this file is a download of. An unknown type code still loud-fails
+        // above: "this type does not exist in your layer" is a statement about the layer, and stays a refusal.
+        var readScope = await _documentAccess.ResolveScopeAsync(DocumentAccessRule.Read);
 
         // #499 decision (a): columns come from the type's LIVE field definitions, ordered by DisplayOrder — the
         // same rows, in the same order, that drive the operator list's dynamic columns. Values a document still
@@ -109,12 +109,13 @@ public class DocumentExportAppService : VaultExtractAppService, IDocumentExportA
         query = query.ApplyMetadataFilter(new DocumentMetadataFilter
         {
             DocumentTypeId = documentType.Id,
-            // #632: the same read scope, carried into the same shared chain the operator list runs, so "download
-            // the current view" keeps meaning the view. Behind the single-type gate above this predicate is
-            // provably a no-op today — deleting it reddens nothing, and that is recorded rather than hidden. It
-            // stays because the scope belongs in the chain, not at one call site: the day the export contract
-            // takes more than one type, the narrowing is already correct instead of being re-derived here.
-            ReadableDocumentTypeIds = readableTypeIds,
+            // #635: the same read scope, carried into the same shared chain the operator list runs, so "download
+            // the current view" keeps meaning the view. Under #632 this predicate was provably a no-op behind the
+            // per-type gate that used to sit above, and said so; with that gate gone and an owner arm in the
+            // scope, it is the only thing narrowing the file — an uploader gets their own rows of this type, a
+            // grant holder gets the type, and a caller with neither gets a header-only file rather than the
+            // layer's contents.
+            ReadScope = readScope,
             LifecycleStatus = input.LifecycleStatus,
             CabinetId = input.CabinetId,
             OriginDocumentId = input.OriginDocumentId,

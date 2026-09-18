@@ -207,6 +207,9 @@ public class DocumentSegmentationJob
         return new DetectionContext(
             sourceDocumentId,
             source.TenantId,
+            // #635: snapshotted here with the rest of the source's state, because the spawn phase runs in its own
+            // short UoW and must not reload the source just to answer "who owns this".
+            source.CreatorId,
             markdown,
             source.IsContainer,
             alreadySegmented,
@@ -472,6 +475,9 @@ public class DocumentSegmentationJob
             context.TenantId,
             segment.SegmentKey,
             fileOrigin: null,
+            // #635: the sub-document inherits the source's owner, snapshotted in the load phase. This job has no
+            // principal of its own, so without it the person who uploaded the bundle could not see what came out.
+            ownerId: context.OwnerId,
             reloadClaimable: async () =>
             {
                 var entity = await _segmentRepository.FindAsync(segment.SegmentId);
@@ -628,6 +634,7 @@ public class DocumentSegmentationJob
     protected sealed record DetectionContext(
         Guid SourceDocumentId,
         Guid? TenantId,
+        Guid? OwnerId,
         string Markdown,
         bool IsContainer,
         bool AlreadySegmented,

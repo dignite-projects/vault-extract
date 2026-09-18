@@ -84,14 +84,14 @@
       <option [ngValue]="DocumentLifecycleStatus.Ready">{{ '::Document:Status:Ready' | abpLocalization }}</option>
       <option [ngValue]="DocumentLifecycleStatus.Failed">{{ '::Document:Status:Failed' | abpLocalization }}</option>
     </select>
-    @if (documentTypes().length > 0) {
+    @if (documentTypes.value().length > 0) {
       <select
         class="form-select form-select-sm w-auto"
         [ngModel]="typeFilter()"
         (ngModelChange)="onTypeFilterChange($event)"
       >
         <option value="">{{ '::Document:Filter:AllTypes' | abpLocalization }}</option>
-        @for (t of documentTypes(); track t.id) {
+        @for (t of documentTypes.value(); track t.id) {
           <option [value]="t.typeCode">{{ t.displayName }}</option>
         }
       </select>
@@ -119,7 +119,7 @@
       [fieldDefinitions]="extractedFieldColumns()"
       (filtersChange)="onFieldFiltersChange($event)"
     />
-  } @else if (documentTypes().length > 0) {
+  } @else if (documentTypes.value().length > 0) {
     <p class="text-muted small mb-3">
       <i class="fas fa-filter me-1"></i>
       {{ '::Document:Filter:SelectTypeHint' | abpLocalization }}
@@ -204,11 +204,12 @@
   @if (documents().totalCount > 0) {
     <div class="card shadow-sm document-list-table">
       <div class="card-body p-0">
-        <!-- #632: every per-row action is judged by rightsFor(doc) — the module-wide permission for that
-             operation OR the matching grant on this row's own document type. An untyped row (unclassified /
-             failed classification / container) carries no type, so it reduces to the module-wide half. -->
+        <!-- #635 decision 5: every per-row action is judged by the verdict the server sent down with the
+             row. It already folds in ownership, the per-type grants and the module-wide permissions, and it
+             is the same judgment the endpoint enforces — so what the menu offers and what the API admits
+             cannot drift, including on a row whose type has since been archived. -->
         <ng-template #actionsTemplate let-doc>
-          @let rights = rightsFor(doc);
+          @let rights = rightsOf(doc);
           @if ((needsConfirmation(doc) && rights.canEdit) || rights.canDelete || doc.isContainer || doc.originDocumentId) {
             <div ngbDropdown container="body" class="d-inline-block" (click)="$event.stopPropagation()">
               <button type="button" class="btn btn-sm btn-primary" ngbDropdownToggle>

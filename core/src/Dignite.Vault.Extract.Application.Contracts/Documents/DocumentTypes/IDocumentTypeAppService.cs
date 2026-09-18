@@ -13,17 +13,20 @@ namespace Dignite.Vault.Extract.Documents.DocumentTypes;
 public interface IDocumentTypeAppService : IApplicationService
 {
     /// <summary>
-    /// The caller's own layer's active document types.
+    /// The caller's own layer's active document types, each carrying the caller's own per-type grants in
+    /// <see cref="DocumentTypeDto.ResourcePermissions"/>, filled by ABP's <c>ResourcePermissionPopulator</c>.
+    /// Callers that only need identity and display text — no per-type grants — should use
+    /// <see cref="GetVisibleSummariesAsync"/> instead, which skips the populator entirely (#636).
     /// </summary>
-    /// <param name="includeResourcePermissions">
-    /// When <c>true</c> (the default, what the operator UI wants), every returned DTO carries the caller's own
-    /// per-type grants in <see cref="DocumentTypeDto.ResourcePermissions"/>, filled by ABP's
-    /// <c>ResourcePermissionPopulator</c> — one multi-permission check per type. Pass <c>false</c> where the
-    /// dictionary is not read: the MCP tools and resources list types for an LLM and throw it away, so they pay
-    /// the populator for nothing (#629 leftover, closed by #632). The dictionary then comes back empty, which is
-    /// not the same statement as "no grants" — never branch on it after passing <c>false</c>.
-    /// </param>
-    Task<List<DocumentTypeDto>> GetVisibleAsync(bool includeResourcePermissions = true);
+    Task<List<DocumentTypeDto>> GetVisibleAsync();
+
+    /// <summary>
+    /// The caller's own layer's active document types, narrowed to <see cref="DocumentTypeSummaryDto"/> — no
+    /// per-type grants, and therefore no <c>ResourcePermissionPopulator</c> cost. For internal callers that list
+    /// types for an LLM and throw the grants away, such as the MCP tools and resources (#629 leftover, closed by
+    /// #632, split out to its own narrow DTO by #636).
+    /// </summary>
+    Task<List<DocumentTypeSummaryDto>> GetVisibleSummariesAsync();
 
     /// <summary>Soft-deleted document types in the caller's layer (recycle-bin view).</summary>
     Task<List<DocumentTypeDto>> GetDeletedAsync();

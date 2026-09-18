@@ -10,6 +10,19 @@ public interface IDocumentAppService : IApplicationService
 {
     Task<DocumentDto> GetAsync(Guid id);
 
+    /// <summary>
+    /// MCP not-found folding, raised to the use case (#636): <c>null</c> for not-found (including cross-tenant,
+    /// filtered out by the ambient <c>IMultiTenant</c> filter) and for an in-tenant document outside the caller's
+    /// per-type Read scope alike — the two causes <see cref="GetAsync"/>'s MCP callers used to fold together
+    /// locally by each catching <c>EntityNotFoundException</c> and <c>AbpAuthorizationException</c> around it.
+    /// Still throws <see cref="Volo.Abp.Authorization.AbpAuthorizationException"/> when the caller lacks entry
+    /// (<c>Documents.Default</c>): that is a caller-wide fact unrelated to any one id, and folding it into
+    /// <c>null</c> would make "no permission at all" read the same as "wrong id" — a diagnosability regression MCP
+    /// callers should not have. <see cref="GetAsync"/> keeps its own throwing contract for the REST surface; this
+    /// method exists so an adapter with no REST-style error semantics does not need a try/catch around it.
+    /// </summary>
+    Task<DocumentDto?> FindForCallerAsync(Guid id);
+
     Task<PagedResultDto<DocumentListItemDto>> GetListAsync(GetDocumentListInput input);
 
     Task<DocumentDto> UploadAsync(UploadDocumentInput input);

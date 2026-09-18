@@ -268,7 +268,7 @@ public class DocumentExportAppService_Filter_Tests : VaultExtractEntityFramework
         // A sub-document has no file of its own (#487 reverted FileOrigin to nullable); it is a Markdown slice
         // reached through OriginDocumentId.
         var doc = Document.CreateDerived(
-            documentId, _currentTenant.Id, fileOrigin: null, originDocumentId, originConstituentKey: constituentKey);
+            documentId, _currentTenant.Id, fileOrigin: null, originDocumentId, originConstituentKey: constituentKey, creatorId: null);
         return PersistAsync(doc, amount, configure: null);
     }
 
