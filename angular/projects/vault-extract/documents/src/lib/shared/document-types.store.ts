@@ -78,6 +78,21 @@ export class DocumentTypesStore {
     this.fetch();
   }
 
+  /**
+   * Re-asks the server only if the last answer was a failure; while loading or ready it does nothing.
+   *
+   * Once per session means a transient failure on the first fetch would otherwise stick until a full page
+   * reload — before this store existed every page re-fetched on navigation, so such a failure healed by
+   * itself. Every reading page calls this on init and from each explicit user refresh, which restores that
+   * self-healing without restoring the per-navigation refetch: a healthy store is never asked twice.
+   * Deliberately not called from background polling, which would turn a persistent outage into a retry loop.
+   */
+  retryIfFailed(): void {
+    if (this.state().status === 'error') {
+      this.fetch();
+    }
+  }
+
   private fetch(): void {
     this.request?.unsubscribe();
     // The previous list is kept while reloading, so a refresh does not blank a page that already has an

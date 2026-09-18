@@ -13,9 +13,10 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin, timer, Subscription } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
 import { CommonModule, DOCUMENT, Location } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
 import { FormBuilder, FormGroup, FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { marked } from 'marked';
-import { LocalizationPipe, PermissionService } from '@abp/ng.core';
+import { HttpErrorReporterService, LocalizationPipe, PermissionService } from '@abp/ng.core';
 import { Confirmation, ConfirmationService, ToasterService } from '@abp/ng.theme.shared';
 import { FlexFieldControlComponent, FlexFieldData, FlexFieldValue, FlexFieldViewComponent } from '@dignite/ng.flex-fields';
 import {
@@ -97,6 +98,9 @@ export class DocumentDetailComponent implements OnInit {
   private readonly cabinetService = inject(CabinetService);
   private readonly fb = inject(FormBuilder);
   private readonly toaster = inject(ToasterService);
+  // #635: the document fetch opts out of ABP's global error handling to catch a 403, and hands every other
+  // error back through this — the same call RestService.handleError makes.
+  private readonly httpErrorReporter = inject(HttpErrorReporterService);
   private readonly confirmation = inject(ConfirmationService);
   private readonly permissionService = inject(PermissionService);
   private readonly destroyRef = inject(DestroyRef);
@@ -640,11 +644,17 @@ export class DocumentDetailComponent implements OnInit {
         this.isEditingMarkdown.set(false);
         this.markdownDraft.set('');
         this.reprocessOnSave.set(false);
+        // #635: opening a document is this page's init, also when the instance is reused for another id.
+        this.documentTypes.retryIfFailed();
         this.loadDocument();
       });
   }
 
   refresh(): void {
+    // #635: an explicit refresh also heals a failed type-store fetch (a no-op otherwise), without which this
+    // page cannot resolve its field schema or fill the confirm / reclassify picker for the rest of the
+    // session. Not from pollReload: a background tick must not become a retry loop against an outage.
+    this.documentTypes.retryIfFailed();
     this.loadDocument();
   }
 
@@ -666,9 +676,15 @@ export class DocumentDetailComponent implements OnInit {
   private fetchDocument(quiet: boolean): void {
     // doc and runs are independent after #216, so load them once in parallel; fieldDefinitions still
     // depend on doc.documentTypeCode and remain sequential.
+    //
+    // #635: skipHandleError on BOTH, and the error branch below owns the outcome. This fetch serves the
+    // poll, the manual Refresh and the reload after re-recognize / re-extract / retry — and a re-recognition
+    // can move the document into a type this caller may not read (the classifier's candidates are every type
+    // of the layer, the caller's Read scope is not). Left to ABP's global handler, that 403 pops the
+    // authorization modal — once per refused call, and both calls are refused — and leaves the page stale.
     forkJoin({
-      doc: this.documentService.get(this.documentId),
-      runs: this.documentPipelineRunService.getList(this.documentId),
+      doc: this.documentService.get(this.documentId, { skipHandleError: true }),
+      runs: this.documentPipelineRunService.getList(this.documentId, { skipHandleError: true }),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -718,13 +734,25 @@ export class DocumentDetailComponent implements OnInit {
           // #440: (re)schedule or stop the poll based on the freshly loaded state.
           this.syncPolling();
         },
-        error: () => {
+        error: (err: unknown) => {
+          // #635: refused because the caller may no longer read this document — not a failure to report,
+          // an answer. Same exit as a mutation whose result is unreadable, with a message that does not
+          // claim an operation just completed (on a poll, none did).
+          if (err instanceof HttpErrorResponse && err.status === 403) {
+            this.leaveDocument('::Document:NoLongerVisible');
+            return;
+          }
           if (!quiet) {
             this.isLoading.set(false);
           }
           // #440: stop polling on a failed tick rather than hammering a failing endpoint. Manual Refresh
           // stays available, and any successful (re)load restarts it.
           this.stopPolling();
+          // Everything else keeps exactly the behaviour it had before skipHandleError: this is the call
+          // RestService.handleError makes, and ABP's theme shows its error modal from it. That holds for a
+          // quiet poll tick too — a background failure that silently stopped live updates would leave the
+          // operator watching a spinner that will never move.
+          this.httpErrorReporter.reportError(err as HttpErrorResponse);
         },
       });
   }
@@ -782,25 +810,45 @@ export class DocumentDetailComponent implements OnInit {
   // visible in the current layer first. An unclassified document — or a type the caller cannot see — simply
   // has no schema to fetch; the page stays fully usable and the confirm picker still has its options,
   // because those come from the store rather than from this call.
+  //
+  // #635: two guards, because a schema request can be overtaken two different ways. A NEWER request (a
+  // reclassification, a Refresh, the type store recovering) cancels this one outright — without that, a
+  // slower earlier response could land after a faster later one and put A's schema on a document that is
+  // now B. And the response is checked against the document's CURRENT type when it arrives: a poll can
+  // change the type in the gap before the effect that issues the next request has run, and in that gap no
+  // newer request exists yet to cancel this one.
   private loadFieldDefinitions(
     typeCode: string | null,
     types: readonly DocumentTypeDto[],
   ): void {
+    this.fieldDefinitionsRequest?.unsubscribe();
+    this.fieldDefinitionsRequest = null;
+
     const documentTypeId = typeCode ? types.find(t => t.typeCode === typeCode)?.id : undefined;
     if (!documentTypeId) {
       this.fieldDefinitions.set([]);
       return;
     }
 
-    this.fieldDefinitionService.getList({ documentTypeId })
+    const stillCurrent = () => (this.document()?.documentTypeCode ?? null) === typeCode;
+    this.fieldDefinitionsRequest = this.fieldDefinitionService.getList({ documentTypeId })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: defs => this.fieldDefinitions.set(
-          [...defs].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0) || (a.name ?? '').localeCompare(b.name ?? '')),
-        ),
-        error: () => this.fieldDefinitions.set([]),
+        next: defs => {
+          if (!stillCurrent()) return;
+          this.fieldDefinitions.set(
+            [...defs].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0) || (a.name ?? '').localeCompare(b.name ?? '')),
+          );
+        },
+        error: () => {
+          if (!stillCurrent()) return;
+          this.fieldDefinitions.set([]);
+        },
       });
   }
+
+  /** The in-flight field-schema fetch, cancelled by the next one. See loadFieldDefinitions. */
+  private fieldDefinitionsRequest: Subscription | null = null;
 
   // Cabinet candidates for name mapping display plus reassignment dropdown (#257). Called only with
   // Cabinets.Default permission.
@@ -1024,16 +1072,31 @@ export class DocumentDetailComponent implements OnInit {
    * by themselves — they reach this only if a grant is revoked mid-session — but one guard costs less than
    * reasoning about which calls can race.
    *
-   * The list, not `goBack()`: the previous page may be another view of this same document (its file
-   * preview), which the caller can no longer open either.
+   * Only an EXPLICIT `canRead === false` leaves. `rightsOf` fails closed — a missing `rights` reads as
+   * all-denied — which is right for deciding which buttons to show and wrong for navigating someone off a
+   * page: a response without a verdict is not a verdict that the caller is out.
    */
   private leaveIfNoLongerReadable(result: DocumentDto | null | undefined): boolean {
-    if (rightsOf(result).canRead) {
+    if (result?.rights?.canRead !== false) {
       return false;
     }
-    this.toaster.info('::Document:SavedOutOfView', '::Success');
-    this.router.navigate(['/documents/list']);
+    this.leaveDocument('::Document:SavedOutOfView', '::Success');
     return true;
+  }
+
+  /**
+   * #635: the one exit for "this caller may no longer read the document on screen", shared by the
+   * mutation guard above and the document fetch's 403. Each path brings its own message: after a mutation
+   * the operation did complete; after a poll, nothing happened except that the answer changed.
+   *
+   * The list, not `goBack()`: the previous page may be another view of this same document (its file
+   * preview), which the caller can no longer open either. The poll is stopped first so no tick can fire in
+   * the gap before navigation tears the component down.
+   */
+  private leaveDocument(messageKey: string, titleKey?: string): void {
+    this.stopPolling();
+    this.toaster.info(messageKey, titleKey);
+    this.router.navigate(['/documents/list']);
   }
 
   goBack(): void {

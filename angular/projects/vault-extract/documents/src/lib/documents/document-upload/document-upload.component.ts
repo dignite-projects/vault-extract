@@ -148,6 +148,9 @@ export class DocumentUploadComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    // #635: heal a failed type-store fetch on arrival (a no-op unless it failed). The retry button in the
+    // unavailable state only renders for a caller who must declare a type; everyone else relies on this.
+    this.documentTypes.retryIfFailed();
     if (this.canViewCabinets) {
       this.cabinetService.getList()
         .pipe(takeUntilDestroyed(this.destroyRef))

@@ -153,6 +153,9 @@ export class DocumentOverviewComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    // #635: heal a failed type-store fetch on arrival (a no-op unless it failed). Separate from
+    // loadStatistics, which only a ReadAll holder reaches.
+    this.documentTypes.retryIfFailed();
     if (this.canReadAll) {
       this.loadStatistics();
     }
@@ -161,7 +164,10 @@ export class DocumentOverviewComponent implements OnInit {
     }
   }
 
+  // Also the statistics card's Refresh — this page's only explicit refresh — so it heals a failed type-store
+  // fetch too (#635; a no-op unless the store failed).
   loadStatistics(): void {
+    this.documentTypes.retryIfFailed();
     this.reload$.next();
   }
 

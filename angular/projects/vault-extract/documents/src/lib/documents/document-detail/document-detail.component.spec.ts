@@ -1,8 +1,9 @@
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
-import { LocalizationService, PermissionService } from '@abp/ng.core';
+import { HttpErrorResponse } from '@angular/common/http';
+import { HttpErrorReporterService, LocalizationService, PermissionService } from '@abp/ng.core';
 import { ConfirmationService, ToasterService } from '@abp/ng.theme.shared';
-import { Observable, of } from 'rxjs';
+import { Observable, Subject, of, throwError } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CabinetService,
@@ -14,6 +15,7 @@ import {
   DocumentTypeDto,
   DocumentTypeService,
   EXTRACT_PERMISSIONS,
+  FieldDefinitionDto,
   FieldDefinitionService,
 } from '@dignite/ng.vault-extract';
 import { DocumentDetailComponent } from './document-detail.component';
@@ -100,8 +102,10 @@ function setup(
   grantedPolicies: Set<string>,
   getVisible: () => Observable<DocumentTypeDto[]> = () => of([TYPE_A, TYPE_B]),
   documentService: Record<string, unknown> = {},
+  fieldDefinitionService: Record<string, unknown> = { getFieldTypes: () => of([]), getList: () => of([]) },
 ) {
   const toaster = { success: vi.fn(), error: vi.fn(), warn: vi.fn(), info: vi.fn() };
+  const reporter = { reportError: vi.fn() };
 
   TestBed.configureTestingModule({
     imports: [DocumentDetailComponent],
@@ -117,14 +121,15 @@ function setup(
       { provide: DocumentService, useValue: documentService },
       { provide: DocumentPipelineRunService, useValue: { getList: () => of([]) } },
       { provide: DocumentTypeService, useValue: { getVisible } },
-      { provide: FieldDefinitionService, useValue: { getFieldTypes: () => of([]), getList: () => of([]) } },
+      { provide: FieldDefinitionService, useValue: fieldDefinitionService },
+      { provide: HttpErrorReporterService, useValue: reporter },
       { provide: CabinetService, useValue: { getList: () => of([]) } },
     ],
   });
 
   const fixture = TestBed.createComponent(DocumentDetailComponent);
   const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
-  return { component: fixture.componentInstance, fixture, toaster, navigate };
+  return { component: fixture.componentInstance, fixture, toaster, navigate, reporter };
 }
 
 const MODULE_WIDE = new Set<string>([
@@ -477,5 +482,170 @@ describe('DocumentDetailComponent — an empty duplicate panel (#635)', () => {
 
     expect(text).toContain('Invoice 42');
     expect(text).not.toContain('Document:ReviewReason:NoViewableDuplicateCandidates');
+  });
+});
+
+// #639 review, finding 4: only an EXPLICIT "not readable" leaves the page. rightsOf() fails closed, which is
+// right for which buttons to show and wrong for navigating someone away.
+describe('DocumentDetailComponent — a mutation result without a verdict (#639 review)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('stays on the page and applies the body when the response carries no rights at all', () => {
+    const after = { id: 'doc-1', documentTypeCode: 'contract', cabinetId: 'cabinet-1' } as DocumentDto;
+    const updateCabinet = vi.fn().mockReturnValue(of(after));
+    const { component, navigate } = setup(ENTRY_ONLY, undefined, { updateCabinet });
+    component.document.set(documentOf(FULL));
+
+    component.saveCabinet();
+
+    expect(navigate).not.toHaveBeenCalled();
+    expect(component.document()).toBe(after);
+  });
+});
+
+// #639 review, finding 2: the page's own fetch serves the poll, Refresh, and the reload after re-recognize /
+// re-extract / retry. A re-recognition can move the document into a type the caller may not read, and the next
+// fetch is then refused. That refusal is an answer, not a failure — every other error is still a failure.
+describe('DocumentDetailComponent — the document fetch is refused or fails (#639 review)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('leaves for the list with its own message when a poll is refused with 403', () => {
+    const get = vi.fn().mockReturnValue(throwError(() => new HttpErrorResponse({ status: 403 })));
+    const { component, toaster, navigate, reporter } = setup(ENTRY_ONLY, undefined, { get });
+    const before = documentOf(FULL);
+    component.document.set(before);
+    (component as unknown as { documentId: string }).documentId = 'doc-1';
+
+    component['pollReload']();
+
+    expect(get).toHaveBeenCalledWith('doc-1', { skipHandleError: true });
+    expect(component.document()).toBe(before);
+    // Not the mutation message: on a poll, no operation just completed.
+    expect(toaster.info).toHaveBeenCalledWith('::Document:NoLongerVisible', undefined);
+    expect(toaster.info).not.toHaveBeenCalledWith('::Document:SavedOutOfView', expect.anything());
+    expect(navigate).toHaveBeenCalledWith(['/documents/list']);
+    // ABP's global modal is exactly what this path exists to avoid.
+    expect(reporter.reportError).not.toHaveBeenCalled();
+  });
+
+  it('reports any other error on an explicit load, and stays on the page', () => {
+    const failure = new HttpErrorResponse({ status: 500 });
+    const get = vi.fn().mockReturnValue(throwError(() => failure));
+    const { component, navigate, reporter } = setup(ENTRY_ONLY, undefined, { get });
+    const before = documentOf(FULL);
+    component.document.set(before);
+    (component as unknown as { documentId: string }).documentId = 'doc-1';
+
+    component.refresh();
+
+    // The same call RestService.handleError makes without skipHandleError, so ABP's theme shows what it
+    // always showed.
+    expect(reporter.reportError).toHaveBeenCalledWith(failure);
+    expect(navigate).not.toHaveBeenCalled();
+    expect(component.document()).toBe(before);
+    expect(component.isLoading()).toBe(false);
+  });
+
+  it('does not retry a failed type store from a background poll tick', () => {
+    // Finding 1's other half: the explicit paths heal the store, the poll must not — against a persistent
+    // outage it would turn every tick into a retry.
+    const getVisible = vi.fn().mockReturnValue(throwError(() => new Error('offline')));
+    const get = vi.fn().mockReturnValue(of(documentOf(FULL)));
+    const { component } = setup(ENTRY_ONLY, getVisible, { get });
+    (component as unknown as { documentId: string }).documentId = 'doc-1';
+    expect(component.documentTypes.error()).toBe(true);
+
+    component['pollReload']();
+
+    expect(getVisible).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a failed type store from the explicit Refresh', () => {
+    const getVisible = vi
+      .fn()
+      .mockReturnValueOnce(throwError(() => new Error('offline')))
+      .mockReturnValue(of([TYPE_A, TYPE_B]));
+    const get = vi.fn().mockReturnValue(of(documentOf(FULL)));
+    const { component } = setup(ENTRY_ONLY, getVisible, { get });
+    (component as unknown as { documentId: string }).documentId = 'doc-1';
+
+    component.refresh();
+
+    expect(getVisible).toHaveBeenCalledTimes(2);
+    expect(component.documentTypes.value()).toEqual([TYPE_A, TYPE_B]);
+  });
+});
+
+// #639 review, finding 3: a field-schema response must never land on a document whose type has moved on.
+// Two guards, one per way a request is overtaken — each fact below is red with its own guard removed.
+describe('DocumentDetailComponent — field-schema responses arrive out of order (#639 review)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  const SCHEMA_A: FieldDefinitionDto[] = [{ id: 'f-a', name: 'contractNo' } as FieldDefinitionDto];
+  const SCHEMA_B: FieldDefinitionDto[] = [{ id: 'f-b', name: 'invoiceNo' } as FieldDefinitionDto];
+
+  function schemaSetup(...responses: Subject<FieldDefinitionDto[]>[]) {
+    const getList = vi.fn();
+    for (const response of responses) {
+      getList.mockReturnValueOnce(response.asObservable());
+    }
+    const { component } = setup(ENTRY_ONLY, undefined, {}, { getFieldTypes: () => of([]), getList });
+    const load = (code: string) => component['loadFieldDefinitions'](code, [TYPE_A, TYPE_B]);
+    return { component, getList, load };
+  }
+
+  it('keeps B\'s schema when A\'s slower response arrives after a reclassification to B', () => {
+    const a = new Subject<FieldDefinitionDto[]>();
+    const b = new Subject<FieldDefinitionDto[]>();
+    const { component, load } = schemaSetup(a, b);
+
+    component.document.set(documentOf(FULL, 'contract'));
+    load('contract');
+    component.document.set(documentOf(FULL, 'invoice'));
+    load('invoice');
+
+    b.next(SCHEMA_B);
+    a.next(SCHEMA_A);
+
+    expect(component.fieldDefinitions()).toEqual(SCHEMA_B);
+  });
+
+  it('drops a response for a type the document has left, before any newer request exists', () => {
+    // The gap the cancellation cannot cover: a poll changed the type, and the effect that would issue the
+    // next request has not run yet — so nothing has cancelled this one. Only the arrival check protects it.
+    const a = new Subject<FieldDefinitionDto[]>();
+    const { component, load } = schemaSetup(a);
+
+    component.document.set(documentOf(FULL, 'contract'));
+    load('contract');
+    component.document.set(documentOf(FULL, 'invoice'));
+
+    a.next(SCHEMA_A);
+
+    expect(component.fieldDefinitions()).toEqual([]);
+  });
+
+  it('keeps the newer answer when two requests for the SAME type race', () => {
+    // The gap the arrival check cannot cover: a Refresh re-asks for the type the document still has, so a
+    // stale earlier response passes the type check. Only the cancellation protects it.
+    const first = new Subject<FieldDefinitionDto[]>();
+    const second = new Subject<FieldDefinitionDto[]>();
+    const { component, load } = schemaSetup(first, second);
+    const edited: FieldDefinitionDto[] = [{ id: 'f-a2', name: 'contractNumber' } as FieldDefinitionDto];
+
+    component.document.set(documentOf(FULL, 'contract'));
+    load('contract');
+    load('contract');
+
+    second.next(edited);
+    first.next(SCHEMA_A);
+
+    expect(component.fieldDefinitions()).toEqual(edited);
   });
 });

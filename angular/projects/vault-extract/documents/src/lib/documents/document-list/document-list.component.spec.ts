@@ -344,6 +344,25 @@ describe('DocumentListComponent — the badge follows the store (#635 decision 7
     expect(statisticsSpy).not.toHaveBeenCalled();
   });
 
+  it('heals a failed type store from the explicit Refresh (#639 review)', () => {
+    // The store fetches once per session. Before it existed, every navigation re-fetched and a transient
+    // failure healed by itself; without this, an operator whose first fetch failed would have no type filter
+    // and no dynamic columns until a full page reload. ngOnInit is deliberately not called, so the recovery
+    // can only have come from refresh().
+    const getVisible = vi
+      .fn()
+      .mockReturnValueOnce(throwError(() => new Error('offline')))
+      .mockReturnValue(of([TYPE_A, TYPE_B]));
+    const { component } = setup(MODULE_WIDE, getVisible);
+    expect(component.documentTypes.error()).toBe(true);
+
+    component.refresh();
+
+    expect(getVisible).toHaveBeenCalledTimes(2);
+    expect(component.documentTypes.error()).toBe(false);
+    expect(component.documentTypes.value()).toEqual([TYPE_A, TYPE_B]);
+  });
+
   it('falls back to the module-wide answer when the types fetch fails', () => {
     // The failure branch has to reach the fetch too: an empty type list reduces the gate to its module-wide
     // half, which is a real answer, and a module-wide reviewer must still get their badge.

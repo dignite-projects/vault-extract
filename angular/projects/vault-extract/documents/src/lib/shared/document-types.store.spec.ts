@@ -101,6 +101,44 @@ describe('DocumentTypesStore (#635)', () => {
     expect(store.value()).toEqual([TYPE_A, TYPE_B]);
   });
 
+  // #639 review: once per session means a failed first fetch would otherwise stick until a full reload.
+  // retryIfFailed() is what the reading pages call on init and on explicit refresh — it must heal a
+  // failure and must never refetch a store that is healthy or already asking.
+  it('retryIfFailed() does nothing when the store is ready', () => {
+    const getVisible = vi.fn().mockReturnValue(of([TYPE_A]));
+    const store = provide(getVisible);
+
+    store.retryIfFailed();
+
+    expect(getVisible).toHaveBeenCalledTimes(1);
+  });
+
+  it('retryIfFailed() does nothing while a fetch is in flight', () => {
+    const pending = new Subject<DocumentTypeDto[]>();
+    const getVisible = vi.fn().mockReturnValue(pending.asObservable());
+    const store = provide(getVisible);
+
+    store.retryIfFailed();
+
+    expect(store.isLoading()).toBe(true);
+    expect(getVisible).toHaveBeenCalledTimes(1);
+  });
+
+  it('retryIfFailed() re-fetches after a failure, and recovers', () => {
+    const getVisible = vi
+      .fn()
+      .mockReturnValueOnce(throwError(() => new Error('offline')))
+      .mockReturnValue(of([TYPE_A, TYPE_B]));
+    const store = provide(getVisible);
+    expect(store.error()).toBe(true);
+
+    store.retryIfFailed();
+
+    expect(getVisible).toHaveBeenCalledTimes(2);
+    expect(store.error()).toBe(false);
+    expect(store.value()).toEqual([TYPE_A, TYPE_B]);
+  });
+
   it('lets the newest reload win when two overlap', () => {
     // Two clicks on a retry button. Without unsubscribing the first request, whichever response happened to
     // arrive last would decide, including a stale one.

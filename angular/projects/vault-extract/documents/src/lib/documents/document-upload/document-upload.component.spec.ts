@@ -280,8 +280,12 @@ describe('DocumentUploadComponent — loading / unavailable states and refused d
   it('recovers from the failed fetch through the retry, for this page and every other', async () => {
     // #635: the retry reloads the STORE, so the types the recycle bin, the list and the detail page all
     // read recover with it — there is one fetch left to recover.
+    // Fails twice: once for the store's own first fetch, once for the retryIfFailed() this card makes on
+    // arrival (the synchronous stub has already failed by ngOnInit; over real HTTP the first fetch would
+    // still be in flight and that retry would be a no-op). Only then is the button the way out.
     const getVisible = vi
       .fn()
+      .mockReturnValueOnce(throwError(() => new Error('offline')))
       .mockReturnValueOnce(throwError(() => new Error('offline')))
       .mockReturnValue(of([{ id: 'type-1', displayName: 'Contract', resourcePermissions: { [UPLOAD_RESOURCE_KEY]: true } }]));
     const { fixture, store } = await setup(
@@ -296,7 +300,7 @@ describe('DocumentUploadComponent — loading / unavailable states and refused d
     store.reload();
     fixture.detectChanges();
 
-    expect(getVisible).toHaveBeenCalledTimes(2);
+    expect(getVisible).toHaveBeenCalledTimes(3);
     expect(component.showTypesUnavailable()).toBe(false);
     expect(component.assignableTypes().length).toBe(1);
     expect(fixture.nativeElement.textContent).not.toContain('Document:Upload:TypesUnavailable');

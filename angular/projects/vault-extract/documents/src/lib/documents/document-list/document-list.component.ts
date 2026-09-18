@@ -302,6 +302,9 @@ export class DocumentListComponent implements OnInit {
     // filters.
     this.applyQueryParamPaging();
     this.hookListQuery();
+    // #635: the type store fetches once per session; a failed first fetch would otherwise leave this page
+    // without its type filter and dynamic columns until a full reload. A no-op unless it failed.
+    this.documentTypes.retryIfFailed();
     // Cabinet getList is gated by Cabinets.Default; only fetch when granted to
     // avoid a 403 for users without cabinet access (cabinet filter/labels hidden).
     if (this.canViewCabinets) {
@@ -310,6 +313,7 @@ export class DocumentListComponent implements OnInit {
   }
 
   refresh(): void {
+    this.documentTypes.retryIfFailed();
     this.list.getWithoutPageReset();
   }
 

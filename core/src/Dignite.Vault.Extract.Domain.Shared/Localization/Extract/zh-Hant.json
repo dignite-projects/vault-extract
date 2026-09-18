@@ -216,6 +216,7 @@
     "Document:Confirm": "確認",
     "Document:ClassificationConfirmed": "分類已確認。",
     "Document:SavedOutOfView": "操作已完成，但此文件已不在您可檢視的範圍內。",
+    "Document:NoLongerVisible": "此文件已不在您可檢視的範圍內。",
     "Document:ConfirmFailed": "確認分類失敗。",
     "Document:Review:Reject": "拒絕",
     "Document:Review:CompleteFields": "補齊欄位",

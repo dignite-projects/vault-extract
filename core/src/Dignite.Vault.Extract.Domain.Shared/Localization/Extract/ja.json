@@ -216,6 +216,7 @@
     "Document:Confirm": "確認",
     "Document:ClassificationConfirmed": "分類を確認しました。",
     "Document:SavedOutOfView": "操作は完了しましたが、このドキュメントは閲覧できる範囲外になりました。",
+    "Document:NoLongerVisible": "このドキュメントは閲覧できる範囲外になりました。",
     "Document:ConfirmFailed": "分類の確認に失敗しました。",
     "Document:Review:Reject": "却下",
     "Document:Review:CompleteFields": "フィールドを補完",

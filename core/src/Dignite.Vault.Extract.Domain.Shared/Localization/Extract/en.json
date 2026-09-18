@@ -216,6 +216,7 @@
     "Document:Confirm": "Confirm",
     "Document:ClassificationConfirmed": "Classification confirmed.",
     "Document:SavedOutOfView": "Done. The document is now outside what you can view.",
+    "Document:NoLongerVisible": "This document is no longer visible to you.",
     "Document:ConfirmFailed": "Failed to confirm classification.",
     "Document:Review:Reject": "Reject",
     "Document:Review:CompleteFields": "Complete fields",
