@@ -229,8 +229,7 @@ public class DocumentParseBackgroundJob
             language: result.DetectedLanguage,
             extractionMetadata: extractionMetadata);
 
-        // Publish DocumentTextExtractedEto with a thin payload; downstream consumers pull Markdown and extraction
-        // provenance (DocumentParseMetadata.ProviderName) back through REST.
+        // Publish DocumentTextExtractedEto with a thin payload; downstream consumers pull Markdown back through REST.
         await _distributedEventBus.PublishAsync(
             new DocumentTextExtractedEto
             {

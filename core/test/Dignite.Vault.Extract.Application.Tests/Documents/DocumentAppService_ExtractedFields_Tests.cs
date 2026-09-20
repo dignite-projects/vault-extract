@@ -125,13 +125,15 @@ public class DocumentAppService_ExtractedFields_Tests
     /// <summary>
     /// #650: the #491 path. The document already has every key pipeline Succeeded but carries the blocking
     /// FieldExtractionIncomplete reason, so it sits in PendingReview, not Ready, before the edit. Manual entry
-    /// clears the reason and this same edit derives the document into Ready for the first time. That transition
-    /// is announced once, by DocumentReadyEventHandler reacting to the lifecycle-changed local event (see
-    /// DocumentReadyEventHandler_Tests) — not from here. The <c>wasReady</c> guard must stop
-    /// UpdateExtractedFieldsAsync from ALSO publishing, or the same transition would double-fire.
+    /// clears the reason and this same edit derives the document into Ready for the first time. This test proves
+    /// only that the app service itself publishes nothing when this edit is what transitions the document into
+    /// Ready — the single announce for that transition is <c>DocumentReadyEventHandler</c>'s, covered by
+    /// <c>DocumentReadyEventHandler_Tests</c>. Because <see cref="IDocumentRepository"/> is substituted here, no
+    /// SaveChanges runs and the handler never fires in this test, so "exactly one in total" is not established by
+    /// any single test.
     /// </summary>
     [Fact]
-    public async Task Transition_Into_Ready_By_This_Edit_Does_Not_Double_Publish_DocumentReadyEto()
+    public async Task Transition_Into_Ready_By_This_Edit_Does_Not_Publish_From_The_App_Service()
     {
         var doc = CreateClassifiedDocument("host.contract");
         StubGet(doc);

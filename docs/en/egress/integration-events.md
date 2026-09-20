@@ -36,11 +36,15 @@ Deduplication and ordering are the consumer's responsibility. Every ETO carries 
 
 **`DocumentReadyEto` may fire more than once for the same document** — a pipeline retry, a reclassification, or an operator editing fields on an already-Ready document all re-fire it. Treat it as an **upsert**: the latest `EventTime` wins, not the first delivery.
 
+## Compatibility
+
+The wire names and payload shapes on this page are stable from the 0.5.0 line. Adding an optional property is non-breaking; renaming a wire name or removing a property is a BREAKING entry in `CHANGELOG.md` with a migration note, and is preceded by a GitHub Issue. Every ETO carries `Version = "1.0"`; it is informational today — do not branch on it — and changes only alongside a breaking payload change announced in the CHANGELOG.
+
 ## Non-guarantees
 
 The stage events before Ready (`DocumentUploadedEto` / `DocumentTextExtractedEto` / `DocumentClassifiedEto`) are observability signals, not a state machine a consumer should drive business logic from: there is **no ordering guarantee** across event types, and a consumer that acts on one of them is acting on **unreviewed** data — the document's type and fields may still change before (or instead of) reaching Ready. `DocumentReadyEto` is the one trusted signal.
 
 ## Field notes
 
-- **`DocumentClassifiedEto.ClassificationConfidence = 1.0`** means an operator confirmed the type manually, not that the model was certain.
+- **`DocumentClassifiedEto.ClassificationConfidence = 1.0`** is the value stamped when the type was declared by the uploader (`UploadDocumentInput.DocumentTypeId`, #623) or confirmed by an operator. The LLM classifier can also legitimately return 1.0 (its score is normalised but not clamped below 1.0), so this value alone does not prove a human verified the type.
 - **A derived sub-document's `DocumentUploadedEto`** carries `FileName = null`, `FileSize = 0`, `ContentType = null` — it shares its parent's blob rather than owning independent storage. Pull its own descriptors by `DocumentId` through REST/MCP if needed.

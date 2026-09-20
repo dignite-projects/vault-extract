@@ -5,9 +5,8 @@ namespace Dignite.Vault.Extract.Abstractions.Documents;
 
 /// <summary>
 /// Published once per completed text extraction, whether image OCR or digital-native. Thin payload:
-/// consumers pull Markdown and extraction provenance (<c>DocumentParseMetadata.ProviderName</c>) back
-/// through REST. An observability signal, not a state-machine input — at-least-once, no ordering
-/// guarantee relative to other event types.
+/// consumers pull Markdown back through REST. An observability signal, not a state-machine input —
+/// at-least-once, no ordering guarantee relative to other event types.
 /// <para>
 /// Stable contract (issue #188): all properties are <c>init</c>-only; <see cref="EventTime"/> is
 /// marked <c>required</c>.

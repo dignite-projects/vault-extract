@@ -105,8 +105,9 @@ public interface IDocumentAppService : IApplicationService
     /// <para>
     /// Differs from <see cref="RerecognizeAsync"/> (destructive reclassification + cascade): this path is a safe leaf operation,
     /// replacing only the whole field value set. It may overwrite operator-edited field values, but at lower cost.
-    /// After completion, the run's lifecycle re-derivation round-trips the document through Processing and re-fires
-    /// <see cref="Abstractions.Documents.DocumentReadyEto"/> — the pipeline's egress for this path.
+    /// After completion, the run's lifecycle re-derivation round-trips the document through Processing and, when it derives
+    /// Ready again, re-fires <see cref="Abstractions.Documents.DocumentReadyEto"/> — the pipeline's egress for this path.
+    /// A re-extraction that newly raises a blocking review reason (e.g. a suspected duplicate) ends in PendingReview and fires nothing.
     /// Rejected when the document is in the trash, unclassified (no type), has no Markdown yet, or field extraction is already in progress.
     /// </para>
     /// </summary>
@@ -132,7 +133,7 @@ public interface IDocumentAppService : IApplicationService
     /// <para>
     /// <paramref name="input"/>.Reprocess toggles what happens after the Markdown is overwritten:
     /// <c>true</c> re-runs field extraction (the same mechanism <see cref="ReextractFieldsAsync"/> uses), which
-    /// round-trips the lifecycle through Processing and re-fires <see cref="Abstractions.Documents.DocumentReadyEto"/>.
+    /// round-trips the lifecycle through Processing and, when it derives Ready again, re-fires <see cref="Abstractions.Documents.DocumentReadyEto"/>.
     /// It does <b>not</b> touch classification or segmentation — those have their own independent entry points
     /// (<see cref="RerecognizeAsync"/>). <c>false</c> (default) writes the Markdown only: no re-extraction, and
     /// no event is fired at all — a deliberate accepted trade-off; a downstream consumer that already pulled

@@ -9,11 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- **BREAKING — `FieldsExtractedEto` (wire `VaultExtract.Document.FieldsExtracted`) is retired** ([#650](https://github.com/dignite-projects/vault-extract/issues/650)). Migration: subscribe to `DocumentReadyEto`, which now also re-fires when an operator edits fields on an already-Ready document.
+- **BREAKING — `FieldsExtractedEto` (wire `VaultExtract.Document.FieldsExtracted`) is retired** ([#650](https://github.com/dignite-projects/vault-extract/issues/650)). Migration: subscribe to `DocumentReadyEto`, which now also re-fires when an operator edits fields on an already-Ready document. Note the replacement is narrower: `FieldsExtractedEto` fired on every extraction — including the no-definitions clear path and for documents held in review (suspected duplicate, oversized body) — whereas `DocumentReadyEto` fires only for a Ready, non-container document. A consumer that mirrored field state for *every* document has no event-driven equivalent and must pull.
 
 ### Changed
 
-- **BREAKING — `OCRCompletedEto` renamed `DocumentTextExtractedEto`; wire `VaultExtract.Document.OCRCompleted` → `VaultExtract.Document.TextExtracted`; `UsedOcr` / `FigureOcrCount` removed** ([#650](https://github.com/dignite-projects/vault-extract/issues/650)). Migration: rename the subscription; extraction provenance is `DocumentParseMetadata.ProviderName` on the document.
+- **BREAKING — `OCRCompletedEto` renamed `DocumentTextExtractedEto`; wire `VaultExtract.Document.OCRCompleted` → `VaultExtract.Document.TextExtracted`; `UsedOcr` / `FigureOcrCount` removed** ([#650](https://github.com/dignite-projects/vault-extract/issues/650)). Migration: rename the subscription. The two removed fields have no replacement on any egress surface — they were never persisted and had no known consumer.
+- **`FieldExtractionService` constructor** — the `IDistributedEventBus` and `IClock` parameters are removed; the service no longer publishes anything ([#650](https://github.com/dignite-projects/vault-extract/issues/650)). BREAKING for a subclass only: drop those two arguments from the `base(...)` call.
 
 ### Added
 

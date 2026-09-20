@@ -9,6 +9,7 @@ using Dignite.Vault.Extract.Abstractions.Documents;
 using Dignite.Vault.Extract.Documents;
 using Dignite.Vault.Extract.Documents.Pipelines;
 using Dignite.Vault.Extract.Documents.Pipelines.Classification;
+using Dignite.Vault.Extract.Documents.Pipelines.Lifecycle;
 using Dignite.Vault.Extract.Documents.Review;
 using Dignite.Vault.Extract.Permissions;
 using Microsoft.Extensions.Logging;
@@ -1022,18 +1023,11 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // is the contract's "pull it again" signal, idempotent by EventTime like any other redelivery. The wasReady
         // guard exists because a transition *into* Ready (e.g. clearing #491's FieldExtractionIncomplete above)
         // is already announced by DocumentReadyEventHandler off the lifecycle change — publishing here too would
-        // double-fire. Constructed exactly as DocumentReadyEventHandler does.
+        // double-fire.
         if (wasReady && document.LifecycleStatus == DocumentLifecycleStatus.Ready)
         {
             await _distributedEventBus.PublishAsync(
-                new DocumentReadyEto
-                {
-                    DocumentId = document.Id,
-                    TenantId = document.TenantId,
-                    EventTime = Clock.Now,
-                    DocumentTypeCode = documentTypeCode,
-                    OriginDocumentId = document.OriginDocumentId
-                });
+                DocumentReadyEtoFactory.Create(document, documentTypeCode, Clock.Now));
         }
 
         return await MapToDtoAsync(document);
@@ -1047,7 +1041,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// <para>
     /// <paramref name="input"/>.Reprocess = <c>true</c> re-runs field extraction only, reusing the same
     /// guard + enqueue pair <see cref="ReextractFieldsAsync"/> uses (<see cref="QueueFieldReextractionAsync"/>),
-    /// which round-trips the lifecycle through Processing and re-fires <see cref="DocumentReadyEto"/>. It does
+    /// which round-trips the lifecycle through Processing and, when it derives Ready again, re-fires <see cref="DocumentReadyEto"/>. It does
     /// not touch classification or segmentation — those are
     /// <see cref="RerecognizeAsync"/>'s job. Reprocess = <c>false</c> writes the Markdown only: no
     /// re-extraction, no event at all — a deliberate accepted trade-off (a downstream consumer that already

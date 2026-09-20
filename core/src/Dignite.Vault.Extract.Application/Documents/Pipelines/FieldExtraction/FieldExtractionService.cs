@@ -461,9 +461,7 @@ public class FieldExtractionService : ITransientDependency
 
             document.SetReviewReason(DocumentReviewReasons.DuplicateSuspected, duplicateSuspected);
 
-            // The logical field count - fields that got a value. Each bag entry is one field, so this is
-            // simply the count; under v2 the same number needed a Distinct() over rows, because a
-            // multi-value field expanded into several of them.
+            // Logical field count: one bag entry is one field.
             var fieldCount = fieldValues.Count;
 
             await _documentRepository.UpdateAsync(document, autoSave: true);

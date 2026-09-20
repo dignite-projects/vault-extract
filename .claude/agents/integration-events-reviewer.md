@@ -19,7 +19,7 @@ From `integration-events.md` and `CLAUDE.md`:
 | `DocumentUploadedEto` | upload completed | No |
 | `DocumentTextExtractedEto` | text extraction completed (image OCR or digital-native); an observability signal only — thin payload, no path/quality markers (#650 renamed from `OCRCompletedEto`, which also carried `UsedOcr` / `FigureOcrCount` — both removed) | No |
 | `DocumentClassifiedEto` | classification completed | No |
-| `DocumentReadyEto` | full pipeline complete + confirmed type (**suppressed for containers, #346**); also re-fires on a re-extraction of an already-Ready document (#411) or an operator field edit on an already-Ready document (#650 — retired `FieldsExtractedEto`, whose role this re-fire now covers) | **Yes — only this one** |
+| `DocumentReadyEto` | full pipeline complete + confirmed type (**suppressed for containers, #346**); also re-fires on a re-extraction of an already-Ready document (bulk/on-demand re-extraction, #289; the round-trip exists because #411 made FieldExtraction a key pipeline) or an operator field edit on an already-Ready document (#650 — retired `FieldsExtractedEto`, whose role this re-fire now covers) | **Yes — only this one** |
 
 Lifecycle (orthogonal to pipeline, never Ready-gated):
 `DocumentDeletedEto` / `DocumentRestoredEto` / `DocumentPermanentlyDeletedEto` / `DocumentReclassifiedToContainerEto`
@@ -67,7 +67,7 @@ When a **new ETO class** is added:
 ### 2.5 OCR Confidence — Removed Fields (#196), Path Markers — Removed Fields (#650)
 
 - 🔴 **`OcrConfidence` field re-added to any ETO**: OCR average confidence was removed in #196 because it does not predict real OCR quality. If a new ETO or an updated `DocumentTextExtractedEto` / `DocumentReadyEto` adds an `OcrConfidence` or `OcrQualityScore` field, that is a regression and a hard violation.
-- 🔴 **`UsedOcr` / `FigureOcrCount` re-added to `DocumentTextExtractedEto`**: both were removed in #650 (the event was `OCRCompletedEto` at the time) — the event is now a pure observability signal (`DocumentId` / `TenantId` / `EventTime` only), and extraction provenance is `DocumentParseMetadata.ProviderName`, pulled back through REST. `TextExtractionResult.UsedOcr` / `FigureOcrCount` still exist as internal transport fields; re-exposing either on the ETO is a payload-shape regression, not a #196 OCR-quality-signal regression, but flag it the same way.
+- 🔴 **`UsedOcr` / `FigureOcrCount` re-added to `DocumentTextExtractedEto`**: both were removed in #650 (the event was `OCRCompletedEto` at the time) — the event is now a pure observability signal (`DocumentId` / `TenantId` / `EventTime` only). `TextExtractionResult.UsedOcr` / `FigureOcrCount` still exist as internal transport fields; re-exposing either on the ETO is a payload-shape regression, not a #196 OCR-quality-signal regression, but flag it the same way.
 - 🟢 **`OriginDocumentId` (DocumentReadyEto) is permitted (#306)**: a Scenario-B provenance scalar (null for normally-uploaded documents). A thin scalar field, legitimately retained.
 
 ### 2.6 EventHandler Design
