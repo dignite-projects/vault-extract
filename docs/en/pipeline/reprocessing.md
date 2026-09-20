@@ -83,7 +83,7 @@ Single-document jobs run on the host's background-job manager. The default host 
 | `POST` | `/api/vault-extract/document-reprocessing/reclassification` | start batch reclassification |
 | `POST` | `/api/vault-extract/documents/{id}/reextract-fields` | single-document re-extract fields |
 
-Batch and progress are internal operational state — they are **not** part of the exit contract. Downstream consumers see the normal staged events (`DocumentClassifiedEto` / `FieldsExtractedEto`) republished as documents reprocess, absorbed idempotently by `(DocumentId, EventType, EventTime)` like any other.
+Batch and progress are internal operational state — they are **not** part of the exit contract. Downstream consumers see the normal staged event (`DocumentClassifiedEto`) and the pipeline's `DocumentReadyEto` re-fire as documents reprocess, absorbed idempotently by `(DocumentId, EventType, EventTime)` like any other.
 
 ## Out of scope
 

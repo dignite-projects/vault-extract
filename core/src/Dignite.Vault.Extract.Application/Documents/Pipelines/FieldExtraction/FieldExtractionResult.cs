@@ -2,23 +2,24 @@ namespace Dignite.Vault.Extract.Documents.Pipelines.FieldExtraction;
 
 /// <summary>
 /// Result of <see cref="FieldExtractionService.ExtractAsync"/>, used by callers (event handler /
-/// background job) for observability logs. The extraction engine already handles ETO publication /
-/// field persistence, so callers do not write to the DB based on this result.
+/// background job) for observability logs. The extraction engine already handles field persistence, so
+/// callers do not write to the DB based on this result. Its egress is <c>DocumentReadyEto</c>, fired by
+/// the caller's lifecycle round-trip, not by this result directly (#650).
 /// </summary>
 public enum FieldExtractionOutcome
 {
-    /// <summary>Prerequisite guard failed (missing document / cross-tenant / unclassified / stale / reclassified in flight); nothing written or published.</summary>
+    /// <summary>Prerequisite guard failed (missing document / cross-tenant / unclassified / stale / reclassified in flight); nothing written.</summary>
     Skipped,
 
-    /// <summary>Target type has no field definitions; clears residual field rows and publishes an empty <c>FieldsExtractedEto</c>.</summary>
+    /// <summary>Target type has no field definitions; clears residual field rows.</summary>
     Cleared,
 
-    /// <summary>Normal extraction; writes the full field-value group and publishes <c>FieldsExtractedEto</c>.</summary>
+    /// <summary>Normal extraction; writes the full field-value group.</summary>
     Extracted,
 
     /// <summary>
     /// The Markdown exceeded <c>VaultExtractBehaviorOptions.MaxFieldExtractionMarkdownLength</c> (#491), so no LLM call
-    /// was made. Sets the blocking <c>DocumentReviewReasons.FieldExtractionIncomplete</c> signal, publishes nothing, and
+    /// was made. Sets the blocking <c>DocumentReviewReasons.FieldExtractionIncomplete</c> signal and
     /// leaves any previously extracted values untouched. This is a <b>terminal, successful</b> run of the stage: the
     /// caller completes the pipeline run rather than throwing, so the job never re-enters the job-store retry loop with
     /// the same oversized body.

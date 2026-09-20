@@ -10,7 +10,6 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Dignite.Vault.Extract.Abstractions.Documents;
 using Dignite.Vault.Extract.Ai;
 using Dignite.Vault.Extract.Documents;
 using Dignite.Vault.Extract.Documents.DocumentTypes;
@@ -22,7 +21,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 using Shouldly;
-using Volo.Abp.EventBus.Distributed;
 using Volo.Abp.Modularity;
 using Xunit;
 
@@ -36,7 +34,6 @@ public class FieldExtractionCascadeTestModule : AbpModule
         context.Services.AddSingleton(Substitute.For<IDocumentRepository>());
         context.Services.AddSingleton(Substitute.For<IDocumentTypeRepository>());
         context.Services.AddSingleton(Substitute.For<IFieldRepository>());
-        context.Services.AddSingleton(Substitute.For<IDistributedEventBus>());
 
         // FieldExtractionWorkflow is a concrete class, so use ForPartsOf with fake constructor dependencies.
         // Each test case configures the virtual ExtractAsync with Returns / Throws.
@@ -52,7 +49,7 @@ public class FieldExtractionCascadeTestModule : AbpModule
 /// <summary>
 /// Tests for the classification → field-extraction cascade engine (<see cref="FieldExtractionService"/>, invoked as
 /// the cascade does, with the just-assigned TypeCode forwarded as the stale-reclassify hint): reclassify-race discard,
-/// cross-tenant defense, FieldsExtractedEto contract, MissingRequiredFields materialization, and #411
+/// cross-tenant defense, MissingRequiredFields materialization, and #411
 /// duplicate-fingerprint detection. Since #527 §8 the classification stage schedules this run <b>transactionally</b>
 /// (before classification can derive Ready) rather than through a delayed <c>DocumentClassifiedEto</c> handler; the
 /// scheduling itself is covered by the classification-job / app-service tests.
@@ -66,7 +63,6 @@ public class FieldExtractionCascade_Tests
     private readonly IDocumentTypeRepository _documentTypeRepository;
     private readonly IFieldRepository _fieldRepository;
     private readonly FieldExtractionWorkflow _workflow;
-    private readonly IDistributedEventBus _eventBus;
 
     public FieldExtractionCascade_Tests()
     {
@@ -75,13 +71,12 @@ public class FieldExtractionCascade_Tests
         _documentTypeRepository = GetRequiredService<IDocumentTypeRepository>();
         _fieldRepository = GetRequiredService<IFieldRepository>();
         _workflow = GetRequiredService<FieldExtractionWorkflow>();
-        _eventBus = GetRequiredService<IDistributedEventBus>();
     }
 
     // ─── engine: field extraction behavior (invoked as the cascade does) ──────
 
     [Fact]
-    public async Task No_Field_Definitions_Publishes_Empty_FieldsExtractedEto()
+    public async Task No_Field_Definitions_Clears_And_Skips_The_Llm_Call()
     {
         var doc = CreateDocument(tenantId: null, typeCode: "contract.general");
         SetupType("contract.general");
@@ -90,13 +85,10 @@ public class FieldExtractionCascade_Tests
         _fieldRepository.GetListAsync(TypeId("contract.general"), Arg.Any<CancellationToken>())
             .Returns(new List<Field>());
 
-        await Extract(doc.Id, null, "contract.general");
+        var result = await Extract(doc.Id, null, "contract.general");
 
-        // Publish an empty event even with no field definitions, so downstream DocumentReady can advance.
-        await _eventBus.Received(1).PublishAsync(
-            Arg.Is<FieldsExtractedEto>(e =>
-                e.DocumentId == doc.Id && e.DocumentTypeCode == "contract.general" && e.FieldCount == 0),
-            Arg.Any<bool>(), Arg.Any<bool>());
+        // Cleared even with no field definitions, so downstream DocumentReady can still advance via the lifecycle round-trip.
+        result.Outcome.ShouldBe(FieldExtractionOutcome.Cleared);
 
         // LLM should not be called; no field definitions short-circuit directly.
         await _workflow.DidNotReceive().ExtractAsync(
@@ -121,13 +113,10 @@ public class FieldExtractionCascade_Tests
 
         doc.FlexFields.ShouldBeEmpty();
         await _documentRepository.Received().UpdateAsync(doc, Arg.Any<bool>(), Arg.Any<CancellationToken>());
-        await _eventBus.Received(1).PublishAsync(
-            Arg.Is<FieldsExtractedEto>(e => e.DocumentId == doc.Id && e.FieldCount == 0),
-            Arg.Any<bool>(), Arg.Any<bool>());
     }
 
     [Fact]
-    public async Task Missing_Document_Logs_And_Returns_Without_Publishing()
+    public async Task Missing_Document_Logs_And_Returns_Skipped()
     {
         var docId = Guid.NewGuid();
         SetupType("contract.general");
@@ -135,10 +124,9 @@ public class FieldExtractionCascade_Tests
             .Returns(new List<Field> { CreateFieldDefinition("contract.general", "amount") });
         _documentRepository.FindAsync(docId, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns((Document?)null);
 
-        await Extract(docId, null, "contract.general");
+        var result = await Extract(docId, null, "contract.general");
 
-        await _eventBus.DidNotReceive().PublishAsync(
-            Arg.Any<FieldsExtractedEto>(), Arg.Any<bool>(), Arg.Any<bool>());
+        result.Outcome.ShouldBe(FieldExtractionOutcome.Skipped);
     }
 
     [Fact]
@@ -162,8 +150,6 @@ public class FieldExtractionCascade_Tests
         doc.FlexFields.ShouldBeEmpty();
         await _documentRepository.DidNotReceive().UpdateAsync(
             Arg.Any<Document>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
-        await _eventBus.DidNotReceive().PublishAsync(
-            Arg.Any<FieldsExtractedEto>(), Arg.Any<bool>(), Arg.Any<bool>());
     }
 
     [Fact]
@@ -186,12 +172,10 @@ public class FieldExtractionCascade_Tests
         doc.FlexFields.ShouldBeEmpty();
         await _documentRepository.DidNotReceive().UpdateAsync(
             Arg.Any<Document>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
-        await _eventBus.DidNotReceive().PublishAsync(
-            Arg.Any<FieldsExtractedEto>(), Arg.Any<bool>(), Arg.Any<bool>());
     }
 
     [Fact]
-    public async Task Happy_Path_Writes_Fields_And_Publishes_FieldsExtractedEto()
+    public async Task Happy_Path_Writes_Fields()
     {
         var doc = CreateDocument(tenantId: null, typeCode: "contract.general");
         SetupType("contract.general");
@@ -220,17 +204,13 @@ public class FieldExtractionCascade_Tests
         doc.FlexFields.Keys.ShouldBe(new[] { "amount", "party" }, ignoreOrder: true);
 
         await _documentRepository.Received(1).UpdateAsync(doc, Arg.Any<bool>(), Arg.Any<CancellationToken>());
-        await _eventBus.Received(1).PublishAsync(
-            Arg.Is<FieldsExtractedEto>(e =>
-                e.DocumentId == doc.Id && e.DocumentTypeCode == "contract.general" && e.FieldCount == 2),
-            Arg.Any<bool>(), Arg.Any<bool>());
     }
 
     [Fact]
-    public async Task Renamed_TypeCode_Event_Uses_Current_DocumentTypeId_And_Publishes_Current_Code()
+    public async Task Renamed_TypeCode_Event_Uses_Current_DocumentTypeId()
     {
         // TypeCode rename race: the event carries the old code but DocumentTypeId is the stable relation. When the old
-        // code is unresolvable, extraction proceeds against the current type Id and publishes the current TypeCode.
+        // code is unresolvable, extraction proceeds against the current type Id.
         var typeId = TypeId("contract.general");
         var doc = CreateDocument(tenantId: null, documentTypeId: typeId);
         SetupType("contract.renamed", typeId: typeId);
@@ -244,10 +224,6 @@ public class FieldExtractionCascade_Tests
         await Extract(doc.Id, null, "contract.general"); // old, now-unresolvable code
 
         doc.FlexFields.Keys.ShouldBe(new[] { "amount" });
-        await _eventBus.Received(1).PublishAsync(
-            Arg.Is<FieldsExtractedEto>(e =>
-                e.DocumentId == doc.Id && e.DocumentTypeCode == "contract.renamed" && e.FieldCount == 1),
-            Arg.Any<bool>(), Arg.Any<bool>());
     }
 
     [Fact]
@@ -273,10 +249,6 @@ public class FieldExtractionCascade_Tests
 
         doc.FlexFields.ShouldBeEmpty();
         await _documentRepository.Received(1).UpdateAsync(doc, Arg.Any<bool>(), Arg.Any<CancellationToken>());
-        await _eventBus.Received(1).PublishAsync(
-            Arg.Is<FieldsExtractedEto>(e =>
-                e.DocumentId == doc.Id && e.DocumentTypeCode == "contract.general" && e.FieldCount == 0),
-            Arg.Any<bool>(), Arg.Any<bool>());
     }
 
     [Fact]
@@ -519,7 +491,7 @@ public class FieldExtractionCascade_Tests
         Dictionary<string, JsonElement?> values, params FieldValidationWarningResult[] warnings) =>
         new(values, warnings);
 
-    private Task Extract(Guid documentId, Guid? tenantId, string eventTypeCode)
+    private Task<FieldExtractionResult> Extract(Guid documentId, Guid? tenantId, string eventTypeCode)
         => _service.ExtractAsync(documentId, tenantId, expectedEventTypeCode: eventTypeCode);
 
     private void SetupType(string code, Guid? tenantId = null, Guid? typeId = null)

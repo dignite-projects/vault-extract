@@ -30,8 +30,8 @@ namespace Dignite.Vault.Extract.Documents.Fields.Cleanup;
 /// batch after a crash; that is a no-op here, not a double-apply.
 /// </para>
 /// <para>
-/// Deliberately publishes no <c>FieldsExtractedEto</c>: field <b>values</b> were not re-extracted and remain
-/// historical data — only the warning derived from a deleted schema element goes away (#528 acceptance criteria).
+/// Field <b>values</b> were not re-extracted and remain historical data — only the warning derived from a
+/// deleted schema element goes away (#528 acceptance criteria).
 /// </para>
 /// </summary>
 [BackgroundJobName("VaultExtract.FieldValidationWarningCleanup")]

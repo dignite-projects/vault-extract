@@ -104,15 +104,7 @@ public class DocumentReadyEventHandler
         }
 
         await _distributedEventBus.PublishAsync(
-            new DocumentReadyEto
-            {
-                DocumentId = document.Id,
-                TenantId = document.TenantId,
-                EventTime = _clock.Now,
-                DocumentTypeCode = documentTypeCode,
-                // #306: provenance link for a Scenario B sub-document (null for normally-uploaded documents).
-                OriginDocumentId = document.OriginDocumentId
-            });
+            DocumentReadyEtoFactory.Create(document, documentTypeCode, _clock.Now));
 
         _logger.LogInformation(
             "Document {DocumentId} reached Ready lifecycle; DocumentReadyEto enqueued (type={DocTypeCode}).",

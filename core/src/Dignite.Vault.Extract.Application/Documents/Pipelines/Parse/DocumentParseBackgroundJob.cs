@@ -229,15 +229,13 @@ public class DocumentParseBackgroundJob
             language: result.DetectedLanguage,
             extractionMetadata: extractionMetadata);
 
-        // Publish OCRCompletedEto with a thin payload; downstream consumers pull Markdown back through REST.
+        // Publish DocumentTextExtractedEto with a thin payload; downstream consumers pull Markdown back through REST.
         await _distributedEventBus.PublishAsync(
-            new OCRCompletedEto
+            new DocumentTextExtractedEto
             {
                 DocumentId = document.Id,
                 TenantId = document.TenantId,
-                EventTime = _clock.Now,
-                UsedOcr = result.UsedOcr,
-                FigureOcrCount = result.FigureOcrCount
+                EventTime = _clock.Now
             });
 
         // Advance classification as soon as text extraction completes. OCR has no quality gate:

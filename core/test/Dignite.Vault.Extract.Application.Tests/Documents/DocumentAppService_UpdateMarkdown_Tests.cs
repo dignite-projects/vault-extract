@@ -59,8 +59,8 @@ public class DocumentAppService_UpdateMarkdown_Tests
             Arg.Any<DocumentFieldExtractionJobArgs>(),
             Arg.Any<BackgroundJobPriority>(),
             Arg.Any<TimeSpan?>());
-        await _eventBus.DidNotReceive().PublishAsync(
-            Arg.Any<FieldsExtractedEto>(), Arg.Any<bool>(), Arg.Any<bool>());
+        // Reprocess=false fires no event at all (documented trade-off on UpdateMarkdownAsync); pinned so a future re-announce cannot slip in silently.
+        await _eventBus.DidNotReceive().PublishAsync(Arg.Any<DocumentReadyEto>(), Arg.Any<bool>(), Arg.Any<bool>());
     }
 
     [Fact]
@@ -87,11 +87,7 @@ public class DocumentAppService_UpdateMarkdown_Tests
                 a.PipelineRunId == newRun.Id),
             Arg.Any<BackgroundJobPriority>(),
             Arg.Any<TimeSpan?>());
-
-        // Queuing alone does not publish FieldsExtractedEto -- that fires when the background job completes,
-        // which this test does not run.
-        await _eventBus.DidNotReceive().PublishAsync(
-            Arg.Any<FieldsExtractedEto>(), Arg.Any<bool>(), Arg.Any<bool>());
+        await _eventBus.DidNotReceive().PublishAsync(Arg.Any<DocumentReadyEto>(), Arg.Any<bool>(), Arg.Any<bool>());
     }
 
     [Fact]

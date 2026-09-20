@@ -14,7 +14,7 @@ namespace Dignite.Vault.Extract.Abstractions.Documents;
 ///   manual review queue and publishes only after an operator confirms the type.</item>
 /// </list>
 /// Most downstream business consumers should subscribe to this event rather than early-stage events
-/// (DocumentUploaded/OCRCompleted/...).
+/// (DocumentUploaded/DocumentTextExtracted/...).
 /// <para>
 /// Stable contract (issue #188): all properties are <c>init</c>-only; <see cref="EventTime"/> is
 /// marked <c>required</c>.

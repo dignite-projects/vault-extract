@@ -105,7 +105,9 @@ public interface IDocumentAppService : IApplicationService
     /// <para>
     /// Differs from <see cref="RerecognizeAsync"/> (destructive reclassification + cascade): this path is a safe leaf operation,
     /// replacing only the whole field value set. It may overwrite operator-edited field values, but at lower cost.
-    /// After completion, the engine emits <see cref="Abstractions.Documents.FieldsExtractedEto"/>.
+    /// After completion, the run's lifecycle re-derivation round-trips the document through Processing and, when it derives
+    /// Ready again, re-fires <see cref="Abstractions.Documents.DocumentReadyEto"/> — the pipeline's egress for this path.
+    /// A re-extraction that newly raises a blocking review reason (e.g. a suspected duplicate) ends in PendingReview and fires nothing.
     /// Rejected when the document is in the trash, unclassified (no type), has no Markdown yet, or field extraction is already in progress.
     /// </para>
     /// </summary>
@@ -114,8 +116,12 @@ public interface IDocumentAppService : IApplicationService
     /// <summary>
     /// Operator edits type-bound field extraction results (individual corrections). Replaces the document's field value set as a whole.
     /// Each key must be a <see cref="FieldDefinition.Name"/> defined under this document's layer and DocumentType.
-    /// After completion, reuses <see cref="Abstractions.Documents.FieldsExtractedEto"/> for re-delivery; downstream consumers absorb it
-    /// idempotently by <c>(DocumentId, EventType, EventTime)</c> and pull back latest field values.
+    /// #650: when the document was already <c>Ready</c> both before and after this edit, re-publishes
+    /// <see cref="Abstractions.Documents.DocumentReadyEto"/> — an operator edit on an already-Ready document changes
+    /// consumable content with no lifecycle transition to announce it, so this is the contract's "pull it again"
+    /// signal. Downstream consumers absorb it idempotently by <c>(DocumentId, EventType, EventTime)</c> and pull back
+    /// latest field values. A transition *into* Ready caused by this same edit (e.g. clearing #491's
+    /// <c>FieldExtractionIncomplete</c>) is announced once, by the existing lifecycle re-derivation, not doubled here.
     /// Large-scale errors should use text-extraction rerun / re-upload instead of bulk patching through this path.
     /// </summary>
     Task<DocumentDto> UpdateExtractedFieldsAsync(Guid id, UpdateExtractedFieldsInput input);
@@ -126,10 +132,9 @@ public interface IDocumentAppService : IApplicationService
     /// unchanged and still refuses a second write there).
     /// <para>
     /// <paramref name="input"/>.Reprocess toggles what happens after the Markdown is overwritten:
-    /// <c>true</c> re-runs <b>field extraction only</b> (the same mechanism <see cref="ReextractFieldsAsync"/>
-    /// uses), which re-fires <see cref="Abstractions.Documents.FieldsExtractedEto"/> and, through the existing
-    /// lifecycle re-derivation, may re-fire <see cref="Abstractions.Documents.DocumentReadyEto"/>. It does
-    /// <b>not</b> touch classification or segmentation — those have their own independent entry points
+    /// <c>true</c> re-runs field extraction (the same mechanism <see cref="ReextractFieldsAsync"/> uses), which
+    /// round-trips the lifecycle through Processing and, when it derives Ready again, re-fires <see cref="Abstractions.Documents.DocumentReadyEto"/>.
+    /// It does <b>not</b> touch classification or segmentation — those have their own independent entry points
     /// (<see cref="RerecognizeAsync"/>). <c>false</c> (default) writes the Markdown only: no re-extraction, and
     /// no event is fired at all — a deliberate accepted trade-off; a downstream consumer that already pulled
     /// the document via <c>DocumentReadyEto</c> will not know the content changed until it re-fetches.

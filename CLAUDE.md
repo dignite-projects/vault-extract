@@ -81,7 +81,7 @@ Fields are organized into two kinds: **system common fields** (auto-produced by 
 
 Three live egress channels: **REST API** (HTTP, generic programmatic access) / **MCP server** (Claude Desktop / Cursor / any MCP client) / **EventBus** (ABP DistributedEventBus, business systems / custom consumers); plus **Webhook** (legacy systems) — **planned, not yet implemented**.
 
-**Multi-stage events** (thin payloads — ID + key metadata, downstream pulls details back): `DocumentUploadedEto` → `OCRCompletedEto` → `DocumentClassifiedEto` → `FieldsExtractedEto` → `DocumentReadyEto`; plus lifecycle events `DocumentDeletedEto` / `DocumentRestoredEto` / `DocumentPermanentlyDeletedEto` (orthogonal to the pipeline).
+**Multi-stage events** (thin payloads — ID + key metadata, downstream pulls details back): `DocumentUploadedEto` → `DocumentTextExtractedEto` → `DocumentClassifiedEto` → `DocumentReadyEto`; plus lifecycle events `DocumentDeletedEto` / `DocumentRestoredEto` / `DocumentPermanentlyDeletedEto` (orthogonal to the pipeline).
 
 **Ready gate**: **only `DocumentReadyEto` is gated** — it fires once the document carries **no blocking review reason** (`ReviewReasonPolicy.Blocking`, the single declaration point): a confirmed type (classification confidence ≥ that type's `ConfidenceThreshold`, or manual confirmation), no suspected duplicate (#411), and field extraction not declined for an oversized body (#491). Documents that fail are still stored, early-stage events still fire, and they enter the operator review queue. Primary downstream consumers subscribe to `DocumentReadyEto` by default.
 

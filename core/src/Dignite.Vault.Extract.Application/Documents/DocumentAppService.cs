@@ -9,6 +9,7 @@ using Dignite.Vault.Extract.Abstractions.Documents;
 using Dignite.Vault.Extract.Documents;
 using Dignite.Vault.Extract.Documents.Pipelines;
 using Dignite.Vault.Extract.Documents.Pipelines.Classification;
+using Dignite.Vault.Extract.Documents.Pipelines.Lifecycle;
 using Dignite.Vault.Extract.Documents.Review;
 using Dignite.Vault.Extract.Permissions;
 using Microsoft.Extensions.Logging;
@@ -916,8 +917,9 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
 
     /// <summary>
     /// Operator edits field extraction results (individual correction). Replaces ExtractedFields as a whole;
-    /// keys must be field names defined under this document's layer and DocumentType. After completion, reuses FieldsExtractedEto
-    /// to notify downstream consumers to synchronize.
+    /// keys must be field names defined under this document's layer and DocumentType. #650: when the document was
+    /// already Ready before and after this edit, re-publishes <see cref="DocumentReadyEto"/> so downstream consumers
+    /// know to pull the updated fields.
     /// </summary>
     public virtual async Task<DocumentDto> UpdateExtractedFieldsAsync(Guid id, UpdateExtractedFieldsInput input)
     {
@@ -1010,25 +1012,23 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // same way AllowDuplicateAsync does. Before #491 it never needed to: MissingRequiredFields is non-blocking, so
         // clearing it could not change LifecycleStatus. Without this call the operator's escape path would write the
         // fields but leave the document stuck short of Ready, and DocumentReadyEto would never fire.
+        var wasReady = document.LifecycleStatus == DocumentLifecycleStatus.Ready;
         await _pipelineRunManager.ReDeriveLifecycleAsync(document);
 
         await _documentRepository.UpdateAsync(document, autoSave: true);
         await _flexFieldIndexManager.SynchronizeAsync(document);
 
-        // FieldsExtractedEto.FieldCount is the logical field count - fields that hold a value. One bag entry
-        // is one field, so this is simply the count, and it matches FieldExtractionService exactly: both
-        // write paths emit the same thin signal for the same final state.
-        // Downstream consumers are idempotent by (DocumentId, EventType, EventTime) and pull back the latest field values.
-        var fieldCount = fieldValues.Count;
-        await _distributedEventBus.PublishAsync(
-            new FieldsExtractedEto
-            {
-                DocumentId = document.Id,
-                TenantId = document.TenantId,
-                EventTime = Clock.Now,
-                DocumentTypeCode = documentTypeCode,
-                FieldCount = fieldCount
-            });
+        // #650: an operator editing fields on an already-Ready document changes consumable content without a
+        // lifecycle transition, so nothing else tells downstream to re-pull it. Re-announcing DocumentReadyEto here
+        // is the contract's "pull it again" signal, idempotent by EventTime like any other redelivery. The wasReady
+        // guard exists because a transition *into* Ready (e.g. clearing #491's FieldExtractionIncomplete above)
+        // is already announced by DocumentReadyEventHandler off the lifecycle change — publishing here too would
+        // double-fire.
+        if (wasReady && document.LifecycleStatus == DocumentLifecycleStatus.Ready)
+        {
+            await _distributedEventBus.PublishAsync(
+                DocumentReadyEtoFactory.Create(document, documentTypeCode, Clock.Now));
+        }
 
         return await MapToDtoAsync(document);
     }
@@ -1041,8 +1041,8 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// <para>
     /// <paramref name="input"/>.Reprocess = <c>true</c> re-runs field extraction only, reusing the same
     /// guard + enqueue pair <see cref="ReextractFieldsAsync"/> uses (<see cref="QueueFieldReextractionAsync"/>),
-    /// which re-fires <see cref="FieldsExtractedEto"/> and, through the existing lifecycle re-derivation, may
-    /// re-fire <see cref="DocumentReadyEto"/>. It does not touch classification or segmentation — those are
+    /// which round-trips the lifecycle through Processing and, when it derives Ready again, re-fires <see cref="DocumentReadyEto"/>. It does
+    /// not touch classification or segmentation — those are
     /// <see cref="RerecognizeAsync"/>'s job. Reprocess = <c>false</c> writes the Markdown only: no
     /// re-extraction, no event at all — a deliberate accepted trade-off (a downstream consumer that already
     /// pulled the document via <c>DocumentReadyEto</c> will not know the content changed until it re-fetches).
