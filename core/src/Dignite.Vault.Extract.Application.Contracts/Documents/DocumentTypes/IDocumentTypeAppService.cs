@@ -35,6 +35,14 @@ public interface IDocumentTypeAppService : IApplicationService
 
     Task<DocumentTypeDto> UpdateAsync(Guid id, UpdateDocumentTypeDto input);
 
+    /// <summary>
+    /// What switching this type's duplicate-detection scope to <paramref name="duplicateScope"/> would re-evaluate
+    /// (#651 §5), so the type form can state the consequence <b>before</b> the save that enqueues reconciliation.
+    /// Two counts over live documents of the type, no row loads. Gated by the same permission as
+    /// <see cref="UpdateAsync"/> — it answers a question only someone who may perform the switch should be asking.
+    /// </summary>
+    Task<DuplicateScopePreviewDto> GetDuplicateScopePreviewAsync(Guid id, DuplicateDetectionScope duplicateScope);
+
     Task DeleteAsync(Guid id);
 
     /// <summary>

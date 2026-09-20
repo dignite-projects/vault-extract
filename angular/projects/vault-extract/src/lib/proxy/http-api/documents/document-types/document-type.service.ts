@@ -1,6 +1,7 @@
 import { RestService, Rest } from '@abp/ng.core';
 import { Injectable, inject } from '@angular/core';
-import type { CreateDocumentTypeDto, DocumentTypeDto, UpdateDocumentTypeDto } from '../../../documents/document-types/models';
+import type { DuplicateDetectionScope } from '../../../documents/document-types/duplicate-detection-scope.enum';
+import type { CreateDocumentTypeDto, DocumentTypeDto, DuplicateScopePreviewDto, UpdateDocumentTypeDto } from '../../../documents/document-types/models';
 
 @Injectable({
   providedIn: 'root',
@@ -31,6 +32,15 @@ export class DocumentTypeService {
     this.restService.request<any, DocumentTypeDto[]>({
       method: 'GET',
       url: '/api/vault-extract/document-types/deleted',
+    },
+    { apiName: this.apiName,...config });
+  
+
+  getDuplicateScopePreview = (id: string, duplicateScope: DuplicateDetectionScope, config?: Partial<Rest.Config>) =>
+    this.restService.request<any, DuplicateScopePreviewDto>({
+      method: 'GET',
+      url: `/api/vault-extract/document-types/${id}/duplicate-scope-preview`,
+      params: { duplicateScope },
     },
     { apiName: this.apiName,...config });
   

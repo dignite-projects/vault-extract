@@ -1,3 +1,4 @@
+import type { DuplicateDetectionScope } from '../duplicate-detection-scope.enum';
 import type { FieldDataType } from '../../fields/field-data-type.enum';
 import type { PackItemAction } from './pack-item-action.enum';
 import type { PackImportMode } from './pack-import-mode.enum';
@@ -9,6 +10,7 @@ export interface DocumentTypePackDto {
   description?: string | null;
   confidenceThreshold?: number;
   priority?: number;
+  duplicateScope?: DuplicateDetectionScope;
   fields?: DocumentTypePackFieldDto[];
 }
 

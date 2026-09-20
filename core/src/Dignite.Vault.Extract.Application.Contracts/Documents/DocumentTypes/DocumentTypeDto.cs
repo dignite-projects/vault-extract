@@ -15,6 +15,13 @@ public class DocumentTypeDto : EntityDto<Guid>, IHasResourcePermissions
     public int Priority { get; set; }
 
     /// <summary>
+    /// What counts as a duplicate for this type (#651): <see cref="DuplicateDetectionScope.Layer"/> (the default,
+    /// and the pre-#651 behaviour) or <see cref="DuplicateDetectionScope.Uploader"/>. The enum's integer values
+    /// are a frozen serialized contract.
+    /// </summary>
+    public DuplicateDetectionScope DuplicateScope { get; set; }
+
+    /// <summary>
     /// The caller's own resource-permission grants on this type (#629), keyed by permission name — phase 1
     /// defines exactly one, <see cref="Permissions.VaultExtractResourcePermissions.Upload"/>.
     /// Populated by <c>DocumentTypeAppService.GetVisibleAsync</c> only, through ABP's

@@ -532,14 +532,15 @@ describe('DocumentDetailComponent — "waiting for a reviewer" (#635)', () => {
   });
 });
 
-// #635 (after the #638 review): the duplicate-candidate panel is narrowed by the caller's read scope, so an
-// uploader whose document is flagged as a duplicate may receive no candidate at all.
-describe('DocumentDetailComponent — an empty duplicate panel (#635)', () => {
+// #651 §7 (previously #635): the duplicate-candidate panel is narrowed by the caller's read scope, so an
+// uploader whose document is flagged as a duplicate may receive no candidate at all. HiddenDuplicateCandidateCount
+// tells "candidates exist, outside your view" apart from "nothing collides any more".
+describe('DocumentDetailComponent — an empty duplicate panel (#651 §7)', () => {
   beforeEach(() => {
     TestBed.resetTestingModule();
   });
 
-  function renderDuplicate(duplicateCandidates: unknown) {
+  function renderDuplicate(duplicateCandidates: unknown, hiddenDuplicateCandidateCount?: number) {
     const { component, fixture } = setup(ENTRY_ONLY);
     component.isLoading.set(false);
     component.document.set(
@@ -547,7 +548,12 @@ describe('DocumentDetailComponent — an empty duplicate panel (#635)', () => {
         requiresReview: true,
         reviewReasons: DocumentReviewReasons.DuplicateSuspected,
         reviewReasonDetails: [
-          { reason: DocumentReviewReasons.DuplicateSuspected, isBlocking: true, duplicateCandidates },
+          {
+            reason: DocumentReviewReasons.DuplicateSuspected,
+            isBlocking: true,
+            duplicateCandidates,
+            hiddenDuplicateCandidateCount,
+          },
         ] as DocumentDto['reviewReasonDetails'],
       }),
     );
@@ -555,19 +561,23 @@ describe('DocumentDetailComponent — an empty duplicate panel (#635)', () => {
     return fixture.nativeElement.textContent as string;
   }
 
-  it('says there is no matching document the caller can view, whether the list is empty or absent', () => {
-    // Deliberately not "outside your view": a candidate can also be missing because it was deleted.
-    expect(renderDuplicate([])).toContain('Document:ReviewReason:NoViewableDuplicateCandidates');
-
-    TestBed.resetTestingModule();
-    expect(renderDuplicate(undefined)).toContain('Document:ReviewReason:NoViewableDuplicateCandidates');
+  it('says an administrator must resolve it when candidates exist but are hidden by the read scope', () => {
+    expect(renderDuplicate([], 2)).toContain('Document:ReviewReason:HiddenDuplicateCandidates');
   });
 
-  it('lists the candidates instead when there are some', () => {
-    const text = renderDuplicate([{ id: 'doc-2', title: 'Invoice 42' }]);
+  it('says nothing collides any more when no candidates are visible and none are hidden, whether the list is empty or absent', () => {
+    expect(renderDuplicate([], 0)).toContain('Document:ReviewReason:NoRemainingDuplicateCandidates');
+
+    TestBed.resetTestingModule();
+    expect(renderDuplicate(undefined, undefined)).toContain('Document:ReviewReason:NoRemainingDuplicateCandidates');
+  });
+
+  it('lists the candidates instead when there are some, regardless of the hidden count', () => {
+    const text = renderDuplicate([{ id: 'doc-2', title: 'Invoice 42' }], 3);
 
     expect(text).toContain('Invoice 42');
-    expect(text).not.toContain('Document:ReviewReason:NoViewableDuplicateCandidates');
+    expect(text).not.toContain('Document:ReviewReason:HiddenDuplicateCandidates');
+    expect(text).not.toContain('Document:ReviewReason:NoRemainingDuplicateCandidates');
   });
 });
 

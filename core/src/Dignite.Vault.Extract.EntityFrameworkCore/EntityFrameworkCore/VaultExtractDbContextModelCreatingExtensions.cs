@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Text.Json;
 using Dignite.Abp.FlexFields.EntityFrameworkCore;
 using Dignite.Vault.Extract.Documents;
+using Dignite.Vault.Extract.Documents.DocumentTypes;
 using Dignite.Vault.Extract.Documents.Fields;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
@@ -276,6 +277,12 @@ public static class VaultExtractDbContextModelCreatingExtensions
             b.Property(x => x.Description).HasMaxLength(DocumentTypeConsts.MaxDescriptionLength);
             b.Property(x => x.ConfidenceThreshold).IsRequired();
             b.Property(x => x.Priority).IsRequired();
+
+            // #651: what counts as a duplicate for this type. Stored as the enum's int, whose values are a frozen
+            // persisted contract; required with a 0 (= Layer) default so existing rows keep today's layer-wide
+            // behaviour and the upgrade changes no document's state. No index: it is read one row at a time, by
+            // the type the document already resolved.
+            b.Property(x => x.DuplicateScope).IsRequired().HasDefaultValue(DuplicateDetectionScope.Layer);
 
             // Layer-scoped uniqueness on (TenantId, TypeCode) is enforced by DocumentTypeManager in the application/domain
             // layer (#304), not by a DB index. The previous soft-delete-filtered unique index relied on SQL Server's

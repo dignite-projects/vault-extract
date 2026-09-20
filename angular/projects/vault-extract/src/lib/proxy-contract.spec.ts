@@ -10,6 +10,10 @@ import {
 } from './proxy/documents/document-review-reasons.enum';
 import { DocumentLifecycleStatus } from './proxy/documents/document-lifecycle-status.enum';
 import {
+  DuplicateDetectionScope,
+  duplicateDetectionScopeOptions,
+} from './proxy/documents/document-types/duplicate-detection-scope.enum';
+import {
   PackImportMode,
   packImportModeOptions,
 } from './proxy/documents/document-types/packs/pack-import-mode.enum';
@@ -68,6 +72,15 @@ describe('proxy enum contract (smoke)', () => {
     expect(ReclassificationScope.AllDocuments).toBe(10);
     expect(ReclassificationScope.PendingReviewQueue).toBe(20);
     expect(reclassificationScopeOptions).toHaveLength(3);
+  });
+
+  // #651: DuplicateDetectionScope's integer values are an explicitly frozen persisted + serialized
+  // contract (the DocumentTypes column, the document-type DTOs, DocumentTypePackDto) — a renumbering
+  // would silently change what an existing document type's stored scope means on upgrade.
+  it('DuplicateDetectionScope matches backend values (#651)', () => {
+    expect(DuplicateDetectionScope.Layer).toBe(0);
+    expect(DuplicateDetectionScope.Uploader).toBe(1);
+    expect(duplicateDetectionScopeOptions).toHaveLength(2);
   });
 
   // #444, first picked up by the #501-item-7 regen. CreateOrUpdate is 0, so it is what an omitted

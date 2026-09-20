@@ -310,7 +310,7 @@ public class FieldExtractionCascade_Tests
             .Returns(WorkflowResult(new Dictionary<string, JsonElement?> { ["receipt_no"] = JsonDocument.Parse("\"R-001\"").RootElement }));
         // A colliding document exists in the same layer + type.
         _documentRepository.FindDuplicateCandidatesAsync(
-                doc.Id, TypeId("receipt.general"), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<DocumentAccessScope>(), Arg.Any<CancellationToken>())
+                doc.Id, TypeId("receipt.general"), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<DuplicateDetectionScope>(), Arg.Any<Guid?>(), Arg.Any<DocumentAccessScope>(), Arg.Any<CancellationToken>())
             .Returns(new List<DuplicateCandidateModel> { new() { Id = Guid.NewGuid(), Title = "Existing receipt" } });
 
         await Extract(doc.Id, null, "receipt.general");
@@ -331,7 +331,7 @@ public class FieldExtractionCascade_Tests
         _workflow.ExtractAsync(Arg.Any<IReadOnlyList<FieldExtractionDescriptor>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(WorkflowResult(new Dictionary<string, JsonElement?> { ["receipt_no"] = JsonDocument.Parse("\"R-001\"").RootElement }));
         _documentRepository.FindDuplicateCandidatesAsync(
-                doc.Id, TypeId("receipt.general"), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<DocumentAccessScope>(), Arg.Any<CancellationToken>())
+                doc.Id, TypeId("receipt.general"), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<DuplicateDetectionScope>(), Arg.Any<Guid?>(), Arg.Any<DocumentAccessScope>(), Arg.Any<CancellationToken>())
             .Returns(new List<DuplicateCandidateModel>());
 
         await Extract(doc.Id, null, "receipt.general");
@@ -340,11 +340,17 @@ public class FieldExtractionCascade_Tests
         (doc.ReviewReasons & DocumentReviewReasons.DuplicateSuspected).ShouldBe(DocumentReviewReasons.None);
     }
 
+    /// <summary>
+    /// #411's override survives routine re-extraction, and #651 §6 is what makes that statement precise: it
+    /// survives re-extraction <b>onto the same key</b>. The operator can only have allowed a document that was
+    /// already flagged, so the realistic shape is two passes — extract, allow, extract again — not an override
+    /// pinned on a document that never had a key. (Pinning it that way is now a contradiction the aggregate
+    /// resolves against the override, which is the point of the sibling test below.)
+    /// </summary>
     [Fact]
-    public async Task DuplicateAllowed_Override_Suppresses_ReFlagging_And_Skips_Collision_Query()
+    public async Task DuplicateAllowed_Override_Survives_ReExtraction_And_Skips_The_Collision_Query()
     {
         var doc = CreateDocument(tenantId: null, typeCode: "receipt.general");
-        doc.AllowDuplicate(); // operator previously decided this is not a duplicate
         SetupType("receipt.general");
         _documentRepository.FindAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(doc);
         _documentRepository.FindWithFieldValuesAsync(doc.Id, Arg.Any<CancellationToken>()).Returns(doc);
@@ -352,13 +358,26 @@ public class FieldExtractionCascade_Tests
             .Returns(new List<Field> { CreateFieldDefinition("receipt.general", "receipt_no", TextFieldType.ControlName, isUniqueKey: true) });
         _workflow.ExtractAsync(Arg.Any<IReadOnlyList<FieldExtractionDescriptor>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(WorkflowResult(new Dictionary<string, JsonElement?> { ["receipt_no"] = JsonDocument.Parse("\"R-001\"").RootElement }));
+        _documentRepository.FindDuplicateCandidatesAsync(
+                Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<DuplicateDetectionScope>(), Arg.Any<Guid?>(), Arg.Any<DocumentAccessScope>(), Arg.Any<CancellationToken>())
+            .Returns(new List<DuplicateCandidateModel> { new() { Id = Guid.NewGuid(), Title = "Existing receipt" } });
 
+        // First pass raises the flag; the operator reviews it and decides this is not a duplicate.
+        await Extract(doc.Id, null, "receipt.general");
+        var firstKey = doc.FieldFingerprint;
+        firstKey.ShouldNotBeNull();
+        doc.AllowDuplicate();
+        _documentRepository.ClearReceivedCalls();
+
+        // Second pass reproduces exactly the same key.
         await Extract(doc.Id, null, "receipt.general");
 
+        doc.FieldFingerprint.ShouldBe(firstKey);
+        doc.DuplicateAllowed.ShouldBeTrue();
         (doc.ReviewReasons & DocumentReviewReasons.DuplicateSuspected).ShouldBe(DocumentReviewReasons.None);
         // The override short-circuits the collision query entirely.
         await _documentRepository.DidNotReceive().FindDuplicateCandidatesAsync(
-            Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<DocumentAccessScope>(), Arg.Any<CancellationToken>());
+            Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<DuplicateDetectionScope>(), Arg.Any<Guid?>(), Arg.Any<DocumentAccessScope>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -387,7 +406,39 @@ public class FieldExtractionCascade_Tests
         doc.FieldFingerprint.ShouldBeNull();
         (doc.ReviewReasons & DocumentReviewReasons.DuplicateSuspected).ShouldBe(DocumentReviewReasons.None);
         await _documentRepository.DidNotReceive().FindDuplicateCandidatesAsync(
-            Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<DocumentAccessScope>(), Arg.Any<CancellationToken>());
+            Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<DuplicateDetectionScope>(), Arg.Any<Guid?>(), Arg.Any<DocumentAccessScope>(), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// #651 §6: the override is not unconditional. Re-extraction that lands on a <b>different</b> key withdraws
+    /// it — the operator's "not a duplicate" verdict was about the values they looked at — so the new key's
+    /// collision is raised rather than suppressed. The rule lives on <c>Document.SetFieldFingerprint</c>, so this
+    /// holds for the pipeline without the pipeline doing anything about it.
+    /// </summary>
+    [Fact]
+    public async Task ReExtraction_Onto_A_Different_Key_Withdraws_DuplicateAllowed_And_ReFlags()
+    {
+        var doc = CreateDocument(tenantId: null, typeCode: "receipt.general");
+        // The operator reviewed the OLD key (R-001) and cleared it.
+        doc.SetFieldFingerprint("old-key-fingerprint");
+        doc.AllowDuplicate();
+        doc.DuplicateAllowed.ShouldBeTrue();
+
+        SetupType("receipt.general");
+        _documentRepository.FindAsync(doc.Id, Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(doc);
+        _documentRepository.FindWithFieldValuesAsync(doc.Id, Arg.Any<CancellationToken>()).Returns(doc);
+        _fieldRepository.GetListAsync(TypeId("receipt.general"), Arg.Any<CancellationToken>())
+            .Returns(new List<Field> { CreateFieldDefinition("receipt.general", "receipt_no", TextFieldType.ControlName, isUniqueKey: true) });
+        _workflow.ExtractAsync(Arg.Any<IReadOnlyList<FieldExtractionDescriptor>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(WorkflowResult(new Dictionary<string, JsonElement?> { ["receipt_no"] = JsonDocument.Parse("\"R-002\"").RootElement }));
+        _documentRepository.FindDuplicateCandidatesAsync(
+                doc.Id, TypeId("receipt.general"), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<DuplicateDetectionScope>(), Arg.Any<Guid?>(), Arg.Any<DocumentAccessScope>(), Arg.Any<CancellationToken>())
+            .Returns(new List<DuplicateCandidateModel> { new() { Id = Guid.NewGuid(), Title = "The real R-002" } });
+
+        await Extract(doc.Id, null, "receipt.general");
+
+        doc.DuplicateAllowed.ShouldBeFalse();
+        (doc.ReviewReasons & DocumentReviewReasons.DuplicateSuspected).ShouldBe(DocumentReviewReasons.DuplicateSuspected);
     }
 
     // ─── #527 §5/§7: field validation warning persistence ───────────────────

@@ -1,3 +1,4 @@
+import type { DuplicateDetectionScope } from './duplicate-detection-scope.enum';
 import type { EntityDto } from '@abp/ng.core';
 
 export interface CreateDocumentTypeDto {
@@ -6,6 +7,7 @@ export interface CreateDocumentTypeDto {
   description?: string | null;
   confidenceThreshold?: number;
   priority?: number;
+  duplicateScope?: DuplicateDetectionScope;
 }
 
 export interface DocumentTypeDto extends EntityDto<string> {
@@ -15,7 +17,16 @@ export interface DocumentTypeDto extends EntityDto<string> {
   description?: string | null;
   confidenceThreshold?: number;
   priority?: number;
+  duplicateScope?: DuplicateDetectionScope;
   resourcePermissions?: Record<string, boolean>;
+}
+
+export interface DuplicateScopePreviewDto {
+  currentScope?: DuplicateDetectionScope;
+  prospectiveScope?: DuplicateDetectionScope;
+  wouldChange?: boolean;
+  willFlagCount?: number;
+  willClearCount?: number;
 }
 
 export interface UpdateDocumentTypeDto {
@@ -24,4 +35,5 @@ export interface UpdateDocumentTypeDto {
   description?: string | null;
   confidenceThreshold?: number;
   priority?: number;
+  duplicateScope?: DuplicateDetectionScope;
 }

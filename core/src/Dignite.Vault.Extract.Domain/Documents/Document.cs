@@ -125,8 +125,9 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant, IHasFlexFi
     /// flag and decided this document is <b>not</b> a duplicate (or is an acceptable re-upload). When true, the field
     /// extraction stage does <b>not</b> re-raise <c>DuplicateSuspected</c> on subsequent re-extractions (#289 bulk /
     /// manual reclassify), so the operator's decision survives. Reset to false whenever the document is
-    /// (re)classified or its type is retracted — a new type context is a fresh duplicate-review decision. Set by
-    /// <c>AllowDuplicateAsync</c>.
+    /// (re)classified or its type is retracted — a new type context is a fresh duplicate-review decision — and
+    /// (#651 §6) whenever <see cref="SetFieldFingerprint"/> writes a <b>different</b> key, because a verdict
+    /// about the old key values applies to nothing once they change. Set by <c>AllowDuplicateAsync</c>.
     /// </summary>
     public virtual bool DuplicateAllowed { get; private set; }
 
@@ -515,12 +516,41 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant, IHasFlexFi
     /// write-once: the fingerprint is derived from <see cref="FlexFields"/> and must track every
     /// re-extraction. <c>public</c> because the compute point lives in the Application layer (<c>FieldExtractionService</c>),
     /// the same cross-assembly reason as <see cref="SetReviewReason"/>.
+    /// <para>
+    /// <b>A changed key withdraws <see cref="DuplicateAllowed"/></b> (#651 §6). The operator's "not a duplicate"
+    /// verdict was about the key values that were there when they made it; once those change it applies to
+    /// nothing, and left standing it would suppress detection forever for values nobody ever reviewed. The rule
+    /// lives <b>here</b>, at the state transition, rather than at the call sites — there are four of them (the
+    /// extraction write, extraction's no-definitions clear, the #528 duplicate-basis cleanup and the operator's
+    /// manual correction) and a rule sorted into methods leaks the moment a fifth one is added. That includes
+    /// the two that write <c>null</c>: a type that has lost its unique key has no key for a verdict to be about,
+    /// the same reasoning <see cref="ResetDuplicateDetectionState"/> applies on a type change.
+    /// </para>
+    /// <para>
+    /// "Changed" is an ordinal comparison of the <b>normalized</b> value, so <c>null</c> → <c>null</c> and
+    /// equal → equal are no-ops and a re-extraction that reproduces the same key leaves the override intact —
+    /// which is what makes the override survive routine re-extraction, as #411 intends. <c>null</c> ↔ non-null
+    /// counts as a change in both directions.
+    /// </para>
+    /// <para>
+    /// Returns whether the value changed, so the caller does not need a second comparison of its own to decide
+    /// whether to re-run detection. Two comparisons of the same fact is how the entity and its caller drift.
+    /// </para>
     /// </summary>
-    public void SetFieldFingerprint(string? fieldFingerprint)
+    public bool SetFieldFingerprint(string? fieldFingerprint)
     {
-        FieldFingerprint = string.IsNullOrWhiteSpace(fieldFingerprint)
+        var normalized = string.IsNullOrWhiteSpace(fieldFingerprint)
             ? null
             : Check.Length(fieldFingerprint, nameof(fieldFingerprint), DocumentConsts.MaxFieldFingerprintLength);
+
+        if (string.Equals(FieldFingerprint, normalized, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        FieldFingerprint = normalized;
+        DuplicateAllowed = false;
+        return true;
     }
 
     /// <summary>
@@ -535,6 +565,7 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant, IHasFlexFi
         DuplicateAllowed = true;
         SetReviewReason(DocumentReviewReasons.DuplicateSuspected, present: false);
     }
+
 
     // High-confidence path: classification is decided -> clear UnresolvedClassification and reset disposition to NotReviewed.
     internal void ApplyAutomaticClassificationResult(
