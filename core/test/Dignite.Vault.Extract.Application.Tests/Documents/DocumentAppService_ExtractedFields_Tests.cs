@@ -69,7 +69,7 @@ public class DocumentAppService_ExtractedFields_Tests
     }
 
     [Fact]
-    public async Task Should_Write_Fields_And_Republish_FieldsExtractedEto()
+    public async Task Should_Write_Fields()
     {
         var doc = CreateClassifiedDocument("host.contract");
         StubGet(doc);
@@ -86,10 +86,90 @@ public class DocumentAppService_ExtractedFields_Tests
 
         doc.FlexFields.Count.ShouldBe(2);
         await _documentRepository.Received().UpdateAsync(doc, Arg.Any<bool>(), Arg.Any<CancellationToken>());
-        await _eventBus.Received().PublishAsync(
-            Arg.Is<FieldsExtractedEto>(e => e.DocumentId == doc.Id && e.FieldCount == 2),
+    }
+
+    // ─── #650: DocumentReadyEto re-announce from UpdateExtractedFieldsAsync ───
+
+    /// <summary>
+    /// #650: an operator editing fields on an already-Ready document changes consumable content with no
+    /// lifecycle transition to announce it, so UpdateExtractedFieldsAsync re-publishes DocumentReadyEto itself.
+    /// The document is legitimately driven to Ready first, through the real DocumentPipelineRunManager +
+    /// its in-memory fake run repository (not a LifecycleStatus shortcut), so <c>wasReady</c> observes a real
+    /// pre-edit Ready state.
+    /// </summary>
+    [Fact]
+    public async Task Already_Ready_Document_Edit_Republishes_DocumentReadyEto()
+    {
+        var doc = CreateClassifiedDocument("host.contract");
+        StubGet(doc);
+        StubFields("host.contract", "amount", "party");
+        await SucceedAllKeyPipelinesAsync(doc);
+        doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.Ready);
+
+        await _appService.UpdateExtractedFieldsAsync(doc.Id, new UpdateExtractedFieldsInput
+        {
+            Fields = new Dictionary<string, JsonElement>
+            {
+                ["amount"] = JsonString("1000"),
+                ["party"] = JsonString("Acme")
+            }
+        });
+
+        doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.Ready);
+        await _eventBus.Received(1).PublishAsync(
+            Arg.Is<DocumentReadyEto>(e => e.DocumentId == doc.Id),
             Arg.Any<bool>(),
             Arg.Any<bool>());
+    }
+
+    /// <summary>
+    /// #650: the #491 path. The document already has every key pipeline Succeeded but carries the blocking
+    /// FieldExtractionIncomplete reason, so it sits in PendingReview, not Ready, before the edit. Manual entry
+    /// clears the reason and this same edit derives the document into Ready for the first time. That transition
+    /// is announced once, by DocumentReadyEventHandler reacting to the lifecycle-changed local event (see
+    /// DocumentReadyEventHandler_Tests) — not from here. The <c>wasReady</c> guard must stop
+    /// UpdateExtractedFieldsAsync from ALSO publishing, or the same transition would double-fire.
+    /// </summary>
+    [Fact]
+    public async Task Transition_Into_Ready_By_This_Edit_Does_Not_Double_Publish_DocumentReadyEto()
+    {
+        var doc = CreateClassifiedDocument("host.contract");
+        StubGet(doc);
+        StubFields("host.contract", "amount");
+        await SucceedAllKeyPipelinesAsync(doc);
+        doc.SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: true);
+        await _pipelineRunManager.ReDeriveLifecycleAsync(doc);
+        doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.PendingReview);
+
+        await _appService.UpdateExtractedFieldsAsync(doc.Id, new UpdateExtractedFieldsInput
+        {
+            Fields = new Dictionary<string, JsonElement> { ["amount"] = JsonString("1000") }
+        });
+
+        doc.ReviewReasons.HasFlag(DocumentReviewReasons.FieldExtractionIncomplete).ShouldBeFalse();
+        doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.Ready);
+        await _eventBus.DidNotReceive().PublishAsync(
+            Arg.Any<DocumentReadyEto>(), Arg.Any<bool>(), Arg.Any<bool>());
+    }
+
+    /// <summary>#650: a document that never reached Ready (a key pipeline never ran) stays not-Ready after the
+    /// edit, so nothing is republished.</summary>
+    [Fact]
+    public async Task Not_Ready_Document_Edit_Does_Not_Publish_DocumentReadyEto()
+    {
+        var doc = CreateClassifiedDocument("host.contract");
+        StubGet(doc);
+        StubFields("host.contract", "amount");
+        // No pipeline runs recorded for this document, so it was never Ready and this edit cannot make it so.
+
+        await _appService.UpdateExtractedFieldsAsync(doc.Id, new UpdateExtractedFieldsInput
+        {
+            Fields = new Dictionary<string, JsonElement> { ["amount"] = JsonString("1000") }
+        });
+
+        doc.LifecycleStatus.ShouldNotBe(DocumentLifecycleStatus.Ready);
+        await _eventBus.DidNotReceive().PublishAsync(
+            Arg.Any<DocumentReadyEto>(), Arg.Any<bool>(), Arg.Any<bool>());
     }
 
     [Fact]
@@ -195,13 +275,8 @@ public class DocumentAppService_ExtractedFields_Tests
             Fields = new Dictionary<string, JsonElement>()
         });
 
-        // Empty input clears all field rows as a group; FieldsExtractedEto is republished with
-        // FieldCount = 0.
+        // Empty input clears all field rows as a group.
         doc.FlexFields.ShouldBeEmpty();
-        await _eventBus.Received().PublishAsync(
-            Arg.Is<FieldsExtractedEto>(e => e.DocumentId == doc.Id && e.FieldCount == 0),
-            Arg.Any<bool>(),
-            Arg.Any<bool>());
     }
 
     [Fact]
@@ -226,12 +301,6 @@ public class DocumentAppService_ExtractedFields_Tests
         doc.FlexFields.Count.ShouldBe(1);
         doc.FlexFields["tags"].ShouldBeOfType<List<string>>()
             .ShouldBe(new[] { "urgent", "legal", "2026" });
-
-        // FieldsExtractedEto.FieldCount is logical field count (1), not expanded row count (3).
-        await _eventBus.Received().PublishAsync(
-            Arg.Is<FieldsExtractedEto>(e => e.DocumentId == doc.Id && e.FieldCount == 1),
-            Arg.Any<bool>(),
-            Arg.Any<bool>());
     }
 
     [Fact]
@@ -407,6 +476,21 @@ public class DocumentAppService_ExtractedFields_Tests
     {
         _documentRepository.FindWithFieldValuesAsync(doc.Id, Arg.Any<CancellationToken>())
             .Returns(doc);
+    }
+
+    /// <summary>
+    /// #650: drives every key pipeline (Parse / Classification / FieldExtraction) to Succeeded through the real
+    /// <see cref="DocumentPipelineRunManager"/> + its in-memory fake run repository, so
+    /// <c>ReDeriveLifecycleAsync</c> can legitimately derive <see cref="DocumentLifecycleStatus.Ready"/> — the
+    /// same mechanism production code goes through, not a <c>LifecycleStatus</c> shortcut.
+    /// </summary>
+    private async Task SucceedAllKeyPipelinesAsync(Document doc)
+    {
+        foreach (var pipelineCode in VaultExtractPipelines.KeyPipelines)
+        {
+            var run = await _pipelineRunManager.StartAsync(doc, pipelineCode);
+            await _pipelineRunManager.CompleteAsync(doc, run);
+        }
     }
 
     private void StubFields(string typeCode, params string[] names)

@@ -37,8 +37,9 @@ namespace Dignite.Vault.Extract.Documents.Fields.Cleanup;
 /// </para>
 /// <para>
 /// Idempotent, retry-safe, and chained in bounded batches on the same terms as
-/// <see cref="FieldValidationWarningCleanupJob"/>; publishes no <c>FieldsExtractedEto</c> because no field value is
-/// re-extracted. A later re-extraction recomputes a fingerprint from the remaining schema, as it always has.
+/// <see cref="FieldValidationWarningCleanupJob"/>; no field value is re-extracted here, only the review reason
+/// and lifecycle are re-derived. A later re-extraction recomputes a fingerprint from the remaining schema, as it
+/// always has.
 /// </para>
 /// </summary>
 [BackgroundJobName("VaultExtract.DuplicateBasisCleanup")]

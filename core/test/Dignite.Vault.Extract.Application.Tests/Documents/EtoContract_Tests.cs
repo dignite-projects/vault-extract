@@ -2,6 +2,7 @@ using System;
 using System.Text.Json;
 using Dignite.Vault.Extract.Abstractions.Documents;
 using Shouldly;
+using Volo.Abp.EventBus;
 using Xunit;
 
 namespace Dignite.Vault.Extract.Documents;
@@ -51,24 +52,20 @@ public class EtoContract_Tests
     }
 
     [Fact]
-    public void OCRCompletedEto_RoundTrips_Through_SystemTextJson()
+    public void DocumentTextExtractedEto_RoundTrips_Through_SystemTextJson()
     {
-        var eto = new OCRCompletedEto
+        var eto = new DocumentTextExtractedEto
         {
             DocumentId = Guid.NewGuid(),
             TenantId = null,
-            EventTime = SampleEventTime,
-            UsedOcr = true,
-            // Non-zero so a serialization regression (getter-only / [JsonIgnore] / rename) is actually caught;
-            // at the default 0 the round-trip would survive a broken contract (#306 review).
-            FigureOcrCount = 3
+            EventTime = SampleEventTime
         };
 
         var roundTrip = RoundTrip(eto);
 
+        roundTrip.DocumentId.ShouldBe(eto.DocumentId);
         roundTrip.EventTime.ShouldBe(eto.EventTime);
-        roundTrip.UsedOcr.ShouldBeTrue();
-        roundTrip.FigureOcrCount.ShouldBe(3);
+        roundTrip.Version.ShouldBe("1.0");
     }
 
     [Fact]
@@ -88,24 +85,6 @@ public class EtoContract_Tests
         roundTrip.DocumentTypeCode.ShouldBe("contract.general");
         roundTrip.ClassificationConfidence.ShouldBe(0.93);
         roundTrip.EventTime.ShouldBe(eto.EventTime);
-    }
-
-    [Fact]
-    public void FieldsExtractedEto_RoundTrips_Through_SystemTextJson()
-    {
-        var eto = new FieldsExtractedEto
-        {
-            DocumentId = Guid.NewGuid(),
-            TenantId = Guid.NewGuid(),
-            EventTime = SampleEventTime,
-            DocumentTypeCode = "contract.general",
-            FieldCount = 3
-        };
-
-        var roundTrip = RoundTrip(eto);
-
-        roundTrip.FieldCount.ShouldBe(3);
-        roundTrip.DocumentTypeCode.ShouldBe("contract.general");
     }
 
     [Fact]
@@ -206,6 +185,25 @@ public class EtoContract_Tests
 
         Should.Throw<JsonException>(() =>
             JsonSerializer.Deserialize<DocumentUploadedEto>(jsonWithoutEventTime));
+    }
+
+    /// <summary>
+    /// #650: pins every remaining ETO's wire name (the <see cref="EventNameAttribute"/> string ABP's transactional
+    /// outbox actually serializes) so a future rename is caught here instead of silently breaking downstream
+    /// subscriptions. Mutation-tested: temporarily edit one <c>[EventName]</c> string and this test must fail.
+    /// </summary>
+    [Theory]
+    [InlineData(typeof(DocumentUploadedEto), "VaultExtract.Document.Uploaded")]
+    [InlineData(typeof(DocumentTextExtractedEto), "VaultExtract.Document.TextExtracted")]
+    [InlineData(typeof(DocumentClassifiedEto), "VaultExtract.Document.Classified")]
+    [InlineData(typeof(DocumentReadyEto), "VaultExtract.Document.Ready")]
+    [InlineData(typeof(DocumentDeletedEto), "VaultExtract.Document.Deleted")]
+    [InlineData(typeof(DocumentRestoredEto), "VaultExtract.Document.Restored")]
+    [InlineData(typeof(DocumentPermanentlyDeletedEto), "VaultExtract.Document.PermanentlyDeleted")]
+    [InlineData(typeof(DocumentReclassifiedToContainerEto), "VaultExtract.Document.ReclassifiedToContainer")]
+    public void Every_Eto_Wire_Name_Is_Pinned(Type etoType, string expectedWireName)
+    {
+        EventNameAttribute.GetNameOrDefault(etoType).ShouldBe(expectedWireName);
     }
 
     private static T RoundTrip<T>(T value) where T : class

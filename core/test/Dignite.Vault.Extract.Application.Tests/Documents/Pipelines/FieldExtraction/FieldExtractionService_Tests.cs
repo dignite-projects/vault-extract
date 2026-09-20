@@ -7,7 +7,6 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Dignite.Abp.FlexFields.Number;
-using Dignite.Vault.Extract.Abstractions.Documents;
 using Dignite.Vault.Extract.Ai;
 using Dignite.Vault.Extract.Documents.DocumentTypes;
 using Dignite.Vault.Extract.Documents.Fields;
@@ -18,7 +17,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 using Shouldly;
-using Volo.Abp.EventBus.Distributed;
 using Volo.Abp.Modularity;
 using Xunit;
 
@@ -35,7 +33,6 @@ public class FieldExtractionServiceTestModule : AbpModule
         context.Services.AddSingleton(Substitute.For<IDocumentRepository>());
         context.Services.AddSingleton(Substitute.For<IDocumentTypeRepository>());
         context.Services.AddSingleton(Substitute.For<IFieldRepository>());
-        context.Services.AddSingleton(Substitute.For<IDistributedEventBus>());
 
         Configure<VaultExtractBehaviorOptions>(options =>
         {
@@ -65,7 +62,6 @@ public class FieldExtractionService_Tests
     private readonly IDocumentTypeRepository _documentTypeRepository;
     private readonly IFieldRepository _fieldRepository;
     private readonly FieldExtractionWorkflow _workflow;
-    private readonly IDistributedEventBus _eventBus;
 
     public FieldExtractionService_Tests()
     {
@@ -74,11 +70,10 @@ public class FieldExtractionService_Tests
         _documentTypeRepository = GetRequiredService<IDocumentTypeRepository>();
         _fieldRepository = GetRequiredService<IFieldRepository>();
         _workflow = GetRequiredService<FieldExtractionWorkflow>();
-        _eventBus = GetRequiredService<IDistributedEventBus>();
     }
 
     [Fact]
-    public async Task Batch_Path_Extracts_Against_Current_Type_And_Publishes()
+    public async Task Batch_Path_Extracts_Against_Current_Type()
     {
         var doc = CreateClassifiedDocument(typeCode: "contract.general");
         SetupType("contract.general");
@@ -94,9 +89,6 @@ public class FieldExtractionService_Tests
         result.Outcome.ShouldBe(FieldExtractionOutcome.Extracted);
         result.FieldCount.ShouldBe(1);
         doc.FlexFields["amount"].ShouldBe(1500m);
-        await _eventBus.Received(1).PublishAsync(
-            Arg.Is<FieldsExtractedEto>(e => e.DocumentId == doc.Id && e.DocumentTypeCode == "contract.general" && e.FieldCount == 1),
-            Arg.Any<bool>(), Arg.Any<bool>());
     }
 
     [Fact]
@@ -114,9 +106,6 @@ public class FieldExtractionService_Tests
 
         result.Outcome.ShouldBe(FieldExtractionOutcome.Cleared);
         doc.FlexFields.ShouldBeEmpty();
-        await _eventBus.Received(1).PublishAsync(
-            Arg.Is<FieldsExtractedEto>(e => e.DocumentId == doc.Id && e.FieldCount == 0),
-            Arg.Any<bool>(), Arg.Any<bool>());
     }
 
     [Fact]
@@ -131,12 +120,11 @@ public class FieldExtractionService_Tests
         var result = await _service.ExtractAsync(doc.Id, tenantId: null, expectedEventTypeCode: null);
 
         result.Outcome.ShouldBe(FieldExtractionOutcome.Skipped);
-        await _eventBus.DidNotReceive().PublishAsync(Arg.Any<FieldsExtractedEto>(), Arg.Any<bool>(), Arg.Any<bool>());
     }
 
     /// <summary>
-    /// #491: the core gate. A body over MaxFieldExtractionMarkdownLength must not reach the LLM at all — no call, no
-    /// FieldsExtractedEto — and must leave a blocking review reason behind. The outcome is terminal (Declined, not an
+    /// #491: the core gate. A body over MaxFieldExtractionMarkdownLength must not reach the LLM at all — no call —
+    /// and must leave a blocking review reason behind. The outcome is terminal (Declined, not an
     /// exception), because throwing would hand the job back to the ABP job store, which would re-send the same
     /// oversized body on every retry.
     /// </summary>
@@ -156,7 +144,6 @@ public class FieldExtractionService_Tests
         result.Outcome.ShouldBe(FieldExtractionOutcome.Declined);
         await _workflow.DidNotReceive().ExtractAsync(
             Arg.Any<IReadOnlyList<FieldExtractionDescriptor>>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
-        await _eventBus.DidNotReceive().PublishAsync(Arg.Any<FieldsExtractedEto>(), Arg.Any<bool>(), Arg.Any<bool>());
         doc.ReviewReasons.HasFlag(DocumentReviewReasons.FieldExtractionIncomplete).ShouldBeTrue();
         ReviewReasonPolicy.HasBlocking(doc.ReviewReasons).ShouldBeTrue();
     }

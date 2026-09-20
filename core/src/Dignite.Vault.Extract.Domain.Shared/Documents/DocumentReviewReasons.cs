@@ -66,7 +66,7 @@ public enum DocumentReviewReasons
     /// never be "incomplete". <b>blocking</b>: <c>ExtractedFields</c> would be empty for a reason unrelated to the
     /// document's content, and downstream cannot distinguish "this type declares no fields" from "we declined to look", so
     /// Ready is withheld until a human resolves it. Consumers that only want the text can still subscribe to the earlier
-    /// <c>OCRCompletedEto</c>. Cleared by a later successful extraction (e.g. after the host raises the ceiling), by
+    /// <c>DocumentTextExtractedEto</c>. Cleared by a later successful extraction (e.g. after the host raises the ceiling), by
     /// reclassification to a type without fields, or by an operator entering the values by hand
     /// (<c>DocumentAppService.UpdateExtractedFieldsAsync</c> — the human has taken over the work the LLM declined).
     /// Maintained by the field extraction stage.

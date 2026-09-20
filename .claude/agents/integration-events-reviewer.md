@@ -17,15 +17,14 @@ From `integration-events.md` and `CLAUDE.md`:
 | Stage event | Trigger | Ready-gated |
 |---|---|---|
 | `DocumentUploadedEto` | upload completed | No |
-| `OCRCompletedEto` | OCR completed (carries `UsedOcr` path marker; also `FigureOcrCount`, #306) | No |
+| `DocumentTextExtractedEto` | text extraction completed (image OCR or digital-native); an observability signal only — thin payload, no path/quality markers (#650 renamed from `OCRCompletedEto`, which also carried `UsedOcr` / `FigureOcrCount` — both removed) | No |
 | `DocumentClassifiedEto` | classification completed | No |
-| `FieldsExtractedEto` | field extraction completed (carries `FieldCount`) | No |
-| `DocumentReadyEto` | full pipeline complete + confirmed type (**suppressed for containers, #346**) | **Yes — only this one** |
+| `DocumentReadyEto` | full pipeline complete + confirmed type (**suppressed for containers, #346**); also re-fires on a re-extraction of an already-Ready document (#411) or an operator field edit on an already-Ready document (#650 — retired `FieldsExtractedEto`, whose role this re-fire now covers) | **Yes — only this one** |
 
 Lifecycle (orthogonal to pipeline, never Ready-gated):
 `DocumentDeletedEto` / `DocumentRestoredEto` / `DocumentPermanentlyDeletedEto` / `DocumentReclassifiedToContainerEto`
 
-ETOs are stable `init`-only contracts (#188): every property is `init`-only and `EventTime` is `required`. New optional scalars (`FigureOcrCount`, `OriginDocumentId`) default safely for producers/consumers that predate them.
+ETOs are stable `init`-only contracts (#188): every property is `init`-only and `EventTime` is `required`. New optional scalars (e.g. `OriginDocumentId`) default safely for producers/consumers that predate them.
 
 ## 1. Workflow
 
@@ -48,7 +47,7 @@ ETOs are stable `init`-only contracts (#188): every property is `init`-only and 
 - 🔴 **`DocumentReadyEto` is fired without gate check**: `DocumentReadyEto` must only fire after the document has a confirmed `DocumentTypeCode` (auto-classification confidence ≥ `ConfidenceThreshold` OR operator manual confirmation). The gate is enforced upstream by the lifecycle transition to `Ready` (`DocumentReadyEventHandler` listens to `DocumentLifecycleStatusChangedEvent`); any code path that publishes `DocumentReadyEto` without confirming the gate condition is a hard violation.
 - 🔴 **`DocumentReadyEto` emitted for a container (#346)**: a document that reaches `Ready` *lifecycle* as a container has NO confirmed type and is not itself consumable — `DocumentReadyEventHandler` deliberately suppresses its `DocumentReadyEto` (guard `if (document.IsContainer) return;`); only its sub-documents emit their own `DocumentReadyEto`, each carrying `OriginDocumentId` back to the container. Emitting `DocumentReadyEto` for a container, or removing that guard, is a hard violation. Conversely, a container reaching Ready lifecycle WITHOUT a `DocumentReadyEto` is correct, not a gate bug.
 - 🔴 **Another event is newly gated**: only `DocumentReadyEto` is gated. If a reviewer finds a new event (e.g. a hypothetical `DocumentFieldsVerifiedEto`) being gated on the same Ready condition, that changes the downstream subscription model and requires an explicit Issue.
-- 🟡 **Early-stage events are blocked by a gate**: `DocumentUploadedEto`, `OCRCompletedEto`, `DocumentClassifiedEto`, `FieldsExtractedEto` must fire even for documents that fail classification or fail the Ready gate. Blocking them means downstream audit/debug pipelines lose visibility.
+- 🟡 **Early-stage events are blocked by a gate**: `DocumentUploadedEto`, `DocumentTextExtractedEto`, `DocumentClassifiedEto` must fire even for documents that fail classification or fail the Ready gate. Blocking them means downstream audit/debug pipelines lose visibility.
 
 ### 2.3 Delivery and Idempotency Semantics
 
@@ -60,16 +59,16 @@ ETOs are stable `init`-only contracts (#188): every property is `init`-only and 
 
 When a **new ETO class** is added:
 
-- 🔴 **New pipeline-stage event disrupts the existing sequence**: if a new stage event is inserted between existing events (e.g. between `OCRCompletedEto` and `DocumentClassifiedEto`), downstream consumers that subscribe to the next event in sequence may receive the new one and break. Verify that the new event fits cleanly at a stage boundary without requiring reordering.
+- 🔴 **New pipeline-stage event disrupts the existing sequence**: if a new stage event is inserted between existing events (e.g. between `DocumentTextExtractedEto` and `DocumentClassifiedEto`), downstream consumers that subscribe to the next event in sequence may receive the new one and break. Verify that the new event fits cleanly at a stage boundary without requiring reordering.
 - 🔴 **New event duplicates an existing event's trigger condition**: two events with the same trigger (e.g. two events both fire on "OCR complete") confuse downstream consumers and must not be introduced.
 - 🟡 **New event is not listed in `CLAUDE.md` or `integration-events.md`**: the event contract table is the source of truth. A new ETO that appears in code but is not documented in either location is a documentation gap.
 - 🟡 **`DocumentReclassifiedToContainerEto` semantics**: this event fires **only on a real transition** (concrete-typed → container). A fresh upload classified immediately as a container does not fire it. If a handler or test treats this event as also firing on initial upload, that is incorrect.
 
-### 2.5 OCR Confidence — Removed Fields (#196)
+### 2.5 OCR Confidence — Removed Fields (#196), Path Markers — Removed Fields (#650)
 
-- 🔴 **`OcrConfidence` field re-added to any ETO**: OCR average confidence was removed in #196 because it does not predict real OCR quality. If a new ETO or an updated `OCRCompletedEto` / `DocumentReadyEto` adds an `OcrConfidence` or `OcrQualityScore` field, that is a regression and a hard violation.
-- 🟢 **`UsedOcr` on `OCRCompletedEto` is permitted**: this is a path marker (did we use OCR at all?), not a quality prediction. It is retained and correct.
-- 🟢 **`FigureOcrCount` (OCRCompletedEto) and `OriginDocumentId` (DocumentReadyEto) are permitted (#306)**: `FigureOcrCount` is a dispatched figure-OCR call counter for downstream cost attribution — NOT a re-introduced `OcrConfidence`/quality signal, so it is not a #196 regression. `OriginDocumentId` is a Scenario-B provenance scalar (null for normally-uploaded documents). Both are thin scalar fields and legitimately retained.
+- 🔴 **`OcrConfidence` field re-added to any ETO**: OCR average confidence was removed in #196 because it does not predict real OCR quality. If a new ETO or an updated `DocumentTextExtractedEto` / `DocumentReadyEto` adds an `OcrConfidence` or `OcrQualityScore` field, that is a regression and a hard violation.
+- 🔴 **`UsedOcr` / `FigureOcrCount` re-added to `DocumentTextExtractedEto`**: both were removed in #650 (the event was `OCRCompletedEto` at the time) — the event is now a pure observability signal (`DocumentId` / `TenantId` / `EventTime` only), and extraction provenance is `DocumentParseMetadata.ProviderName`, pulled back through REST. `TextExtractionResult.UsedOcr` / `FigureOcrCount` still exist as internal transport fields; re-exposing either on the ETO is a payload-shape regression, not a #196 OCR-quality-signal regression, but flag it the same way.
+- 🟢 **`OriginDocumentId` (DocumentReadyEto) is permitted (#306)**: a Scenario-B provenance scalar (null for normally-uploaded documents). A thin scalar field, legitimately retained.
 
 ### 2.6 EventHandler Design
 
@@ -109,5 +108,5 @@ When a **new ETO class** is added:
 - **Do not modify any files.** This agent is review-only.
 - **Do not require ETOs to use `AddDistributedEvent`.** This repo publishes via `IDistributedEventBus.PublishAsync` inside a UoW (outbox-backed); that is the established, correct pattern. `AddDistributedEvent` does not appear anywhere in `core/src`.
 - **Do not require thin-payload ETOs to include human-readable summaries.** Downstream consumers call REST/MCP for details; summaries in ETOs are a payload-bloat violation.
-- **Do not flag `UsedOcr` / `FigureOcrCount` / `OriginDocumentId` as violations.** They are intentionally retained thin scalars, not a #196 regression.
+- **Do not flag `OriginDocumentId` as a violation.** It is an intentionally retained thin scalar, not a #196 regression. `UsedOcr` / `FigureOcrCount` were removed from the ETO in #650 — flag their *reintroduction*, do not wave it through as "previously permitted".
 - **Do not require every ETO to inherit a common base class.** ABP's `IDistributedEventHandler<T>` generic makes that unnecessary; shared fields (`Version` / `EventTime` / `TenantId`) by convention are sufficient.

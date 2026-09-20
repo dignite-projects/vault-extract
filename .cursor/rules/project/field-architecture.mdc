@@ -114,7 +114,7 @@ The classification stage schedules a single field-extraction run transactionally
 3. makes one LLM call;
 4. re-reads the definitions and applies the **in-flight guards** — a value whose field was deleted, **renamed**, or **retyped** while the LLM was in flight is discarded. The guards compare `FieldTypeName` *and* `Name`; the name matters now precisely because it is the bag key;
 5. validates and converts each value with `FlexFieldValueReader` (one step, not validate-then-convert);
-6. writes the whole group via `Document.SetFlexFields(...)`, synchronizes the index, and publishes `FieldsExtractedEto` (thin payload with `FieldCount`; downstream distinguishes scenarios by the payload's `TenantId`).
+6. writes the whole group via `Document.SetFlexFields(...)` and synchronizes the index (#650: no event is published here — the pipeline's egress is `DocumentReadyEto`, fired by the caller's lifecycle round-trip once the run completes).
 
 `FlexFieldValueReader` is the single validation gate, shared by extraction and the operator edit — the only difference is what happens on rejection (logged-and-skipped there, an interactive error here). The extraction workflow deliberately does **not** validate: it hands the raw `JsonElement` through, because a second gate could only diverge from the reader.
 

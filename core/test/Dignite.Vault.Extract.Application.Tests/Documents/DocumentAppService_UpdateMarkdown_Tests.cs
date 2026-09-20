@@ -1,14 +1,12 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Dignite.Vault.Extract.Abstractions.Documents;
 using Dignite.Vault.Extract.Documents.Pipelines;
 using Dignite.Vault.Extract.Documents.Pipelines.FieldExtraction;
 using NSubstitute;
 using Shouldly;
 using Volo.Abp;
 using Volo.Abp.BackgroundJobs;
-using Volo.Abp.EventBus.Distributed;
 using Xunit;
 
 namespace Dignite.Vault.Extract.Documents;
@@ -27,7 +25,6 @@ public class DocumentAppService_UpdateMarkdown_Tests
     private readonly IDocumentRepository _documentRepository;
     private readonly IDocumentPipelineRunRepository _runRepository;
     private readonly IBackgroundJobManager _backgroundJobManager;
-    private readonly IDistributedEventBus _eventBus;
     private readonly DocumentPipelineRunManager _pipelineRunManager;
 
     public DocumentAppService_UpdateMarkdown_Tests()
@@ -36,7 +33,6 @@ public class DocumentAppService_UpdateMarkdown_Tests
         _documentRepository = GetRequiredService<IDocumentRepository>();
         _runRepository = GetRequiredService<IDocumentPipelineRunRepository>();
         _backgroundJobManager = GetRequiredService<IBackgroundJobManager>();
-        _eventBus = GetRequiredService<IDistributedEventBus>();
         _pipelineRunManager = GetRequiredService<DocumentPipelineRunManager>();
     }
 
@@ -59,8 +55,6 @@ public class DocumentAppService_UpdateMarkdown_Tests
             Arg.Any<DocumentFieldExtractionJobArgs>(),
             Arg.Any<BackgroundJobPriority>(),
             Arg.Any<TimeSpan?>());
-        await _eventBus.DidNotReceive().PublishAsync(
-            Arg.Any<FieldsExtractedEto>(), Arg.Any<bool>(), Arg.Any<bool>());
     }
 
     [Fact]
@@ -87,11 +81,6 @@ public class DocumentAppService_UpdateMarkdown_Tests
                 a.PipelineRunId == newRun.Id),
             Arg.Any<BackgroundJobPriority>(),
             Arg.Any<TimeSpan?>());
-
-        // Queuing alone does not publish FieldsExtractedEto -- that fires when the background job completes,
-        // which this test does not run.
-        await _eventBus.DidNotReceive().PublishAsync(
-            Arg.Any<FieldsExtractedEto>(), Arg.Any<bool>(), Arg.Any<bool>());
     }
 
     [Fact]
