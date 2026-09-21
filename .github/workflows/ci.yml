@@ -78,6 +78,25 @@ jobs:
       - name: Run OCR VisionLlm tests
         run: dotnet test core/test/Dignite.Vault.Extract.Ocr.VisionLlm.Tests/Dignite.Vault.Extract.Ocr.VisionLlm.Tests.csproj --no-build --configuration Release --verbosity normal
 
+      # The text-extraction stack the host actually wires (VaultExtractHostModule): the Parse orchestrator
+      # plus the managed PdfPig / OpenXML providers. Pure in-memory fixtures; no native or external dependency.
+      # Deliberately absent: Ocr.PaddleOcr.Tests and Ocr.AzureDocumentIntelligence.Tests - both providers are
+      # commented out in the host, so their tests gate nothing that ships. Add them when a provider is enabled.
+      - name: Run Parse tests
+        run: dotnet test core/test/Dignite.Vault.Extract.Parse.Tests/Dignite.Vault.Extract.Parse.Tests.csproj --no-build --configuration Release --verbosity normal
+
+      - name: Run Parse PDF tests
+        run: dotnet test core/test/Dignite.Vault.Extract.Parse.Pdf.Tests/Dignite.Vault.Extract.Parse.Pdf.Tests.csproj --no-build --configuration Release --verbosity normal
+
+      - name: Run Parse OpenXml tests
+        run: dotnet test core/test/Dignite.Vault.Extract.Parse.OpenXml.Tests/Dignite.Vault.Extract.Parse.OpenXml.Tests.csproj --no-build --configuration Release --verbosity normal
+
+      - name: Run FlexFields tests
+        run: dotnet test core/test/Dignite.Vault.Extract.FlexFields.Tests/Dignite.Vault.Extract.FlexFields.Tests.csproj --no-build --configuration Release --verbosity normal
+
+      - name: Run HttpApi tests
+        run: dotnet test core/test/Dignite.Vault.Extract.HttpApi.Tests/Dignite.Vault.Extract.HttpApi.Tests.csproj --no-build --configuration Release --verbosity normal
+
       - name: Build Docker image
         run: docker build -f host/Dockerfile -t vault-extract-api:${{ github.sha }} --secret id=github_packages_token,env=GITHUB_PACKAGES_TOKEN .
         if: github.event_name == 'push'
