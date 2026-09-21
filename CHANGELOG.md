@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0-preview.6] - 2026-09-21
+
+Two tracks. [#650](https://github.com/dignite-projects/vault-extract/issues/650) tidies the multi-stage event contract: `FieldsExtractedEto` is retired and `OCRCompletedEto` becomes `DocumentTextExtractedEto`, both **breaking for an EventBus subscriber** — the migration for each is in its entry below. [#651](https://github.com/dignite-projects/vault-extract/issues/651) makes duplicate detection configurable per document type (layer-wide or per uploader) and repairs the duplicate-review defects [#635](https://github.com/dignite-projects/vault-extract/issues/635) left behind.
+
+One deployment step: [#651](https://github.com/dignite-projects/vault-extract/issues/651) ships an EF migration, `V651_AddDocumentTypeDuplicateScope` (a NOT NULL `int` column defaulting to `0`, which is the pre-#651 behaviour, so no existing type or document changes meaning on upgrade).
+
 ### Removed
 
 - **BREAKING — `FieldsExtractedEto` (wire `VaultExtract.Document.FieldsExtracted`) is retired** ([#650](https://github.com/dignite-projects/vault-extract/issues/650)). Migration: subscribe to `DocumentReadyEto`, which now also re-fires when an operator edits fields on an already-Ready document. Note the replacement is narrower: `FieldsExtractedEto` fired on every extraction — including the no-definitions clear path and for documents held in review (suspected duplicate, oversized body) — whereas `DocumentReadyEto` fires only for a Ready, non-container document. A consumer that mirrored field state for *every* document has no event-driven equivalent and must pull.
@@ -486,7 +492,8 @@ Preview of the 0.2.0 line. This release rebrands the project to **Dignite Vault 
 - Legacy Angular document-upload route.
 - Dead fields from the segmentation subsystem (#390).
 
-[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.5...HEAD
+[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.6...HEAD
+[0.5.0-preview.6]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.5...v0.5.0-preview.6
 [0.5.0-preview.5]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.4...v0.5.0-preview.5
 [0.5.0-preview.4]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.3...v0.5.0-preview.4
 [0.5.0-preview.3]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.2...v0.5.0-preview.3
