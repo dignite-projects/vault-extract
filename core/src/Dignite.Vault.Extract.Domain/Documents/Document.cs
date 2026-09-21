@@ -498,6 +498,26 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant, IHasFlexFi
     }
 
     /// <summary>
+    /// #657: the operator's explicit declaration that field entry is complete for a document #491 declined to
+    /// auto-extract — the <b>only</b> path that clears the blocking <see cref="DocumentReviewReasons.FieldExtractionIncomplete"/>
+    /// reason. <c>UpdateExtractedFieldsAsync</c>'s whole-set field replacement used to clear this reason as a side
+    /// effect of any edit, including an empty one: submitting no fields released the document to Ready with zero
+    /// field values. Entering one field of ten has the same problem — partial data would still release. So the
+    /// reason can only be cleared by this separate, deliberate act, never inferred from what was or was not
+    /// submitted. "This document genuinely has none of this type's fields" is the same act performed with nothing
+    /// entered first — there is no distinct "not applicable" verdict.
+    /// </summary>
+    public void ConfirmFieldEntry()
+    {
+        if (!ReviewReasons.HasFlag(DocumentReviewReasons.FieldExtractionIncomplete))
+        {
+            return;
+        }
+
+        SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: false);
+    }
+
+    /// <summary>
     /// Bitwise set / clear for one review reason (#284): the <b>only</b> entry point for writing reasons. Each bit is maintained by exactly one phase
     /// (UnresolvedClassification <- classification phase, inline in this class; MissingRequiredFields <- field extraction phase, called by the Application-layer
     /// handler / appservice after evaluation in the same UoW as field writes). Bitwise operations ensure the two phases do not overwrite each other.

@@ -167,6 +167,16 @@
                   {{ '::Document:Review:ResolveFieldValidationWarnings' | abpLocalization }}
                 </button>
               }
+              <!-- #657: declare field entry complete for this document — a deliberate act separate from saving
+                   the fields card below. Saving the form only persists whatever values are filled in; it no
+                   longer clears FieldExtractionIncomplete by itself, so this is the only thing that does,
+                   including "none of this type's fields apply" (the same call, made without entering anything). -->
+              @if (needsFieldEntryConfirmation()) {
+                <button type="button" class="btn btn-sm btn-warning" (click)="confirmFieldEntry()" [disabled]="isConfirmingFieldEntry()">
+                  <i class="fas fa-check-circle me-1"></i>
+                  {{ '::Document:Review:ConfirmFieldEntry' | abpLocalization }}
+                </button>
+              }
               @if (canReview()) {
                 <button type="button" class="btn btn-sm btn-outline-danger" (click)="openRejectDialog()">
                   <i class="fas fa-ban me-1"></i>

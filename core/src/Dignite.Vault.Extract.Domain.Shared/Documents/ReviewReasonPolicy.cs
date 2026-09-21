@@ -28,12 +28,19 @@ public static class ReviewReasonPolicy
     /// <para>
     /// #635 first put "an uploader must not clear a blocking review reason on their own document" on the three
     /// explicit review methods. That does not hold, because the edit family clears the same bits as a side
-    /// effect: <c>UpdateExtractedFieldsAsync</c> clears <see cref="DocumentReviewReasons.FieldExtractionIncomplete"/>
-    /// outright (#491's escape path — an empty field set is enough), re-extraction and a retried field-extraction
-    /// run replace the whole validation-warning set and recompute the duplicate fingerprint from the new values,
-    /// and <c>ConfirmClassification</c> resets duplicate state and clears warnings. So the rule has to live where
+    /// effect: re-extraction and a retried field-extraction run replace the whole validation-warning set and
+    /// recompute the duplicate fingerprint from the new values, <c>UpdateExtractedFieldsAsync</c> recomputes that
+    /// fingerprint from corrected values (#651 §6), and <c>ConfirmClassification</c> resets duplicate state and
+    /// clears warnings. So the rule has to live where
     /// it can actually hold: while one of these is present, an owner may still <b>read</b> and <b>delete</b>
     /// their document, but modifying it is for someone holding the module-wide permission or the per-type grant.
+    /// </para>
+    /// <para>
+    /// #657 removed the starkest case this set was built for: <c>UpdateExtractedFieldsAsync</c> used to clear
+    /// <see cref="DocumentReviewReasons.FieldExtractionIncomplete"/> outright, and an empty field set was enough
+    /// to trigger it — releasing a document to Ready with no field values at all. That reason is now cleared only
+    /// by the explicit <c>ConfirmFieldEntryAsync</c>, which runs on the Review rule. The side effects listed above
+    /// are the ones that remain, and they are why this set is still derived rather than narrowed to them.
     /// </para>
     /// <para>
     /// <b>Derived</b> from <see cref="Blocking"/> rather than listed, so a blocking reason added later is

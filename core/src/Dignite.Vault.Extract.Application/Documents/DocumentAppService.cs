@@ -1019,12 +1019,10 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
             DocumentReviewReasons.MissingRequiredFields,
             _reviewEvaluator.MissingRequiredFieldsPresent(requiredIds, extractedIds));
 
-        // #491: a document whose Markdown was over the field-extraction ceiling carries the blocking
-        // FieldExtractionIncomplete reason, and no operator action can shrink the Markdown. Manual entry IS the
-        // resolution — the human has done the work the LLM declined — so clear it here, exactly as MissingRequiredFields
-        // is re-evaluated above. Without this the blocking reason would have no escape path and the document could never
-        // reach Ready. The whole-set replacement above means the fields now on the document are the operator's own.
-        document.SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: false);
+        // #657: this used to clear the blocking FieldExtractionIncomplete reason unconditionally here, so an empty
+        // edit (`{ "fields": {} }`) released a document to Ready with zero field values. An edit must not clear a
+        // blocking reason as a side effect of what happened to be submitted — that is now ConfirmFieldEntryAsync's
+        // job alone, a deliberate operator act independent of the payload.
 
         // #651 §6: recompute the duplicate fingerprint from the corrected values. Before this, the fingerprint was
         // computed in exactly ONE place — the field-extraction write phase — so an operator fixing a unique-key
@@ -1048,10 +1046,11 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
                 await _duplicateDetectionEvaluator.EvaluateAsync(document));
         }
 
-        // #491: manual field entry can now clear a **blocking** reason, so this path must re-derive the Ready gate the
-        // same way AllowDuplicateAsync does. Before #491 it never needed to: MissingRequiredFields is non-blocking, so
-        // clearing it could not change LifecycleStatus. Without this call the operator's escape path would write the
-        // fields but leave the document stuck short of Ready, and DocumentReadyEto would never fire.
+        // #635 §DuplicateSuspected / #650: this edit can itself raise or clear the **blocking** DuplicateSuspected
+        // reason above (a corrected unique-key value), so this path must re-derive the Ready gate the same way
+        // AllowDuplicateAsync does — MissingRequiredFields alone is non-blocking and could not change
+        // LifecycleStatus, but the fingerprint recompute can. Without this call a fingerprint-driven change would
+        // leave the document's LifecycleStatus stale and DocumentReadyEto would never fire when it should.
         var wasReady = document.LifecycleStatus == DocumentLifecycleStatus.Ready;
         await _pipelineRunManager.ReDeriveLifecycleAsync(document);
 
@@ -1061,9 +1060,9 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // #650: an operator editing fields on an already-Ready document changes consumable content without a
         // lifecycle transition, so nothing else tells downstream to re-pull it. Re-announcing DocumentReadyEto here
         // is the contract's "pull it again" signal, idempotent by EventTime like any other redelivery. The wasReady
-        // guard exists because a transition *into* Ready (e.g. clearing #491's FieldExtractionIncomplete above)
-        // is already announced by DocumentReadyEventHandler off the lifecycle change — publishing here too would
-        // double-fire.
+        // guard exists because a transition *into* Ready (e.g. a corrected unique-key value clearing DuplicateSuspected
+        // above, #657: no longer FieldExtractionIncomplete — this method does not touch it) is already announced by
+        // DocumentReadyEventHandler off the lifecycle change — publishing here too would double-fire.
         if (wasReady && document.LifecycleStatus == DocumentLifecycleStatus.Ready)
         {
             await _distributedEventBus.PublishAsync(
@@ -1257,6 +1256,47 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         await _pipelineRunManager.EnsureNotInProgressAsync(id, VaultExtractPipelines.FieldExtraction);
 
         document.ResolveFieldValidationWarnings(input.FieldDefinitionIds);
+
+        await _pipelineRunManager.ReDeriveLifecycleAsync(document);
+        await _documentRepository.UpdateAsync(document, autoSave: true);
+        return await MapToDtoAsync(document);
+    }
+
+    /// <summary>
+    /// #657: the operator's explicit declaration that field entry is complete for a document #491 declined to
+    /// auto-extract for being too large. Clears the blocking <see cref="DocumentReviewReasons.FieldExtractionIncomplete"/>
+    /// reason (via <see cref="Document.ConfirmFieldEntry"/>, idempotent when already clear) and re-derives lifecycle so
+    /// the document may transition to Ready (emitting <c>DocumentReadyEto</c>) when no other blocking reason remains.
+    /// This is now the <b>only</b> path that clears the reason — <see cref="UpdateExtractedFieldsAsync"/> stopped
+    /// touching it, because an edit must not release a partially- or un-filled document as a side effect of what
+    /// happened to be submitted. Declaring "none of this type's fields apply" is this same call with nothing entered
+    /// first, not a separate verdict.
+    /// </summary>
+    public virtual async Task<DocumentDto> ConfirmFieldEntryAsync(Guid id)
+    {
+        // #635: entry before the load, so an unauthenticated caller cannot tell a real id from an
+        // unknown one by whether it gets 404 or 403. The rule itself needs the document in hand and runs below.
+        await _documentAccess.CheckEntryAsync();
+
+        // #527: FindWithFieldValuesAsync (not the lean includeDetails) so the returned DTO carries the warning details.
+        var document = await _documentRepository.FindWithFieldValuesAsync(id);
+        if (document == null)
+        {
+            throw new EntityNotFoundException(typeof(Document), id);
+        }
+
+        // #635 Review rule, not Edit: this clears a blocking review reason, so the uploader's own ownership arm is
+        // shut (OwnerArm.Never), exactly as for AllowDuplicateAsync / ResolveFieldValidationWarningsAsync. Deliberately
+        // BEFORE the in-progress guard below, so the guard cannot leak run state to a caller with no review right.
+        await _documentAccess.CheckAsync(DocumentAccessRule.Review, DocumentAccessSubject.Of(document));
+
+        EnsureNotDeleted(document);
+
+        // Reject while field extraction is in progress: an in-flight run would overwrite the operator's decision on
+        // completion (throws RetryInProgress).
+        await _pipelineRunManager.EnsureNotInProgressAsync(id, VaultExtractPipelines.FieldExtraction);
+
+        document.ConfirmFieldEntry();
 
         await _pipelineRunManager.ReDeriveLifecycleAsync(document);
         await _documentRepository.UpdateAsync(document, autoSave: true);
