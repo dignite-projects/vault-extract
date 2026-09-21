@@ -1,9 +1,9 @@
 ---
 description: "ABP background job unit of work boundaries and long-running work rules"
 paths:
-  - "**/*BackgroundJob*.cs"
-  - "**/*Job.cs"
-  - "**/*JobArgs.cs"
+  - "core/src/**/*BackgroundJob*.cs"
+  - "core/src/**/*Job.cs"
+  - "core/src/**/*JobArgs.cs"
 ---
 
 # ABP Background Job Rules

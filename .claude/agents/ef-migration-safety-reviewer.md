@@ -2,6 +2,7 @@
 name: ef-migration-safety-reviewer
 description: Use after a new EF Core migration appears under host/src/Migrations/ or after an existing migration is changed. Review SQL Server + ABP multi-tenancy migration safety, with special attention to production data risks such as adding NOT NULL columns to populated tables, dropped indexes, accidentally removed tenant fields, and large-table index locks.
 tools: Read, Grep, Glob, Bash
+model: sonnet
 ---
 
 # EF Core Migration Safety Reviewer

@@ -66,7 +66,7 @@ Fields are organized into two kinds: **system common fields** (auto-produced by 
 
 **Essence of mechanism (B)**: Dignite Vault Extract provides a generic "extract-by-schema" engine; Host / tenant configure the schema, and Dignite Vault Extract Core **presets no business field definitions** (contract amount / invoice number / tax amount, etc. are not hardcoded). Two independent single layers — `Document.TenantId` decides which layer's field definitions this document runs against; **never mix across layers**.
 
-**Document field-extension hard constraints** (must hold before changing `Document.cs` / egress DTOs / `TextExtractionResult`):
+**Document field-extension hard constraints** (must hold before changing `Document.cs` / egress DTOs / `TextExtractionResult`; after such a change run the `abp-document-boundary-check` skill, or apply its checklist by hand):
 
 1. **There is forever only one text-typed field: `Markdown`** (`Document.SetMarkdown` immutability is already enforced at the code level). Any derived text (Summary / Outline / SectionsJson) is projected on the consumer side via `MarkdownStripper.Strip`, **not persisted**. `Title` is an immutable display snapshot derived from Markdown, not a new text payload.
 2. **Non-text fields are judged by "generic truth source vs. business-specific"**: generic ones (e.g. `PageBlocks`) may be added to `Document` (still requires an Issue to discuss shape); business-specific ones (contract amount / invoice number / ID-card name) are stored by downstream consumers in their own aggregate roots — **`Document` is not polluted**.
@@ -118,9 +118,24 @@ Apply to built-in LLM classification, unified field extraction (mechanism B), ti
 - **Multi-tenancy isolation**: rely on ABP's `IMultiTenant` global filter (do not hand-write `CurrentTenant.Id` predicates); **the only discipline — never `Disable<IMultiTenant>()` / `IgnoreQueryFilters()` to pierce it on an LLM-triggered path**
 - **Bounded payloads** (#491): every text crossing an LLM boundary — into a prompt, or out on an LLM-facing egress — must have a ceiling. `Take(N)` bounds a result set's **rows**, never one payload's **bytes**. Where truncating the tail would silently corrupt the result (field extraction / segmentation: the thing being looked for can sit anywhere), the ceiling **gates** the call — skip it, raise a review signal, reach a terminal state, and **never rethrow into the background-job retry loop**. Where it would not (classification / title / cabinet suggestion / MCP document body), truncate via `TextTruncator.AtCharBoundary` (a raw `text[..n]` slice can split a surrogate pair) and **announce the cut**. Prompt ceilings are host configuration (`VaultExtractBehaviorOptions`); egress ceilings are compile-time `const` (`VaultExtractMcpConsts`) so the safety boundary cannot be widened at runtime
 
+## ABP conventions
+
+Verified against the code on 2026-09-21: nothing in `core/src` / `host/src` violates any of these today — keep it that way. (Generic ABP tutorial rules were removed from `.claude/rules/`; https://abp.io/docs/latest is the reference for anything not listed here.)
+
+- **`virtual`**: every public/protected method on application services and domain services (`*Manager`) is `virtual`, because packaged modules are overridden by consumers. Helpers are `protected virtual`, not `private`.
+- **Time**: `Clock.Now` / `IClock`, never `DateTime.Now` / `UtcNow`.
+- **DI**: marker interfaces (`ITransientDependency` / `ISingletonDependency` / `IScopedDependency`), never `AddScoped` / `AddTransient` / `AddSingleton`. An interface with several implementers is auto-exposed only to the class whose name ends with the interface name (minus the `I`); anything else needs `[ExposeServices]` (#564).
+- **Data access**: application services use `IRepository<T>` (or a custom repository, only where a custom query is needed) — never a `DbContext`. Child entities are reached through their aggregate root (the one documented exception is `DocumentPipelineRun`, see `background-jobs.md`).
+- **No Minimal APIs, no MediatR**; no business logic in controllers — `HttpApi` and `Mcp` are thin adapters over application services.
+- **Errors / i18n**: rule violations throw `BusinessException` with a namespaced code; user-facing text lives in `*.Domain.Shared/Localization/{Resource}/{lang}.json`. Error codes are frozen wire strings (see the naming convention above).
+- **Async all the way**: no `.Result` / `.Wait()`.
+- **Authorization**: permission-based, never hard-coded role checks. The documents domain has its own access-rule table and must not use `[Authorize]` — read `.claude/rules/authorization.md` before touching it.
+- **Multi-tenancy**: never hand-write `TenantId` predicates (ABP's global filter does it); `CurrentTenant.Change(...)` only inside a `using`.
+- **Tests**: ABP integration-style (test base + in-memory SQLite), Shouldly assertions, NSubstitute for LLM / OCR / blob doubles. One project: `dotnet test core/test/<Project>/<Project>.csproj` (the whole core suite runs in about a minute); Angular: `npx ng test vault-extract --watch=false` from `angular/`.
+
 ## Working rules
 
-1. Development in core strictly follows the rules under `.claude/rules/` (most auto-load by `paths:`; when modifying ABP BackgroundJob / JobArgs you must read `.claude/rules/background-jobs.md`)
+1. Development follows the conventions above and the path-scoped rules under `.claude/rules/` (they auto-load by `paths:` when you touch production code under `core/src` / `host/src`; when modifying ABP BackgroundJob / JobArgs you must read `.claude/rules/background-jobs.md`)
 2. Do not configure middleware in core ABP modules — only in the host
 3. **Decide whether an Issue is needed before changing**: changes touching channel boundaries (OCR pipeline / egress contracts / field architecture / document-type system / Markdown-first / security conventions), module boundaries, or Slice tasks — **stop first and tell the user to open a GitHub Issue before proceeding**; pure implementation-detail fixes (bug fixes, wording corrections) are recorded directly in the commit message
 4. **Downstream-consumer questions**: business modules (contract / invoice management, etc.) are out of Dignite Vault Extract scope. For discussions involving downstream-consumer implementation, explicitly state it is out-of-scope; Dignite Vault Extract only guarantees stable egress contracts

@@ -1,7 +1,8 @@
 ---
 name: angular-reviewer
-description: Review Angular UI changes against ABP Angular patterns, Nx workspace conventions, generated proxy rules, and Dignite Vault Extract UI structure. Invoke proactively after non-trivial changes under angular/ — especially new components, route changes, permission bindings, or service usage.
+description: Review Angular UI changes against ABP Angular patterns, Angular CLI workspace conventions, generated proxy rules, and Dignite Vault Extract UI structure. Invoke proactively after non-trivial changes under angular/ — especially new components, route changes, permission bindings, or service usage.
 tools: Read, Grep, Glob, Bash
+model: sonnet
 ---
 
 # Angular Reviewer

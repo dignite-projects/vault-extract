@@ -53,7 +53,7 @@ npm run lint
 
 ## Code conventions
 
-- **ABP conventions** — `.claude/rules/abp-core.md` and the other files under [`.claude/rules/`](./.claude/rules/) are normative (dependency direction, base classes, `IClock`, repositories, anti-patterns). They are written for AI coding assistants but apply equally to human contributors.
+- **ABP conventions** — the "ABP conventions" section of [CLAUDE.md](./CLAUDE.md) is normative (`virtual` members, `IClock`, DI marker interfaces, repositories, no `DbContext` in application services), as are the path-scoped files under [`.claude/rules/`](./.claude/rules/). They are written for AI coding assistants but apply equally to human contributors.
 - **Architecture rules** — [CLAUDE.md](./CLAUDE.md) defines the channel boundary: Markdown-first data flow, the two-layer document-type model, the exit contracts, and the security covenant for LLM call paths (`.claude/rules/llm-call-anti-patterns.md`).
 - Middleware is configured **only** in the host application, never in core modules.
 

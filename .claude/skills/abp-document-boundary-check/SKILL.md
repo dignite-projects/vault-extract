@@ -97,5 +97,4 @@ Run this check when any of the following is true:
 ## References
 
 - Root `CLAUDE.md` -> "Field architecture", "Markdown-first", and "OUT of scope"
-- `.claude/rules/ddd-patterns.md` -> aggregate design and DDD invariants
-- `.claude/rules/dependency-rules.md` -> cross-layer and cross-module dependency direction
+- Root `CLAUDE.md` -> "ABP conventions" and "Architecture" for aggregate design and dependency direction

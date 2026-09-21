@@ -1,373 +1,123 @@
 ---
 description: "Dignite Vault Extract internal LLM call-site anti-patterns: fail-closed security gate / PromptBoundary / compile-time-constant descriptions / MCP schema collection-parameter pitfall"
 paths:
-  - "**/*Workflow*.cs"
-  - "**/Pipelines/**/*.cs"
-  - "**/*Extraction*.cs"
-  - "**/*Mcp*/**/*.cs"
-  - "**/*McpTool*.cs"
-  - "**/*Prompt*.cs"
-  - "**/*ChatClient*.cs"
-  - "**/*VisionLlm*/**/*.cs"
+  - "core/src/**/*Workflow*.cs"
+  - "core/src/**/Pipelines/**/*.cs"
+  - "core/src/**/*Extraction*.cs"
+  - "core/src/**/*Mcp*/**/*.cs"
+  - "core/src/**/*Prompt*.cs"
+  - "core/src/**/*ChatClient*.cs"
+  - "core/src/**/*VisionLlm*/**/*.cs"
 ---
 
 # LLM call anti-patterns
 
-This file is referenced by the `maf-workflow-reviewer` agent during PR review to quickly locate typical mistakes at Dignite Vault Extract's internal **LLM call sites** (anti-patterns A / B / E are security issues, C is an MCP schema correctness issue, D is a cost / availability issue). The rules apply to all LLM entry points:
+Typical mistakes at Dignite Vault Extract's internal **LLM call sites**. A / B / E are security issues, C is an MCP schema correctness issue, D is a cost / availability issue. They apply to every LLM entry point: classification, field extraction (`FieldExtractionWorkflow` + `FieldExtractionService`), title generation, segmentation, cabinet / slug / field-definition draft suggestions, VisionLlm OCR, the MCP tools / resources (`Dignite.Vault.Extract.Mcp`), any future path (e.g. Webhook-triggered LLM work), and any query path where LLM output influences the parameters. Examples are pseudocode.
 
-- Currently landed: `DocumentClassificationWorkflow` / `FieldExtractionWorkflow` + `FieldExtractionService` (field architecture v2 unifying Host + tenant (mechanism B)) / `DocumentParseBackgroundJob.TryGenerateTitleAsync`
-- Future extensions: MCP server tools ([#170](https://github.com/dignite-projects/vault-extract/issues/170)), Webhook-triggered LLM paths, any query path where LLM output influences the parameters
-
-All examples are **pseudocode**, not compilable, illustrating intent only.
+The five conventions in CLAUDE.md "Security conventions" (fail-closed assertion, PromptBoundary, compile-time-constant descriptions, multi-tenancy isolation, bounded payloads) are what these anti-patterns make concrete. Self-review a new LLM call site against those five.
 
 ---
 
-## Anti-pattern A: a field-extraction Agent attaching AIContextProviders
+## Anti-pattern A: a field-extraction agent attaching AIContextProviders
 
-**Rule source**: `maf-workflow-reviewer.md § 2.10`
+**Scope**: every structured extraction path — classification, Host / tenant field extraction (mechanism B), and any future one.
 
-**Scope**: all structured field-extraction paths — classification, Host field extraction, tenant field extraction (mechanism B), and any future field-extraction workflow / agent.
+The input to field extraction is **only the current document's Markdown**. Attaching a `TextSearchProvider` (RAG retrieval) via `ChatClientAgentOptions.AIContextProviders`, or a `ChatHistoryProvider`, injects chunks from other, unrelated documents, so "contract amount" / "party A name" get extracted **from the wrong document** and written into a type-bound field. It also turns the channel layer into RAG, violating CLAUDE.md "OUT of scope".
 
-### ❌ Wrong
-
-```csharp
-// Wrong: attaching a TextSearchProvider (RAG retrieval) to a field-extraction agent
-var provider = new TextSearchProvider(
-    async (query, ct) => /* fetch chunks from your vector store */,
-    options: /* TextSearchProviderOptions */);
-var options = new ChatClientAgentOptions
-{
-    AIContextProviders = [provider],          // ← forbidden
-    ChatHistoryProvider = new InMemory...()   // ← forbidden
-};
-var agent = new ChatClientAgent(_chatClient, options);
-var run = await agent.RunAsync<HostFieldExtractionResult>(markdown);
-```
-
-**Harm**:
-
-- RAG retrieval injects chunks from other, unrelated documents into the prompt, causing structured fields like "contract amount" and "party A name" to be extracted **from the wrong document** and written into a downstream business aggregate root / the Dignite Vault Extract type-bound field table
-- Dignite Vault Extract is a **channel layer**; the input to field extraction should be **only the current document's Markdown** — attaching `AIContextProviders` corrupts the channel philosophy into RAG, violating CLAUDE.md's "OUT of scope"
-
-### ✅ Correct
+Correct: `IChatClient` + system instructions only, structured output via `RunAsync<T>`, or — as `FieldExtractionWorkflow` does — build the `ChatMessage` list yourself and call `IChatClient.GetResponseAsync`:
 
 ```csharp
-// Correct: only IChatClient + system instructions, structured output via RunAsync<T>
-var agent = new ChatClientAgent(
-    _chatClient,
-    instructions: HostFieldExtractionInstructions.SystemPrompt);
-var run = await agent.RunAsync<HostFieldExtractionResult>(markdown);
-return run.Result ?? new HostFieldExtractionResult();
-```
-
-Or, like the current `FieldExtractionWorkflow`, call `IChatClient.GetResponseAsync` directly, bypassing the agent wrapper:
-
-```csharp
-// Correct: construct the ChatMessage list directly, no AIContextProvider interference
 var messages = new List<ChatMessage>
 {
     new(ChatRole.System, systemPrompt + "\n\n" + PromptBoundary.BoundaryRule),
     new(ChatRole.User, PromptBoundary.WrapDocument(truncated))
 };
-var options = new ChatOptions { ResponseFormat = ChatResponseFormat.Json };
-var response = await _chatClient.GetResponseAsync(messages, options, cancellationToken);
+var response = await _chatClient.GetResponseAsync(messages, new ChatOptions { ResponseFormat = ChatResponseFormat.Json }, ct);
 ```
 
-**Reference implementations**:
-- `core/src/Dignite.Vault.Extract.Application/Documents/Pipelines/Classification/DocumentClassificationWorkflow.cs`
-- `core/src/Dignite.Vault.Extract.Application/Documents/Pipelines/FieldExtraction/FieldExtractionWorkflow.cs`
+Reference implementations: `DocumentClassificationWorkflow.cs`, `FieldExtractionWorkflow.cs` (under `core/src/Dignite.Vault.Extract.Application/Documents/Pipelines/`).
 
 ---
 
 ## Anti-pattern B: an LLM-triggered query path without a fail-closed security gate
 
-**Rule source**: `maf-workflow-reviewer.md § 2.9`
+**Why**: `[Authorize]` at the HTTP boundary does not cover the reflection / tool-dispatch path — the assertion inside the tool method body is the only line of defense. **Any query path triggered by an LLM, or whose parameters are influenced by LLM output**, needs it. Scope: MCP tools / resources, any Webhook handler that triggers LLM tool calls, any code where an LLM obtains parameters that reach `IRepository.GetQueryableAsync()` / `IAsyncQueryableExecuter`.
 
-**Background**: Dignite Vault Extract Core's current LLM paths are all **plain text input → structured output** (classification, field extraction, title generation), with no DB query parameterized by LLM output. But the upcoming #170 MCP server will let an LLM trigger document retrieval / metadata queries via a tool interface. **Any query path triggered by an LLM, or whose parameters are influenced by LLM output**, must have a fail-closed security gate — the `[Authorize]` at the HTTP boundary does not cover this reflection / tool-dispatch path; the security assertion inside the script / tool method body is the only line of defense.
+Five ways to get it wrong:
 
-**Scope**:
+1. **Relying on the AppService's `[Authorize]` / asserting nothing.** A client holding only MCP endpoint credentials can ask in natural language for documents it has no right to; the LLM becomes an unwitting privilege-escalation channel.
+2. **Piercing the tenant boundary.** `DataFilter.Disable<IMultiTenant>()` / `IgnoreQueryFilters()` on an LLM-reachable path is a cross-tenant leak, as is mapping the MCP / Webhook endpoint outside `UseMultiTenancy()` (tenant cannot be resolved → everything runs as host data). Note the framework **is** the boundary: ABP's `IMultiTenant` global filter is driven by the authenticated principal (the token's tenant claim via `CurrentUserTenantResolveContributor`, not forgeable through the `__tenant` header) and also binds `FromSqlRaw` once EF Core wraps it in a subquery. So the normal path needs **no hand-written `TenantId` predicate** — writing one is redundant, and if the filter was deliberately disabled it silently clamps the result to the ambient tenant against the caller's intent.
+3. **An unbounded result set.** A broad keyword (even `""`) returns thousands of rows: it blows up the model's context window and is a memory-pressure / cost attack. Always `Take(N)`.
+4. **Concatenating user input into a tool description / instructions** (`$"Search documents belonging to {userName}"`). The text is part of the model's decision context; a user-controlled string (nickname, signature, document name) is a prompt-injection vector. Descriptor text and instructions are **compile-time constants** or pure static literals.
+5. **Raw SQL** assembled from LLM output: an injection surface that also bypasses ABP's permission / audit / soft-delete / tenant-filter layers. Prompt injection can induce `WHERE 1=1` or `; DROP TABLE` from an LLM that "looks controllable".
 
-- Future MCP server tool methods (#170)
-- Future Webhook handler paths that trigger LLM tool calls
-- Any code point where an LLM obtains query parameters that reach `IRepository.GetQueryableAsync()` / `IAsyncQueryableExecuter.ToListAsync()`
-
-### ❌ Wrong 1: relying on the AppService's `[Authorize]` / not asserting permission
+Correct essentials, in order — (1) explicit permission assertion in the method body (fail closed); (2) tenant isolation left to the global filter; (3) business filter + mandatory `Take(N)`; (4) user-derived free text wrapped with `PromptBoundary.WrapField(...)` on the way out; system fields need no wrap.
 
 ```csharp
-[McpTool("search-documents")]
-public async Task<string> SearchAsync(string documentTypeCode, string fieldName, string fieldValue, IServiceProvider sp, CancellationToken ct)
+[McpServerTool(Name = "search_documents")]
+[Description("Search Dignite Vault Extract documents by structured criteria.")]   // compile-time constant
+private static async Task<string> SearchAsync(string? keyword, IServiceProvider sp, CancellationToken ct = default)
 {
-    // Wrong: directly serializing and returning the AppService method result
-    // IDocumentAppService's [Authorize(Documents.Default)] does not fire on an LLM reflection call
-    var appService = sp.GetRequiredService<IDocumentAppService>();
-    var result = await appService.GetListAsync(new GetDocumentListInput { DocumentTypeCode = documentTypeCode });
-    return JsonSerializer.Serialize(result);
+    // 1. explicit assertion, fail closed (in this repo the tools delegate to an application-service use case
+    //    whose body performs it; for the documents domain that is DocumentAccessChecker, see authorization.md)
+    // 2. tenant: the ambient IMultiTenant filter — never Disable<IMultiTenant>() / IgnoreQueryFilters() here
+    var q = await sp.GetRequiredService<IDocumentRepository>().GetQueryableAsync();
+    // 3. business filter + mandatory cap
+    var rows = await sp.GetRequiredService<IAsyncQueryableExecuter>().ToListAsync(
+        q.Where(d => keyword == null || d.Title.Contains(keyword)).OrderByDescending(d => d.CreationTime).Take(MaxResultRows), ct);
+    // 4. user-derived free text is wrapped
+    return JsonSerializer.Serialize(rows.Select(r => new { r.Id, title = PromptBoundary.WrapField(r.Title) }));
 }
 ```
-
-**Harm**: a client holding only MCP endpoint access credentials can, via natural language ("help me find Zhang San's contract"), obtain documents it has no right to access. The LLM is an unwitting "privilege-escalation channel".
-
-### ❌ Wrong 2: disabling the tenant filter on an LLM-triggered path / mapping the endpoint outside the multi-tenancy middleware
-
-```csharp
-public async Task<string> SearchAsync(string keyword)
-{
-    await _authService.CheckAsync(DocumentPermissions.Default);
-    // Wrong: disabling the IMultiTenant global filter on an LLM-reachable path
-    using (DataFilter.Disable<IMultiTenant>())
-    {
-        var q = await _repo.GetQueryableAsync();   // ← no longer filtered by tenant — cross-tenant leak
-        return JsonSerializer.Serialize(await _executer.ToListAsync(q.Where(...).Take(20)));
-    }
-}
-```
-
-**Clarification**: ABP's `IMultiTenant` global query filter **is** the framework-level tenant boundary — it is driven by the authenticated principal (the token's tenant claim, resolved by `CurrentUserTenantResolveContributor` with the highest priority, not forgeable via the `__tenant` header), in effect by default for all queries, and `FromSqlRaw` is equally bound once EF Core wraps it into a subquery. So **the normal path relies on it and need not hand-write a `TenantId` predicate** — hand-writing is merely redundant, and when the caller deliberately disables the filter it silently clamps the result to the ambient tenant against the caller's intent, while permanently stripping the legitimate cross-tenant retrieval capability.
-
-**The real anti-pattern** is the reverse — piercing this boundary: `DataFilter.Disable<IMultiTenant>()` / `IgnoreQueryFilters()` on an LLM-triggered path (as above), or mapping the MCP / Webhook endpoint outside `UseMultiTenancy()` (tenant cannot be resolved → everything runs as host data).
-
-### ❌ Wrong 3: an unbounded result set
-
-```csharp
-var matches = await _executer.ToListAsync(q.Where(d => d.Title.Contains(keyword)));
-return JsonSerializer.Serialize(matches);   // ← 5000 hits all returned
-```
-
-**Harm**:
-
-- A single tool call blows up the LLM context window, degrading subsequent turns
-- An attacker crafts memory pressure or a cost attack via a broad keyword (e.g. `""`)
-
-### ❌ Wrong 4: concatenating user input into the tool description / instructions
-
-```csharp
-public override McpToolDescriptor Descriptor { get; } = new(
-    "search-documents",
-    $"Search documents belonging to user {someUserName}. ...");   // ← forbidden: constructor parameter concatenated at runtime
-
-// or:
-protected override string Instructions => $"You serve user {dynamicValue}. ...";
-```
-
-**Harm**: the description / instructions text is part of the LLM's decision context. If it contains user-controlled strings (nicknames, signatures, document names), it can serve as a prompt-injection vector. Both Descriptor text and instructions must be **compile-time constants** or pure static literals.
-
-### ❌ Wrong 5: running raw SQL
-
-```csharp
-public async Task<string> ReportAsync(string whereClause)
-{
-    var sql = $"SELECT * FROM Documents WHERE {whereClause}";   // ← LLM concatenates SQL
-    return await _dbContext.Database.SqlQueryRaw<...>(sql).ToListAsync();
-}
-```
-
-**Harm**: a SQL-injection surface + bypassing the ABP permission / audit / soft-delete / tenant-filter layers. Even LLM-generated SQL that looks controllable is within the attack surface (prompt injection can perfectly well induce the LLM to write `WHERE 1=1` or `; DROP TABLE`).
-
-### ✅ Correct implementation essentials
-
-Each LLM-triggered query point (whether an MCP tool, a Webhook handler, or any similar entry) satisfies the following in order:
-
-```csharp
-[McpTool("search-documents")]
-[Description("Search Dignite Vault Extract documents by structured criteria.")]   // ← compile-time constant
-private static async Task<string> SearchAsync(
-    string? keyword,
-    [Description("ISO 4217 currency code (optional).")] string? currency,
-    IServiceProvider serviceProvider,
-    CancellationToken cancellationToken = default)
-{
-    // 1. Explicit permission assertion — fail closed
-    var authSvc = serviceProvider.GetRequiredService<IAuthorizationService>();
-    await authSvc.CheckAsync(ExtractPermissions.Documents.Default);
-
-    // 2. Tenant isolation — left to ABP's IMultiTenant global filter; do not hand-write a TenantId predicate,
-    //    and never Disable<IMultiTenant>() / IgnoreQueryFilters() here
-    var repo = serviceProvider.GetRequiredService<IDocumentRepository>();
-    var q = await repo.GetQueryableAsync();   // ← automatically filtered by the resolved tenant
-
-    // 3. Business filter + mandatory Take(N)
-    var executer = serviceProvider.GetRequiredService<IAsyncQueryableExecuter>();
-    var rows = await executer.ToListAsync(
-        q.Where(d => keyword == null || d.Title.Contains(keyword))
-         .OrderByDescending(d => d.CreationTime)
-         .Take(MaxResultRows),
-        cancellationToken);
-
-    // 4. User-derived free-text fields must be wrapped by PromptBoundary.WrapField(...)
-    return JsonSerializer.Serialize(new
-    {
-        rows = rows.Select(r => new
-        {
-            r.Id,
-            r.CreationTime,
-            title = PromptBoundary.WrapField(r.Title),            // ← wrapped
-            documentTypeCode = r.DocumentTypeCode                 // system field, no wrap needed
-        })
-    });
-}
-```
-
-**Key points recap**:
-
-1. **`[Authorize]` is not enough** — you must explicitly `CheckAsync(Permission)` in the method body
-2. **Tenant isolation is left to the framework filter** — ABP's `IMultiTenant` global filter is the tenant boundary (driven by the authenticated principal's tenant claim, including the `FromSqlRaw` path); do not hand-write a `TenantId` predicate, just ensure you don't `Disable<IMultiTenant>()` / `IgnoreQueryFilters()` on the LLM path
-3. **Must `Take(N)`** — a hard cap on the single tool call's result set, preventing prompt-injection-induced broad queries
-4. **description / instructions must be compile-time constants** — concatenating user strings is forbidden
-5. **No raw SQL** — LLM-concatenated SQL is within the attack surface
-6. **PromptBoundary** — user-derived free-text fields in the return value (title, partyName, summary, etc.) must be wrapped by `PromptBoundary.WrapField(...)`
 
 ---
 
 ## Anti-pattern E: switching multi-tenancy context before the authorization check
 
-**Rule source**: [#524](https://github.com/dignite-projects/vault-extract/issues/524), found in a post-merge review of #519 (explicit-tenant MCP support, merged same day into `McpTenantScope`).
+**Source**: [#524](https://github.com/dignite-projects/vault-extract/issues/524) (found reviewing #519, explicit-tenant MCP support in `McpTenantScope`). **Scope**: any path that both accepts a caller-supplied tenant id and calls `ICurrentTenant.Change(...)` to scope a query to it — the MCP `tenantId` parameter / URI-segment paths.
 
-**Scope**: any path that both (a) accepts a caller-supplied tenant id and (b) calls `ICurrentTenant.Change(...)` to scope a query to it — currently the MCP `tenantId` parameter / URI-segment paths in `Dignite.Vault.Extract.Mcp`.
+**Not the same mistake as B.** B is a *missing* check; here the check runs but is evaluated against the wrong tenant, because it runs *after* the switch. ABP's role-based `PermissionGrant` rows key on the role **name** plus the ambient `TenantId`, so a caller whose token carries a role name that is also granted in the target tenant (e.g. every tenant's seeded `admin`) passes `CheckPolicyAsync` there, though nothing ties that caller to that tenant. The switch itself is legitimate; it silently moves the authorization boundary with it.
 
-**This is a different mistake from anti-pattern B.** B is a *missing* authorization check. Here the check runs — it is just evaluated against the wrong tenant, because it runs *after* the switch instead of *before* it.
-
-### ❌ Wrong (the pre-#524 shape — these exact method names no longer exist, kept here to illustrate the mistake)
+Correct (shipped in #524): gate the switch itself, **before** it happens, with checks that depend only on the caller's real identity. `McpTenantScope.ResolveAsync` / `ResolveRequiredAsync` run the admission checks and return the tenant id **without** touching `ICurrentTenant`; the switch is a separate synchronous `Enter` call. The split is required, not stylistic — see the `McpTenantScope` type doc for the `AsyncLocal` reason a single awaited "resolve and switch" method would silently scope nothing for the caller:
 
 ```csharp
-public static async Task<...> ToolAsync(
-    string? tenantId, IDocumentAppService documentAppService, IServiceProvider serviceProvider)
-{
-    // Switches first...
-    using var scope = McpTenantScope.Change(McpTenantScope.Parse(tenantId), serviceProvider);
-    // ...so this permission check now runs INSIDE the caller-chosen tenant, not the caller's own tenant.
-    var result = await documentAppService.GetListAsync(input);   // CheckPolicyAsync evaluates against the TARGET tenant's PermissionGrant rows
-    ...
-}
+var explicitTenantId = await McpTenantScope.ResolveAsync(tenantId, serviceProvider);  // ResolveRequiredAsync for a mandatory {tenantId} uri segment
+using var tenantScope = McpTenantScope.Enter(explicitTenantId, serviceProvider);      // the actual ICurrentTenant.Change, in this method's own frame
+var result = await documentAppService.GetListAsync(input);
 ```
 
-**Harm**: ABP's role-based `PermissionGrant` rows key on the role **name** plus the ambient `TenantId`. A caller whose token carries a role name that also happens to be granted in the target tenant (e.g. every tenant's default seeded `admin` role) passes `CheckPolicyAsync` there, even though nothing ties that specific caller to that specific tenant. The switch itself is legitimate (`ICurrentTenant.Change`, not a filter bypass — anti-pattern B's concern is unrelated here), but it silently moves the authorization boundary along with it.
-
-### ✅ Correct (the shipped #524 shape)
-
-Gate the switch itself, before it happens, with checks that depend only on the caller's real identity — never on what the target tenant happens to grant. `McpTenantScope.ResolveAsync`/`ResolveRequiredAsync` run the admission checks (deployment opt-in → `IMcpTenantAccessValidator`, fail-closed → tenant existence/active) and return the resolved tenant id **without** touching `ICurrentTenant`; the actual switch happens in a separate, synchronous `Enter` call. This split is not a style choice — see the type-level doc comment on `McpTenantScope` for the `AsyncLocal` reason a single awaited "resolve and switch" method would silently fail to scope anything for the caller:
-
-```csharp
-public static async Task<...> ToolAsync(
-    string? tenantId, IDocumentAppService documentAppService, IServiceProvider serviceProvider)
-{
-    var explicitTenantId = await McpTenantScope.ResolveAsync(tenantId, serviceProvider);  // or ResolveRequiredAsync for a mandatory {tenantId} uri segment
-    using var tenantScope = McpTenantScope.Enter(explicitTenantId, serviceProvider);      // the actual ICurrentTenant.Change, in this method's own frame
-    var result = await documentAppService.GetListAsync(input);
-    ...
-}
-```
-
-Shipped in #524: `VaultExtractMcpOptions.AllowExplicitTenantScope` defaults to `false` (whole capability opt-in per deployment); `IMcpTenantAccessValidator.IsAllowedAsync` defaults to deny-all (`DenyAllMcpTenantAccessValidator`, registered via a single explicit `TryAddTransient` — not ABP's conventional auto-registration, so a downstream deployment replaces it outright with `context.Services.Replace(...)` instead of competing with it); `ITenantStore` existence/active validation runs after the access validator, never before, so a denied caller cannot use the difference between "denied" and "unknown tenant" to enumerate real tenant ids.
+Admission order: `VaultExtractMcpOptions.AllowExplicitTenantScope` defaults to `false` (whole capability is opt-in per deployment) → `IMcpTenantAccessValidator.IsAllowedAsync` defaults to deny-all (`DenyAllMcpTenantAccessValidator`, registered by one explicit `TryAddTransient` so a deployment replaces it outright with `context.Services.Replace(...)`) → only then `ITenantStore` existence / active validation. Never before the validator: otherwise a denied caller could tell "denied" from "unknown tenant" and enumerate real tenant ids.
 
 ---
 
-## Common security conventions (apply to all LLM paths)
+## Anti-pattern C: an LLM-facing collection parameter typed as a collection interface / array
 
-The anti-patterns above are concretizations of the 4 bullets in CLAUDE.md's "## Security conventions" section:
-
-- **Fail-closed security assertion** — permission + tenant + cap + no raw SQL
-- **PromptBoundary** — user-derived free text must be wrapped before entering a prompt / LLM-facing output
-- **Description / Instructions are compile-time constants** — concatenating user strings at runtime is forbidden
-- **Multi-tenancy isolation** — rely on ABP's `IMultiTenant` global filter (framework-level boundary, including `FromSqlRaw`); do not hand-write predicates; the only discipline is not to disable the filter on LLM paths
-- **Bounded payloads** — every text crossing an LLM boundary has a ceiling (see anti-pattern D). Where the tail is load-bearing the ceiling **gates** the call; otherwise it truncates surrogate-safely and announces the cut. `Take(N)` bounds rows, not bytes
-
-When adding any new LLM call site, self-review against these 5 points; the `maf-workflow-reviewer` agent also checks against this list during PR review.
-
----
-
-## Anti-pattern C: an LLM-facing collection parameter on an MCP tool / resource using a collection-interface / array type
-
-**Rule source**: empirical to this repo (`DocumentSearchTool.fieldFilters` once silently broke). **This is a schema correctness issue, not a security issue** — but it is likewise a "typical mistake at an LLM call site", hence its inclusion here.
-
-**Background**: ABP uses the Autofac container. Autofac treats **all collection relationship types** (`IEnumerable<T>` / `IReadOnlyList<T>` / `IList<T>` / `ICollection<T>` / `IReadOnlyCollection<T>` / `T[]`) as implicitly resolvable services — `IServiceProviderIsService.IsService(typeof(IReadOnlyList<Foo>))` returns `true`. And the MCP SDK's (ModelContextProtocol 1.3.0) parameter-binding rule is: **a parameter whose `IsService(paramType) == true` is `ExcludeFromSchema`** — removed from the inputSchema the LLM sees, and instead injected from DI at runtime.
-
-**Consequence**: an LLM-facing parameter declared with a collection interface / array **silently disappears** — the LLM cannot see it and never passes a value; the tool can still be called (injected an empty collection at runtime), so the functionality that parameter backs is **permanently broken with no error**. Scalar parameters (`string` / `int?`, `IsService=false`) are unaffected.
-
-### ❌ Wrong
+**A schema correctness issue, not a security one** (`DocumentSearchTool.fieldFilters` once silently broke). ABP uses Autofac, which treats every collection relationship type (`IEnumerable<T>`, `IReadOnlyList<T>`, `IList<T>`, `ICollection<T>`, `IReadOnlyCollection<T>`, `T[]`) as an implicitly resolvable service — `IServiceProviderIsService.IsService(...)` returns `true`. The MCP SDK (ModelContextProtocol 1.3.0) excludes any parameter with `IsService == true` from the inputSchema and injects it from DI. So the parameter **silently disappears** for the LLM, the tool stays callable (an empty collection is injected), and the feature it backs is permanently broken with no error. Scalars (`string`, `int?`) are unaffected.
 
 ```csharp
 [McpServerTool(Name = "search_documents")]
 public static async Task<...> SearchAsync(
-    string documentTypeCode,                          // ✅ string → IsService=false → in schema
-    IReadOnlyList<FieldFilter>? fieldFilters = null,  // ❌ collection interface → Autofac IsService=true → excluded from schema
-    FieldFilter[]? more = null)                       // ❌ array also excluded (counterintuitive: T[] is also a collection relationship type)
+    string documentTypeCode,                          // ok: IsService=false
+    // ❌ IReadOnlyList<FieldFilter>? / FieldFilter[]? are excluded from the schema (T[] too — counterintuitive)
+    List<FieldFilter>? fieldFilters = null)           // ✅ a concrete List<T> stays in the schema
 ```
 
-### ✅ Correct
-
-```csharp
-[McpServerTool(Name = "search_documents")]
-public static async Task<...> SearchAsync(
-    string documentTypeCode,
-    // Must use a concrete List<T> (IsService=false); collection interfaces / arrays are silently excluded.
-    List<FieldFilter>? fieldFilters = null)
-```
-
-**Guard**: use a test that **actually goes through MCP schema generation** — `McpServerTool.Create(method, target, new McpServerToolCreateOptions { Services = autofacServiceProvider })`, asserting that the `ProtocolTool.InputSchema`'s `properties` contains the parameter. **A unit test that calls the C# method directly cannot catch this bug — it bypasses schema generation**. See `DocumentSearchTool_Tests.Mcp_input_schema_exposes_fieldFilters_and_all_llm_parameters`.
-
-**Note**: the MS DI container returns `IsService=true` only for `IEnumerable<T>`, and `false` for other collection interfaces — this pitfall is Autofac-specific, so repro / guard tests must run under the Autofac container (the test base class already calls `UseAutofac()`).
+**Guard**: a test that actually goes through schema generation — `McpServerTool.Create(method, target, new McpServerToolCreateOptions { Services = autofacServiceProvider })`, asserting `ProtocolTool.InputSchema.properties` contains the parameter. A test that calls the C# method directly bypasses schema generation and cannot catch this; see `DocumentSearchTool_Tests.Mcp_input_schema_exposes_fieldFilters_and_all_llm_parameters`. The MS DI container returns `IsService=true` only for `IEnumerable<T>`, so the repro must run under Autofac (the test base already calls `UseAutofac()`).
 
 ---
 
 ## Anti-pattern D: an unbounded payload entering a prompt, or leaving on an LLM-facing egress
 
-**Rule source**: [#491](https://github.com/dignite-projects/vault-extract/issues/491). **This is a cost / availability issue**, and the one anti-pattern here that a correct implementation of B can still commit.
+**Source**: [#491](https://github.com/dignite-projects/vault-extract/issues/491). A cost / availability issue that a correct implementation of B can still commit: B caps *how many rows* a query returns, D caps *how large one payload is*. A tool can honour `Take(20)` and still hand the model a 40 MB body. Scope: any text crossing an LLM boundary — a document body or field value entering a prompt, and any body returned to an MCP client.
 
-**Do not confuse it with B point 3.** B caps *how many rows* a query returns. D caps *how large one payload is*. A tool can honour `Take(20)` perfectly and still hand the model a 40 MB document body. The two bounds are orthogonal and you need both.
+Four ways to get it wrong:
 
-**Scope**: any text crossing an LLM boundary — a document body or field value entering a prompt, and any body returned to an MCP client or other LLM-facing consumer.
+1. **Feeding a whole document into a prompt with no ceiling.** Markdown is bounded only by the upload limit, which is no Markdown bound (a text-dense DOCX/XLSX is a ZIP; its body is routinely 10× the uploaded bytes). Unbounded token spend lands on the **host's** bill — under multi-tenancy a tenant chooses the input; `PromptBoundary.Encode` + `WrapDocument` + request serialization each materialize another full copy (~4× the body in UTF-16, on the LOH, times concurrent jobs); bulk re-processing replays the cost across a whole type.
+2. **Letting the provider's context-window error fault the job** (`catch { FailRunAsync(...); throw; }`). An oversized body is a **permanent** property of the document; rethrowing hands it back to the ABP job store, which re-sends the same body on every retry — one bad document becomes N identical failures and never reaches a terminal state.
+3. **Returning an uncapped body to an MCP client** (`Markdown = PromptBoundary.WrapDocument(document.Markdown ?? "")`).
+4. **Silently truncating where the tail is load-bearing** (`markdown[..MaxChars]` for field extraction). An amount or invoice number can sit anywhere; tail truncation disguises "missed extraction" as "successful extraction" — strictly worse than failing.
 
-### ❌ Wrong 1: feeding a whole document into a prompt with no ceiling
-
-```csharp
-// Wrong: markdown is bounded only by the upload size limit, which is not a Markdown bound at all
-// (a text-dense DOCX/XLSX is a ZIP; its extracted body is routinely 10x the uploaded bytes).
-var messages = new List<ChatMessage>
-{
-    new(ChatRole.System, SystemInstructions),
-    new(ChatRole.User, PromptBoundary.WrapDocument(markdown))   // ← unbounded prompt-token cost
-};
-await _chatClient.GetResponseAsync(messages, options, ct);
-```
-
-**Harm**:
-
-- Unbounded per-document token spend, on the **host's** bill; under multi-tenancy a tenant chooses the input and the host pays
-- `PromptBoundary.Encode` (a `Replace`) + `WrapDocument` interpolation + request serialization each materialize another full copy — roughly 4× the body in UTF-16, all on the large object heap, multiplied by concurrent jobs
-- Bulk re-processing sweeps replay the cost across every document of a type
-
-### ❌ Wrong 2: letting the provider's context-window error fault the job
-
-```csharp
-catch (Exception ex)
-{
-    await FailRunAsync(documentId, runId, ex.Message, pipeline);
-    throw;   // ← back to the ABP job store, which re-sends the same oversized body on every retry
-}
-```
-
-An oversized body is a **permanent** property of the document, not a transient fault. Rethrowing converts one bad document into N identical failures and never reaches a terminal state.
-
-### ❌ Wrong 3: returning an uncapped body to an MCP client
-
-```csharp
-return new DocumentDetailResult
-{
-    Markdown = PromptBoundary.WrapDocument(document.Markdown ?? string.Empty)   // ← eats the client's context window
-};
-```
-
-### ❌ Wrong 4: silently truncating where the tail is load-bearing
-
-```csharp
-// Wrong for field extraction: a contract amount / invoice number can sit anywhere in the document.
-// Tail truncation disguises "missed extraction" as "successful extraction" — strictly worse than failing.
-var truncated = markdown[..MaxChars];
-```
-
-### ✅ Correct: decide gate vs. truncate by whether the tail is load-bearing
-
-Every LLM-facing path picks exactly one, and it follows from the semantics of the call, not from convenience:
+Every LLM-facing path picks exactly one bound, following the semantics of the call:
 
 | Path | Tail load-bearing? | Bound |
 |---|---|---|
@@ -382,9 +132,7 @@ Every LLM-facing path picks exactly one, and it follows from the semantics of th
 ```csharp
 // Gate: no call at all above the ceiling, a review signal instead, and a TERMINAL outcome (never a rethrow).
 if (markdown.Length > _behaviorOptions.MaxFieldExtractionMarkdownLength)
-{
     return await DeclineOversizedAsync(documentId, tenantId, documentTypeId, markdown.Length);
-}
 
 // Truncate: surrogate-safe, and announced whenever a consumer could mistake a prefix for the whole.
 var clipped = TextTruncator.AtCharBoundary(body, VaultExtractMcpConsts.MaxDocumentMarkdownChars);
@@ -396,12 +144,4 @@ return new DocumentDetailResult
 };
 ```
 
-**Key points recap**:
-
-1. **`Take(N)` is not enough** — it bounds rows, not bytes; a single row's payload needs its own ceiling
-2. **Never truncate a load-bearing tail** — gate the call instead, and raise a review signal so the miss is visible
-3. **A gate is a terminal outcome** — never rethrow an oversized body into the background-job retry loop
-4. **Never cut with a raw range slice** — `text[..n]` can split a surrogate pair; use `TextTruncator.AtCharBoundary`
-5. **Announce every truncation** — `Truncated` / `markdownTruncated` + a total, so an LLM cannot mistake a prefix for the whole
-6. **Prompt ceilings are configuration, egress ceilings are `const`** — a host tunes its own token budget (`VaultExtractBehaviorOptions`), but the safety boundary of an LLM-facing egress must not be widenable at runtime (`VaultExtractMcpConsts`)
-7. **Reject deterministic schema overflow at configuration write time** — an oversized field schema would affect every document of the type, while operators cannot edit admin-owned field definitions. Enforce the per-type total on create/update/restore/pack import; the workflow assertion is defense in depth, not the primary user-facing gate
+Recap (the general form is CLAUDE.md "Bounded payloads"): never truncate a load-bearing tail — gate it and raise a review signal; a gate is terminal, never a rethrow; never cut with a raw `text[..n]` (it can split a surrogate pair — use `TextTruncator.AtCharBoundary`); announce every truncation (`Truncated` / `markdownTruncated` + a total); prompt ceilings are host configuration (`VaultExtractBehaviorOptions`) but egress ceilings are `const` (`VaultExtractMcpConsts`) so the safety boundary cannot be widened at runtime; reject deterministic schema overflow at **configuration write time** (an oversized field schema affects every document of the type and operators cannot edit admin-owned definitions) — enforce the per-type total on create / update / restore / pack import, the workflow assertion is only defense in depth.
