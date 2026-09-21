@@ -105,7 +105,7 @@ AI re-classification (`RerecognizeAsync`, the detail page's *Re-recognize*) need
 
 But **closing those three to an owner is not enough**, and that is why the arm is three-valued rather than a yes/no. The edit family clears the same bits as a *side effect*, without ever asking to:
 
-- `UpdateExtractedFieldsAsync` clears `FieldExtractionIncomplete` outright — that is #491's deliberate escape path, where manual entry *is* the resolution — and an empty field set is enough to trigger it, which releases the document to Ready and fires `DocumentReadyEto`;
+- `UpdateExtractedFieldsAsync` recomputes the duplicate fingerprint from the corrected values (#651 §6), so an edit to a unique-key field clears `DuplicateSuspected` without ever asking to;
 - `UpdateMarkdownAsync(reprocess: true)` and `ReextractFieldsAsync` re-run extraction, and re-extraction replaces the **whole** validation-warning set and recomputes the duplicate fingerprint from the new values — so correcting the body clears `FieldValidationWarning` *and* `DuplicateSuspected`;
 - `ConfirmClassificationAsync` resets duplicate state and clears warnings, and reclassifying to the **same** type is not refused as a no-op;
 - a retried field-extraction run does what re-extraction does.
@@ -113,6 +113,8 @@ But **closing those three to an owner is not enough**, and that is why the arm i
 So the rule lives where it can actually hold:
 
 > **While a document carries a blocking review reason other than `UnresolvedClassification`, an uploader may still read and delete it, but not modify it.** Modification is for someone holding the module-wide permission or the per-type `Edit` grant.
+
+#657 removed the starkest case from that list: `UpdateExtractedFieldsAsync` used to clear `FieldExtractionIncomplete` outright, and an empty field set was enough to trigger it — releasing the document to Ready with no field values at all. That reason is now cleared only by `ConfirmFieldEntryAsync` (`POST {id}/review/confirm-field-entry`), an explicit operator act judged by **Review**, so the uploader's ownership arm does not reach it. The side effects above are the ones that remain, and they are why the arm is still three-valued.
 
 That set — `DuplicateSuspected`, `FieldExtractionIncomplete`, `FieldValidationWarning` — is `ReviewReasonPolicy.OwnerLocking`, **derived** as "every blocking reason except classification" so a blocking reason added later locks owners out by default and has to be excluded on purpose. Classification is the one exclusion: confirming or reclassifying one's own upload is exactly what an uploader is expected to do, and the target type is judged separately by **Declare a type**, which has no owner arm at all.
 

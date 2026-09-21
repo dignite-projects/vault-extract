@@ -409,15 +409,18 @@ public class DocumentOwnership_Tests : DocumentAccessTestBase
     // ===================== The owner lock: modification while under review =====================
 
     /// <summary>
-    /// The review invariant, held where it can actually hold. Closing only the three explicit review methods to
-    /// an owner does <b>not</b> keep an uploader from clearing a blocking reason on their own document, because
-    /// the edit family clears the same bits as a side effect: this very call clears
-    /// <see cref="DocumentReviewReasons.FieldExtractionIncomplete"/> outright (#491's escape path — an empty
-    /// field set is enough), which releases the document to Ready and fires <c>DocumentReadyEto</c>.
+    /// The review invariant, held where it can actually hold. <b>#657 note</b>: before #657 the edit family cleared
+    /// <see cref="DocumentReviewReasons.FieldExtractionIncomplete"/> as a side effect of any edit (even an empty
+    /// one), which was the whole reason this lock had to exist for that reason too. Since #657
+    /// <c>UpdateExtractedFieldsAsync</c> no longer touches that bit at all — only <c>ConfirmFieldEntryAsync</c>
+    /// does, gated by the separate <see cref="DocumentAccessRule.Review"/> rule below — but the lock below still
+    /// matters on its own terms: an uploader must not even be able to attempt an edit-family call on their own
+    /// document while it carries <b>any</b> blocking reason other than classification (e.g. a corrected
+    /// unique-key value quietly changing <see cref="DocumentReviewReasons.DuplicateSuspected"/>), independent of
+    /// what that particular call would or would not clear.
     /// <para>
     /// So while a document carries a blocking reason other than classification, the ownership arm of the edit
-    /// family is shut (<see cref="DocumentOwnerArm.UnlessUnderReview"/>). The clear itself stays — it is what a
-    /// reviewer filling the fields in relies on — it is simply no longer reachable by the uploader.
+    /// family is shut (<see cref="DocumentOwnerArm.UnlessUnderReview"/>).
     /// </para>
     /// </summary>
     [Fact]
@@ -434,23 +437,41 @@ public class DocumentOwnership_Tests : DocumentAccessTestBase
         own.ReviewReasons.HasFlag(DocumentReviewReasons.FieldExtractionIncomplete).ShouldBeTrue();
     }
 
+    /// <summary>
+    /// #657: <c>ConfirmFieldEntryAsync</c> is the only call that clears <c>FieldExtractionIncomplete</c>, and it
+    /// runs on <see cref="DocumentAccessRule.Review"/>, not Edit — so the document's own uploader is refused it,
+    /// exactly like <c>AllowDuplicateAsync</c> / <c>ResolveFieldValidationWarningsAsync</c>.
+    /// </summary>
     [Fact]
-    public async Task An_Edit_grant_on_the_type_fills_in_the_fields_of_a_document_blocked_on_incomplete_extraction()
+    public async Task An_uploader_is_refused_ConfirmFieldEntryAsync_on_their_own_document()
+    {
+        var own = StubDocument(TypeA.Id, creatorId: OwnerId);
+        own.SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: true);
+        GrantUploaderOnTypeA();
+
+        await Should.ThrowAsync<AbpAuthorizationException>(
+            () => AsOwnerAsync(() => AppService.ConfirmFieldEntryAsync(own.Id)));
+
+        own.ReviewReasons.HasFlag(DocumentReviewReasons.FieldExtractionIncomplete).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task An_Edit_grant_on_the_type_confirms_field_entry_on_a_document_blocked_on_incomplete_extraction()
     {
         var own = StubDocument(TypeA.Id, creatorId: OwnerId);
         own.SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: true);
         GrantUploaderOnTypeA();
         GrantResource(VaultExtractResourcePermissions.Edit, TypeA.Id);
 
-        await AsOwnerAsync(() => AppService.UpdateExtractedFieldsAsync(
-            own.Id, new UpdateExtractedFieldsInput { Fields = new Dictionary<string, JsonElement>() }));
+        await AsOwnerAsync(() => AppService.ConfirmFieldEntryAsync(own.Id));
 
-        // #491's escape path, intact for the reviewer: manual entry IS the resolution.
+        // #657's escape path: an Edit grant is also one of the Review rule's role-level members (as it is for
+        // AllowDuplicateAsync / ResolveFieldValidationWarningsAsync), so it admits confirmation too.
         own.ReviewReasons.HasFlag(DocumentReviewReasons.FieldExtractionIncomplete).ShouldBeFalse();
     }
 
     [Fact]
-    public async Task The_module_wide_ConfirmClassification_fills_in_the_fields_of_a_document_under_review()
+    public async Task The_module_wide_ConfirmClassification_confirms_field_entry_on_a_document_under_review()
     {
         var own = StubDocument(TypeA.Id, creatorId: OwnerId);
         own.SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: true);
@@ -458,8 +479,7 @@ public class DocumentOwnership_Tests : DocumentAccessTestBase
             VaultExtractPermissions.Documents.Default,
             VaultExtractPermissions.Documents.ConfirmClassification);
 
-        await AsOwnerAsync(() => AppService.UpdateExtractedFieldsAsync(
-            own.Id, new UpdateExtractedFieldsInput { Fields = new Dictionary<string, JsonElement>() }));
+        await AsOwnerAsync(() => AppService.ConfirmFieldEntryAsync(own.Id));
 
         own.ReviewReasons.HasFlag(DocumentReviewReasons.FieldExtractionIncomplete).ShouldBeFalse();
     }

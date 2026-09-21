@@ -28,6 +28,14 @@ export class DocumentService {
     { apiName: this.apiName,...config });
   
 
+  confirmFieldEntry = (id: string, config?: Partial<Rest.Config>) =>
+    this.restService.request<any, DocumentDto>({
+      method: 'POST',
+      url: `/api/vault-extract/documents/${id}/review/confirm-field-entry`,
+    },
+    { apiName: this.apiName,...config });
+  
+
   delete = (id: string, config?: Partial<Rest.Config>) =>
     this.restService.request<any, void>({
       method: 'DELETE',

@@ -100,6 +100,12 @@ public class DocumentController : VaultExtractController, IDocumentAppService
         return _documentAppService.ResolveFieldValidationWarningsAsync(id, input);
     }
 
+    [HttpPost("{id}/review/confirm-field-entry")]
+    public virtual Task<DocumentDto> ConfirmFieldEntryAsync(Guid id)
+    {
+        return _documentAppService.ConfirmFieldEntryAsync(id);
+    }
+
     [HttpPost("{id}/retry-pipeline")]
     public virtual Task RetryPipelineAsync(Guid id, [FromBody] RetryPipelineInput input)
     {

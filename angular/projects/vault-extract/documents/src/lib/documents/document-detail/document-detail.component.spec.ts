@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import { HttpErrorReporterService, LocalizationService, PermissionService } from '@abp/ng.core';
-import { ConfirmationService, ToasterService } from '@abp/ng.theme.shared';
+import { Confirmation, ConfirmationService, ToasterService } from '@abp/ng.theme.shared';
 import { Observable, Subject, of, throwError } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -290,6 +290,83 @@ describe('DocumentDetailComponent — review is narrower than edit (#635 decisio
 
     expect(component.needsClassification()).toBe(true);
     expect(reviewButtons(fixture).join('|')).toContain('Document:ConfirmClassification');
+  });
+});
+
+// #657: saving the field editor no longer clears FieldExtractionIncomplete by itself — a separate, deliberate
+// "Confirm entry complete" act does, gated on canReview like the other review-clearing CTAs (#635 decision 2).
+describe('DocumentDetailComponent — confirm field entry (#657)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('hides the CTA from the uploader, even though the reason is present', () => {
+    const { component, fixture } = setup(ENTRY_ONLY);
+    component.isLoading.set(false);
+    component.document.set(
+      documentOf(OWNER, 'contract', {
+        requiresReview: true,
+        reviewReasons: DocumentReviewReasons.FieldExtractionIncomplete,
+        reviewReasonDetails: [],
+      }),
+    );
+    fixture.detectChanges();
+
+    expect(component.canReview()).toBe(false);
+    expect(component.needsFieldEntryConfirmation()).toBe(false);
+    expect(fixture.nativeElement.textContent as string).not.toContain('Document:Review:ConfirmFieldEntry');
+  });
+
+  it('shows the CTA to a reviewer when the reason is present', () => {
+    const { component, fixture } = setup(ENTRY_ONLY);
+    component.isLoading.set(false);
+    component.document.set(
+      documentOf(FULL, 'contract', {
+        requiresReview: true,
+        reviewReasons: DocumentReviewReasons.FieldExtractionIncomplete,
+        reviewReasonDetails: [],
+      }),
+    );
+    fixture.detectChanges();
+
+    expect(component.needsFieldEntryConfirmation()).toBe(true);
+    expect(fixture.nativeElement.textContent as string).toContain('Document:Review:ConfirmFieldEntry');
+  });
+
+  it('confirms field entry with the document id and reloads on success', () => {
+    const confirmedDoc = documentOf(FULL, 'contract', { reviewReasons: DocumentReviewReasons.None });
+    const confirmFieldEntry = vi.fn().mockReturnValue(of(confirmedDoc));
+    const get = vi.fn().mockReturnValue(of(confirmedDoc));
+    const { component, toaster } = setup(ENTRY_ONLY, undefined, { confirmFieldEntry, get });
+    const confirmation = TestBed.inject(ConfirmationService) as unknown as { warn: ReturnType<typeof vi.fn> };
+    confirmation.warn.mockReturnValue(of(Confirmation.Status.confirm));
+    component.document.set(
+      documentOf(FULL, 'contract', { reviewReasons: DocumentReviewReasons.FieldExtractionIncomplete }),
+    );
+    (component as unknown as { documentId: string }).documentId = 'doc-1';
+
+    component.confirmFieldEntry();
+
+    expect(confirmFieldEntry).toHaveBeenCalledWith('doc-1');
+    expect(get).toHaveBeenCalledWith('doc-1', { skipHandleError: true });
+    expect(toaster.success).toHaveBeenCalledWith('::Document:Review:FieldEntryConfirmed', '::Success');
+  });
+
+  it('does not confirm field entry when the field editor is merely saved — the regression guard for the two acts staying separate', () => {
+    const updateExtractedFields = vi.fn().mockReturnValue(
+      of(documentOf(FULL, 'contract', { reviewReasons: DocumentReviewReasons.FieldExtractionIncomplete })),
+    );
+    const confirmFieldEntry = vi.fn();
+    const { component } = setup(ENTRY_ONLY, undefined, { updateExtractedFields, confirmFieldEntry });
+    component.document.set(
+      documentOf(FULL, 'contract', { reviewReasons: DocumentReviewReasons.FieldExtractionIncomplete }),
+    );
+    component.startEditFields();
+
+    component.saveFields();
+
+    expect(updateExtractedFields).toHaveBeenCalled();
+    expect(confirmFieldEntry).not.toHaveBeenCalled();
   });
 });
 

@@ -224,6 +224,8 @@ export class DocumentDetailComponent implements OnInit {
   isAllowingDuplicate = signal(false);
   // #527: in-flight guard for the "Mark resolved" field-validation-warning action.
   isResolvingWarnings = signal(false);
+  // #657: in-flight guard for the "Confirm entry complete" action.
+  isConfirmingFieldEntry = signal(false);
 
   readonly DocumentLifecycleStatus = DocumentLifecycleStatus;
   readonly DocumentReviewDisposition = DocumentReviewDisposition;
@@ -312,8 +314,9 @@ export class DocumentDetailComponent implements OnInit {
   // is non-blocking and clears itself once the values are filled in the fields card below, so the banner
   // offers a jump-and-edit shortcut rather than a confirm/approve button.
   // #491: FieldExtractionIncomplete (the document was too long to extract automatically) takes the same CTA —
-  // manual entry is likewise its only remedy. Unlike MissingRequiredFields this one is blocking, so filling the
-  // fields is what releases the document to Ready.
+  // manual entry is likewise its only remedy. #657: unlike MissingRequiredFields, filling the fields here
+  // releases nothing by itself — since #657 the release is the separate "Confirm entry complete" act below
+  // (needsFieldEntryConfirmation), so this shortcut only gets the operator to the form.
   needsFieldCompletion = computed(() =>
     this.canEdit() &&
     (((this.document()?.reviewReasons ?? DocumentReviewReasons.None) &
@@ -330,6 +333,16 @@ export class DocumentDetailComponent implements OnInit {
   needsFieldValidationResolution = computed(() =>
     this.canReview() &&
     (((this.document()?.reviewReasons ?? DocumentReviewReasons.None) & DocumentReviewReasons.FieldValidationWarning)
+      !== DocumentReviewReasons.None),
+  );
+
+  // #657: FieldExtractionIncomplete is present AND the operator may act — drives the "Confirm entry complete"
+  // CTA. Gated on canReview rather than canEdit: the call clears a blocking review reason and therefore runs
+  // on the server's Review rule with the ownership arm shut, the same reasoning already written on
+  // needsDuplicateReview and needsFieldValidationResolution above.
+  needsFieldEntryConfirmation = computed(() =>
+    this.canReview() &&
+    (((this.document()?.reviewReasons ?? DocumentReviewReasons.None) & DocumentReviewReasons.FieldExtractionIncomplete)
       !== DocumentReviewReasons.None),
   );
 
@@ -1359,6 +1372,37 @@ export class DocumentDetailComponent implements OnInit {
             },
             error: () => {
               this.isResolvingWarnings.set(false);
+              this.toaster.error('::Document:Review:ActionFailed', '::Error');
+            },
+          });
+      });
+  }
+
+  // #657: the operator declares field entry complete for this document — including "none of this type's
+  // fields apply", which is this same call made without entering anything first. The backend clears the
+  // blocking FieldExtractionIncomplete reason (Document.ConfirmFieldEntry) and re-derives lifecycle
+  // (releasing to Ready + DocumentReadyEto when nothing else blocks). Confirm first, since this dismisses a
+  // data-quality gate. Reload so the badge / banner reflect the change.
+  confirmFieldEntry(): void {
+    const doc = this.document();
+    if (!doc || this.isConfirmingFieldEntry()) return;
+    this.confirmation
+      .warn('::Document:Review:ConfirmFieldEntry:Confirm', '::AreYouSure')
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(status => {
+        if (status !== Confirmation.Status.confirm) return;
+        this.isConfirmingFieldEntry.set(true);
+        this.documentService.confirmFieldEntry(doc.id!)
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({
+            next: updated => {
+              this.isConfirmingFieldEntry.set(false);
+              if (this.leaveIfNoLongerReadable(updated)) return;
+              this.toaster.success('::Document:Review:FieldEntryConfirmed', '::Success');
+              this.loadDocument();
+            },
+            error: () => {
+              this.isConfirmingFieldEntry.set(false);
               this.toaster.error('::Document:Review:ActionFailed', '::Error');
             },
           });

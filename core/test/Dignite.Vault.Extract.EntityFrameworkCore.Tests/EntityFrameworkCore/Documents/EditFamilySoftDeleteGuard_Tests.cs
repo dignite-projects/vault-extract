@@ -27,7 +27,7 @@ public class EditFamilySoftDeleteGuardTestModule : AbpModule
 {
     public override void ConfigureServices(ServiceConfigurationContext context)
     {
-        // None of the eleven methods under test reach blob storage, background jobs or the event bus --
+        // None of the twelve methods under test reach blob storage, background jobs or the event bus --
         // EnsureNotDeleted (or the ISoftDelete filter, for Case A) refuses them first -- but the wider
         // DocumentAppService constructor graph still needs them resolvable (mirrors DocumentRestoreConflict_Tests).
         context.Services.AddSingleton(Substitute.For<IBackgroundJobManager>());
@@ -130,6 +130,10 @@ public class EditFamilySoftDeleteGuard_Tests : VaultExtractTestBase<EditFamilySo
             nameof(IDocumentAppService.ResolveFieldValidationWarningsAsync),
             (svc, id) => svc.ResolveFieldValidationWarningsAsync(
                 id, new ResolveFieldValidationWarningsInput { FieldDefinitionIds = [] })
+        },
+        {
+            nameof(IDocumentAppService.ConfirmFieldEntryAsync),
+            (svc, id) => svc.ConfirmFieldEntryAsync(id)
         },
         {
             nameof(IDocumentAppService.UpdateCabinetAsync),

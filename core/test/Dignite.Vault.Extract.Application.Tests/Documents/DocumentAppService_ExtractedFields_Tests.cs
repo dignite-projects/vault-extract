@@ -25,8 +25,9 @@ namespace Dignite.Vault.Extract.Documents;
 
 /// <summary>
 /// Behavior tests for <see cref="DocumentAppService.UpdateExtractedFieldsAsync"/> (manual metadata edits
-/// #195). Reuses mock dependencies from <see cref="DocumentAppServiceReviewTestModule"/> plus real DI
-/// components such as ObjectMapper.
+/// #195) and, since #657, its sibling <see cref="DocumentAppService.ConfirmFieldEntryAsync"/> (the only path
+/// that clears the blocking <c>FieldExtractionIncomplete</c> reason). Reuses mock dependencies from
+/// <see cref="DocumentAppServiceReviewTestModule"/> plus real DI components such as ObjectMapper.
 /// </summary>
 public class DocumentAppService_ExtractedFields_Tests
     : VaultExtractApplicationTestBase<DocumentAppServiceReviewTestModule>
@@ -47,12 +48,13 @@ public class DocumentAppService_ExtractedFields_Tests
     }
 
     /// <summary>
-    /// #491: manual entry is the only escape from the blocking <c>FieldExtractionIncomplete</c> reason — no operator
-    /// action can shrink a document's Markdown. Writing the values by hand means the human did the work the LLM
-    /// declined, so the reason clears and the Ready gate is re-derived. Without this the reason would be a dead end.
+    /// #657: manual entry through <c>UpdateExtractedFieldsAsync</c> alone never clears the blocking
+    /// <c>FieldExtractionIncomplete</c> reason, however many fields it writes — entering one field of ten would
+    /// still release a partially-filled document to Ready. Only the explicit operator declaration
+    /// (<c>ConfirmFieldEntryAsync</c>) can clear it; see the facts below.
     /// </summary>
     [Fact]
-    public async Task Manual_Entry_Clears_The_Blocking_FieldExtractionIncomplete_Reason()
+    public async Task Manual_Entry_Alone_Does_Not_Clear_The_Blocking_FieldExtractionIncomplete_Reason()
     {
         var doc = CreateClassifiedDocument("host.contract");
         doc.SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: true);
@@ -65,8 +67,64 @@ public class DocumentAppService_ExtractedFields_Tests
             Fields = new Dictionary<string, JsonElement> { ["amount"] = JsonString("1000") }
         });
 
+        doc.ReviewReasons.HasFlag(DocumentReviewReasons.FieldExtractionIncomplete).ShouldBeTrue();
+        ReviewReasonPolicy.HasBlocking(doc.ReviewReasons).ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// #657 regression test for the bug this issue fixes: an empty submission (<c>{ "fields": {} }</c>) used to
+    /// clear the blocking reason unconditionally, releasing the document to Ready with zero field values. It must
+    /// now leave the reason set and the document in PendingReview.
+    /// </summary>
+    [Fact]
+    public async Task Empty_Submission_Leaves_The_Blocking_Reason_Set_And_The_Document_In_PendingReview()
+    {
+        var doc = CreateClassifiedDocument("host.contract");
+        StubGet(doc);
+        StubFields("host.contract", "amount");
+        await SucceedAllKeyPipelinesAsync(doc);
+        doc.SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: true);
+        await _pipelineRunManager.ReDeriveLifecycleAsync(doc);
+        doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.PendingReview);
+
+        await _appService.UpdateExtractedFieldsAsync(doc.Id, new UpdateExtractedFieldsInput
+        {
+            Fields = new Dictionary<string, JsonElement>()
+        });
+
+        doc.ReviewReasons.HasFlag(DocumentReviewReasons.FieldExtractionIncomplete).ShouldBeTrue();
+        doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.PendingReview);
+    }
+
+    // ─── #657: ConfirmFieldEntryAsync, the only path that clears FieldExtractionIncomplete ───
+
+    [Fact]
+    public async Task ConfirmFieldEntryAsync_Clears_The_Reason_And_Derives_Ready_When_Nothing_Else_Blocks()
+    {
+        var doc = CreateClassifiedDocument("host.contract");
+        StubFindWithFieldValues(doc);
+        await SucceedAllKeyPipelinesAsync(doc);
+        doc.SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: true);
+        await _pipelineRunManager.ReDeriveLifecycleAsync(doc);
+        doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.PendingReview);
+
+        await _appService.ConfirmFieldEntryAsync(doc.Id);
+
         doc.ReviewReasons.HasFlag(DocumentReviewReasons.FieldExtractionIncomplete).ShouldBeFalse();
+        doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.Ready);
+    }
+
+    [Fact]
+    public async Task ConfirmFieldEntryAsync_Is_A_No_Op_When_The_Reason_Is_Not_Set()
+    {
+        var doc = CreateClassifiedDocument("host.contract");
+        StubFindWithFieldValues(doc);
         ReviewReasonPolicy.HasBlocking(doc.ReviewReasons).ShouldBeFalse();
+
+        var dto = await _appService.ConfirmFieldEntryAsync(doc.Id);
+
+        doc.ReviewReasons.HasFlag(DocumentReviewReasons.FieldExtractionIncomplete).ShouldBeFalse();
+        dto.Id.ShouldBe(doc.Id);
     }
 
     [Fact]
@@ -89,7 +147,7 @@ public class DocumentAppService_ExtractedFields_Tests
         await _documentRepository.Received().UpdateAsync(doc, Arg.Any<bool>(), Arg.Any<CancellationToken>());
     }
 
-    // ─── #650: DocumentReadyEto re-announce from UpdateExtractedFieldsAsync ───
+    // ─── #650: DocumentReadyEto around a Ready transition (UpdateExtractedFieldsAsync / ConfirmFieldEntryAsync) ───
 
     /// <summary>
     /// #650: an operator editing fields on an already-Ready document changes consumable content with no
@@ -124,30 +182,26 @@ public class DocumentAppService_ExtractedFields_Tests
     }
 
     /// <summary>
-    /// #650: the #491 path. The document already has every key pipeline Succeeded but carries the blocking
-    /// FieldExtractionIncomplete reason, so it sits in PendingReview, not Ready, before the edit. Manual entry
-    /// clears the reason and this same edit derives the document into Ready for the first time. This test proves
-    /// only that the app service itself publishes nothing when this edit is what transitions the document into
-    /// Ready — the single announce for that transition is <c>DocumentReadyEventHandler</c>'s, covered by
-    /// <c>DocumentReadyEventHandler_Tests</c>. Because <see cref="IDocumentRepository"/> is substituted here, no
-    /// SaveChanges runs and the handler never fires in this test, so "exactly one in total" is not established by
-    /// any single test.
+    /// #657: the #491 path. The document already has every key pipeline Succeeded but carries the blocking
+    /// FieldExtractionIncomplete reason, so it sits in PendingReview, not Ready, before the call. Since #657 the
+    /// escape path is <c>ConfirmFieldEntryAsync</c>, not <c>UpdateExtractedFieldsAsync</c> — this test now covers
+    /// that call, still proving only that the app service itself publishes nothing when this call is what
+    /// transitions the document into Ready — the single announce for that transition is
+    /// <c>DocumentReadyEventHandler</c>'s, covered by <c>DocumentReadyEventHandler_Tests</c>. Because
+    /// <see cref="IDocumentRepository"/> is substituted here, no SaveChanges runs and the handler never fires in
+    /// this test, so "exactly one in total" is not established by any single test.
     /// </summary>
     [Fact]
-    public async Task Transition_Into_Ready_By_This_Edit_Does_Not_Publish_From_The_App_Service()
+    public async Task Transition_Into_Ready_By_ConfirmFieldEntry_Does_Not_Publish_From_The_App_Service()
     {
         var doc = CreateClassifiedDocument("host.contract");
-        StubGet(doc);
-        StubFields("host.contract", "amount");
+        StubFindWithFieldValues(doc);
         await SucceedAllKeyPipelinesAsync(doc);
         doc.SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: true);
         await _pipelineRunManager.ReDeriveLifecycleAsync(doc);
         doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.PendingReview);
 
-        await _appService.UpdateExtractedFieldsAsync(doc.Id, new UpdateExtractedFieldsInput
-        {
-            Fields = new Dictionary<string, JsonElement> { ["amount"] = JsonString("1000") }
-        });
+        await _appService.ConfirmFieldEntryAsync(doc.Id);
 
         doc.ReviewReasons.HasFlag(DocumentReviewReasons.FieldExtractionIncomplete).ShouldBeFalse();
         doc.LifecycleStatus.ShouldBe(DocumentLifecycleStatus.Ready);

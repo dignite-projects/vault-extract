@@ -78,6 +78,16 @@ public interface IDocumentAppService : IApplicationService
     /// </summary>
     Task<DocumentDto> ResolveFieldValidationWarningsAsync(Guid id, ResolveFieldValidationWarningsInput input);
 
+    /// <summary>
+    /// #657: the operator's explicit declaration that field entry is complete for a document #491 declined to
+    /// auto-extract for being too large. Clears the blocking <c>FieldExtractionIncomplete</c> review reason and
+    /// re-derives lifecycle so the document may transition to Ready. This is the <b>only</b> path that clears the
+    /// reason — <see cref="UpdateExtractedFieldsAsync"/> does not, however many (or how few) fields it submits, so
+    /// that an edit can never release a partially-filled document as a side effect. "None of this type's fields
+    /// apply" is this same call performed with nothing entered first, not a separate verdict.
+    /// </summary>
+    Task<DocumentDto> ConfirmFieldEntryAsync(Guid id);
+
     Task RetryPipelineAsync(Guid id, RetryPipelineInput input);
 
     /// <summary>
@@ -116,12 +126,15 @@ public interface IDocumentAppService : IApplicationService
     /// <summary>
     /// Operator edits type-bound field extraction results (individual corrections). Replaces the document's field value set as a whole.
     /// Each key must be a <see cref="FieldDefinition.Name"/> defined under this document's layer and DocumentType.
+    /// #657: never touches the blocking <c>FieldExtractionIncomplete</c> reason, however many (or how few) fields it
+    /// submits — <see cref="ConfirmFieldEntryAsync"/> is the only path that clears it, a deliberate operator act
+    /// independent of what was submitted.
     /// #650: when the document was already <c>Ready</c> both before and after this edit, re-publishes
     /// <see cref="Abstractions.Documents.DocumentReadyEto"/> — an operator edit on an already-Ready document changes
     /// consumable content with no lifecycle transition to announce it, so this is the contract's "pull it again"
     /// signal. Downstream consumers absorb it idempotently by <c>(DocumentId, EventType, EventTime)</c> and pull back
-    /// latest field values. A transition *into* Ready caused by this same edit (e.g. clearing #491's
-    /// <c>FieldExtractionIncomplete</c>) is announced once, by the existing lifecycle re-derivation, not doubled here.
+    /// latest field values. A transition *into* Ready caused by this same edit (e.g. a corrected unique-key value
+    /// clearing <c>DuplicateSuspected</c>) is announced once, by the existing lifecycle re-derivation, not doubled here.
     /// Large-scale errors should use text-extraction rerun / re-upload instead of bulk patching through this path.
     /// </summary>
     Task<DocumentDto> UpdateExtractedFieldsAsync(Guid id, UpdateExtractedFieldsInput input);
