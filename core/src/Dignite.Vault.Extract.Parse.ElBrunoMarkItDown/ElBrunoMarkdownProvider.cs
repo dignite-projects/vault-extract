@@ -82,7 +82,6 @@ public class ElBrunoMarkdownProvider : IMarkdownTextProvider, ITransientDependen
         {
             Markdown = conversion.Markdown ?? string.Empty,
             DetectedLanguage = null,
-            UsedOcr = false,
             ProviderName = ProviderIdentifier,
             NativePayload = null
         };

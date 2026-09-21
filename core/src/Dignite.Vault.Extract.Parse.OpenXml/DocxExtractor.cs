@@ -146,7 +146,6 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
             {
                 Markdown = string.Empty,
                 ProviderName = ProviderIdentifier,
-                UsedOcr = false,
                 IsComplete = false,
                 IncompleteReason = "The document could not be opened (corrupt or unsupported file)."
             };
@@ -209,10 +208,6 @@ public class DocxExtractor : IMarkdownTextProvider, ITransientDependency
             {
                 Markdown = string.Join("\n\n", blocks),
                 DetectedLanguage = null,
-                // UsedOcr means "scan vs digital" (true = physical-scan OCR). A DOCX is a digital extraction
-                // even when embedded figures were transcribed via IOcrProvider — figure OCR is auxiliary. Do
-                // NOT flip this to true; same contract reasoning as PdfExtractor (#301) / PptxExtractor (#307).
-                UsedOcr = false,
                 ProviderName = ProviderIdentifier,
                 IsComplete = complete,
                 IncompleteReason = incompleteReason,

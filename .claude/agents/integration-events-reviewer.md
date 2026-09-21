@@ -67,7 +67,7 @@ When a **new ETO class** is added:
 ### 2.5 OCR Confidence — Removed Fields (#196), Path Markers — Removed Fields (#650)
 
 - 🔴 **`OcrConfidence` field re-added to any ETO**: OCR average confidence was removed in #196 because it does not predict real OCR quality. If a new ETO or an updated `DocumentTextExtractedEto` / `DocumentReadyEto` adds an `OcrConfidence` or `OcrQualityScore` field, that is a regression and a hard violation.
-- 🔴 **`UsedOcr` / `FigureOcrCount` re-added to `DocumentTextExtractedEto`**: both were removed in #650 (the event was `OCRCompletedEto` at the time) — the event is now a pure observability signal (`DocumentId` / `TenantId` / `EventTime` only). `TextExtractionResult.UsedOcr` / `FigureOcrCount` still exist as internal transport fields; re-exposing either on the ETO is a payload-shape regression, not a #196 OCR-quality-signal regression, but flag it the same way.
+- 🔴 **`UsedOcr` / `FigureOcrCount` re-added to `DocumentTextExtractedEto`**: both were removed in #650 (the event was `OCRCompletedEto` at the time) — the event is now a pure observability signal (`DocumentId` / `TenantId` / `EventTime` only). They were then removed from `TextExtractionResult` and every provider too, because nothing read them (`FigureOcrCount` was only ever populated by the PDF extractor, never by DOCX / PPTX, so it was never a complete count). Re-adding either — to the ETO or to `TextExtractionResult` — is a payload-shape regression, not a #196 OCR-quality-signal regression, but flag it the same way. Which provider produced the text is `ProviderName`; a failed embedded-image OCR is `IsComplete` / `IncompleteReason`.
 - 🟢 **`OriginDocumentId` (DocumentReadyEto) is permitted (#306)**: a Scenario-B provenance scalar (null for normally-uploaded documents). A thin scalar field, legitimately retained.
 
 ### 2.6 EventHandler Design
@@ -108,5 +108,5 @@ When a **new ETO class** is added:
 - **Do not modify any files.** This agent is review-only.
 - **Do not require ETOs to use `AddDistributedEvent`.** This repo publishes via `IDistributedEventBus.PublishAsync` inside a UoW (outbox-backed); that is the established, correct pattern. `AddDistributedEvent` does not appear anywhere in `core/src`.
 - **Do not require thin-payload ETOs to include human-readable summaries.** Downstream consumers call REST/MCP for details; summaries in ETOs are a payload-bloat violation.
-- **Do not flag `OriginDocumentId` as a violation.** It is an intentionally retained thin scalar, not a #196 regression. `UsedOcr` / `FigureOcrCount` were removed from the ETO in #650 — flag their *reintroduction*, do not wave it through as "previously permitted".
+- **Do not flag `OriginDocumentId` as a violation.** It is an intentionally retained thin scalar, not a #196 regression. `UsedOcr` / `FigureOcrCount` were removed from the ETO in #650 and then from `TextExtractionResult` — flag their *reintroduction*, do not wave it through as "previously permitted".
 - **Do not require every ETO to inherit a common base class.** ABP's `IDistributedEventHandler<T>` generic makes that unnecessary; shared fields (`Version` / `EventTime` / `TenantId`) by convention are sufficient.

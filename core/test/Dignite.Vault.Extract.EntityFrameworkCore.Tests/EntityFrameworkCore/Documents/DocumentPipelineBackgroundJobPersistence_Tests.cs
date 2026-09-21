@@ -519,8 +519,7 @@ public class DocumentPipelineBackgroundJobPersistence_Tests
 
     // Stub callback assertion that external extraction work runs outside the ambient UoW, matching the
     // background-jobs.md short-UoW rule.
-    private void StubExtraction(string markdown, bool usedOcr, NativePayload? nativePayload = null,
-        int figureOcrCount = 0)
+    private void StubExtraction(string markdown, bool usedOcr, NativePayload? nativePayload = null)
     {
         _blobContainer.GetAsync(Arg.Any<string>())
             .Returns(Task.FromResult<Stream>(new MemoryStream([1, 2, 3])));
@@ -535,10 +534,8 @@ public class DocumentPipelineBackgroundJobPersistence_Tests
                 {
                     Markdown = markdown,
                     DetectedLanguage = "en",
-                    UsedOcr = usedOcr,
                     ProviderName = usedOcr ? "PaddleOCR" : "ElBruno.MarkItDotNet",
-                    NativePayload = nativePayload,
-                    FigureOcrCount = figureOcrCount
+                    NativePayload = nativePayload
                 };
             });
     }

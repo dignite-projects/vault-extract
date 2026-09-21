@@ -122,7 +122,6 @@ public class DocumentParseBackgroundJob
                 result = new TextExtractionResult
                 {
                     Markdown = workItem.SeedMarkdown,
-                    UsedOcr = false,
                     ProviderName = workItem.SeedProviderName ?? ScenarioBSegmentSeedProviderName,
                     IsComplete = true
                 };

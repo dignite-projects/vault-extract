@@ -106,7 +106,6 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
             {
                 Markdown = string.Empty,
                 ProviderName = ProviderIdentifier,
-                UsedOcr = false,
                 IsComplete = false,
                 IncompleteReason = "The presentation could not be opened (corrupt or unsupported file)."
             };
@@ -132,7 +131,6 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
                 {
                     Markdown = string.Empty,
                     ProviderName = ProviderIdentifier,
-                    UsedOcr = false,
                     IsComplete = false,
                     IncompleteReason = "The presentation could not be opened (corrupt or unsupported file)."
                 };
@@ -207,10 +205,6 @@ public class PptxExtractor : IMarkdownTextProvider, ITransientDependency
             {
                 Markdown = string.Join("\n\n", slideMarkdowns),
                 DetectedLanguage = null,
-                // UsedOcr means "scan vs digital" (true = physical-scan OCR). A PPTX is a digital
-                // extraction even when embedded figures were transcribed via IOcrProvider — figure OCR is
-                // auxiliary. Do NOT flip this to true; same contract reasoning as PdfExtractor (#301).
-                UsedOcr = false,
                 ProviderName = ProviderIdentifier,
                 IsComplete = complete,
                 IncompleteReason = incompleteReason,

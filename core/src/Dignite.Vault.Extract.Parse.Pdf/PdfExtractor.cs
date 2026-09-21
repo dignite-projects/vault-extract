@@ -127,7 +127,6 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
             var undecodable = 0;
             var truncatedOcr = 0;
             var failedFigureOcr = 0;
-            var figureOcrCount = 0;
             // #268 (#450 lattice): meaningful table fragments dropped as outside-the-drawn-grid, across all pages.
             var latticeDroppedFragments = 0;
             // Distinct from failedPages (GetWords fault → whole page dropped): here GetImages faulted but
@@ -216,10 +215,6 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
                     }
 
                     imageBudget--;
-                    // Count the dispatched OCR call up front (the bytes are about to be sent to the provider),
-                    // so FigureOcrCount reflects every attempt — including one that throws below — per its
-                    // cost-attribution contract ("counted whether or not it yields text").
-                    figureOcrCount++;
 
                     OcrResult ocr;
                     try
@@ -318,22 +313,12 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
             {
                 Markdown = string.Join("\n\n", pageMarkdowns),
                 DetectedLanguage = null,
-                // UsedOcr means "scan vs digital" per its contract (true = physical-scan OCR,
-                // false = direct digital text layer), NOT "was any OCR call made". A digital PDF reports
-                // false even when embedded figures were transcribed via IOcrProvider: the document is a
-                // digital extraction; figure OCR is auxiliary. The binary field therefore cannot express
-                // the new "digital + figure OCR" state introduced in #301 — a dedicated figure-OCR signal
-                // (e.g. UsedFigureOcr) is deferred to the TextExtractionResult contract-evolution round.
-                // Do NOT flip this to true: that would misreport a digital document as a physical scan to
-                // "scan vs digital" consumers.
-                UsedOcr = false,
                 ProviderName = ProviderIdentifier,
                 IsComplete = complete,
                 IncompleteReason = incompleteReason,
                 // PdfPig text layer + per-image OCR has no single aggregated spatial payload to archive
                 // this round (#210). Left null deliberately.
-                NativePayload = null,
-                FigureOcrCount = figureOcrCount
+                NativePayload = null
             };
         }
     }
@@ -493,7 +478,7 @@ public class PdfExtractor : IMarkdownTextProvider, ITransientDependency
     }
 
     private static TextExtractionResult Empty()
-        => new() { Markdown = string.Empty, ProviderName = ProviderIdentifier, UsedOcr = false };
+        => new() { Markdown = string.Empty, ProviderName = ProviderIdentifier };
 
     private static bool HasLetterOrDigit(string? text)
         => !string.IsNullOrEmpty(text) && text.Any(char.IsLetterOrDigit);

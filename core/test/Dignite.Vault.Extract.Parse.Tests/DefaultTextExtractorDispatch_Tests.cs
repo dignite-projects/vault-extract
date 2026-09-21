@@ -47,7 +47,6 @@ public class DefaultTextExtractorDispatch_Tests
 
         var result = await sut.ExtractAsync(TestDoubles.Bytes(0xFF, 0xD8), Context(extension, "image/jpeg"));
 
-        result.UsedOcr.ShouldBeTrue();
         result.Markdown.ShouldBe("image ocr");
         await ocr.Received(1).RecognizeAsync(Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
         // The image path returns before any Markdown provider is considered.
@@ -66,7 +65,6 @@ public class DefaultTextExtractorDispatch_Tests
 
         var result = await sut.ExtractAsync(new MemoryStream(Encoding.UTF8.GetBytes("hello")), Context(".txt", "text/plain"));
 
-        result.UsedOcr.ShouldBeFalse();
         result.Markdown.ShouldBe("digital text");
         await ocr.DidNotReceive().RecognizeAsync(Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
     }
@@ -85,7 +83,6 @@ public class DefaultTextExtractorDispatch_Tests
 
         var result = await sut.ExtractAsync(new MemoryStream(Encoding.UTF8.GetBytes("%PDF-1.7")), Context(".pdf", "application/pdf"));
 
-        result.UsedOcr.ShouldBeTrue();
         result.Markdown.ShouldBe("ocr of scanned pdf");
         await ocr.Received(1).RecognizeAsync(Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
     }
@@ -102,7 +99,6 @@ public class DefaultTextExtractorDispatch_Tests
 
         var result = await sut.ExtractAsync(new MemoryStream(Encoding.UTF8.GetBytes("%PDF-1.7")), Context(".pdf", "application/pdf"));
 
-        result.UsedOcr.ShouldBeFalse();
         result.Markdown.ShouldBe("# Real digital PDF text");
         await ocr.DidNotReceive().RecognizeAsync(Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
     }
@@ -121,7 +117,6 @@ public class DefaultTextExtractorDispatch_Tests
 
         var result = await sut.ExtractAsync(new MemoryStream(Encoding.UTF8.GetBytes("%PDF")), Context(".pdf", "application/pdf"));
 
-        result.UsedOcr.ShouldBeTrue();
         result.Markdown.ShouldBe("ocr fallback");
     }
 
@@ -139,7 +134,6 @@ public class DefaultTextExtractorDispatch_Tests
 
         var result = await sut.ExtractAsync(new MemoryStream(Encoding.UTF8.GetBytes("")), Context(".txt", "text/plain"));
 
-        result.UsedOcr.ShouldBeFalse();
         result.Markdown.ShouldBe(string.Empty);
         await ocr.DidNotReceive().RecognizeAsync(Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
     }
@@ -192,7 +186,6 @@ public class DefaultTextExtractorDispatch_Tests
 
         var result = await sut.ExtractAsync(TestDoubles.Bytes(0xFF, 0xD8), Context(".png", "image/png"));
 
-        result.UsedOcr.ShouldBeTrue();
         result.DetectedLanguage.ShouldBe("ja");
         result.ProviderName.ShouldBe("FakeOcr");
         result.IsComplete.ShouldBeFalse();

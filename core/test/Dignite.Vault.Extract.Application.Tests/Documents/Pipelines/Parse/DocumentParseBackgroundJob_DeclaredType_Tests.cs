@@ -179,7 +179,6 @@ public class DocumentParseBackgroundJob_DeclaredType_Tests
             {
                 Markdown = markdown,
                 DetectedLanguage = "en",
-                UsedOcr = false,
                 ProviderName = "ElBruno.MarkItDotNet"
             });
     }

@@ -43,7 +43,6 @@ public class DefaultTextExtractor_Tests : AbpIntegratedTest<DefaultTextExtractor
         // OCR Provider directly owns Markdown output, even when it is a flat paragraph; DefaultTextExtractor
         // passes fields through.
         result.Markdown.ShouldBe("fake ocr markdown");
-        result.UsedOcr.ShouldBeTrue();
 
         // OCR orchestration calls the provider only once; the concrete model is selected by provider/host
         // configuration.
@@ -70,7 +69,7 @@ public class DefaultTextExtractor_Tests : AbpIntegratedTest<DefaultTextExtractor
         var result = await _extractor.ExtractAsync(stream, ctx);
 
         result.Markdown.ShouldContain("Hello World");
-        result.UsedOcr.ShouldBeFalse();
+        await _ocrProvider.DidNotReceive().RecognizeAsync(Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
     }
 
     [Theory]
@@ -95,7 +94,7 @@ public class DefaultTextExtractor_Tests : AbpIntegratedTest<DefaultTextExtractor
         result.Markdown.ShouldContain("|");
         result.Markdown.ShouldContain(expectedName);
         result.Markdown.ShouldContain(expectedCity);
-        result.UsedOcr.ShouldBeFalse();
+        await _ocrProvider.DidNotReceive().RecognizeAsync(Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -128,7 +127,7 @@ public class DefaultTextExtractor_Tests : AbpIntegratedTest<DefaultTextExtractor
         result.Markdown.ShouldContain("Tokyo");
         result.Markdown.ShouldContain("Totals");
         result.Markdown.ShouldContain("Count");
-        result.UsedOcr.ShouldBeFalse();
+        await _ocrProvider.DidNotReceive().RecognizeAsync(Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
         result.ProviderName.ShouldBe(ElBrunoMarkdownProvider.ProviderIdentifier);
     }
 
@@ -196,7 +195,7 @@ public class DefaultTextExtractor_Tests : AbpIntegratedTest<DefaultTextExtractor
 
         var result = await _extractor.ExtractAsync(stream, ctx);
 
-        result.UsedOcr.ShouldBeFalse();
+        await _ocrProvider.DidNotReceive().RecognizeAsync(Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
         result.Markdown.ShouldNotBeNullOrEmpty();
         result.Markdown.ShouldContain("# Title");
         result.Markdown.ShouldContain("Some content");
@@ -215,7 +214,6 @@ public class DefaultTextExtractor_Tests : AbpIntegratedTest<DefaultTextExtractor
 
         var result = await _extractor.ExtractAsync(stream, ctx);
 
-        result.UsedOcr.ShouldBeTrue();
         result.Markdown.ShouldBe("fake ocr markdown");
     }
 
@@ -289,7 +287,6 @@ public class DefaultTextExtractor_Tests : AbpIntegratedTest<DefaultTextExtractor
 
         var result = await _extractor.ExtractAsync(stream, ctx);
 
-        result.UsedOcr.ShouldBeTrue();
         result.ProviderName.ShouldBe("FakeOcr");
         result.NativePayload.ShouldNotBeNull();
         result.NativePayload!.SchemaName.ShouldBe("FakeOcr/schema");

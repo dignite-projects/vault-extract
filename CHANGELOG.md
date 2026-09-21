@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **BREAKING for custom text extractors — `TextExtractionResult.UsedOcr` and `TextExtractionResult.FigureOcrCount` are removed** ([#650](https://github.com/dignite-projects/vault-extract/issues/650) follow-up). Nothing has read either since #650 dropped them from the text-extraction event, so every built-in provider was writing two values that were never consumed — and `FigureOcrCount` was only ever set by the PDF extractor, never by DOCX or PPTX, so it was never a complete count. Migration: a custom `ITextExtractor` / `IMarkdownTextProvider` that assigns either in its `TextExtractionResult` initializer stops compiling until those lines are deleted; there is no replacement — which provider produced the text is `ProviderName`, and a failed embedded-image OCR is reported through `IsComplete` / `IncompleteReason`.
+
 ## [0.5.0-preview.6] - 2026-09-21
 
 Two tracks. [#650](https://github.com/dignite-projects/vault-extract/issues/650) tidies the multi-stage event contract: `FieldsExtractedEto` is retired and `OCRCompletedEto` becomes `DocumentTextExtractedEto`, both **breaking for an EventBus subscriber** — the migration for each is in its entry below. [#651](https://github.com/dignite-projects/vault-extract/issues/651) makes duplicate detection configurable per document type (layer-wide or per uploader) and repairs the duplicate-review defects [#635](https://github.com/dignite-projects/vault-extract/issues/635) left behind.
