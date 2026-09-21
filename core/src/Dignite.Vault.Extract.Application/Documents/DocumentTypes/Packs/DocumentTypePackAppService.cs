@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Dignite.Abp.FlexFields;
 using Dignite.Vault.Extract.FlexFields;
+using Dignite.Vault.Extract.Documents.Duplicates;
 using Dignite.Vault.Extract.Documents.Fields;
 using Dignite.Vault.Extract.Permissions;
 using Microsoft.AspNetCore.Authorization;
@@ -51,6 +52,14 @@ public class DocumentTypePackAppService : VaultExtractAppService, IDocumentTypeP
 
     private readonly IVaultExtractFieldTypeRegistry _fieldTypeExtensionRegistry;
 
+    /// <summary>
+    /// #651: a pack import is a second save path for <see cref="DocumentType.DuplicateScope"/>, so it owes the
+    /// same reconciliation enqueue <c>DocumentTypeAppService.UpdateAsync</c> owes. Both now go through the one
+    /// helper that carries that obligation, rather than restating it — this path was missing it entirely until
+    /// someone went looking, which is the argument against restating it a third time.
+    /// </summary>
+    private readonly DocumentTypeUpdater _documentTypeUpdater;
+
     public DocumentTypePackAppService(
         IDocumentTypeRepository documentTypeRepository,
         IFieldRepository fieldDefinitionRepository,
@@ -60,7 +69,8 @@ public class DocumentTypePackAppService : VaultExtractAppService, IDocumentTypeP
         FieldDefinitionManager fieldDefinitionManager,
         FieldSchemaPromptBudgetGuard schemaPromptBudget,
         IFlexFieldIndexManager<Document> indexManager,
-        IVaultExtractFieldTypeRegistry fieldTypeExtensionRegistry)
+        IVaultExtractFieldTypeRegistry fieldTypeExtensionRegistry,
+        DocumentTypeUpdater documentTypeUpdater)
     {
         _documentTypeRepository = documentTypeRepository;
         _fieldDefinitionRepository = fieldDefinitionRepository;
@@ -71,6 +81,7 @@ public class DocumentTypePackAppService : VaultExtractAppService, IDocumentTypeP
         _schemaPromptBudget = schemaPromptBudget;
         _indexManager = indexManager;
         _fieldTypeExtensionRegistry = fieldTypeExtensionRegistry;
+        _documentTypeUpdater = documentTypeUpdater;
     }
 
     [Authorize(VaultExtractPermissions.DocumentTypes.Default)]
@@ -229,7 +240,8 @@ public class DocumentTypePackAppService : VaultExtractAppService, IDocumentTypeP
                 pack.DisplayName,
                 pack.Description,
                 pack.ConfidenceThreshold,
-                pack.Priority);
+                pack.Priority,
+                pack.DuplicateScope);
             StampProvenance(type, pack.Version);
             await _documentTypeRepository.InsertAsync(type, autoSave: true);
             item.TypeAction = PackItemAction.Created;
@@ -239,9 +251,23 @@ public class DocumentTypePackAppService : VaultExtractAppService, IDocumentTypeP
             // Updating an existing type needs the Update permission — asserted here rather than as a blanket
             // method attribute, so a CreateOnly / all-new import never requires it.
             await CheckPolicyAsync(VaultExtractPermissions.DocumentTypes.Update);
-            type.Update(pack.TypeCode, pack.DisplayName, pack.Description, pack.ConfidenceThreshold, pack.Priority);
-            StampProvenance(type, pack.Version);
-            await _documentTypeRepository.UpdateAsync(type, autoSave: true);
+
+            // #651: the save goes through DocumentTypeUpdater, which persists and — only on an actual scope
+            // change — enqueues reconciliation. Passing pack.DuplicateScope through is also what keeps
+            // export → import a round trip; without it, re-importing a pack would silently reset every
+            // Uploader-scoped type back to Layer, which is the hole the now-required parameter closes.
+            await _documentTypeUpdater.UpdateAsync(type, t =>
+            {
+                t.Update(
+                    pack.TypeCode,
+                    pack.DisplayName,
+                    pack.Description,
+                    pack.ConfidenceThreshold,
+                    pack.Priority,
+                    pack.DuplicateScope);
+                StampProvenance(t, pack.Version);
+            });
+
             item.TypeAction = PackItemAction.Updated;
         }
         else
@@ -479,6 +505,7 @@ public class DocumentTypePackAppService : VaultExtractAppService, IDocumentTypeP
             Description = type.Description,
             ConfidenceThreshold = type.ConfidenceThreshold,
             Priority = type.Priority,
+            DuplicateScope = type.DuplicateScope,
             Fields = fields
                 .OrderBy(f => f.DisplayOrder)
                 .ThenBy(f => f.Name)

@@ -8,6 +8,7 @@ import {
   DocumentTypeDto,
   DocumentTypePackService,
   DocumentTypeService,
+  DuplicateDetectionScope,
   SlugSuggestionService,
 } from '@dignite/ng.vault-extract';
 import { DocumentTypesStore } from '../../shared/document-types.store';
@@ -38,6 +39,13 @@ function setup(options: { confirmDelete?: boolean } = {}) {
     update: vi.fn().mockReturnValue(of(TYPE)),
     delete: vi.fn().mockReturnValue(of(void 0)),
     restore: vi.fn().mockReturnValue(of(void 0)),
+    getDuplicateScopePreview: vi.fn().mockReturnValue(of({
+      currentScope: DuplicateDetectionScope.Layer,
+      prospectiveScope: DuplicateDetectionScope.Uploader,
+      wouldChange: true,
+      willFlagCount: 0,
+      willClearCount: 0,
+    })),
   };
 
   TestBed.configureTestingModule({
@@ -82,6 +90,20 @@ function submitEdit(component: DocumentTypeListComponent): void {
     description: '',
     confidenceThreshold: 0.8,
     priority: 0,
+  });
+  component.submit();
+}
+
+/** Same as submitEdit(), but for TYPE edited with an explicit duplicateScope (#651). */
+function submitEditWithScope(component: DocumentTypeListComponent, duplicateScope: DuplicateDetectionScope): void {
+  component.openEdit(TYPE);
+  component.form.patchValue({
+    typeCode: 'contract',
+    displayName: 'Contract',
+    description: '',
+    confidenceThreshold: 0.8,
+    priority: 0,
+    duplicateScope,
   });
   component.submit();
 }
@@ -272,5 +294,102 @@ describe('DocumentTypesStore is one instance for writer and readers (#635)', () 
 
     expect(TestBed.inject(DocumentTypesStore)).toBe(store);
     expect((component as unknown as { documentTypes: DocumentTypesStore }).documentTypes).toBe(store);
+  });
+});
+
+// #651: switching DuplicateScope on save enqueues automatic reconciliation of existing review flags, so the
+// admin previews the consequence before the update request goes out — but only when the scope actually
+// changes on an EXISTING type. Creating a type never previews (no documents exist yet to re-evaluate).
+describe('DocumentTypeListComponent — duplicate-detection scope pre-save preview (#651)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('defaults duplicateScope to Layer on create', () => {
+    const { component } = setup();
+
+    component.openCreate();
+
+    expect(component.form.controls.duplicateScope.value).toBe(DuplicateDetectionScope.Layer);
+  });
+
+  it('defaults duplicateScope to Layer when editing a type that predates the setting', () => {
+    const { component } = setup();
+
+    component.openEdit(TYPE); // TYPE carries no duplicateScope
+
+    expect(component.form.controls.duplicateScope.value).toBe(DuplicateDetectionScope.Layer);
+  });
+
+  it('never previews on create, even though the form carries a duplicateScope value', () => {
+    const { component, service } = setup();
+
+    component.openCreate();
+    component.form.patchValue({
+      typeCode: 'invoice',
+      displayName: 'Invoice',
+      description: '',
+      confidenceThreshold: 0.8,
+      priority: 0,
+      duplicateScope: DuplicateDetectionScope.Uploader,
+    });
+    component.submit();
+
+    expect(service.getDuplicateScopePreview).not.toHaveBeenCalled();
+    expect(service.create).toHaveBeenCalled();
+  });
+
+  it('saves straight through, with no preview call, when duplicateScope is left unchanged', () => {
+    const { component, service } = setup();
+
+    submitEdit(component); // does not touch duplicateScope; stays at TYPE's default (Layer)
+
+    expect(service.getDuplicateScopePreview).not.toHaveBeenCalled();
+    expect(service.update).toHaveBeenCalled();
+  });
+
+  // #651 review correction: both directions re-evaluate every fingerprinted document and either one can
+  // both flag and clear (a narrowing switch can also newly flag a stale first-upload gap), so there is
+  // exactly one message with both counts — no direction branch, no direction-specific wording.
+  it('previews and confirms with the single message and both counts before saving a scope switch', () => {
+    const { component, service } = setup();
+    service.getDuplicateScopePreview.mockReturnValue(of({
+      currentScope: DuplicateDetectionScope.Layer,
+      prospectiveScope: DuplicateDetectionScope.Uploader,
+      wouldChange: true,
+      willFlagCount: 3,
+      willClearCount: 2,
+    }));
+
+    submitEditWithScope(component, DuplicateDetectionScope.Uploader);
+
+    expect(service.getDuplicateScopePreview).toHaveBeenCalledWith('type-a', DuplicateDetectionScope.Uploader);
+    const confirmation = TestBed.inject(ConfirmationService) as unknown as { warn: ReturnType<typeof vi.fn> };
+    expect(confirmation.warn).toHaveBeenCalledWith(
+      '::DocumentType:DuplicateScope:Preview:Message',
+      '::DocumentType:DuplicateScope:Preview:Title',
+      expect.objectContaining({ messageLocalizationParams: ['3', '2'] }),
+    );
+    expect(service.update).toHaveBeenCalled();
+  });
+
+  it('does not save when the pre-save confirmation is cancelled', () => {
+    const { component, service } = setup();
+    const confirmation = TestBed.inject(ConfirmationService) as unknown as { warn: ReturnType<typeof vi.fn> };
+    confirmation.warn.mockReturnValue(of(Confirmation.Status.reject));
+
+    submitEditWithScope(component, DuplicateDetectionScope.Uploader);
+
+    expect(service.getDuplicateScopePreview).toHaveBeenCalled();
+    expect(service.update).not.toHaveBeenCalled();
+  });
+
+  it('does not save when the preview call itself fails', () => {
+    const { component, service } = setup();
+    service.getDuplicateScopePreview.mockReturnValue(throwError(() => new Error('server error')));
+
+    submitEditWithScope(component, DuplicateDetectionScope.Uploader);
+
+    expect(service.update).not.toHaveBeenCalled();
   });
 });

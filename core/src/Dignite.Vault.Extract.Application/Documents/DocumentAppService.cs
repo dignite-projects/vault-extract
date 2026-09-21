@@ -7,8 +7,10 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Dignite.Vault.Extract.Abstractions.Documents;
 using Dignite.Vault.Extract.Documents;
+using Dignite.Vault.Extract.Documents.Duplicates;
 using Dignite.Vault.Extract.Documents.Pipelines;
 using Dignite.Vault.Extract.Documents.Pipelines.Classification;
+using Dignite.Vault.Extract.Documents.Pipelines.FieldExtraction;
 using Dignite.Vault.Extract.Documents.Pipelines.Lifecycle;
 using Dignite.Vault.Extract.Documents.Review;
 using Dignite.Vault.Extract.Permissions;
@@ -52,6 +54,13 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// (<see cref="UploadAsync"/>, which did, was moved onto it).
     /// </summary>
     private readonly DocumentAccessChecker _documentAccess;
+    /// <summary>
+    /// #651 §4: the single implementation of "does this document collide under its type's current duplicate
+    /// scope?", shared with the field-extraction write phase and with scope reconciliation. Used by the manual
+    /// field correction (§6) and by the detail panel, which additionally narrows what it may NAME by the
+    /// caller's read scope — a different question from what counts as a duplicate.
+    /// </summary>
+    private readonly DuplicateDetectionEvaluator _duplicateDetectionEvaluator;
 
     public DocumentAppService(
         IDocumentRepository documentRepository,
@@ -68,7 +77,8 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         ReviewStateEvaluator reviewEvaluator,
         ManualClassificationApplier manualClassificationApplier,
         Dignite.Vault.Extract.FlexFields.IVaultExtractFieldTypeRegistry fieldTypeExtensionRegistry,
-        DocumentAccessChecker documentAccess)
+        DocumentAccessChecker documentAccess,
+        DuplicateDetectionEvaluator duplicateDetectionEvaluator)
     {
         _documentRepository = documentRepository;
         _documentTypeRepository = documentTypeRepository;
@@ -85,6 +95,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         _manualClassificationApplier = manualClassificationApplier;
         _fieldTypeExtensionRegistry = fieldTypeExtensionRegistry;
         _documentAccess = documentAccess;
+        _duplicateDetectionEvaluator = duplicateDetectionEvaluator;
     }
 
     public virtual async Task<DocumentDto> GetAsync(Guid id)
@@ -1008,6 +1019,28 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // reach Ready. The whole-set replacement above means the fields now on the document are the operator's own.
         document.SetReviewReason(DocumentReviewReasons.FieldExtractionIncomplete, present: false);
 
+        // #651 §6: recompute the duplicate fingerprint from the corrected values. Before this, the fingerprint was
+        // computed in exactly ONE place — the field-extraction write phase — so an operator fixing a unique-key
+        // value left the document hashed under the WRONG value forever: the LLM reads invoice number 1284 where
+        // the document says 1234, the operator fixes it, and the genuine re-upload carrying 1234 never collides
+        // with it. That is a pre-existing #411 defect, independent of the scope setting, but it is the same write
+        // path and the same helper. Computed against the definitions already loaded above, so this costs no query.
+        // SetFieldFingerprint reports whether the key actually moved and, when it did, withdraws any
+        // DuplicateAllowed override itself — the operator's "not a duplicate" verdict was about the OLD key
+        // values, and the rule lives on the aggregate so no fingerprint write site can forget it. An unchanged
+        // key — including null → null — means the edit did not touch a unique-key field, so detection cannot
+        // have changed and nothing else is owed. That is also the common case: most corrections are to ordinary
+        // fields.
+        var fingerprint = FlexFieldFingerprintCalculator.Compute(document, definitions, _fieldTypeExtensionRegistry);
+        if (document.SetFieldFingerprint(fingerprint))
+        {
+            // Evaluated after the write, so the evaluator sees the new key and an override that is already gone
+            // (it correctly refuses to re-flag an allowed document).
+            document.SetReviewReason(
+                DocumentReviewReasons.DuplicateSuspected,
+                await _duplicateDetectionEvaluator.EvaluateAsync(document));
+        }
+
         // #491: manual field entry can now clear a **blocking** reason, so this path must re-derive the Ready gate the
         // same way AllowDuplicateAsync does. Before #491 it never needed to: MissingRequiredFields is non-blocking, so
         // clearing it could not change LifecycleStatus. Without this call the operator's escape path would write the
@@ -1578,11 +1611,15 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // the field extraction stage — is still shown; the operator can Allow to release it.
         if ((document.ReviewReasons & DocumentReviewReasons.DuplicateSuspected) != DocumentReviewReasons.None)
         {
+            // #651 §7: the panel reports both what this caller may see and how much it may not, so an empty list
+            // under a blocking reason is no longer an unexplained dead end.
+            var duplicates = await BuildDuplicateCandidatesAsync(document);
             details.Add(new ReviewReasonDetailDto
             {
                 Reason = DocumentReviewReasons.DuplicateSuspected,
                 IsBlocking = ReviewReasonPolicy.IsBlocking(DocumentReviewReasons.DuplicateSuspected),
-                DuplicateCandidates = await BuildDuplicateCandidatesAsync(document)
+                DuplicateCandidates = duplicates.Visible,
+                HiddenDuplicateCandidateCount = duplicates.Hidden
             });
         }
 
@@ -1649,13 +1686,26 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// <see cref="DocumentConsts.MaxDuplicateCandidates"/>, and tenant-/soft-delete-isolated by the repository's
     /// ambient global filters. Returns empty when there is no fingerprint (defensive: a set DuplicateSuspected reason
     /// normally implies one).
+    /// <para>
+    /// #651 §3: the type's own detection scope is applied <b>first</b>, then the caller's read scope. Without
+    /// that ordering an <c>Uploader</c>-scoped type would list candidates in the panel that never triggered the
+    /// flag. #651 §7: the second count is what lets the client distinguish "nothing collides any more" from
+    /// "something collides, outside your visibility".
+    /// </para>
     /// </summary>
-    protected virtual async Task<List<DuplicateCandidateDto>> BuildDuplicateCandidatesAsync(Document document)
+    protected virtual async Task<(List<DuplicateCandidateDto> Visible, int Hidden)> BuildDuplicateCandidatesAsync(
+        Document document)
     {
         if (document.FieldFingerprint == null || !document.DocumentTypeId.HasValue)
         {
-            return new List<DuplicateCandidateDto>();
+            return (new List<DuplicateCandidateDto>(), 0);
         }
+
+        // #651: the type's current setting decides WHAT COUNTS as a duplicate — the same value the pipeline used
+        // when it raised the flag, read live so a scope switch is reflected here immediately (reconciliation
+        // corrects the persisted bit asynchronously, and until it does, the panel showing the new rule's answer
+        // is the more honest of the two).
+        var detectionScope = await _duplicateDetectionEvaluator.ResolveScopeAsync(document.DocumentTypeId.Value);
 
         // #635: each candidate is another document, named by its title and file name. A shared (type,
         // fingerprint) is not a permission to see whoever else uploaded one, so the panel is narrowed by the
@@ -1671,9 +1721,32 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
             document.DocumentTypeId.Value,
             document.FieldFingerprint,
             DocumentConsts.MaxDuplicateCandidates,
+            detectionScope,
+            document.CreatorId,
             readScope);
 
-        return ObjectMapper.Map<List<DuplicateCandidateModel>, List<DuplicateCandidateDto>>(candidates);
+        var visible = ObjectMapper.Map<List<DuplicateCandidateModel>, List<DuplicateCandidateDto>>(candidates);
+
+        // #651 §7: how many candidates the read scope removed. A module-wide reader hides nothing, so that case
+        // is answered without a second query at all; otherwise the same query runs once more unrestricted, still
+        // on this branch only and still capped, so the extra cost lands only on documents actually flagged as
+        // duplicates. Both sides share the cap, which makes the difference a floor rather than an exact total —
+        // enough for the UI to say "an administrator must resolve this", which is all §7 asks for.
+        if (readScope.IsUnrestricted)
+        {
+            return (visible, 0);
+        }
+
+        var unrestricted = await _documentRepository.FindDuplicateCandidatesAsync(
+            document.Id,
+            document.DocumentTypeId.Value,
+            document.FieldFingerprint,
+            DocumentConsts.MaxDuplicateCandidates,
+            detectionScope,
+            document.CreatorId,
+            DocumentAccessScope.Unrestricted);
+
+        return (visible, Math.Max(0, unrestricted.Count - visible.Count));
     }
 
     /// <summary>

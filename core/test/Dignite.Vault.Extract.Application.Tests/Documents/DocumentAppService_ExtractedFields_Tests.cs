@@ -11,6 +11,7 @@ using Dignite.Abp.FlexFields.Date;
 using Dignite.Abp.FlexFields.Number;
 using Dignite.Abp.FlexFields.Text;
 using Dignite.Vault.Extract.Abstractions.Documents;
+using Dignite.Vault.Extract.Documents.DocumentTypes;
 using Dignite.Vault.Extract.Documents.Fields;
 using Dignite.Vault.Extract.FlexFields.Tags;
 using Dignite.Vault.Extract.Documents.Pipelines;
@@ -461,6 +462,184 @@ public class DocumentAppService_ExtractedFields_Tests
         detail.FieldValidationWarnings[0].FieldName.ShouldBe("amount");
         detail.FieldValidationWarnings[0].FieldDisplayName.ShouldBe("Amount");
         detail.FieldValidationWarnings[0].Message.ShouldBe("does not reconcile");
+    }
+
+    // --- #651 6: a manual field correction recomputes the fingerprint -------
+
+    /// <summary>
+    /// The defect this closes: across the whole repository the fingerprint used to be computed in exactly one
+    /// place, the field-extraction write phase, so an operator correcting a unique-key value left the document
+    /// hashed under the WRONG value forever — the LLM reads invoice number 1284 where the document says 1234,
+    /// the operator fixes it, and the genuine re-upload carrying 1234 never collides with it.
+    /// </summary>
+    [Fact]
+    public async Task Correcting_A_Unique_Key_Value_Recomputes_The_Fingerprint_And_Reruns_Detection()
+    {
+        var doc = CreateClassifiedDocument("host.invoice");
+        StubGet(doc);
+        StubUniqueKeyField("host.invoice", "invoice_no");
+        StubNoDuplicateCandidates();
+
+        await _appService.UpdateExtractedFieldsAsync(doc.Id, new UpdateExtractedFieldsInput
+        {
+            Fields = new Dictionary<string, JsonElement> { ["invoice_no"] = JsonString("1284") }
+        });
+        var wrongValueFingerprint = doc.FieldFingerprint;
+        wrongValueFingerprint.ShouldNotBeNull();
+
+        await _appService.UpdateExtractedFieldsAsync(doc.Id, new UpdateExtractedFieldsInput
+        {
+            Fields = new Dictionary<string, JsonElement> { ["invoice_no"] = JsonString("1234") }
+        });
+
+        doc.FieldFingerprint.ShouldNotBeNull();
+        doc.FieldFingerprint.ShouldNotBe(wrongValueFingerprint);
+    }
+
+    [Fact]
+    public async Task Correcting_A_Unique_Key_Value_Into_A_Collision_Raises_The_Blocking_Reason()
+    {
+        var doc = CreateClassifiedDocument("host.invoice");
+        StubGet(doc);
+        StubUniqueKeyField("host.invoice", "invoice_no");
+        StubDuplicateCandidates(new DuplicateCandidateModel { Id = Guid.NewGuid(), Title = "The original" });
+
+        await _appService.UpdateExtractedFieldsAsync(doc.Id, new UpdateExtractedFieldsInput
+        {
+            Fields = new Dictionary<string, JsonElement> { ["invoice_no"] = JsonString("1234") }
+        });
+
+        doc.ReviewReasons.HasFlag(DocumentReviewReasons.DuplicateSuspected).ShouldBeTrue();
+        ReviewReasonPolicy.HasBlocking(doc.ReviewReasons).ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// The edit did not touch a unique-key field, so detection cannot have changed and nothing is owed — no
+    /// recompute, no collision query, no disturbance of an existing verdict. This is the common case: most
+    /// corrections are to ordinary fields.
+    /// </summary>
+    [Fact]
+    public async Task Correcting_A_Non_Key_Field_Leaves_The_Fingerprint_And_The_Verdict_Alone()
+    {
+        var doc = CreateClassifiedDocument("host.invoice");
+        StubGet(doc);
+        StubUniqueKeyField("host.invoice", "invoice_no", alsoPlainField: "note");
+        StubNoDuplicateCandidates();
+
+        await _appService.UpdateExtractedFieldsAsync(doc.Id, new UpdateExtractedFieldsInput
+        {
+            Fields = new Dictionary<string, JsonElement>
+            {
+                ["invoice_no"] = JsonString("1234"),
+                ["note"] = JsonString("first")
+            }
+        });
+        var fingerprint = doc.FieldFingerprint;
+        _documentRepository.ClearReceivedCalls();
+
+        await _appService.UpdateExtractedFieldsAsync(doc.Id, new UpdateExtractedFieldsInput
+        {
+            Fields = new Dictionary<string, JsonElement>
+            {
+                ["invoice_no"] = JsonString("1234"),
+                ["note"] = JsonString("second")
+            }
+        });
+
+        doc.FieldFingerprint.ShouldBe(fingerprint);
+        await _documentRepository.DidNotReceive().FindDuplicateCandidatesAsync(
+            Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<int>(),
+            Arg.Any<DuplicateDetectionScope>(), Arg.Any<Guid?>(), Arg.Any<DocumentAccessScope>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// The operator's "not a duplicate" verdict was about the OLD key values, exactly as
+    /// <c>ResetDuplicateDetectionState</c> retracts it when the type changes. Left standing, the override would
+    /// go on suppressing detection for values nobody ever reviewed.
+    /// </summary>
+    [Fact]
+    public async Task Correcting_A_Unique_Key_Value_Revokes_A_Prior_Not_A_Duplicate_Override()
+    {
+        var doc = CreateClassifiedDocument("host.invoice");
+        StubGet(doc);
+        StubUniqueKeyField("host.invoice", "invoice_no");
+        StubDuplicateCandidates(new DuplicateCandidateModel { Id = Guid.NewGuid() });
+
+        await _appService.UpdateExtractedFieldsAsync(doc.Id, new UpdateExtractedFieldsInput
+        {
+            Fields = new Dictionary<string, JsonElement> { ["invoice_no"] = JsonString("1284") }
+        });
+        doc.AllowDuplicate();   // the operator reviews the flag and clears it
+        doc.DuplicateAllowed.ShouldBeTrue();
+
+        await _appService.UpdateExtractedFieldsAsync(doc.Id, new UpdateExtractedFieldsInput
+        {
+            Fields = new Dictionary<string, JsonElement> { ["invoice_no"] = JsonString("1234") }
+        });
+
+        doc.DuplicateAllowed.ShouldBeFalse();
+        // And because the override is gone, the fresh collision is raised rather than suppressed.
+        doc.ReviewReasons.HasFlag(DocumentReviewReasons.DuplicateSuspected).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Clearing_A_Unique_Key_Value_Drops_The_Fingerprint_And_The_Verdict()
+    {
+        // A key that becomes partial has no fingerprint at all, so the flag can no longer be justified.
+        var doc = CreateClassifiedDocument("host.invoice");
+        StubGet(doc);
+        StubUniqueKeyField("host.invoice", "invoice_no");
+        StubDuplicateCandidates(new DuplicateCandidateModel { Id = Guid.NewGuid() });
+
+        await _appService.UpdateExtractedFieldsAsync(doc.Id, new UpdateExtractedFieldsInput
+        {
+            Fields = new Dictionary<string, JsonElement> { ["invoice_no"] = JsonString("1234") }
+        });
+        doc.FieldFingerprint.ShouldNotBeNull();
+        doc.ReviewReasons.HasFlag(DocumentReviewReasons.DuplicateSuspected).ShouldBeTrue();
+
+        await _appService.UpdateExtractedFieldsAsync(doc.Id, new UpdateExtractedFieldsInput
+        {
+            Fields = new Dictionary<string, JsonElement>()
+        });
+
+        doc.FieldFingerprint.ShouldBeNull();
+        doc.ReviewReasons.HasFlag(DocumentReviewReasons.DuplicateSuspected).ShouldBeFalse();
+    }
+
+    private void StubUniqueKeyField(string typeCode, string uniqueKeyName, string? alsoPlainField = null)
+    {
+        var defs = new List<Field>
+        {
+            new(
+                Guid.NewGuid(), tenantId: null, documentTypeId: TypeId(typeCode),
+                name: uniqueKeyName, displayName: uniqueKeyName,
+                fieldTypeName: TextFieldType.ControlName, description: "extract " + uniqueKeyName,
+                configuration: TextConfig(), isUniqueKey: true)
+        };
+
+        if (alsoPlainField != null)
+        {
+            defs.Add(new Field(
+                Guid.NewGuid(), tenantId: null, documentTypeId: TypeId(typeCode),
+                name: alsoPlainField, displayName: alsoPlainField,
+                fieldTypeName: TextFieldType.ControlName, description: "extract " + alsoPlainField,
+                configuration: TextConfig()));
+        }
+
+        _fieldRepository.GetListAsync(TypeId(typeCode), Arg.Any<CancellationToken>()).Returns(defs);
+    }
+
+    private void StubNoDuplicateCandidates() => StubDuplicateCandidates();
+
+    private void StubDuplicateCandidates(params DuplicateCandidateModel[] candidates)
+    {
+        _documentRepository.FindDuplicateCandidatesAsync(
+                Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<int>(),
+                Arg.Any<DuplicateDetectionScope>(), Arg.Any<Guid?>(), Arg.Any<DocumentAccessScope>(),
+                Arg.Any<CancellationToken>())
+            .Returns(candidates.ToList());
     }
 
     private void StubGet(Document doc)

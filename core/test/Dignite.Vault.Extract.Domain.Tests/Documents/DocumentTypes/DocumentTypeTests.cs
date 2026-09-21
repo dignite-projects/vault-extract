@@ -46,7 +46,7 @@ public class DocumentTypeTests
         // Valid at construction time, but the Update path must revalidate so admins cannot bypass entity
         // invariants through the Update API.
         var type = CreateDocumentType("Contract");
-        Should.Throw<BusinessException>(() => type.Update("host.test", "Bad\nName", null, 0.7, 0))
+        Should.Throw<BusinessException>(() => type.Update("host.test", "Bad\nName", null, 0.7, 0, DuplicateDetectionScope.Layer))
             .Code.ShouldBe(VaultExtractErrorCodes.DocumentType.InvalidDisplayName);
     }
 
@@ -58,7 +58,7 @@ public class DocumentTypeTests
         var type = CreateDocumentType("Contract");
         type.TypeCode.ShouldBe("host.test");
 
-        type.Update("host.renamed-contract", "Contract", null, 0.7, 0);
+        type.Update("host.renamed-contract", "Contract", null, 0.7, 0, DuplicateDetectionScope.Layer);
 
         type.TypeCode.ShouldBe("host.renamed-contract");
     }
@@ -68,7 +68,7 @@ public class DocumentTypeTests
     {
         // Unlocking rename does not skip the regex allowlist; invalid TypeCode is still rejected.
         var type = CreateDocumentType("Contract");
-        Should.Throw<BusinessException>(() => type.Update("bad code", "Contract", null, 0.7, 0))
+        Should.Throw<BusinessException>(() => type.Update("bad code", "Contract", null, 0.7, 0, DuplicateDetectionScope.Layer))
             .Code.ShouldBe(VaultExtractErrorCodes.DocumentType.InvalidCodeFormat);
     }
 
@@ -149,7 +149,7 @@ public class DocumentTypeTests
         // The Update path must revalidate Description so admins cannot bypass entity invariants through
         // the Update API.
         var type = CreateDocumentType("Contract");
-        Should.Throw<BusinessException>(() => type.Update("host.test", "Contract", "Bad\nDescription", 0.7, 0))
+        Should.Throw<BusinessException>(() => type.Update("host.test", "Contract", "Bad\nDescription", 0.7, 0, DuplicateDetectionScope.Layer))
             .Code.ShouldBe(VaultExtractErrorCodes.DocumentType.InvalidDescription);
     }
 

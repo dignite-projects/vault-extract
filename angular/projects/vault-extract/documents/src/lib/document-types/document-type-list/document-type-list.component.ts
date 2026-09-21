@@ -10,7 +10,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { escapeHtmlChars, ListService, LocalizationPipe, PermissionService } from '@abp/ng.core';
+import { escapeHtmlChars, ListService, LocalizationPipe, LocalizationService, PermissionService } from '@abp/ng.core';
 import type { ABP } from '@abp/ng.core';
 import {
   EntityProp,
@@ -29,6 +29,8 @@ import {
   DocumentTypePackDto,
   DocumentTypePackService,
   DocumentTypeService,
+  DuplicateDetectionScope,
+  DuplicateScopePreviewDto,
   EXTRACT_PERMISSIONS,
   SlugSuggestionService,
 } from '@dignite/ng.vault-extract';
@@ -58,7 +60,19 @@ const DOCUMENT_TYPE_SORTS: SortAccessors<DocumentTypeDto> = {
   displayName: type => type.displayName,
   confidenceThreshold: type => type.confidenceThreshold,
   priority: type => type.priority,
+  duplicateScope: type => type.duplicateScope ?? DuplicateDetectionScope.Layer,
 };
+
+// Raw shape of `form.getRawValue()` — named so the #651 preview/save helpers below can pass it around
+// without inlining the form's control shape at every call site.
+interface DocumentTypeFormValue {
+  typeCode: string;
+  displayName: string;
+  description: string;
+  confidenceThreshold: number;
+  priority: number;
+  duplicateScope: DuplicateDetectionScope;
+}
 
 @Component({
   selector: 'lib-document-type-list',
@@ -131,6 +145,11 @@ export class DocumentTypeListComponent implements OnInit {
   );
   readonly RESOURCE_NAME = EXTRACT_PERMISSIONS.DocumentTypes.Resources.Name;
 
+  // #651: exposed so the template can bind <option [ngValue]="...">, matching the DocumentLifecycleStatus
+  // filter select in document-list.component.ts. A plain `[value]` would coerce the enum number to a
+  // string on selection change.
+  readonly DuplicateDetectionScope = DuplicateDetectionScope;
+
   // Target for the open reprocessing modal; null means closed.
   reextractTarget = signal<DocumentTypeDto | null>(null);
   reclassifyTarget = signal<DocumentTypeDto | null>(null);
@@ -170,6 +189,9 @@ export class DocumentTypeListComponent implements OnInit {
     description: ['', [Validators.maxLength(MAX_DESCRIPTION_LENGTH)]],
     confidenceThreshold: [0.7, [Validators.required, Validators.min(0), Validators.max(1)]],
     priority: [0, [Validators.required]],
+    // #651: what counts as a duplicate for this type. Default Layer matches DuplicateDetectionScope's
+    // own default so a type left untouched behaves exactly as before the setting existed.
+    duplicateScope: [DuplicateDetectionScope.Layer, [Validators.required]],
   });
 
   constructor() {
@@ -203,6 +225,21 @@ export class DocumentTypeListComponent implements OnInit {
         displayName: '::DocumentType:Priority',
         sortable: true,
         columnWidth: 140,
+      }),
+      EntityProp.create<DocumentTypeDto>({
+        type: ePropType.String,
+        name: 'duplicateScope',
+        displayName: '::DocumentType:DuplicateScope',
+        sortable: true,
+        columnWidth: 170,
+        valueResolver: data => {
+          const localization = data.getInjected(LocalizationService);
+          const scope = data.record.duplicateScope ?? DuplicateDetectionScope.Layer;
+          const key = scope === DuplicateDetectionScope.Uploader
+            ? '::DocumentType:DuplicateScope:Uploader'
+            : '::DocumentType:DuplicateScope:Layer';
+          return of(escapeHtmlChars(localization.instant(key)));
+        },
       }),
     ]);
 
@@ -270,7 +307,14 @@ export class DocumentTypeListComponent implements OnInit {
   }
 
   openCreate(): void {
-    this.form.reset({ typeCode: '', displayName: '', description: '', confidenceThreshold: 0.7, priority: 0 });
+    this.form.reset({
+      typeCode: '',
+      displayName: '',
+      description: '',
+      confidenceThreshold: 0.7,
+      priority: 0,
+      duplicateScope: DuplicateDetectionScope.Layer,
+    });
     this.form.controls.typeCode.enable();
     // Must be called after form.reset()/enable(): both trigger valueChanges that can be misread as
     // "manual edit". reset() clears that marker and resets suggestion state, including the spinner.
@@ -288,6 +332,7 @@ export class DocumentTypeListComponent implements OnInit {
       description: type.description ?? '',
       confidenceThreshold: type.confidenceThreshold,
       priority: type.priority,
+      duplicateScope: type.duplicateScope ?? DuplicateDetectionScope.Layer,
     });
     this.form.controls.typeCode.enable();
     this.slugHandle?.markManual();
@@ -331,16 +376,19 @@ export class DocumentTypeListComponent implements OnInit {
     const mode = this.editing();
     if (mode === null) return;
 
-    this.isSubmitting.set(true);
     const raw = this.form.getRawValue();
 
     if (mode === 'create') {
+      // #651: a newly created type has no documents yet, so switching its scope has nothing to
+      // reconcile — never preview on create.
+      this.isSubmitting.set(true);
       const input: CreateDocumentTypeDto = {
         typeCode: raw.typeCode,
         displayName: raw.displayName,
         description: raw.description.trim() || undefined,
         confidenceThreshold: raw.confidenceThreshold,
         priority: raw.priority,
+        duplicateScope: raw.duplicateScope,
       };
       this.service.create(input)
         .pipe(takeUntilDestroyed(this.destroyRef))
@@ -348,20 +396,76 @@ export class DocumentTypeListComponent implements OnInit {
           next: () => this.onSaved('::DocumentType:CreatedSuccessfully'),
           error: () => this.isSubmitting.set(false),
         });
-    } else {
-      this.service.update(mode.id!, {
-        typeCode: raw.typeCode,
-        displayName: raw.displayName,
-        description: raw.description.trim() || undefined,
-        confidenceThreshold: raw.confidenceThreshold,
-        priority: raw.priority,
-      })
-        .pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe({
-          next: () => this.onSaved('::DocumentType:UpdatedSuccessfully'),
-          error: () => this.isSubmitting.set(false),
-        });
+      return;
     }
+
+    // #651 §5: only an actual switch has a consequence to preview; a type left at its current scope
+    // saves straight through, with no preview call at all.
+    const currentScope = mode.duplicateScope ?? DuplicateDetectionScope.Layer;
+    if (raw.duplicateScope !== currentScope) {
+      this.confirmDuplicateScopeChange(mode, raw);
+      return;
+    }
+
+    this.saveUpdate(mode, raw);
+  }
+
+  /**
+   * #651 §5: saving a scope switch enqueues automatic reconciliation of existing review flags — there is
+   * no separate "apply" step — so the admin must decide "do I want this rule" before the save, not after.
+   * The type form previews the two counts the switch would re-evaluate and confirms before the update
+   * request goes out. Gated by the same permission as the update itself (server-side).
+   */
+  private confirmDuplicateScopeChange(mode: DocumentTypeDto, raw: DocumentTypeFormValue): void {
+    this.isSubmitting.set(true);
+    this.service.getDuplicateScopePreview(mode.id!, raw.duplicateScope)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: preview => {
+          this.isSubmitting.set(false);
+          this.confirmDuplicateScopeSwitch(mode, raw, preview);
+        },
+        error: () => {
+          this.isSubmitting.set(false);
+          this.toaster.error('::Document:Reprocess:PreviewFailed', '::Error');
+        },
+      });
+  }
+
+  private confirmDuplicateScopeSwitch(
+    mode: DocumentTypeDto,
+    raw: DocumentTypeFormValue,
+    preview: DuplicateScopePreviewDto,
+  ): void {
+    // Both directions re-evaluate every fingerprinted document of the type against the prospective
+    // scope, and either direction can both flag and clear — a narrowing switch can also newly flag a
+    // stale first-upload gap, not only release documents. One message, two counts; no direction branch.
+    this.confirmation
+      .warn('::DocumentType:DuplicateScope:Preview:Message', '::DocumentType:DuplicateScope:Preview:Title', {
+        messageLocalizationParams: [String(preview.willFlagCount ?? 0), String(preview.willClearCount ?? 0)],
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(status => {
+        if (status !== Confirmation.Status.confirm) return;
+        this.saveUpdate(mode, raw);
+      });
+  }
+
+  private saveUpdate(mode: DocumentTypeDto, raw: DocumentTypeFormValue): void {
+    this.isSubmitting.set(true);
+    this.service.update(mode.id!, {
+      typeCode: raw.typeCode,
+      displayName: raw.displayName,
+      description: raw.description.trim() || undefined,
+      confidenceThreshold: raw.confidenceThreshold,
+      priority: raw.priority,
+      duplicateScope: raw.duplicateScope,
+    })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => this.onSaved('::DocumentType:UpdatedSuccessfully'),
+        error: () => this.isSubmitting.set(false),
+      });
   }
 
   private onSaved(messageKey: string): void {

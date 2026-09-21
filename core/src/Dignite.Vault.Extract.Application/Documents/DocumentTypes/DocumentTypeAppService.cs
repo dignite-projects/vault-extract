@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Dignite.Vault.Extract.Documents.Duplicates;
 using Dignite.Vault.Extract.Documents.Fields;
 using Dignite.Vault.Extract.Permissions;
 using Microsoft.AspNetCore.Authorization;
@@ -25,6 +26,10 @@ public class DocumentTypeAppService : VaultExtractAppService, IDocumentTypeAppSe
     private readonly FieldDefinitionManager _fieldDefinitionManager;
     private readonly FieldSchemaPromptBudgetGuard _schemaPromptBudget;
     private readonly ResourcePermissionPopulator _resourcePermissionPopulator;
+    /// <summary>#651 §5: the one place a DocumentType is mutated, saved, and has its consequences enqueued.</summary>
+    private readonly DocumentTypeUpdater _documentTypeUpdater;
+    /// <summary>#651 §5: the reconciliation verdict, shared with the job so the preview quotes what will happen.</summary>
+    private readonly DuplicateScopeVerdictCalculator _duplicateScopeVerdicts;
 
     public DocumentTypeAppService(
         IDocumentTypeRepository repository,
@@ -33,7 +38,9 @@ public class DocumentTypeAppService : VaultExtractAppService, IDocumentTypeAppSe
         DocumentTypeManager documentTypeManager,
         FieldDefinitionManager fieldDefinitionManager,
         FieldSchemaPromptBudgetGuard schemaPromptBudget,
-        ResourcePermissionPopulator resourcePermissionPopulator)
+        ResourcePermissionPopulator resourcePermissionPopulator,
+        DocumentTypeUpdater documentTypeUpdater,
+        DuplicateScopeVerdictCalculator duplicateScopeVerdicts)
     {
         _repository = repository;
         _documentRepository = documentRepository;
@@ -42,6 +49,8 @@ public class DocumentTypeAppService : VaultExtractAppService, IDocumentTypeAppSe
         _fieldDefinitionManager = fieldDefinitionManager;
         _schemaPromptBudget = schemaPromptBudget;
         _resourcePermissionPopulator = resourcePermissionPopulator;
+        _documentTypeUpdater = documentTypeUpdater;
+        _duplicateScopeVerdicts = duplicateScopeVerdicts;
     }
 
     public virtual async Task<List<DocumentTypeDto>> GetVisibleAsync()
@@ -133,8 +142,11 @@ public class DocumentTypeAppService : VaultExtractAppService, IDocumentTypeAppSe
             input.DisplayName,
             input.Description,
             input.ConfidenceThreshold,
-            input.Priority);
+            input.Priority,
+            input.DuplicateScope);
 
+        // No reconciliation enqueue on create: a brand-new type has no documents, so there is no persisted
+        // verdict to bring in line with whatever scope it was created under.
         await _repository.InsertAsync(entity, autoSave: true);
         return ObjectMapper.Map<DocumentType, DocumentTypeDto>(entity);
     }
@@ -158,9 +170,63 @@ public class DocumentTypeAppService : VaultExtractAppService, IDocumentTypeAppSe
             await _documentTypeManager.CheckCodeAvailableAsync(input.TypeCode);
         }
 
-        entity.Update(input.TypeCode, input.DisplayName, input.Description, input.ConfidenceThreshold, input.Priority);
-        await _repository.UpdateAsync(entity, autoSave: true);
+        // #651 §5: the save goes through DocumentTypeUpdater, which persists the entity and — only when
+        // DuplicateScope actually moved — enqueues reconciliation. DuplicateSuspected is a persisted bit rather
+        // than a computed view, so changing the setting changes no existing verdict by itself and BOTH
+        // directions leave a stale half. The pack import's save path calls the same helper; two copies of that
+        // obligation is how the pack import came to be missing it.
+        await _documentTypeUpdater.UpdateAsync(
+            entity,
+            type => type.Update(
+                input.TypeCode,
+                input.DisplayName,
+                input.Description,
+                input.ConfidenceThreshold,
+                input.Priority,
+                input.DuplicateScope));
+
         return ObjectMapper.Map<DocumentType, DocumentTypeDto>(entity);
+    }
+
+    /// <summary>
+    /// #651 §5: what switching this type to <paramref name="duplicateScope"/> would actually do, for the type
+    /// form to state before the save that enqueues it. Gated by <c>DocumentTypes.Update</c> — the same permission
+    /// as performing the switch — and cross-layer-guarded the same way <see cref="UpdateAsync"/> is.
+    /// <para>
+    /// The counts are the <b>real diff</b>, not a direction heuristic: they come from
+    /// <see cref="DuplicateScopeVerdictCalculator"/>, the same component
+    /// <c>DuplicateScopeReconciliationJob</c> applies, run over every page of the type under the prospective
+    /// scope and counted instead of written. So "127 documents will return to review" is a promise the job then
+    /// keeps, rather than an upper bound the admin has to discount.
+    /// </para>
+    /// <para>
+    /// This is why the answer cannot be two cheap aggregates: both switch directions re-evaluate <b>every</b>
+    /// fingerprinted document, so both can flag and both can clear, and which documents move depends on the
+    /// collision buckets rather than on the direction. Reads only — no write, no row load — but it does page the
+    /// whole type while the admin waits, which is the cost of quoting the real number.
+    /// </para>
+    /// </summary>
+    [Authorize(VaultExtractPermissions.DocumentTypes.Update)]
+    public virtual async Task<DuplicateScopePreviewDto> GetDuplicateScopePreviewAsync(
+        Guid id, DuplicateDetectionScope duplicateScope)
+    {
+        var entity = await _repository.GetAsync(id);
+
+        if (entity.TenantId != CurrentTenant.Id)
+        {
+            throw new EntityNotFoundException(typeof(DocumentType), id);
+        }
+
+        var impact = await _duplicateScopeVerdicts.PreviewAsync(entity.Id, duplicateScope);
+
+        return new DuplicateScopePreviewDto
+        {
+            CurrentScope = entity.DuplicateScope,
+            ProspectiveScope = duplicateScope,
+            WouldChange = duplicateScope != entity.DuplicateScope,
+            WillFlagCount = impact.WillFlagCount,
+            WillClearCount = impact.WillClearCount
+        };
     }
 
     [Authorize(VaultExtractPermissions.DocumentTypes.Delete)]

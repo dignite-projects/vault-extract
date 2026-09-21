@@ -228,6 +228,18 @@
                 <input type="number" class="form-control" formControlName="priority" step="1" />
               </div>
             </div>
+            <div class="mb-3">
+              <label class="form-label">{{ '::DocumentType:DuplicateScope' | abpLocalization }}</label>
+              <select class="form-select" formControlName="duplicateScope">
+                <option [ngValue]="DuplicateDetectionScope.Layer">
+                  {{ '::DocumentType:DuplicateScope:Layer' | abpLocalization }}
+                </option>
+                <option [ngValue]="DuplicateDetectionScope.Uploader">
+                  {{ '::DocumentType:DuplicateScope:Uploader' | abpLocalization }}
+                </option>
+              </select>
+              <div class="form-text">{{ '::DocumentType:DuplicateScope:Hint' | abpLocalization }}</div>
+            </div>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" (click)="closeModal()">

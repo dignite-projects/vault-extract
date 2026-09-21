@@ -472,13 +472,20 @@
                               </button>
                             }
                           </div>
-                        } @else if (detail.reason === DocumentReviewReasons.DuplicateSuspected) {
-                          <!-- #635: the candidate list is narrowed by the caller's read scope, so a suspected
-                               duplicate can arrive with no candidate this caller may see — or with none at all,
-                               because the match was since deleted. The wording covers both, and claims nothing
-                               about which. -->
+                        } @else if (detail.reason === DocumentReviewReasons.DuplicateSuspected && (detail.hiddenDuplicateCandidateCount ?? 0) > 0) {
+                          <!-- #651 §7: the match exists under the type's detection scope but is outside this
+                               caller's read scope — an uploader who reaches documents only through the
+                               ownership arm cannot resolve this themselves (DocumentAccessRule.Review's
+                               OwnerArm: Never), so say why rather than showing an empty list. -->
                           <div class="text-muted ms-1 mt-1 duplicate-candidates-empty">
-                            {{ '::Document:ReviewReason:NoViewableDuplicateCandidates' | abpLocalization }}
+                            {{ '::Document:ReviewReason:HiddenDuplicateCandidates' | abpLocalization: ((detail.hiddenDuplicateCandidateCount | number) ?? '') }}
+                          </div>
+                        } @else if (detail.reason === DocumentReviewReasons.DuplicateSuspected) {
+                          <!-- #651 §7: no candidate this caller may see, and none hidden either — the other
+                               copy was since deleted. Nothing collides any more; the operator may confirm it
+                               is not a duplicate. -->
+                          <div class="text-muted ms-1 mt-1 duplicate-candidates-empty">
+                            {{ '::Document:ReviewReason:NoRemainingDuplicateCandidates' | abpLocalization }}
                           </div>
                         }
                         <!-- #527: field-validation warnings — each flagged field's display name + the warning message.

@@ -21,4 +21,13 @@ public class CreateDocumentTypeDto
     public double ConfidenceThreshold { get; set; } = 0.7;
 
     public int Priority { get; set; }
+
+    /// <summary>
+    /// What counts as a duplicate for this type (#651). <see cref="DuplicateDetectionScope.Layer"/> — the whole
+    /// layer + type, whoever uploaded — is the default and the pre-#651 behaviour;
+    /// <see cref="DuplicateDetectionScope.Uploader"/> narrows a collision to documents sharing the subject's
+    /// uploader. The enum's integer values are a frozen serialized contract.
+    /// </summary>
+    [EnumDataType(typeof(DuplicateDetectionScope))]
+    public DuplicateDetectionScope DuplicateScope { get; set; } = DuplicateDetectionScope.Layer;
 }

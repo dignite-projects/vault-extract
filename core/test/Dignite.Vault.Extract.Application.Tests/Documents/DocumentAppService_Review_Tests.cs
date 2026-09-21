@@ -399,7 +399,11 @@ public class DocumentAppService_Review_Tests
                     Substitute.For<IDocumentTypeRepository>(),
                     Substitute.For<Volo.Abp.Data.IDataFilter>(),
                     Substitute.For<Volo.Abp.MultiTenancy.ICurrentTenant>(),
-                    Substitute.For<Volo.Abp.Users.ICurrentUser>())));
+                    Substitute.For<Volo.Abp.Users.ICurrentUser>())),
+            new Duplicates.DuplicateDetectionEvaluator(
+                Substitute.For<IDocumentRepository>(),
+                Substitute.For<IDocumentTypeRepository>(),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<Duplicates.DuplicateDetectionEvaluator>.Instance));
 
         var method = typeof(DocumentAppService).GetMethod(
             "ApplyFilter",

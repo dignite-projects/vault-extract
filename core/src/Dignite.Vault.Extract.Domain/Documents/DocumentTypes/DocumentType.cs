@@ -52,8 +52,33 @@ public class DocumentType : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// <summary>Type matching priority. Higher numbers have higher priority; fallback / generic types are usually 0.</summary>
     public virtual int Priority { get; private set; }
 
+    /// <summary>
+    /// What counts as a duplicate for this type (#651): the set a document's <see cref="Document.FieldFingerprint"/>
+    /// is compared against by duplicate detection (#411). <see cref="DuplicateDetectionScope.Layer"/> — the whole
+    /// layer + type, whoever uploaded — is the default and the pre-#651 behaviour;
+    /// <see cref="DuplicateDetectionScope.Uploader"/> narrows a collision to documents sharing the subject's
+    /// <see cref="Document.CreatorId"/>, for the tenant where each department legitimately keeps its own copy.
+    /// <para>
+    /// Read at <b>execution time</b> by every detection entry point, never captured into a job argument, so two
+    /// switches in quick succession converge on the final setting instead of racing. Changing it enqueues
+    /// <c>DuplicateScopeReconciliationJob</c>, because <see cref="DocumentReviewReasons.DuplicateSuspected"/> is a
+    /// persisted bit rather than a computed view and both switch directions leave a stale half.
+    /// </para>
+    /// </summary>
+    public virtual DuplicateDetectionScope DuplicateScope { get; private set; }
+
     protected DocumentType() { }
 
+    /// <summary>
+    /// <paramref name="duplicateScope"/> keeps a default here, unlike on <see cref="Update"/> (#651). The
+    /// asymmetry is deliberate: a constructor picks a value for a row that does not exist yet, where
+    /// <see cref="DuplicateDetectionScope.Layer"/> is the documented product default and the pre-#651 behaviour,
+    /// whereas <see cref="Update"/> <b>overwrites a persisted one</b> — which is the hole the pack import fell
+    /// into. Requiring it here would also have forced <paramref name="description"/> /
+    /// <paramref name="confidenceThreshold"/> / <paramref name="priority"/> to lose their defaults (an optional
+    /// parameter may not precede a required one), breaking every consumer that constructs a type by its four
+    /// identifying values — a break unrelated to anything #651 is about.
+    /// </summary>
     public DocumentType(
         Guid id,
         Guid? tenantId,
@@ -61,7 +86,8 @@ public class DocumentType : FullAuditedAggregateRoot<Guid>, IMultiTenant
         string displayName,
         string? description = null,
         double confidenceThreshold = ClassificationDefaults.DefaultConfidenceThreshold,
-        int priority = 0)
+        int priority = 0,
+        DuplicateDetectionScope duplicateScope = DuplicateDetectionScope.Layer)
         : base(id)
     {
         TenantId = tenantId;
@@ -70,16 +96,58 @@ public class DocumentType : FullAuditedAggregateRoot<Guid>, IMultiTenant
         Description = ValidateDescription(description);
         ConfidenceThreshold = Check.Range(confidenceThreshold, nameof(confidenceThreshold), 0d, 1d);
         Priority = priority;
+        DuplicateScope = ValidateDuplicateScope(duplicateScope);
     }
 
-    /// <summary>Updates the document type. Renaming <see cref="TypeCode"/> is a contract-level change because downstream consumers / LLM prompts depend on it; the UI should warn.</summary>
-    public void Update(string typeCode, string displayName, string? description, double confidenceThreshold, int priority)
+    /// <summary>
+    /// Updates the document type. Renaming <see cref="TypeCode"/> is a contract-level change because downstream
+    /// consumers / LLM prompts depend on it; the UI should warn.
+    /// <para>
+    /// <paramref name="duplicateScope"/> is required and deliberately un-defaulted (#651), which also restores
+    /// this method's original all-required shape. A default here would not merely pick a value for a new row —
+    /// it <b>overwrites a persisted one</b>, so a save path whose author never noticed the parameter resets
+    /// every <see cref="DuplicateDetectionScope.Uploader"/> type back to
+    /// <see cref="DuplicateDetectionScope.Layer"/> and silently changes what counts as a duplicate across that
+    /// type's whole corpus. The pack import did exactly this until it was caught. The constructor keeps its
+    /// default for the opposite reason; see its own remarks.
+    /// </para>
+    /// </summary>
+    public void Update(
+        string typeCode,
+        string displayName,
+        string? description,
+        double confidenceThreshold,
+        int priority,
+        DuplicateDetectionScope duplicateScope)
     {
         TypeCode = ValidateTypeCode(typeCode);
         DisplayName = ValidateDisplayName(displayName);
         Description = ValidateDescription(description);
         ConfidenceThreshold = Check.Range(confidenceThreshold, nameof(confidenceThreshold), 0d, 1d);
         Priority = priority;
+        DuplicateScope = ValidateDuplicateScope(duplicateScope);
+    }
+
+    /// <summary>
+    /// The enum's integer values are persisted and serialized (#651), so an undefined member must not reach the
+    /// column: a row holding one would be read back as a scope no detection path knows how to apply, and JSON
+    /// deserialization happily turns an arbitrary integer into an enum. Guarded at the entity because the pack
+    /// import writes this straight from a file. An <see cref="ArgumentException"/> rather than a
+    /// <see cref="BusinessException"/> and a new frozen error code, for the same reason
+    /// <see cref="ConfidenceThreshold"/>'s out-of-range guard is <c>Check.Range</c>: this is a programming /
+    /// malformed-input error, not a business rule an operator can act on. The DTOs carry
+    /// <c>[EnumDataType]</c> so a bad REST payload is answered as a 400 before it ever gets here.
+    /// </summary>
+    private static DuplicateDetectionScope ValidateDuplicateScope(DuplicateDetectionScope duplicateScope)
+    {
+        if (!Enum.IsDefined(duplicateScope))
+        {
+            throw new ArgumentException(
+                $"Undefined {nameof(DuplicateDetectionScope)} value: {(int)duplicateScope}.",
+                nameof(duplicateScope));
+        }
+
+        return duplicateScope;
     }
 
     private static string ValidateTypeCode(string typeCode)

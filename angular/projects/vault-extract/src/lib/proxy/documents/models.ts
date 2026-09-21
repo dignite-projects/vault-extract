@@ -131,6 +131,7 @@ export interface ReviewReasonDetailDto {
   isBlocking?: boolean;
   missingFieldNames?: string[] | null;
   duplicateCandidates?: DuplicateCandidateDto[] | null;
+  hiddenDuplicateCandidateCount?: number | null;
   fieldValidationWarnings?: FieldValidationWarningDto[] | null;
 }
 

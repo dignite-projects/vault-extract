@@ -49,6 +49,17 @@ public class DocumentTypeController : VaultExtractController, IDocumentTypeAppSe
         return _documentTypeAppService.UpdateAsync(id, input);
     }
 
+    /// <summary>
+    /// #651 §5: the pre-save preview for a duplicate-scope switch. A GET with the prospective scope in the query
+    /// string — it reads two counts and changes nothing, so a POST would misdescribe it.
+    /// </summary>
+    [HttpGet("{id}/duplicate-scope-preview")]
+    public virtual Task<DuplicateScopePreviewDto> GetDuplicateScopePreviewAsync(
+        Guid id, [FromQuery] DuplicateDetectionScope duplicateScope)
+    {
+        return _documentTypeAppService.GetDuplicateScopePreviewAsync(id, duplicateScope);
+    }
+
     [HttpDelete("{id}")]
     public virtual Task DeleteAsync(Guid id)
     {

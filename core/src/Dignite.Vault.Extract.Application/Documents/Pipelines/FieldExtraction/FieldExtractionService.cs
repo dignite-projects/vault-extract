@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Dignite.Abp.FlexFields;
 using Dignite.Vault.Extract.Ai;
+using Dignite.Vault.Extract.Documents.Duplicates;
 using Dignite.Vault.Extract.Documents.Review;
 using Dignite.Vault.Extract.FlexFields;
 using Microsoft.Extensions.Logging;
@@ -59,6 +60,12 @@ public class FieldExtractionService : ITransientDependency
     /// </summary>
     private readonly IFlexFieldIndexManager<Document> _indexManager;
     private readonly ReviewStateEvaluator _reviewEvaluator;
+    /// <summary>
+    /// #651 §4: the single implementation of "does this document collide under its type's current duplicate
+    /// scope?", shared with the operator's manual field correction and with scope reconciliation. This stage used
+    /// to decide it inline.
+    /// </summary>
+    private readonly DuplicateDetectionEvaluator _duplicateDetectionEvaluator;
     private readonly FieldExtractionWorkflow _workflow;
     private readonly ICurrentTenant _currentTenant;
     private readonly IUnitOfWorkManager _unitOfWorkManager;
@@ -76,6 +83,7 @@ public class FieldExtractionService : ITransientDependency
         IFieldRepository fieldRepository,
         IFlexFieldIndexManager<Document> indexManager,
         ReviewStateEvaluator reviewEvaluator,
+        DuplicateDetectionEvaluator duplicateDetectionEvaluator,
         FieldExtractionWorkflow workflow,
         ICurrentTenant currentTenant,
         IUnitOfWorkManager unitOfWorkManager,
@@ -89,6 +97,7 @@ public class FieldExtractionService : ITransientDependency
         _fieldRepository = fieldRepository;
         _indexManager = indexManager;
         _reviewEvaluator = reviewEvaluator;
+        _duplicateDetectionEvaluator = duplicateDetectionEvaluator;
         _workflow = workflow;
         _currentTenant = currentTenant;
         _unitOfWorkManager = unitOfWorkManager;
@@ -432,34 +441,23 @@ public class FieldExtractionService : ITransientDependency
                 _reviewEvaluator.MissingRequiredFieldsPresent(requiredIds, extractedIds));
 
             // #411: compute the duplicate fingerprint from this type's unique-key fields, then flag a suspected
-            // duplicate re-upload. The fingerprint is derived from the just-written field values; a collision with
-            // another document in the same layer + type sets the blocking DuplicateSuspected reason. Because
+            // duplicate re-upload. The fingerprint is derived from the just-written field values; a collision
+            // under the type's current DuplicateScope sets the blocking DuplicateSuspected reason. Because
             // field-extraction is a key pipeline (#411), the run's Ready derivation in DocumentFieldExtractionBackgroundJob
-            // then withholds DocumentReadyEto until an operator resolves it. DuplicateAllowed (the operator's prior
-            // "not a duplicate" override) suppresses re-flagging on re-extraction. The collision query relies on the
-            // ambient IMultiTenant + ISoftDelete filters (tenant restored via ICurrentTenant.Change above) and is
-            // hard-capped, so it never returns a cross-layer or unbounded set.
+            // then withholds DocumentReadyEto until an operator resolves it.
+            //
+            // #651: the verdict itself is no longer decided here. The same question is asked by the operator's
+            // manual field correction and by scope reconciliation, and three inline copies of the predicate is
+            // how the pipeline and the panel drifted apart in the first place — DuplicateDetectionEvaluator owns
+            // it, including the null-fingerprint and DuplicateAllowed short-circuits this block used to carry and
+            // the Unrestricted read scope it used to pass. The query still relies on the ambient IMultiTenant +
+            // ISoftDelete filters (tenant restored via ICurrentTenant.Change above) and is still hard-capped.
             var fingerprint = FlexFieldFingerprintCalculator.Compute(document, currentDefinitions, _fieldTypeExtensionRegistry);
             document.SetFieldFingerprint(fingerprint);
 
-            var duplicateSuspected = false;
-            if (fingerprint != null && !document.DuplicateAllowed)
-            {
-                var candidates = await _documentRepository.FindDuplicateCandidatesAsync(
-                    document.Id,
-                    documentTypeId,
-                    fingerprint,
-                    DocumentConsts.MaxDuplicateCandidates,
-                    // #635: unrestricted, explicitly. This runs in a background job with no principal and only
-                    // counts the candidates to decide the flag — a duplicate the uploader may not see is still a
-                    // duplicate, and narrowing here would make the review reason depend on who happened to upload
-                    // the other copy. The operator-facing panel narrows instead (DocumentAppService).
-                    DocumentAccessScope.Unrestricted,
-                    _cancellationTokenProvider.Token);
-                duplicateSuspected = candidates.Count > 0;
-            }
-
-            document.SetReviewReason(DocumentReviewReasons.DuplicateSuspected, duplicateSuspected);
+            document.SetReviewReason(
+                DocumentReviewReasons.DuplicateSuspected,
+                await _duplicateDetectionEvaluator.EvaluateAsync(document, _cancellationTokenProvider.Token));
 
             // Logical field count: one bag entry is one field.
             var fieldCount = fieldValues.Count;

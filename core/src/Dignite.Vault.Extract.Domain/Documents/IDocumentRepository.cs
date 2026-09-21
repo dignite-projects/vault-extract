@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Dignite.Vault.Extract.Documents.DocumentTypes;
 using Volo.Abp.Domain.Repositories;
 
 namespace Dignite.Vault.Extract.Documents;
@@ -117,8 +118,24 @@ public interface IDocumentRepository : IRepository<Document, Guid>
     /// projected with <c>AsNoTracking</c>), no raw SQL.
     /// </para>
     /// </summary>
+    /// <param name="detectionScope">
+    /// #651: the type's own <c>DuplicateScope</c> — <b>what counts as a duplicate</b>. Under
+    /// <see cref="DuplicateDetectionScope.Uploader"/> a candidate must additionally share
+    /// <paramref name="subjectCreatorId"/>; under <see cref="DuplicateDetectionScope.Layer"/> (the default and the
+    /// pre-#651 behaviour) it adds no predicate at all. Applied <b>before</b> <paramref name="readScope"/>,
+    /// because otherwise the operator panel would list candidates that never triggered the flag.
+    /// </param>
+    /// <param name="subjectCreatorId">
+    /// The subject document's own <see cref="Document.CreatorId"/>, the ownership anchor #635's owner arm uses.
+    /// Ignored under <see cref="DuplicateDetectionScope.Layer"/>. Under
+    /// <see cref="DuplicateDetectionScope.Uploader"/> it is matched by <b>equality</b>, so a <c>null</c> anchor
+    /// matches only another <c>null</c> — no fallback to layer-wide, which would apply the stricter rule to
+    /// exactly the rows nobody asked to be stricter about (historical rows and every machine-identity upload,
+    /// which have no <c>CurrentUser.Id</c> to record).
+    /// </param>
     /// <param name="readScope">
-    /// #635: the caller's read scope, applied as an additional predicate. The panel names <b>other people's</b>
+    /// #635: the caller's read scope, applied as an additional predicate — <b>whose names may be shown</b>, which
+    /// is orthogonal to <paramref name="detectionScope"/>. The panel names <b>other people's</b>
     /// documents by title and file name, so a caller who may not read them must not be handed them through the
     /// review detail of a document they can read — a (type, fingerprint) pair is not a permission to see whoever
     /// else uploaded one. The pipeline passes <see cref="DocumentAccessScope.Unrestricted"/>: it runs with no
@@ -129,7 +146,63 @@ public interface IDocumentRepository : IRepository<Document, Guid>
         Guid documentTypeId,
         string fieldFingerprint,
         int maxResults,
+        DuplicateDetectionScope detectionScope,
+        Guid? subjectCreatorId,
         DocumentAccessScope readScope,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Step 1 of duplicate-scope reconciliation (#651 §5): how many <b>live</b> documents of one type sit in each
+    /// collision bucket under <paramref name="detectionScope"/>, restricted to the fingerprints the caller names
+    /// — <c>GROUP BY FieldFingerprint</c> for <see cref="DuplicateDetectionScope.Layer"/>,
+    /// <c>GROUP BY FieldFingerprint, CreatorId</c> for <see cref="DuplicateDetectionScope.Uploader"/>. The
+    /// existing <c>(TenantId, DocumentTypeId, FieldFingerprint)</c> index serves both the restriction and the
+    /// grouping.
+    /// <para>
+    /// <b>Soft-deleted rows are excluded</b> (the ambient <c>ISoftDelete</c> filter is left on), matching
+    /// <see cref="FindDuplicateCandidatesAsync"/> — a recycle-bin document is not a live collision for anyone.
+    /// That is also why there is <b>no <c>HAVING COUNT(*) &gt; 1</c></b>: a recycle-bin row is absent from its own
+    /// bucket, so a bucket of size 1 still means "this deleted document would collide on restore", and dropping
+    /// singletons would silently leave every such row stale.
+    /// </para>
+    /// <para><c>IMultiTenant</c> stays on, so the aggregate never leaves this type's own layer. Pure EF LINQ, no raw SQL.</para>
+    /// </summary>
+    /// <param name="fingerprints">
+    /// The fingerprints to aggregate — <b>this is the cap</b>, and the reason no <c>Take(N)</c> appears here. The
+    /// caller is the reconciliation job, which asks only about the fingerprints on the page it is about to
+    /// reconcile, so the result is bounded by <c>DocumentConsts.ReprocessingDispatchBatchSize</c> rather than by
+    /// the type's distinct-fingerprint count. A <c>Take</c> would be the wrong instrument regardless: it bounds
+    /// nothing a caller reads back, and it would hand the job a silently wrong verdict for every bucket past the
+    /// cut. An empty collection short-circuits to an empty dictionary without querying.
+    /// <para>
+    /// Typed as <see cref="IReadOnlyCollection{T}"/> on purpose, the same shape
+    /// <c>DocumentAccessScope.ToPredicate</c> uses: <c>Contains</c> then binds to <c>Enumerable.Contains</c>,
+    /// which the relational provider translates to an <c>IN</c> list. <c>IReadOnlySet&lt;T&gt;.Contains</c> is an
+    /// interface method the provider has no reason to know.
+    /// </para>
+    /// </param>
+    Task<Dictionary<DuplicateCollisionKey, int>> CountDuplicateCollisionsAsync(
+        Guid documentTypeId,
+        DuplicateDetectionScope detectionScope,
+        IReadOnlyCollection<string> fingerprints,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Step 2 of duplicate-scope reconciliation (#651 §5): a keyset-paged, narrow projection of one type's
+    /// documents — everything the diff needs and nothing else, notably no <c>Markdown</c>. Same cursor contract as
+    /// <see cref="GetIdsWithDuplicateBasisAsync"/> (<c>Id &gt; afterId</c>, ordered by <c>Id</c>, capped at
+    /// <paramref name="maxCount"/>).
+    /// <para>
+    /// <b>Traverses soft delete</b>, unlike <see cref="CountDuplicateCollisionsAsync"/>: restoring a document must
+    /// not bring back a flag derived from a rule the admin has since retracted. The two soft-delete scopes
+    /// differing is the part of this that is easy to get wrong, so they are stated on both methods.
+    /// <c>IMultiTenant</c> stays on.
+    /// </para>
+    /// </summary>
+    Task<List<DuplicateReconciliationRow>> GetDuplicateReconciliationPageAsync(
+        Guid documentTypeId,
+        Guid? afterId,
+        int maxCount,
         CancellationToken cancellationToken = default);
 
     Task HardDeleteAsync(Guid id, CancellationToken cancellationToken = default);
