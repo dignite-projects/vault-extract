@@ -399,7 +399,14 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // can both pass the check and create duplicate Documents. This race is intentionally accepted for now (#221 review follow-up 2):
         // low probability and low impact (at most one duplicate, removable later). Adding a unique index to ContentHash would turn the losing side
         // of the race into a 500; the channel layer does not pay that cost for low-probability duplication.
-        var existing = await _documentRepository.FindByContentHashAsync(contentHash);
+        //
+        // #655: scoped to the uploader — the caller's own copy of these bytes is a duplicate, another user's is not
+        // (#651's Uploader scope, which this check used to contradict). The type is not known yet on an untyped
+        // upload, so the type's DuplicateScope cannot be consulted here; uploader-only is the one rule that never
+        // depends on something classification has not decided. As a consequence a hit is always the caller's own
+        // document, so ExistingDocumentId below never names one they cannot read. CurrentUser.Id is null for a
+        // client_credentials caller, and a null matches only a null CreatorId.
+        var existing = await _documentRepository.FindByContentHashAsync(contentHash, CurrentUser.Id);
         if (existing != null)
         {
             var errorCode = existing.IsDeleted

@@ -13,6 +13,7 @@ using Volo.Abp.BlobStoring;
 using Volo.Abp.Content;
 using Volo.Abp.EventBus.Distributed;
 using Volo.Abp.Modularity;
+using Volo.Abp.Users;
 using Xunit;
 
 namespace Dignite.Vault.Extract.Documents;
@@ -41,9 +42,11 @@ public class DocumentAppService_Delete_Tests
     private readonly IBlobContainer<VaultExtractDocumentContainer> _blobContainer;
     private readonly IDocumentTypeRepository _documentTypeRepository;
     private readonly ICabinetRepository _cabinetRepository;
+    private readonly ICurrentUser _currentUser;
 
     public DocumentAppService_Delete_Tests()
     {
+        _currentUser = GetRequiredService<ICurrentUser>();
         _appService = GetRequiredService<IDocumentAppService>();
         _documentRepository = GetRequiredService<IDocumentRepository>();
         _distributedEventBus = GetRequiredService<IDistributedEventBus>();
@@ -169,9 +172,12 @@ public class DocumentAppService_Delete_Tests
     [Fact]
     public async Task UploadAsync_Throws_Duplicate_When_ContentHash_Belongs_To_Active_Document()
     {
+        // #655: the repository is asked for the CALLING user's copy only. The stub answers for exactly that
+        // creator, so an upload that dropped or changed the argument would find nothing here and not throw.
         var existing = CreateDocumentWithContent([1, 2, 3]);
         _documentRepository.FindByContentHashAsync(
                 existing.FileOrigin!.ContentHash,
+                _currentUser.Id,
                 Arg.Any<CancellationToken>())
             .Returns(existing);
 
@@ -190,6 +196,7 @@ public class DocumentAppService_Delete_Tests
         existing.IsDeleted = true;
         _documentRepository.FindByContentHashAsync(
                 existing.FileOrigin!.ContentHash,
+                _currentUser.Id,
                 Arg.Any<CancellationToken>())
             .Returns(existing);
 
@@ -200,6 +207,27 @@ public class DocumentAppService_Delete_Tests
 
         exception.Code.ShouldBe(VaultExtractErrorCodes.Document.InRecycleBin);
         exception.Data["ExistingDocumentId"].ShouldBe(existing.Id);
+    }
+
+    [Fact]
+    public async Task UploadAsync_Accepts_A_File_That_Only_Another_User_Uploaded()
+    {
+        // #655: a byte-identical file held by someone else is not a duplicate of this caller's upload. The repository
+        // (real-provider tests pin its predicate) answers null for the caller, so the upload proceeds — and it must
+        // never be turned away with another user's document id.
+        var existing = CreateDocumentWithContent([1, 2, 3]);
+        _documentRepository.FindByContentHashAsync(
+                existing.FileOrigin!.ContentHash,
+                Arg.Is<Guid?>(creator => creator != _currentUser.Id),
+                Arg.Any<CancellationToken>())
+            .Returns(existing);
+
+        await _appService.UploadAsync(CreateUploadInput([1, 2, 3]));
+
+        await _documentRepository.Received(1).InsertAsync(
+            Arg.Is<Document>(d => d.FileOrigin!.ContentHash == existing.FileOrigin!.ContentHash),
+            Arg.Any<bool>(),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
