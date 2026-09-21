@@ -85,8 +85,7 @@ public class PdfExtractor_Tests
         bravo.ShouldBeGreaterThan(alpha, "the figure transcription must come after the text above it");
         charlie.ShouldBeGreaterThan(bravo, "the figure transcription must come before the text below it");
 
-        // Primary text is the digital text layer; figures used OCR but this is a digital extraction.
-        result.UsedOcr.ShouldBeFalse();
+        // Primary text is the digital text layer.
         result.ProviderName.ShouldBe(PdfExtractor.ProviderIdentifier);
         result.IsComplete.ShouldBeTrue();
         result.IncompleteReason.ShouldBeNull();
@@ -106,10 +105,7 @@ public class PdfExtractor_Tests
 
         // #371/#381: the figure no longer rides an out-of-band Figures list — its transcription travels IN-BAND in
         // Document.Markdown (the egress payload), bracketed by *[Image OCR p:N]*…*[End OCR]* provenance markers
-        // carrying the 1-based page anchor. UsedOcr stays false (a digital extraction) and FigureOcrCount still records the embedded-image OCR.
-        result.UsedOcr.ShouldBeFalse();
-        result.FigureOcrCount.ShouldBe(1);
-
+        // carrying the 1-based page anchor.
         result.Markdown.ShouldContain("INVOICE No. 42");
         result.Markdown.ShouldContain(ImageOcrMarkup.CloseMarker); // "*[End OCR]*"
         // The single fixture page is page 1, so the open marker carries the page anchor "*[Image OCR p:1]*"
@@ -126,7 +122,7 @@ public class PdfExtractor_Tests
     }
 
     [Fact]
-    public async Task Emits_no_figure_sentinels_and_count_zero_when_no_image_is_transcribed()
+    public async Task Emits_no_figure_sentinels_when_no_image_is_transcribed()
     {
         var pdf = PdfFixtures.Build(texts: new[] { ("Just digital text", 700.0) });
 
@@ -135,14 +131,14 @@ public class PdfExtractor_Tests
         // No figure → no in-band *[Image OCR]* markers at all, and no OCR ran.
         ImageOcrMarkup.Contains(result.Markdown).ShouldBeFalse();
         result.Markdown.ShouldNotContain(ImageOcrMarkup.CloseMarker);
-        result.FigureOcrCount.ShouldBe(0);
+        await _ocr.DidNotReceive().RecognizeAsync(Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task Counts_a_dispatched_figure_ocr_even_when_it_throws()
+    public async Task Degrades_to_incomplete_when_a_dispatched_figure_ocr_throws()
     {
-        // The OCR call is dispatched (bytes sent) then throws (provider timeout / rate-limit). FigureOcrCount
-        // is a cost-attribution signal that counts dispatched calls, so the failed call must still be counted.
+        // The OCR call is dispatched (bytes sent) then throws (provider timeout / rate-limit). The extraction
+        // must degrade — no in-band figure span, #268 incomplete — rather than fail the whole document.
         _ocr.RecognizeAsync(Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("provider down"));
 
@@ -153,7 +149,7 @@ public class PdfExtractor_Tests
 
         var result = await CreateExtractor().ExtractAsync(new MemoryStream(pdf), PdfContext());
 
-        result.FigureOcrCount.ShouldBe(1);                          // dispatched, even though it threw
+        await _ocr.Received(1).RecognizeAsync(Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>()); // dispatched, even though it threw
         ImageOcrMarkup.Contains(result.Markdown).ShouldBeFalse();   // no transcription produced -> no in-band figure span
         result.IsComplete.ShouldBeFalse();                          // #268 trips on the failed figure OCR
     }

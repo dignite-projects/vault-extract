@@ -11,9 +11,6 @@ public class TextExtractionResult
 
     public string? DetectedLanguage { get; set; }
 
-    /// <summary>true = OCR (physical scan), false = direct text layer (digital)</summary>
-    public bool UsedOcr { get; set; }
-
     /// <summary>Winning provider family / name, meaning the provider that ultimately produced Markdown; nullable for historical / unknown cases.</summary>
     public string? ProviderName { get; set; }
 
@@ -34,15 +31,4 @@ public class TextExtractionResult
     /// DB</b> and is <b>not exposed as a parallel text field</b>.
     /// </summary>
     public NativePayload? NativePayload { get; set; }
-
-    /// <summary>
-    /// Number of embedded-image OCR calls <b>dispatched</b> via figure-OCR (#306) — every call sent to
-    /// <c>IOcrProvider</c> for an embedded figure, <b>including ones that threw</b> (a failed call may still
-    /// incur provider cost / tokens), so this counts dispatched attempts, not successful transcriptions. A
-    /// digital document reports <see cref="UsedOcr"/> = false (it is a digital extraction) yet may dispatch
-    /// embedded-figure OCR; this named counter lets downstream audit / cost-attribution see that embedded-image
-    /// OCR occurred without overloading the binary <see cref="UsedOcr"/> "scan vs digital" flag. 0 when no
-    /// figure OCR ran.
-    /// </summary>
-    public int FigureOcrCount { get; set; }
 }

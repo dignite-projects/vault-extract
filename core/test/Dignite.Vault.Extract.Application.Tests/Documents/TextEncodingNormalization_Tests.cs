@@ -5,6 +5,9 @@ using Dignite.Vault.Extract.Abstractions.Parse;
 using Shouldly;
 using Volo.Abp.Testing;
 using Xunit;
+using Dignite.Vault.Extract.Ocr;
+using NSubstitute;
+using System.Threading;
 
 namespace Dignite.Vault.Extract.Documents;
 
@@ -126,7 +129,7 @@ public class TextEncodingNormalization_Tests
             FileExtension = extension
         });
 
-        result.UsedOcr.ShouldBeFalse();
+        await GetRequiredService<IOcrProvider>().DidNotReceive().RecognizeAsync(Arg.Any<Stream>(), Arg.Any<OcrOptions>(), Arg.Any<CancellationToken>());
         return result.Markdown ?? string.Empty;
     }
 

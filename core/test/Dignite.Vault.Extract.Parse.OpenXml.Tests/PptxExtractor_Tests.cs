@@ -102,7 +102,6 @@ public class PptxExtractor_Tests
         bravo.ShouldBeGreaterThan(alpha, "the figure transcription must come after the text above it");
         charlie.ShouldBeGreaterThan(bravo, "the figure transcription must come before the text below it");
 
-        result.UsedOcr.ShouldBeFalse();
         result.ProviderName.ShouldBe(PptxExtractor.ProviderIdentifier);
         result.IsComplete.ShouldBeTrue();
         result.IncompleteReason.ShouldBeNull();

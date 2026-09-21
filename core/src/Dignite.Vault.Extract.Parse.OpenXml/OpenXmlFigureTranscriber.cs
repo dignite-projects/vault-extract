@@ -29,8 +29,7 @@ namespace Dignite.Vault.Extract.Parse.OpenXml;
 /// </para>
 /// <para>
 /// <b>Transcription only</b> — the figure's bytes are the OCR input, so no user free-text enters a prompt
-/// (no <c>PromptBoundary</c> concern), and <c>UsedOcr</c> ("scan vs digital") stays the caller's <c>false</c>
-/// because figure OCR is auxiliary to a digital extraction (same contract reasoning as PdfExtractor #301).
+/// (no <c>PromptBoundary</c> concern).
 /// </para>
 /// </summary>
 internal static class OpenXmlFigureTranscriber

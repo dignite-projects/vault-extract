@@ -59,7 +59,6 @@ public class DocxExtractor_Tests
         var result = await CreateExtractor().ExtractAsync(new MemoryStream(docx), DocxContext());
 
         result.Markdown.ShouldContain("The quick brown fox.");
-        result.UsedOcr.ShouldBeFalse();
         result.ProviderName.ShouldBe(DocxExtractor.ProviderIdentifier);
         result.IsComplete.ShouldBeTrue();
         result.IncompleteReason.ShouldBeNull();

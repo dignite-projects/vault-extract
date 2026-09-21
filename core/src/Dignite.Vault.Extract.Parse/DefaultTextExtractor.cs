@@ -146,7 +146,6 @@ public class DefaultTextExtractor : ITextExtractor, ITransientDependency
             {
                 Markdown = result.Markdown,
                 DetectedLanguage = result.DetectedLanguage,
-                UsedOcr = true,
                 ProviderName = result.ProviderName,
                 IsComplete = result.IsComplete,
                 IncompleteReason = result.IncompleteReason,
