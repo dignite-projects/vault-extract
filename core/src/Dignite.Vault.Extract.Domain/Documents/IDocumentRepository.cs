@@ -19,15 +19,23 @@ public interface IDocumentRepository : IRepository<Document, Guid>
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Finds a document by exact upload <c>FileOrigin.ContentHash</c> — the #221 upload-time dedup check
-    /// (<c>DocumentAppService.UploadAsync</c>).
+    /// Finds a document by exact upload <c>FileOrigin.ContentHash</c> <b>uploaded by <paramref name="creatorId"/></b> —
+    /// the #221 upload-time dedup check (<c>DocumentAppService.UploadAsync</c>), scoped to the uploader by #655 so it
+    /// agrees with <c>DuplicateDetectionScope.Uploader</c> (#651): another user's copy of the same bytes is not a
+    /// duplicate of yours, and a hit is never a document the caller cannot see.
     /// <para>
-    /// Traverses soft-delete (the implementation disables <c>ISoftDelete</c>): a re-upload matching a recycle-bin
-    /// document's hash must still surface as <c>Document.InRecycleBin</c>, not silently be accepted as new.
+    /// <paramref name="creatorId"/> is required and has no default, so no caller silently stays layer-wide. It is the
+    /// same equality on <c>Document.CreatorId</c> as #651's <c>Uploader</c> scope: <b>a null value matches only a null
+    /// <c>CreatorId</c></b> (every machine-identity upload), with no fallback to layer-wide.
+    /// </para>
+    /// <para>
+    /// Traverses soft-delete (the implementation disables <c>ISoftDelete</c>): a re-upload matching the caller's own
+    /// recycle-bin document's hash must still surface as <c>Document.InRecycleBin</c>, not silently be accepted as new.
     /// </para>
     /// </summary>
     Task<Document?> FindByContentHashAsync(
         string contentHash,
+        Guid? creatorId,
         CancellationToken cancellationToken = default);
 
     /// <summary>

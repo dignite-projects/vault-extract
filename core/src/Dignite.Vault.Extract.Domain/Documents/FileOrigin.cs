@@ -21,7 +21,7 @@ public class FileOrigin : ValueObject
     /// <summary>File MIME type.</summary>
     public string ContentType { get; private set; } = default!;
 
-    /// <summary>SHA-256 hash of file content in lowercase hex, length 64. Used for byte-level deduplication within each tenant.</summary>
+    /// <summary>SHA-256 hash of file content in lowercase hex, length 64. Used for byte-level deduplication per uploader within each tenant (#655).</summary>
     public string ContentHash { get; private set; } = default!;
 
     /// <summary>File size in bytes.</summary>

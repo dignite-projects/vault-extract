@@ -47,14 +47,23 @@ public class EfCoreDocumentRepository
 
     public virtual async Task<Document?> FindByContentHashAsync(
         string contentHash,
+        Guid? creatorId,
         CancellationToken cancellationToken = default)
     {
         using (DataFilter.Disable<ISoftDelete>())
         {
             var dbSet = await GetDbSetAsync();
+            // #655: equality on the anchor like any other value — a null creatorId matches only a null CreatorId,
+            // the same rule FindDuplicateCandidatesAsync applies under DuplicateDetectionScope.Uploader (#651).
+            // Hoisted into a local for the same reason as there: one plain `d.CreatorId == owner` that the provider
+            // translates to `IS NULL` when owner is null, which EfCoreDocumentRepositoryContentHash_Tests pins
+            // against the real provider rather than assuming.
+            var owner = creatorId;
             return await dbSet
                 .FirstOrDefaultAsync(
-                    d => d.FileOrigin != null && d.FileOrigin.ContentHash == contentHash,
+                    d => d.FileOrigin != null
+                        && d.FileOrigin.ContentHash == contentHash
+                        && d.CreatorId == owner,
                     GetCancellationToken(cancellationToken));
         }
     }
