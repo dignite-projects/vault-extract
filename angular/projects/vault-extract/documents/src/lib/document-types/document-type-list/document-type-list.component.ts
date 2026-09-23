@@ -77,7 +77,6 @@ interface DocumentTypeFormValue {
 @Component({
   selector: 'lib-document-type-list',
   templateUrl: './document-type-list.component.html',
-  styleUrls: ['./document-type-list.component.scss'],
   imports: [
     CommonModule,
     RouterModule,

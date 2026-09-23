@@ -1,0 +1,69 @@
+// ng-zorro's select stylesheet is light-theme only: a #fff selector with a #d9d9d9 border, #f5f5f5 chips,
+// rgba(0, 0, 0, .45) remove icons and a #fff dropdown, none of which follows the host theme — in a dark
+// host the control rendered as a white box. The host element carries `.form-control`, so the theme's own
+// input surface (background, border, radius, padding) is what shows; the rules below only strip ng-zorro's
+// chrome off the inner selector and map what remains to --bs-* tokens. Same shape as the Select field
+// type's bridge in @dignite/ng.flex-fields (select-field.component.scss), so a Tags field and a
+// multi-value Select field sit side by side in the field editor looking like one family.
+:host ::ng-deep .tags-select {
+  // ng-zorro's .ant-select loads after the theme and would otherwise win the tie against .form-control on
+  // colour and font. Its search input and width mirror also name the Ant Design font stack explicitly.
+  &.ant-select,
+  .ant-select-selection-search-input,
+  .ant-select-selection-search-mirror {
+    color: inherit !important;
+    font-family: inherit !important;
+  }
+
+  &.form-control {
+    padding: 0 !important;
+  }
+
+  .ant-select-selector {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0.475rem 1.25rem !important;
+  }
+
+  .ant-select-selection-placeholder {
+    color: var(--bs-secondary-color, #bfbfbf) !important;
+  }
+
+  .ant-select-selection-item {
+    background: var(--bs-secondary-bg, #f5f5f5) !important;
+    border-color: var(--bs-border-color, #f0f0f0) !important;
+  }
+
+  .ant-select-selection-item-remove {
+    color: var(--bs-secondary-color, rgba(0, 0, 0, 0.45)) !important;
+  }
+}
+
+// The dropdown renders in the CDK overlay container under <body>, outside this component's host, so it is
+// reached through its own nzDropdownClassName with a global rule.
+::ng-deep .lib-tags-select-dropdown {
+  .ant-select-dropdown {
+    background: var(--lpx-content-bg, var(--bs-secondary-bg, #fff)) !important;
+  }
+
+  .ant-select-item {
+    color: var(--bs-body-color) !important;
+    background-color: transparent !important;
+  }
+
+  .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+    background-color: var(--bs-primary) !important;
+    color: var(--bs-white) !important;
+  }
+
+  // The checkmark is the only mark of an already-entered tag (the option background is zeroed above), so it
+  // follows the row's text colour rather than ng-zorro's #1890ff — which would vanish on the active row.
+  .ant-select-item-option-state {
+    color: inherit !important;
+  }
+
+  .ant-empty {
+    color: var(--bs-secondary-color) !important;
+  }
+}
