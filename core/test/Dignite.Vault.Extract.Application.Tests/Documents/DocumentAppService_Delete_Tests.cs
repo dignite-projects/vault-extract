@@ -33,6 +33,8 @@ public class DocumentAppServiceDeleteTestModule : AbpModule
     }
 }
 
+// Lowers DocumentConsts.MaxUploadFileBytes for one fact; see ProcessWideStaticsCollection.
+[Collection(ProcessWideStaticsCollection.Name)]
 public class DocumentAppService_Delete_Tests
     : VaultExtractApplicationTestBase<DocumentAppServiceDeleteTestModule>
 {
@@ -377,7 +379,8 @@ public class DocumentAppService_Delete_Tests
     {
         // #221: declared ContentLength underreports and is untrusted, but streamed copy still enforces the
         // hard limit by actual byte count. Do not rely on client declarations or fully buffer oversized
-        // bodies. Temporarily lower the static limit and restore it in finally; this class runs serially.
+        // bodies. Temporarily lower the static limit and restore it in finally. The limit is process-wide, so the
+        // class sits in ProcessWideStaticsCollection: no other class runs while it is lowered.
         var original = DocumentConsts.MaxUploadFileBytes;
         try
         {
