@@ -17,7 +17,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Volo.Abp.BackgroundJobs;
 using Volo.Abp.BlobStoring;
+using Volo.Abp.Data;
 using Volo.Abp.DependencyInjection;
+using Volo.Abp.Domain.Entities;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.EventBus.Distributed;
 using Volo.Abp.MultiTenancy;
@@ -69,6 +71,7 @@ public class DocumentParseBackgroundJob
         DocumentPipelineRunManager pipelineRunManager,
         DocumentPipelineRunAccessor pipelineRunAccessor,
         IUnitOfWorkManager unitOfWorkManager,
+        IDataFilter dataFilter,
         DocumentPipelineJobScheduler pipelineJobScheduler,
         IBackgroundJobManager backgroundJobManager,
         ITextExtractor textExtractor,
@@ -84,7 +87,7 @@ public class DocumentParseBackgroundJob
         IDocumentTypeRepository documentTypeRepository,
         ManualClassificationApplier manualClassificationApplier,
         SubDocumentRetractor subDocumentRetractor)
-        : base(documentRepository, runRepository, pipelineRunManager, pipelineRunAccessor, unitOfWorkManager)
+        : base(documentRepository, runRepository, pipelineRunManager, pipelineRunAccessor, unitOfWorkManager, dataFilter)
     {
         _pipelineJobScheduler = pipelineJobScheduler;
         _backgroundJobManager = backgroundJobManager;
@@ -113,7 +116,17 @@ public class DocumentParseBackgroundJob
 
     private async Task ExecuteInTenantAsync(DocumentParseJobArgs args)
     {
-        var workItem = await BeginRunAsync(args);
+        ParseWorkItem workItem;
+        try
+        {
+            workItem = await BeginRunAsync(args);
+        }
+        catch (EntityNotFoundException ex) when (IsDocumentGone(ex))
+        {
+            // #662: deleted while queued — end the job instead of letting ABP retry it until it abandons it.
+            await EndForDeletedDocumentAsync(args.DocumentId, args.PipelineRunId, VaultExtractPipelines.Parse);
+            return;
+        }
 
         try
         {
