@@ -29,7 +29,7 @@ public class DocumentRightsDto
 
     /// <summary>
     /// The operator edit family: confirm / reclassify (the <b>target</b> type of which is a separate judgment the
-    /// type picker answers), correct Markdown, edit field values, re-recognize, re-extract, and re-file into a
+    /// type picker answers), correct Markdown, edit field values, re-parse, re-extract, and re-file into a
     /// cabinet.
     /// </summary>
     public bool CanEdit { get; set; }

@@ -18,22 +18,22 @@
       </span>
     }
     <div class="ms-auto d-flex gap-2">
-      <!-- Display label is "重新分类 / Re-classify": it re-runs classification on the already-extracted text,
-           NOT OCR (the #263 internal name stays "rerecognize"). The tooltip states the original file is not
-           re-scanned, to kill the "re-OCR from the original file" misconception. -->
-      @if (canRerecognize()) {
+      <!-- #660 "重新解析 / Re-parse": re-extracts the text from the original file, then re-runs classification and
+           its cascade as for a fresh upload. It replaced "重新分类", which re-classified the existing text; a wrong
+           type is now changed with the editor beside the type badge. -->
+      @if (canReparse()) {
         <button
           class="btn btn-outline-primary btn-sm"
-          (click)="rerecognize()"
-          [disabled]="isRerecognizing()"
-          title="{{ '::Document:Rerecognize:Hint' | abpLocalization }}"
+          (click)="reparse()"
+          [disabled]="isReparsing()"
+          title="{{ '::Document:Reparse:Hint' | abpLocalization }}"
         >
-          @if (isRerecognizing()) {
+          @if (isReparsing()) {
             <span class="spinner-border spinner-border-sm me-1" role="status"></span>
-            {{ '::Document:Rerecognizing' | abpLocalization }}
+            {{ '::Document:Reparsing' | abpLocalization }}
           } @else {
-            <i class="fas fa-wand-magic-sparkles me-1"></i>
-            {{ '::Document:Rerecognize' | abpLocalization }}
+            <i class="fas fa-rotate me-1"></i>
+            {{ '::Document:Reparse' | abpLocalization }}
           }
         </button>
       }
@@ -109,6 +109,11 @@
             <i class="fas fa-sitemap me-1"></i>{{ '::Document:ViewSiblingDocuments' | abpLocalization }}
           </button>
         </div>
+        <!-- #660: a sub-document has no file of its own, so it offers no "re-parse"; say where that lives for
+             anyone who could otherwise have expected the button. -->
+        @if (canEdit()) {
+          <div class="w-100 small">{{ '::Document:Reparse:SubDocumentHint' | abpLocalization }}</div>
+        }
       </div>
     }
 
@@ -383,6 +388,16 @@
                     <span class="badge bg-info text-dark">{{ typeName }}</span>
                   } @else {
                     <span class="text-muted">—</span>
+                  }
+                  <!-- #660: change the type in place — manual classification, then field re-extraction for the new
+                       type, no re-parse. The same dialog the review banner's "confirm classification" opens. -->
+                  @if (canEditType()) {
+                    <button type="button" class="btn btn-link btn-sm p-0 ms-2 align-baseline"
+                            (click)="openClassifyDialog()"
+                            title="{{ '::Document:EditType' | abpLocalization }}">
+                      <i class="fas fa-pen"></i>
+                      <span class="visually-hidden">{{ '::Document:EditType' | abpLocalization }}</span>
+                    </button>
                   }
                 </dd>
 
@@ -699,7 +714,12 @@
         <div class="modal-header">
           <h5 class="modal-title">
             <i class="fas fa-user-edit me-2"></i>
-            {{ '::Document:ConfirmClassification' | abpLocalization }}
+            <!-- #660: confirming an unresolved classification and changing an existing type are one call. -->
+            @if (needsClassification()) {
+              {{ '::Document:ConfirmClassification' | abpLocalization }}
+            } @else {
+              {{ '::Document:EditType:Title' | abpLocalization }}
+            }
           </h5>
           <button type="button" class="btn-close" (click)="closeClassifyDialog()"></button>
         </div>
@@ -707,6 +727,10 @@
           <p class="text-muted small mb-3">
             {{ document()?.title || document()?.fileOrigin?.originalFileName }}
           </p>
+          <p class="small mb-2">{{ '::Document:EditType:Hint' | abpLocalization }}</p>
+          @if (document()?.isContainer) {
+            <p class="small text-warning-emphasis mb-3">{{ '::Document:EditType:BundleHint' | abpLocalization }}</p>
+          }
           <label class="form-label fw-semibold">{{ '::Document:ConfirmClassification:SelectType' | abpLocalization }}</label>
           <select
             class="form-select"
@@ -729,7 +753,7 @@
           <button
             type="button"
             class="btn btn-primary"
-            [disabled]="!selectedTypeId() || isConfirmingClassification()"
+            [disabled]="!selectedTypeId() || selectedTypeIsCurrent() || isConfirmingClassification()"
             (click)="submitClassify()"
           >
             @if (isConfirmingClassification()) {

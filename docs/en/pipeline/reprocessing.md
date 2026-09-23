@@ -2,17 +2,18 @@
 
 When you change a **classification prompt** (a `DocumentType`'s `Description`, `ConfidenceThreshold`, or `Priority`, or add/remove a type) or a **field definition**, documents that were already processed keep their *old* results. Reprocessing re-runs the relevant pipeline over existing documents so they pick up the new configuration.
 
-The forward pipeline is `upload → text-extraction → classification → field-extraction → Ready`. Reprocessing re-runs from the **classification** or **field-extraction** stage — never text extraction (re-OCR of existing documents is out of scope, see below).
+The forward pipeline is `upload → text-extraction → classification → field-extraction → Ready`. Batch reprocessing re-runs from the **classification** or **field-extraction** stage. A single document can also be **re-parsed** from its original file, which re-runs the whole pipeline for it; batch re-OCR is out of scope (see below).
 
 **Judgment stays with the operator.** Config changes do **not** cascade automatically — Dignite Vault Extract never guesses whether you meant a change to apply to existing documents. You trigger reprocessing explicitly, choose its scope, and accept its cost. This page covers the feature; for orchestration code see `core/src/Dignite.Vault.Extract.Application/Documents/Pipelines/Reprocessing/` and `.../FieldExtraction/`.
 
-## Three entry points
+## Four entry points
 
 | Operation | Trigger when you changed | Cascade | Destructive? | Warning |
 |---|---|---|---|---|
 | **Batch field re-extraction** | field definitions | none (leaf) | overwrites field values only | light |
 | **Batch reclassification** | classification prompt / thresholds / add/remove types | re-extracts fields too | overwrites classification, clears fields on low confidence | heavy |
 | **Single-document "Re-extract fields"** | a field definition, for one document | none (leaf) | overwrites that document's field values | per-document confirm |
+| **Single-document "Re-parse"** | nothing — the document's *text* is wrong (a parser fix, an incomplete OCR, a changed OCR configuration) | re-classifies, re-extracts fields, re-splits sub-documents | overwrites Markdown, type and fields; replaces every sub-document | per-document confirm, naming the sub-documents |
 
 Reclassification **⊇** field re-extraction: a successful reclassification re-publishes `DocumentClassifiedEto`, which cascades into field re-extraction anyway. Pick by what you changed — if you only touched field definitions, use field re-extraction (cheaper, no classification side effects); if you touched the classification prompt, use reclassification (it refreshes fields as well).
 
@@ -47,9 +48,22 @@ A manually confirmed type (`ReviewDisposition = Confirmed`) is a higher-priority
 
 ## Single-document "Re-extract fields"
 
-On the document detail page, next to **Re-recognize**, a lighter **Re-extract fields** button re-runs only field extraction for that one document on its existing classification — no reclassification, no OCR. Use it when you tweaked a field definition and want to refresh one document without touching its type.
+On the document detail page, next to **Re-parse**, a lighter **Re-extract fields** button re-runs only field extraction for that one document on its existing classification — no reclassification, no OCR. Use it when you tweaked a field definition and want to refresh one document without touching its type.
 
-It differs from **Re-recognize** (`RerecognizeAsync`, [#263](https://github.com/dignite-projects/vault-extract/issues/263)), which re-runs *classification* and cascades — a destructive operation. Re-extract fields is the safe leaf version. It is rejected if the document is in the recycle bin, not yet classified, has no Markdown, or already has a field-extraction run in progress.
+It differs from **Re-parse** (below), which re-extracts the text and re-runs classification — a destructive operation. Re-extract fields is the safe leaf version. It is rejected if the document is in the recycle bin, not yet classified, has no Markdown, or already has a field-extraction run in progress.
+
+To change a document's **type**, use the edit control beside the type on the detail page: it assigns the chosen type as operator-confirmed and re-extracts fields for it (`ReclassifyAsync` / `ConfirmClassificationAsync`), with no re-parse and no LLM classification. See [Classification](classification.md).
+
+## Single-document "Re-parse"
+
+**Re-parse** ([#660](https://github.com/dignite-projects/vault-extract/issues/660), `ReparseAsync`) re-runs text extraction from the document's stored original file, then runs it through classification and field extraction exactly as a fresh upload would — container detection and embedded-document routing included. Use it when the *text* is wrong: a parser fix that would read the file better now, an OCR result that came back truncated or incomplete, or a changed host OCR configuration you want one document to pick up.
+
+- **Replaced as one unit**: `Markdown`, `Title`, `Language` and the extraction metadata. Operator Markdown corrections are overwritten.
+- **Classification always runs**, even over an operator-confirmed type, and may land the document in a different type or in the review queue. If it gets the type wrong, fix it with the type editor.
+- **Sub-documents are regenerated.** A document's sub-documents always derive from its current Markdown, so every sub-document split from the old text is withdrawn (moved to the recycle bin, one `DocumentDeletedEto` each) and the new text is split from scratch. A withdrawn sub-document cannot be restored — its parent's split no longer produces it. The confirmation names how many sub-documents are affected.
+- **A sub-document cannot be re-parsed on its own.** It has no file of its own; its text is a slice of its parent's. Re-parse the parent.
+- **Rejected** when the document is in the recycle bin, has no Markdown yet (a failed first parse is retried instead, see [pipeline-runs.md](pipeline-runs.md)), or has a text-extraction, classification or field-extraction run in progress. A re-parse whose extraction yields no text fails the run and keeps the previous text; retrying that failed run re-parses again.
+- **Events**: `DocumentTextExtractedEto` on completion, then whatever classification publishes (`DocumentClassifiedEto`, `DocumentReadyEto` once Ready again, or `DocumentReclassifiedToContainerEto` for a typed document that turns out to be a bundle).
 
 ## How batches run (mechanism)
 
@@ -71,7 +85,9 @@ Single-document jobs run on the host's background-job manager. The default host 
 |---|---|
 | `VaultExtract.Documents.Reprocessing.FieldExtraction` | batch field re-extraction (preview + trigger) |
 | `VaultExtract.Documents.Reprocessing.Reclassification` | batch reclassification (preview + trigger) |
-| `VaultExtract.Documents.ConfirmClassification` | single-document *Re-extract fields* (operator-level, same as *Re-recognize*) |
+| `VaultExtract.Documents.ConfirmClassification` | single-document *Re-extract fields* (operator-level) |
+
+Single-document *Re-parse* is judged like a reclassification whose target the classifier picks: `Edit` on the document plus `ConfirmClassification` or `Documents.Upload` — see [document-type-permissions.md](../configuration/document-type-permissions.md).
 
 ## REST endpoints
 
@@ -82,12 +98,13 @@ Single-document jobs run on the host's background-job manager. The default host 
 | `POST` | `/api/vault-extract/document-reprocessing/reclassification/preview` | affected count for a scope |
 | `POST` | `/api/vault-extract/document-reprocessing/reclassification` | start batch reclassification |
 | `POST` | `/api/vault-extract/documents/{id}/reextract-fields` | single-document re-extract fields |
+| `POST` | `/api/vault-extract/documents/{id}/reparse` | single-document re-parse |
 
 Batch and progress are internal operational state — they are **not** part of the exit contract. Downstream consumers see the normal staged event (`DocumentClassifiedEto`) and the pipeline's `DocumentReadyEto` re-fire as documents reprocess, absorbed idempotently by `(DocumentId, EventType, EventTime)` like any other.
 
 ## Out of scope
 
-- **Re-OCR of existing documents.** Text extraction is the most upstream stage and cascades into everything below it; re-running it over existing documents is intentionally not built (the trigger — switching OCR provider — is rare and the cost is highest). Only a *failed* text-extraction run can be retried today (see [pipeline-runs.md](pipeline-runs.md)).
+- **Batch re-OCR of existing documents** ([#396](https://github.com/dignite-projects/vault-extract/issues/396), won't fix). Text extraction is the most upstream stage and cascades into everything below it; re-running it across the store after a configuration change would rewrite documents that were already fine, at the highest cost. Re-parse one document at a time instead.
 
 ## See also
 

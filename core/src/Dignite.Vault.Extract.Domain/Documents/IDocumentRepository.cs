@@ -79,6 +79,22 @@ public interface IDocumentRepository : IRepository<Document, Guid>
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// #660: whether the source's <c>DocumentSegment</c> ledger still routes this derived document — a row keyed
+    /// <c>(SourceDocumentId = <paramref name="originDocumentId"/>, SegmentKey = <paramref name="originConstituentKey"/>)</c>
+    /// whose <c>RoutedDocumentId</c> is <paramref name="documentId"/>. <c>RestoreAsync</c> refuses a sub-document for
+    /// which this is false: its row was removed when a re-parse re-split the parent or a container→concrete reclassify
+    /// retracted it, so restoring it would break "a live routed child ⟺ its ledger row exists". Beside
+    /// <see cref="AnyLiveDerivedDuplicateAsync"/> because the two answer the same restore-time question. The ledger
+    /// has no soft delete, so the caller's disabled <c>ISoftDelete</c> scope does not matter; <c>IMultiTenant</c>
+    /// applies by ambient state.
+    /// </summary>
+    Task<bool> IsRoutedBySourceLedgerAsync(
+        Guid originDocumentId,
+        string originConstituentKey,
+        Guid documentId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Whether any <see cref="Document"/> carries <paramref name="originDocumentId"/> as its
     /// <see cref="Document.OriginDocumentId"/> — i.e. whether that source still has derived sub-documents.
     /// Existence-only (compiles to SQL <c>EXISTS</c>, no row materialization), served by the leading (and only)

@@ -99,8 +99,8 @@ public class EditFamilySoftDeleteGuard_Tests : VaultExtractTestBase<EditFamilySo
             (svc, id) => svc.UpdateMarkdownAsync(id, new UpdateMarkdownInput { Markdown = "# attempted correction" })
         },
         {
-            nameof(IDocumentAppService.RerecognizeAsync),
-            (svc, id) => svc.RerecognizeAsync(id)
+            nameof(IDocumentAppService.ReparseAsync),
+            (svc, id) => svc.ReparseAsync(id)
         },
         {
             nameof(IDocumentAppService.ReextractFieldsAsync),

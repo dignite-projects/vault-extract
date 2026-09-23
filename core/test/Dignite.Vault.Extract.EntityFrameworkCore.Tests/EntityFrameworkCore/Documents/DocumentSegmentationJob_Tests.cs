@@ -851,6 +851,81 @@ public class DocumentSegmentationJob_Tests : VaultExtractTestBase<DocumentSegmen
             (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).Count.ShouldBe(1));
     }
 
+    // ===================== #660: a re-parse committing while the LLM splits the old Markdown =====================
+
+    [Fact]
+    public async Task Rows_Detected_Over_Markdown_A_Reparse_Replaced_Are_Not_Committed()
+    {
+        // The re-parse already withdrew the old split and queued a fresh pass for the new text; slices of the old text
+        // must not reach the ledger, or Phase B would spawn them next to the new split.
+        var containerId = await ArrangeContainerAsync("Invoice A first\nInvoice B second");
+        StubSplitWhileReparsing(containerId, "Invoice C only", ("Invoice A", true), ("Invoice B", true));
+
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            (await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId)).ShouldBeEmpty();
+            (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).ShouldBeEmpty();
+            (await _documentRepository.GetAsync(containerId)).IsSegmented.ShouldBeFalse();
+        });
+        await _eventBus.DidNotReceive().PublishAsync(Arg.Any<DocumentUploadedEto>());
+    }
+
+    [Fact]
+    public async Task A_NoOp_Verdict_About_Replaced_Markdown_Does_Not_Mark_The_New_Text_Segmented()
+    {
+        // "Nothing standalone here" was said about the old text. Marking the new text segmented would make the fresh
+        // pass the re-parse queued skip detection, and an embedded document in the new text would never be routed.
+        // Same no-op shape as Concrete_Document_Prose_Is_Never_Routed_Even_If_The_LLM_Flags_It, which marks segmented.
+        var documentId = await ArrangeContainerAsync(markdown: "Contract body only", asContainer: false);
+        StubSplitWhileReparsing(documentId, "Contract body, re-parsed", ("Contract body only", true));
+
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = documentId });
+
+        await WithUnitOfWorkAsync(async () =>
+            (await _documentRepository.GetAsync(documentId)).IsSegmented.ShouldBeFalse());
+    }
+
+    [Fact]
+    public async Task An_Incomplete_Verdict_About_Replaced_Markdown_Does_Not_Flag_The_Container()
+    {
+        // A single slice is "fewer than two documents" for the old text only; the new text gets its own pass.
+        var containerId = await ArrangeContainerAsync("Invoice A first\nInvoice B second");
+        StubSplitWhileReparsing(containerId, "Invoice C only", ("Invoice A", true));
+
+        await _job.ExecuteAsync(new DocumentSegmentationJobArgs { SourceDocumentId = containerId });
+
+        await WithUnitOfWorkAsync(async () =>
+            ((await _documentRepository.GetAsync(containerId)).ReviewReasons
+                & DocumentReviewReasons.SegmentationIncomplete).ShouldBe(DocumentReviewReasons.None));
+    }
+
+    // Stubs the split and, inside the LLM call (the job holds no unit of work there), commits what a re-parse's
+    // completion does to the source: new Markdown with the segmentation marker cleared. The boundaries returned
+    // describe the old text.
+    private void StubSplitWhileReparsing(
+        Guid documentId, string reparsedMarkdown, params (string Marker, bool IsSubDocument)[] boundaries)
+    {
+        var outcome = new DocumentSegmentationOutcome();
+        foreach (var (marker, isSubDocument) in boundaries)
+        {
+            outcome.Boundaries.Add(new SegmentBoundary(marker, isSubDocument));
+        }
+
+        _workflow.RunAsync(Arg.Any<string>(), Arg.Any<SubDocumentDetectionContext>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                WithUnitOfWorkAsync(async () =>
+                {
+                    var doc = await _documentRepository.GetAsync(documentId);
+                    doc.ReplaceParseOutput(reparsedMarkdown, "Re-parsed", language: null, extractionMetadata: null);
+                    await _documentRepository.UpdateAsync(doc, autoSave: true);
+                }).GetAwaiter().GetResult();
+                return outcome;
+            });
+    }
+
     private async Task<Guid> ArrangeContainerAsync(
         string markdown, bool asContainer = true, string? markedMarkdown = null)
     {

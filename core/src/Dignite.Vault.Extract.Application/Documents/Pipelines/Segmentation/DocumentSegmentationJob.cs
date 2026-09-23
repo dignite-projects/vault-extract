@@ -347,7 +347,7 @@ public class DocumentSegmentationJob
             Logger.LogInformation(
                 "Embedded-document source {SourceId}: no embedded standalone document found; nothing to route.",
                 context.SourceDocumentId);
-            await MarkDocumentSegmentedAsync(context.SourceDocumentId, context.TenantId);
+            await MarkDocumentSegmentedAsync(context);
             return;
         }
 
@@ -373,6 +373,16 @@ public class DocumentSegmentationJob
             var source = await _documentRepository.FindAsync(context.SourceDocumentId, includeDetails: false);
             if (source is null || source.IsSegmented)
             {
+                await uow.CompleteAsync();
+                return;
+            }
+
+            // #660: a re-parse may have replaced the Markdown while the LLM was splitting the old one. It withdrew the
+            // old sub-documents and ledger rows and queued a fresh pass for the new text, so this run's slices describe
+            // text that no longer exists: drop them rather than let Phase B spawn them next to the new split.
+            if (!IsDetectedMarkdownCurrent(source, context))
+            {
+                LogStaleDetection(context);
                 await uow.CompleteAsync();
                 return;
             }
@@ -412,17 +422,24 @@ public class DocumentSegmentationJob
         }
     }
 
-    /// <summary>Short UoW: mark the document segmented (#377) on a terminal no-op (an embedded source with nothing standalone to route), so a retry / re-enqueue does not re-pay the LLM. Tenant-scoped + idempotent.</summary>
-    protected virtual async Task MarkDocumentSegmentedAsync(Guid sourceDocumentId, Guid? tenantId)
+    /// <summary>Short UoW: mark the document segmented (#377) on a terminal no-op (an embedded source with nothing standalone to route), so a retry / re-enqueue does not re-pay the LLM. Tenant-scoped + idempotent. A verdict about Markdown a re-parse has since replaced (#660) is dropped: marking the new text segmented would make its own pass skip detection.</summary>
+    protected virtual async Task MarkDocumentSegmentedAsync(DetectionContext context)
     {
-        using (_currentTenant.Change(tenantId))
+        using (_currentTenant.Change(context.TenantId))
         using (var uow = _unitOfWorkManager.Begin(requiresNew: true))
         {
-            var source = await _documentRepository.FindAsync(sourceDocumentId, includeDetails: false);
+            var source = await _documentRepository.FindAsync(context.SourceDocumentId, includeDetails: false);
             if (source is not null && !source.IsSegmented)
             {
-                source.MarkSegmented();
-                await _documentRepository.UpdateAsync(source);
+                if (IsDetectedMarkdownCurrent(source, context))
+                {
+                    source.MarkSegmented();
+                    await _documentRepository.UpdateAsync(source);
+                }
+                else
+                {
+                    LogStaleDetection(context);
+                }
             }
 
             await uow.CompleteAsync();
@@ -568,6 +585,14 @@ public class DocumentSegmentationJob
                 return;
             }
 
+            // #660: the failure was about Markdown a re-parse has since replaced; the new text gets its own pass.
+            if (!IsDetectedMarkdownCurrent(container, context))
+            {
+                LogStaleDetection(context);
+                await uow.CompleteAsync();
+                return;
+            }
+
             container.SetReviewReason(DocumentReviewReasons.SegmentationIncomplete, present: true);
             await _documentRepository.UpdateAsync(container);
             await uow.CompleteAsync();
@@ -624,6 +649,20 @@ public class DocumentSegmentationJob
         var source = await _documentRepository.FindAsync(sourceId, includeDetails: false);
         return source is { IsContainer: true } ? source : null;
     }
+
+    /// <summary>
+    /// #660: whether the source still carries the Markdown this run detected over. Every Phase-A write — the segment
+    /// rows, the segmented marker, the incomplete flag — is a verdict about that text, so each one re-checks it in its
+    /// own UoW after the slow LLM call: a re-parse that committed in between replaced the text, withdrew its
+    /// sub-documents and ledger rows, and queued a fresh pass for the new text.
+    /// </summary>
+    private static bool IsDetectedMarkdownCurrent(Document source, DetectionContext context)
+        => string.Equals(source.Markdown ?? string.Empty, context.Markdown, StringComparison.Ordinal);
+
+    private void LogStaleDetection(DetectionContext context)
+        => Logger.LogInformation(
+            "Source {SourceId} was re-parsed while its sub-document detection ran; dropping the verdict about the old Markdown (#660).",
+            context.SourceDocumentId);
 
     private static bool IsSchemaDeserializationError(Exception ex)
         => ex is JsonException || ex.GetBaseException() is JsonException;

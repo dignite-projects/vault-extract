@@ -112,10 +112,10 @@ public class DocumentController : VaultExtractController, IDocumentAppService
         return _documentAppService.RetryPipelineAsync(id, input);
     }
 
-    [HttpPost("{id}/rerecognize")]
-    public virtual Task RerecognizeAsync(Guid id)
+    [HttpPost("{id}/reparse")]
+    public virtual Task ReparseAsync(Guid id)
     {
-        return _documentAppService.RerecognizeAsync(id);
+        return _documentAppService.ReparseAsync(id);
     }
 
     [HttpPost("{id}/reextract-fields")]

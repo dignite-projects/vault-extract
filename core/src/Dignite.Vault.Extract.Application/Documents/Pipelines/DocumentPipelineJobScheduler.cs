@@ -40,17 +40,23 @@ public class DocumentPipelineJobScheduler : ITransientDependency
     /// short-circuit in <see cref="FieldExtractionService"/> phase 1. It is only meaningful for
     /// <see cref="VaultExtractPipelines.FieldExtraction"/>; other pipeline codes ignore it.
     /// </para>
+    /// <para>
+    /// <paramref name="isReparse"/> (#660) marks a <see cref="VaultExtractPipelines.Parse"/> run as a re-parse of a
+    /// document that already has Markdown. The mode is decided here, by the caller that queues the run, and travels in
+    /// the job args, so a redelivered first-parse job can never take the replacing path. Other pipeline codes ignore it.
+    /// </para>
     /// </summary>
     public virtual async Task<DocumentPipelineRun> QueueAsync(
         Document document,
         string pipelineCode,
         TimeSpan? delay = null,
-        string? expectedEventTypeCode = null)
+        string? expectedEventTypeCode = null,
+        bool isReparse = false)
     {
         var run = await _pipelineRunManager.QueueAsync(document, pipelineCode);
 
         await _documentRepository.UpdateAsync(document, autoSave: true);
-        await EnqueueAsync(document.Id, document.TenantId, pipelineCode, run.Id, delay, expectedEventTypeCode);
+        await EnqueueAsync(document.Id, document.TenantId, pipelineCode, run.Id, delay, expectedEventTypeCode, isReparse);
 
         return run;
     }
@@ -61,7 +67,8 @@ public class DocumentPipelineJobScheduler : ITransientDependency
         string pipelineCode,
         Guid pipelineRunId,
         TimeSpan? delay = null,
-        string? expectedEventTypeCode = null)
+        string? expectedEventTypeCode = null,
+        bool isReparse = false)
     {
         var effectiveDelay = delay ?? default;
         return pipelineCode switch
@@ -71,7 +78,8 @@ public class DocumentPipelineJobScheduler : ITransientDependency
                 {
                     DocumentId = documentId,
                     TenantId = tenantId,
-                    PipelineRunId = pipelineRunId
+                    PipelineRunId = pipelineRunId,
+                    IsReparse = isReparse
                 },
                 delay: effectiveDelay),
             VaultExtractPipelines.Classification => _backgroundJobManager.EnqueueAsync(

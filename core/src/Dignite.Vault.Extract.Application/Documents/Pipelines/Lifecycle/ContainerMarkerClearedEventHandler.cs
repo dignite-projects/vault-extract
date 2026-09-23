@@ -1,15 +1,11 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 using Dignite.Vault.Extract.Abstractions.Documents;
+using Dignite.Vault.Extract.Documents.Pipelines.Segmentation;
 using Dignite.Vault.Extract.Documents.Segments;
 using Microsoft.Extensions.Logging;
 using Volo.Abp.DependencyInjection;
-using Volo.Abp.Domain.Repositories;
 using Volo.Abp.EventBus;
-using Volo.Abp.EventBus.Distributed;
-using Volo.Abp.Timing;
 
 namespace Dignite.Vault.Extract.Documents.Pipelines.Lifecycle;
 
@@ -41,23 +37,14 @@ namespace Dignite.Vault.Extract.Documents.Pipelines.Lifecycle;
 public class ContainerMarkerClearedEventHandler
     : ILocalEventHandler<ContainerMarkerClearedEvent>, ITransientDependency
 {
-    private readonly IDocumentRepository _documentRepository;
-    private readonly IRepository<DocumentSegment, Guid> _segmentRepository;
-    private readonly IDistributedEventBus _distributedEventBus;
-    private readonly IClock _clock;
+    private readonly SubDocumentRetractor _subDocumentRetractor;
     private readonly ILogger<ContainerMarkerClearedEventHandler> _logger;
 
     public ContainerMarkerClearedEventHandler(
-        IDocumentRepository documentRepository,
-        IRepository<DocumentSegment, Guid> segmentRepository,
-        IDistributedEventBus distributedEventBus,
-        IClock clock,
+        SubDocumentRetractor subDocumentRetractor,
         ILogger<ContainerMarkerClearedEventHandler> logger)
     {
-        _documentRepository = documentRepository;
-        _segmentRepository = segmentRepository;
-        _distributedEventBus = distributedEventBus;
-        _clock = clock;
+        _subDocumentRetractor = subDocumentRetractor;
         _logger = logger;
     }
 
@@ -65,62 +52,12 @@ public class ContainerMarkerClearedEventHandler
     {
         var containerId = eventData.DocumentId;
 
-        // #364 / #371: retract ONLY the sub-documents THIS container's segmentation (#346) spawned, identified by the
-        // container's DocumentSegment ledger (RoutedDocumentId is set on a Spawned segment). A blanket OriginDocumentId
-        // sweep would also delete genuinely-embedded FIGURE-kind sub-documents — orthogonal to container-ness (a normal
-        // concrete-typed document keeps its embedded sub-documents) — so drive the retraction from the segment rows and
-        // filter by Kind (below). A container that was never segmented (or whose segmentation never spawned) yields no
-        // routed ids — a no-op, which is correct.
-        var segments = await _segmentRepository.GetListAsync(s => s.SourceDocumentId == containerId);
-        // #371: retract only container-bound (Text) sub-documents — bundle constituents that existed only because the
-        // parent was a container. Container-independent (Figure) sub-documents are genuinely embedded documents (an
-        // invoice photo inside what is now a concrete-typed contract) and survive the reclassify (#364). This
-        // in-memory filter goes
-        // through the exhaustive IsContainerIndependent switch (#379 LOW), so a future third kind throws here (the
-        // first decision site reached) rather than being silently kept; the SQL bulk delete below keeps the literal
-        // Kind value it cannot translate a method call.
-        var spawnedSubDocumentIds = segments
-            .Where(s => !s.Kind.IsContainerIndependent() && s.RoutedDocumentId.HasValue)
-            .Select(s => s.RoutedDocumentId!.Value)
-            .ToList();
-
-        var retractedCount = 0;
-        if (spawnedSubDocumentIds.Count > 0)
-        {
-            // Bounded fan-out: segment count is capped upstream by VaultExtractBehaviorOptions.MaxSegmentsPerDocument
-            // (default 50 — the segmentation job flags the container for review rather than spawn beyond that), so this
-            // list is small and fixed: no Take(N)/pagination and no background job, the retraction runs synchronously
-            // within the reclassify UoW (see the per-document delete note below).
-            var subDocuments = await _documentRepository.GetListAsync(d => spawnedSubDocumentIds.Contains(d.Id));
-            foreach (var subDocument in subDocuments)
-            {
-                // Intentional deferred flush: DeleteAsync WITHOUT autoSave (contrast the eager bulk DeleteAsync(predicate)
-                // for segments below). The soft-delete UPDATE is deferred to the ambient reclassify UoW's SaveChanges, so
-                // it commits together with that UoW. DO NOT add autoSave: true here — doing so would flush this one
-                // sub-document mid-handler, partially committing before the rest of the retraction and before the
-                // reclassify completes, breaking the all-in-one-UoW guarantee: every soft-delete, every DocumentDeletedEto,
-                // and the DocumentClassifiedEto must land in a single transactional-outbox commit (atomic, all-or-nothing).
-                await _documentRepository.DeleteAsync(subDocument);
-
-                await _distributedEventBus.PublishAsync(
-                    new DocumentDeletedEto
-                    {
-                        DocumentId = subDocument.Id,
-                        TenantId = subDocument.TenantId,
-                        EventTime = _clock.Now
-                    });
-                retractedCount++;
-            }
-        }
-
-        // Remove the container's TEXT-kind segment work-queue rows: they reference a bundle premise that is gone, so a
-        // stale detection job finds no text constituents to resume (DocumentSegment has no soft delete — working
-        // state). FIGURE-kind rows are KEPT: a Spawned figure's row shields its live sub-document from the retraction
-        // above, and its SegmentKey remains the sole duplicate-spawn barrier (#481 moved spawn idempotency entirely
-        // onto this ledger); a still-Pending figure row is a real constituent that must still spawn — SetContainerFlag
-        // cleared IsSegmented, so the re-enqueued detection pass re-runs, matches its SegmentKey as already-existing,
-        // and Phase B routes it (#494).
-        await _segmentRepository.DeleteAsync(s => s.SourceDocumentId == containerId && s.Kind == DocumentSegmentKind.Text);
+        // #364 / #371: retract ONLY the container-bound (Text) sub-documents THIS container's segmentation spawned,
+        // identified by its ledger, and remove their rows. Figure sub-documents are genuinely embedded documents (an
+        // invoice photo inside what is now a concrete-typed contract) and survive the reclassify, rows included. A
+        // container that was never segmented (or whose segmentation never spawned) is a no-op. The retraction is
+        // shared with re-parse (#660), which withdraws every kind instead.
+        var retractedCount = await _subDocumentRetractor.RetractContainerBoundAsync(containerId);
 
         if (retractedCount > 0)
         {

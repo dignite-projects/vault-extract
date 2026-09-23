@@ -29,7 +29,9 @@ A sub-document exists first as a **`DocumentSegment`** (pre-spawn ledger row) an
 Therefore `DocumentSegment` is a **durable internal ledger**, **not** a transient work queue:
 
 - It is **never deleted after parse success** (the "delete-segment-after-parse" aggressive simplification is a
-  boundary change, explicitly deferred — #390 Decision 4; open an issue if ever pursued).
+  boundary change, explicitly deferred — #390 Decision 4; open an issue if ever pursued). Rows go only together with
+  the children they route, through `SubDocumentRetractor`: a container→concrete reclassify removes the `Text` rows
+  (#364), a re-parse removes every row (#660).
 - It is **never on any egress** (REST / MCP / ETO). Downstream discovers sub-documents only as `Document` rows with
   `OriginDocumentId` set. Verified zero references in `*.Application.Contracts` / `*.Mcp` / `*.Abstractions`. Keep it
   that way — exposing the ledger would make an internal work-queue into a channel contract.
@@ -62,6 +64,31 @@ but only the retention chain was the thing being abandoned. **#494 restored the 
 unchanged): once `FileOrigin` went back to nullable, a figure child became exactly what a text child already is — a
 Markdown slice with no blob. A figure span whose LLM verdict is `isSubDocument` therefore spawns again, its
 transcription living both inline in the parent's Markdown and as the seed of its own sub-document._
+
+## Re-parse regenerates the sub-documents (#660)
+
+**A document's sub-documents always derive from its current Markdown.** A re-parse (`DocumentAppService.ReparseAsync`)
+replaces the Markdown, so in the same Complete-phase unit of work that writes it, `DocumentParseBackgroundJob`
+calls `SubDocumentRetractor.RetractAllAsync`: every child the ledger routed is soft-deleted with one
+`DocumentDeletedEto`, **of either Kind** — unlike the container→concrete retraction, which keeps `Figure` children
+because there the Markdown is unchanged — every ledger row sourced from the document is deleted, and
+`Document.ReplaceParseOutput` clears `IsSegmented`. Classification then splits the new Markdown from scratch, so old
+and new children are never live together. Rejected: reconciling old and new splits by `SegmentKey` — a key is the
+hash of a span the LLM chose, and the same Markdown can be cut along slightly different boundaries.
+
+What keeps it true:
+
+- **Restore follows the ledger.** `RestoreAsync` refuses a sub-document unless its row
+  (`SourceDocumentId = OriginDocumentId`, `SegmentKey = OriginConstituentKey`, `RoutedDocumentId = its id`) still
+  exists (`IDocumentRepository.IsRoutedBySourceLedgerAsync`, `Extract:DocumentRestoreSuperseded`). This is the
+  "live routed child ⟺ ledger row" invariant below, enforced at the one path that could revive a child; it covers
+  children retracted by #364 as well.
+- **A pass that detected over replaced Markdown drops its verdict.** `DocumentSegmentationJob` re-checks, in each
+  Phase-A write UoW (rows, the segmented marker, the incomplete flag), that the source still carries the Markdown
+  it sent to the LLM (`IsDetectedMarkdownCurrent`). Otherwise a pass that started before the re-parse would insert
+  slices of the old text, or mark the new text segmented so its own pass skips detection.
+- **A sub-document is never re-parsed itself** (`Extract:DocumentReparseSubDocument`): it has no file; re-parsing the
+  parent re-splits it.
 
 ## 🚦 RED LINE: the subsystem assumes exactly two Kinds {Text, Figure}
 

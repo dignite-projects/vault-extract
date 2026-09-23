@@ -18,7 +18,7 @@ namespace Dignite.Vault.Extract.Documents;
 /// Code review on #623 (2026-09-05), root-cause fix: <see cref="DocumentAppService.ApplyManualClassificationAsync"/>
 /// (backing <see cref="IDocumentAppService.ConfirmClassificationAsync"/> / <see cref="IDocumentAppService.ReclassifyAsync"/>)
 /// must refuse to run before <see cref="Document.Markdown"/> is set -- mirroring the same guard already on
-/// <see cref="DocumentAppService.RerecognizeAsync"/> / <see cref="DocumentAppService.ReextractFieldsAsync"/>
+/// <see cref="DocumentAppService.ReparseAsync"/> / <see cref="DocumentAppService.ReextractFieldsAsync"/>
 /// (see <see cref="DocumentAppService_Rerecognize_Tests"/>). Without it, an operator could confirm a type on a
 /// document whose Parse has not written Markdown yet; the cascade field extraction would then run over an empty
 /// body, and since MissingRequiredFields is non-blocking, the document could reach Ready with no fields at all.

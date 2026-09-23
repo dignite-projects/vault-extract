@@ -68,13 +68,16 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant, IHasFlexFi
     public virtual DocumentReviewReasons ReviewReasons { get; private set; }
 
     /// <summary>
-    /// Extracted structured Markdown content, written after a successful text extraction pipeline run and immutable afterward.
+    /// Extracted structured Markdown content, written once by the first successful text extraction pipeline run. Afterwards it
+    /// changes only through an operator correction (<see cref="CorrectMarkdown"/>, #555) or a re-parse that replaces every
+    /// parse output together (<see cref="ReplaceParseOutput"/>, #660).
     /// This is the only text payload on Document; downstream consumers that need plain text project it through <see cref="MarkdownStripper.Strip"/>.
     /// </summary>
     public virtual string? Markdown { get; private set; }
 
     /// <summary>
-    /// Display title for the document, written after a successful text extraction pipeline run and immutable afterward.
+    /// Display title for the document, written once by the first successful text extraction pipeline run; afterwards replaced
+    /// only together with the Markdown it was derived from, by a re-parse (<see cref="ReplaceParseOutput"/>, #660).
     /// Extracted from <see cref="Markdown"/> by <see cref="MarkdownTitleExtractor"/>; if extraction fails, upstream falls back to the file name without extension.
     /// Historical records from before the migration may be null; read paths should fall back to <see cref="FileOrigin"/>?.OriginalFileName / <see cref="FileOrigin"/>?.BlobName.
     /// </summary>
@@ -314,6 +317,42 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant, IHasFlexFi
             throw new BusinessException(VaultExtractErrorCodes.Document.NotTextExtracted);
 
         Markdown = Check.NotNullOrWhiteSpace(markdown, nameof(markdown));
+    }
+
+    /// <summary>
+    /// Re-parse (#660): replaces every output of the text-extraction stage — <see cref="Markdown"/>,
+    /// <see cref="Title"/>, <see cref="Language"/> and <see cref="ExtractionMetadata"/> — as one unit, from a fresh
+    /// extraction of the original file. The first parse writes them through <see cref="SetMarkdown"/> /
+    /// <see cref="SetTitle"/>, and those stay write-once: this is a <b>separate</b> path that requires the opposite
+    /// precondition (Markdown must already exist, as for <see cref="CorrectMarkdown"/>), so a redelivered first-parse
+    /// job still fails on <c>MarkdownIsImmutable</c> instead of overwriting.
+    /// <para>
+    /// The title is replaced with the Markdown because it is derived from it: a title generated from the old text is as
+    /// stale as the text. An empty new Markdown is refused rather than written, so a re-parse that yields nothing leaves
+    /// the previous text in place. <paramref name="language"/> follows <see cref="SetLanguage"/>: an undetected language
+    /// keeps the previous value.
+    /// </para>
+    /// <para>
+    /// Also clears <see cref="IsSegmented"/>. A segmentation completion belongs to the Markdown it split; the caller
+    /// withdraws the sub-documents and ledger rows of the old Markdown in the same unit of work, so the next pass must
+    /// split the new Markdown from scratch.
+    /// </para>
+    /// </summary>
+    internal void ReplaceParseOutput(
+        string markdown,
+        string? title,
+        string? language,
+        DocumentParseMetadata? extractionMetadata)
+    {
+        if (string.IsNullOrEmpty(Markdown))
+            throw new BusinessException(VaultExtractErrorCodes.Document.NotTextExtracted);
+
+        Markdown = Check.NotNullOrWhiteSpace(markdown, nameof(markdown));
+        Title = null;
+        SetTitle(title);
+        SetLanguage(language);
+        SetExtractionMetadata(extractionMetadata);
+        IsSegmented = false;
     }
 
     internal void SetTitle(string? title)
@@ -600,7 +639,7 @@ public class Document : FullAuditedAggregateRoot<Guid>, IMultiTenant, IHasFlexFi
         // #377/#379: routing the flag through SetContainerFlag clears the stale IsSegmented resume marker on the
         // container->concrete transition (single choke point — see SetContainerFlag), so the now-concrete document's
         // own embedded-document routing can run when re-segmented instead of being skipped. #378 was exactly this
-        // omission on the automatic path (reachable via RerecognizeAsync) while only the operator path cleared it.
+        // omission on the automatic path (reachable via re-recognition, now re-parse) while only the operator path cleared it.
         // #349: on a true->false transition raise ContainerMarkerClearedEvent so the in-process handler retracts any
         // already-spawned sub-documents (soft-delete + DocumentDeletedEto) and removes the container's segment rows.
         var wasContainer = IsContainer;

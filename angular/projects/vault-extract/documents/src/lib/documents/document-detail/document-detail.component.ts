@@ -10,7 +10,7 @@ import {
   untracked,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { forkJoin, timer, Subscription } from 'rxjs';
+import { catchError, forkJoin, map, of, switchMap, timer, Subscription } from 'rxjs';
 import { ActivatedRoute, Router } from '@angular/router';
 import { CommonModule, DOCUMENT, Location } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -121,7 +121,7 @@ export class DocumentDetailComponent implements OnInit {
   // it. Everything is denied until the document is in hand.
   private readonly rights = computed(() => rightsOf(this.document()));
   readonly canDelete = computed(() => this.rights().canDelete);
-  // The operator edit family: confirm / reclassify / re-recognize / re-extract / field editing / Markdown
+  // The operator edit family: confirm / reclassify / re-parse / re-extract / field editing / Markdown
   // correction / cabinet re-filing. One gate, matching the backend, where all of them share
   // DocumentAccessRule.Edit.
   readonly canEdit = computed(() => this.rights().canEdit);
@@ -167,7 +167,7 @@ export class DocumentDetailComponent implements OnInit {
   // loading of the original-file blob.
   activeTab = signal<'preview' | 'source' | 'file'>('preview');
   retryingPipeline = signal<string | null>(null);
-  isRerecognizing = signal(false);
+  isReparsing = signal(false);
   isEditingFields = signal(false);
   isSavingFields = signal(false);
   fieldDefinitions = signal<FieldDefinitionDto[]>([]);
@@ -210,7 +210,9 @@ export class DocumentDetailComponent implements OnInit {
   );
 
   // #395: manual confirm/assign classification — the authoritative override for UnresolvedClassification,
-  // relocated here from the removed review-queue page.
+  // relocated here from the removed review-queue page. #660: the same dialog is the type editor beside the type
+  // badge, for a document that already has a type: one picker, one call, whether the type is being confirmed
+  // or changed.
   showClassifyDialog = signal(false);
   selectedTypeId = signal('');
   isConfirmingClassification = signal(false);
@@ -392,17 +394,29 @@ export class DocumentDetailComponent implements OnInit {
     this.pipelineRows().some(r => r.isKnown && r.inProgress)
   );
 
-  // #263 "rerecognize" availability: the edit right on this document, extracted text exists, no critical
-  // pipeline is currently running, and the page is not loading. This avoids stacking reclassification onto a
-  // document already being processed or reprocessed.
-  // #648: plus the role-level right to assign ANY type — the classifier picks the target, so the server
-  // judges DeclareType on the empty subject and a per-type uploader is refused here.
+  // #660 "re-parse" availability: the edit right on this document, extracted text exists, it is not a
+  // sub-document (its text is a slice of its parent's; re-parsing the parent re-splits it), no critical
+  // pipeline is currently running, and the page is not loading.
+  // #648: plus the role-level right to assign ANY type — a re-parse re-runs classification and the classifier
+  // picks the target, so the server judges DeclareType on the empty subject and a per-type uploader is refused.
   // Use pipelineInProgress instead of !isProcessing(): the latter is always false when needsReview() is
-  // true, which would still expose the button on a pending-review document while reclassification is in
-  // progress (review #5). The in-flight POST is covered by button [disabled]="isRerecognizing()".
-  canRerecognize = computed(() =>
+  // true, which would still expose the button on a pending-review document while a re-parse is in
+  // progress (review #5). The in-flight POST is covered by button [disabled]="isReparsing()".
+  canReparse = computed(() =>
     this.canEdit() &&
     canAssignAnyDocumentType(this.canConfirmClassification, this.canUploadIntoAllTypes) &&
+    !!this.document()?.markdown &&
+    !this.isSubDocument() &&
+    !this.pipelineInProgress() &&
+    !this.isLoading()
+  );
+
+  // #660: the type editor beside the type badge. Same prerequisites the server applies to a manual
+  // classification (edit right, extracted text, a type this caller may assign), and hidden while a pipeline
+  // runs, so a change cannot race the run that would overwrite it.
+  canEditType = computed(() =>
+    this.canEdit() &&
+    this.assignableTypes().length > 0 &&
     !!this.document()?.markdown &&
     !this.pipelineInProgress() &&
     !this.isLoading()
@@ -410,7 +424,7 @@ export class DocumentDetailComponent implements OnInit {
 
   isReextracting = signal(false);
 
-  // #289 "field re-extraction only" availability: same prerequisites as "rerecognize", plus already
+  // #289 "field re-extraction only" availability: same prerequisites as "re-parse", plus already
   // classified with documentTypeCode. Field extraction is attached to a type, so unclassified documents
   // have nothing to extract from; this mirrors the backend NotClassified guard.
   canReextractFields = computed(() =>
@@ -421,7 +435,7 @@ export class DocumentDetailComponent implements OnInit {
     !this.isLoading()
   );
 
-  // #555 "correct Markdown" availability: same prerequisites as canRerecognize/canReextractFields (edit
+  // #555 "correct Markdown" availability: same prerequisites as canReparse/canReextractFields (edit
   // permission, extracted text present, no critical pipeline running, page not loading), plus excluding
   // container documents — the backend hard-rejects UpdateMarkdownAsync on a container with
   // CannotCorrectContainerMarkdown, so the affordance is hidden here rather than exposing an action that is
@@ -493,6 +507,14 @@ export class DocumentDetailComponent implements OnInit {
     const code = this.document()?.documentTypeCode;
     if (!code) return null;
     return this.documentTypes.value().find(t => t.typeCode === code)?.displayName ?? code;
+  });
+
+  // #660: the type picker's selection is the type the document already has. Saving it would only re-extract
+  // fields for an unchanged type, which is what "重抽字段" is for, so the dialog's save stays disabled.
+  selectedTypeIsCurrent = computed(() => {
+    const code = this.document()?.documentTypeCode;
+    if (!code || !this.selectedTypeId()) return false;
+    return this.documentTypes.value().find(t => t.typeCode === code)?.id === this.selectedTypeId();
   });
 
   // Type-bound extracted fields (field architecture v2). Show only values corresponding to currently
@@ -708,7 +730,7 @@ export class DocumentDetailComponent implements OnInit {
     // depend on doc.documentTypeCode and remain sequential.
     //
     // #635: skipHandleError on BOTH, and the error branch below owns the outcome. This fetch serves the
-    // poll, the manual Refresh and the reload after re-recognize / re-extract / retry — and a re-recognition
+    // poll, the manual Refresh and the reload after re-parse / re-extract / retry — and a re-parse
     // can move the document into a type this caller may not read (the classifier's candidates are every type
     // of the layer, the caller's Read scope is not). Left to ABP's global handler, that 403 pops the
     // authorization modal — once per refused call, and both calls are refused — and leaves the page stale.
@@ -728,7 +750,7 @@ export class DocumentDetailComponent implements OnInit {
           // Original-file blob lazy loading (#274): do not fetch while loading the document by default;
           // download only when the Original File tab is selected. See selectTab.
           // If the user is already on that tab, call ensureFilePreview once after reload
-          // (Refresh / rerecognize). It returns early when the blob is cached and resets a previous error
+          // (Refresh / re-parse). It returns early when the blob is cached and resets a previous error
           // for retry, preventing Refresh from being ineffective on a stuck preview (#274 review).
           if (this.activeTab() === 'file') {
             this.ensureFilePreview();
@@ -1181,30 +1203,45 @@ export class DocumentDetailComponent implements OnInit {
       });
   }
 
-  // #263 "rerecognize": rerun AI automatic classification on the existing Markdown, cascading to field
-  // re-extraction without rerunning OCR.
-  // This is an overwriting operation, replacing current type and manually edited field values, so confirm
-  // first. Reload after success to reflect Processing state.
-  rerecognize(): void {
+  // #660 "re-parse": re-run text extraction from the original file, then classification and its cascade, as
+  // for a fresh upload. It overwrites the Markdown (operator corrections included), the type (operator-confirmed
+  // included) and field values, and replaces every sub-document, so confirm first — naming how many
+  // sub-documents go, counted with the list's originDocumentId filter. If the count cannot be read the generic
+  // warning still says sub-documents are replaced. Reload after success to reflect Processing state.
+  reparse(): void {
     const doc = this.document();
-    if (!doc || this.isRerecognizing()) return;
-    this.confirmation
-      .warn('::Document:Rerecognize:Confirm', '::AreYouSure')
-      .pipe(takeUntilDestroyed(this.destroyRef))
+    if (!doc || this.isReparsing()) return;
+    this.isReparsing.set(true);
+    this.documentService.getList({ originDocumentId: doc.id, maxResultCount: 1, skipCount: 0 })
+      .pipe(
+        map(result => result.totalCount ?? 0),
+        catchError(() => of(0)),
+        switchMap(subDocumentCount => {
+          // The count is in; nothing is in progress while the operator decides, so the button must not say
+          // "re-parsing" behind the dialog.
+          this.isReparsing.set(false);
+          return subDocumentCount > 0
+            ? this.confirmation.warn('::Document:Reparse:ConfirmWithSubDocuments', '::AreYouSure', {
+                messageLocalizationParams: [String(subDocumentCount)],
+              })
+            : this.confirmation.warn('::Document:Reparse:Confirm', '::AreYouSure');
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
       .subscribe(status => {
         if (status !== Confirmation.Status.confirm) return;
-        this.isRerecognizing.set(true);
-        this.documentService.rerecognize(doc.id!)
+        this.isReparsing.set(true);
+        this.documentService.reparse(doc.id!)
           .pipe(takeUntilDestroyed(this.destroyRef))
           .subscribe({
             next: () => {
-              this.isRerecognizing.set(false);
-              this.toaster.success('::Document:RerecognizeQueued', '::Success');
+              this.isReparsing.set(false);
+              this.toaster.success('::Document:ReparseQueued', '::Success');
               this.loadDocument();
             },
             error: () => {
-              this.isRerecognizing.set(false);
-              this.toaster.error('::Document:RerecognizeFailed', '::Error');
+              this.isReparsing.set(false);
+              this.toaster.error('::Document:ReparseFailed', '::Error');
             },
           });
       });
@@ -1242,6 +1279,8 @@ export class DocumentDetailComponent implements OnInit {
   // #395: manual confirm / assign document type. Authoritative override that clears
   // UnresolvedClassification and cascades field extraction (backend confirmClassification). Defaults the
   // picker to the document's current low-confidence type when present so the operator usually just confirms.
+  // #660: also the type editor for a document that already has a type — the same call writes the chosen type
+  // as operator-confirmed and re-extracts fields for it, without re-parsing or re-running the classifier.
   openClassifyDialog(): void {
     const doc = this.document();
     if (!doc) return;
@@ -1261,6 +1300,8 @@ export class DocumentDetailComponent implements OnInit {
   submitClassify(): void {
     const doc = this.document();
     if (!doc || !this.selectedTypeId() || this.isConfirmingClassification()) return;
+    // Captured before the call: the reload afterwards clears the reason this distinguishes.
+    const wasConfirmingClassification = this.needsClassification();
     this.isConfirmingClassification.set(true);
     this.documentService.confirmClassification(doc.id!, { documentTypeId: this.selectedTypeId() })
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -1271,7 +1312,10 @@ export class DocumentDetailComponent implements OnInit {
           // The one call on this page that routinely moves a document out of the caller's read scope: the
           // TARGET type is judged by DeclareType (an Upload grant suffices), not by Read.
           if (this.leaveIfNoLongerReadable(updated)) return;
-          this.toaster.success('::Document:ClassificationConfirmed', '::Success');
+          this.toaster.success(
+            wasConfirmingClassification ? '::Document:ClassificationConfirmed' : '::Document:TypeChanged',
+            '::Success',
+          );
           this.loadDocument();
         },
         error: () => {

@@ -91,29 +91,33 @@ public interface IDocumentAppService : IApplicationService
     Task RetryPipelineAsync(Guid id, RetryPipelineInput input);
 
     /// <summary>
-    /// "Re-recognize" (#263): asks AI to rerun the automatic classification workflow on **existing Markdown**,
-    /// cascading field re-extraction, **without rerunning OCR**.
+    /// Re-parse (#660): runs the document through the pipeline again from its stored original file — text
+    /// extraction, then LLM classification, which cascades exactly as it does for a fresh upload (container detection,
+    /// embedded-document routing, the type, field extraction).
     /// <para>
-    /// Differs from <see cref="ReclassifyAsync"/> (operator **manually specifies** type, persists synchronously, no LLM)
-    /// and <see cref="RetryPipelineAsync"/> (only <c>Failed</c> runs are retryable): this path re-enqueues the classification job
-    /// for any document with **completed text extraction**, letting the LLM reclassify automatically using the latest type / field descriptions.
-    /// High confidence publishes <see cref="Abstractions.Documents.DocumentClassifiedEto"/> through transactional outbox while the
-    /// classification stage schedules the cascade field re-extraction run transactionally (#527 §8); low confidence enters the manual-review queue.
+    /// Replaces <c>Markdown</c>, <c>Title</c>, <c>Language</c> and the extraction metadata as one unit, and withdraws
+    /// every sub-document split from the old Markdown (soft delete + <see cref="Abstractions.Documents.DocumentDeletedEto"/>),
+    /// so the new Markdown is split from scratch. Classification always runs, even over an operator-confirmed type,
+    /// which it may overwrite; operator Markdown corrections and field edits are overwritten too. Caller UI must
+    /// confirm first. Publishes <see cref="Abstractions.Documents.DocumentTextExtractedEto"/> on completion, then
+    /// whatever classification publishes.
     /// </para>
     /// <para>
-    /// Warning: this **overwrites** existing classification results, including operator-confirmed types, and field values edited by operators
-    /// when cascading re-extraction runs. Caller UI must confirm first. Rejected when the document is in the trash, has no Markdown yet,
-    /// or classification is already in progress.
+    /// Judged like a reclassification whose target the classifier picks: <c>Edit</c> on the document, then the
+    /// role-level type-assignment right. Rejected for a document in the recycle bin, one with no Markdown yet (a failed
+    /// first parse is <see cref="RetryPipelineAsync"/>'s job), a sub-document (re-parse its parent instead), one whose
+    /// original file is not in blob storage, and while text extraction, classification or field extraction is in
+    /// progress.
     /// </para>
     /// </summary>
-    Task RerecognizeAsync(Guid id);
+    Task ReparseAsync(Guid id);
 
     /// <summary>
     /// "Field re-extraction only" (#289 scenario 2, single-document version): reruns only type-bound field extraction
     /// (<c>field-extraction</c> pipeline) on the **existing classification**, with **no reclassification and no OCR rerun**.
-    /// This is the lightweight detail-page button distinct from "re-recognize", used when field definitions changed and classification should stay untouched.
+    /// This is the lightweight detail-page button distinct from "re-parse", used when field definitions changed and classification should stay untouched.
     /// <para>
-    /// Differs from <see cref="RerecognizeAsync"/> (destructive reclassification + cascade): this path is a safe leaf operation,
+    /// Differs from <see cref="ReparseAsync"/> (destructive re-parse + reclassification + cascade): this path is a safe leaf operation,
     /// replacing only the whole field value set. It may overwrite operator-edited field values, but at lower cost.
     /// After completion, the run's lifecycle re-derivation round-trips the document through Processing and, when it derives
     /// Ready again, re-fires <see cref="Abstractions.Documents.DocumentReadyEto"/> — the pipeline's egress for this path.
@@ -148,7 +152,7 @@ public interface IDocumentAppService : IApplicationService
     /// <c>true</c> re-runs field extraction (the same mechanism <see cref="ReextractFieldsAsync"/> uses), which
     /// round-trips the lifecycle through Processing and, when it derives Ready again, re-fires <see cref="Abstractions.Documents.DocumentReadyEto"/>.
     /// It does <b>not</b> touch classification or segmentation — those have their own independent entry points
-    /// (<see cref="RerecognizeAsync"/>). <c>false</c> (default) writes the Markdown only: no re-extraction, and
+    /// (<see cref="ReparseAsync"/>, <see cref="ReclassifyAsync"/>). <c>false</c> (default) writes the Markdown only: no re-extraction, and
     /// no event is fired at all — a deliberate accepted trade-off; a downstream consumer that already pulled
     /// the document via <c>DocumentReadyEto</c> will not know the content changed until it re-fetches.
     /// </para>

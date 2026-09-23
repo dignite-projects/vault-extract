@@ -25,7 +25,7 @@ import { DocumentDetailComponent } from './document-detail.component';
 // ownership and lost every action on a document whose type had been archived.
 //
 // #635 decision 2 also splits the page's single old gate in two: the EDIT family (confirm / reclassify /
-// re-recognize / re-extract / field editing / Markdown correction / cabinet re-filing, all of which an
+// re-parse / re-extract / field editing / Markdown correction / cabinet re-filing, all of which an
 // uploader may run on their own document) and the REVIEW family (allow duplicate / resolve warnings /
 // reject), which clear a blocking review reason and are therefore closed to an owner acting alone.
 //
@@ -141,7 +141,7 @@ const MODULE_WIDE = new Set<string>([
 
 const ENTRY_ONLY = new Set<string>([EXTRACT_PERMISSIONS.Documents.Default]);
 
-/** Entry plus the role-level right to assign any type, which #648 additionally requires of "重新分类". */
+/** Entry plus the role-level right to assign any type, which #648 additionally requires of "重新解析" (#660). */
 const ENTRY_AND_CONFIRM = new Set<string>([
   EXTRACT_PERMISSIONS.Documents.Default,
   EXTRACT_PERMISSIONS.Documents.ConfirmClassification,
@@ -208,19 +208,19 @@ describe('DocumentDetailComponent — the rights come with the document (#635)',
   });
 
   it('carries the whole edit family with it', () => {
-    // #648 adds a second term to re-recognize only, so the caller here holds the role-level assign right and
+    // #648 adds a second term to re-parse only, so the caller here holds the role-level assign right and
     // the row stays the thing under test. The added term is covered on its own below.
     const { component } = setup(ENTRY_AND_CONFIRM);
     component.isLoading.set(false);
 
     component.document.set(documentOf(FULL));
     expect(component.needsClassification()).toBe(true);
-    expect(component.canRerecognize()).toBe(true);
+    expect(component.canReparse()).toBe(true);
     expect(component.canReextractFields()).toBe(true);
     expect(component.canEditMarkdown()).toBe(true);
 
     component.document.set(documentOf(READ_ONLY));
-    expect(component.canRerecognize()).toBe(false);
+    expect(component.canReparse()).toBe(false);
     expect(component.canReextractFields()).toBe(false);
     expect(component.canEditMarkdown()).toBe(false);
   });
@@ -382,7 +382,7 @@ describe('DocumentDetailComponent — retry follows the row (#635 decision 2)', 
     expect(component.canRetry()).toBe(true);
 
     // A Read-only caller who happens to hold module-wide Pipelines.Retry used to reach this button on any
-    // readable document, around the per-type Edit gate its neighbour "re-recognize" already had.
+    // readable document, around the per-type Edit gate its neighbour (then "re-recognize") already had.
     component.document.set(documentOf(READ_ONLY));
     expect(component.canRetry()).toBe(false);
   });
@@ -434,9 +434,10 @@ describe('DocumentDetailComponent — classify picker (#632, #645)', () => {
   });
 });
 
-// #648: the classifier picks the target type, so "重新分类" additionally needs the role-level right to assign
-// any type — the same OR the picker above applies, through the one shared helper.
-describe('DocumentDetailComponent — AI re-classification needs the assign-any-type right (#648)', () => {
+// #648: the classifier picks the target type, so "重新解析" (#660, which re-runs classification) additionally
+// needs the role-level right to assign any type — the same OR the picker above applies, through the one shared
+// helper.
+describe('DocumentDetailComponent — re-parse needs the assign-any-type right (#648 / #660)', () => {
   beforeEach(() => {
     TestBed.resetTestingModule();
   });
@@ -455,22 +456,143 @@ describe('DocumentDetailComponent — AI re-classification needs the assign-any-
     const { component, text } = render(ENTRY_ONLY);
 
     expect(component.canEdit()).toBe(true);
-    expect(component.canRerecognize()).toBe(false);
-    expect(text).not.toContain('Document:Rerecognize');
+    expect(component.canReparse()).toBe(false);
+    expect(text).not.toContain('Document:Reparse');
   });
 
   it('shows it to a ConfirmClassification holder', () => {
     const { component, text } = render(ENTRY_AND_CONFIRM);
 
-    expect(component.canRerecognize()).toBe(true);
-    expect(text).toContain('Document:Rerecognize');
+    expect(component.canReparse()).toBe(true);
+    expect(text).toContain('Document:Reparse');
   });
 
   it('shows it to a Documents.Upload holder', () => {
     const { component, text } = render(ENTRY_AND_UPLOAD_ALL);
 
-    expect(component.canRerecognize()).toBe(true);
-    expect(text).toContain('Document:Rerecognize');
+    expect(component.canReparse()).toBe(true);
+    expect(text).toContain('Document:Reparse');
+  });
+});
+
+// #660: "重新解析" re-parses from the original file and is never offered on a sub-document, which has no file of
+// its own; the type editor beside the type badge changes the type without re-parsing.
+describe('DocumentDetailComponent — re-parse and the type editor (#660)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  const TYPED = { reviewReasons: DocumentReviewReasons.None };
+
+  it('offers no re-parse on a sub-document, and says to re-parse the parent', () => {
+    const { component, fixture } = setup(ENTRY_AND_CONFIRM);
+    component.isLoading.set(false);
+    component.document.set(documentOf(FULL, 'contract', { ...TYPED, originDocumentId: 'parent-1' }));
+    fixture.detectChanges();
+
+    expect(component.canReparse()).toBe(false);
+    expect(fixture.nativeElement.textContent).toContain('Document:Reparse:SubDocumentHint');
+  });
+
+  it('offers re-parse on the parent itself', () => {
+    const { component } = setup(ENTRY_AND_CONFIRM);
+    component.isLoading.set(false);
+    component.document.set(documentOf(FULL, 'contract', TYPED));
+
+    expect(component.canReparse()).toBe(true);
+  });
+
+  it('offers the type editor beside the type to a caller who may assign a type', () => {
+    const { component, fixture } = setup(ENTRY_AND_CONFIRM);
+    component.isLoading.set(false);
+    component.document.set(documentOf(FULL, 'contract', TYPED));
+    fixture.detectChanges();
+
+    expect(component.canEditType()).toBe(true);
+    expect(fixture.nativeElement.textContent).toContain('Document:EditType');
+
+    component.document.set(documentOf(READ_ONLY, 'contract', TYPED));
+    expect(component.canEditType()).toBe(false);
+  });
+
+  it('keeps the save disabled while the picker holds the current type', () => {
+    const { component } = setup(ENTRY_AND_CONFIRM);
+    component.document.set(documentOf(FULL, 'contract', TYPED));
+
+    component.openClassifyDialog();
+    expect(component.selectedTypeId()).toBe('type-a');
+    expect(component.selectedTypeIsCurrent()).toBe(true);
+
+    component.selectedTypeId.set('type-b');
+    expect(component.selectedTypeIsCurrent()).toBe(false);
+  });
+
+  it('reports a type change, not a confirmation, when the document already had a type', () => {
+    const confirmClassification = vi.fn().mockReturnValue(of(documentOf(FULL, 'invoice', TYPED)));
+    const get = vi.fn().mockReturnValue(of(documentOf(FULL, 'invoice', TYPED)));
+    const { component, toaster } = setup(ENTRY_AND_CONFIRM, undefined, { confirmClassification, get });
+    component.document.set(documentOf(FULL, 'contract', TYPED));
+    component.selectedTypeId.set('type-b');
+
+    component.submitClassify();
+
+    expect(confirmClassification).toHaveBeenCalledWith('doc-1', { documentTypeId: 'type-b' });
+    expect(toaster.success).toHaveBeenCalledWith('::Document:TypeChanged', '::Success');
+  });
+
+  it('names how many sub-documents a re-parse withdraws before queueing it', () => {
+    const getList = vi.fn().mockReturnValue(of({ totalCount: 2, items: [] }));
+    const reparse = vi.fn().mockReturnValue(of(undefined));
+    const get = vi.fn().mockReturnValue(of(documentOf(FULL, 'contract', TYPED)));
+    const { component, toaster } = setup(ENTRY_AND_CONFIRM, undefined, { getList, reparse, get });
+    const confirmation = TestBed.inject(ConfirmationService) as unknown as { warn: ReturnType<typeof vi.fn> };
+    confirmation.warn.mockReturnValue(of(Confirmation.Status.confirm));
+    component.document.set(documentOf(FULL, 'contract', TYPED));
+
+    component.reparse();
+
+    expect(getList).toHaveBeenCalledWith(expect.objectContaining({ originDocumentId: 'doc-1' }));
+    expect(confirmation.warn).toHaveBeenCalledWith(
+      '::Document:Reparse:ConfirmWithSubDocuments',
+      '::AreYouSure',
+      { messageLocalizationParams: ['2'] },
+    );
+    expect(reparse).toHaveBeenCalledWith('doc-1');
+    expect(toaster.success).toHaveBeenCalledWith('::Document:ReparseQueued', '::Success');
+  });
+
+  it('does not show the button as re-parsing while the operator is still deciding', () => {
+    const decision = new Subject<Confirmation.Status>();
+    const getList = vi.fn().mockReturnValue(of({ totalCount: 0, items: [] }));
+    const reparse = vi.fn().mockReturnValue(of(undefined));
+    const get = vi.fn().mockReturnValue(of(documentOf(FULL, 'contract', TYPED)));
+    const { component } = setup(ENTRY_AND_CONFIRM, undefined, { getList, reparse, get });
+    const confirmation = TestBed.inject(ConfirmationService) as unknown as { warn: ReturnType<typeof vi.fn> };
+    confirmation.warn.mockReturnValue(decision);
+    component.document.set(documentOf(FULL, 'contract', TYPED));
+
+    component.reparse();
+    expect(confirmation.warn).toHaveBeenCalled();
+    expect(component.isReparsing()).toBe(false);
+    expect(reparse).not.toHaveBeenCalled();
+
+    decision.next(Confirmation.Status.confirm);
+    expect(reparse).toHaveBeenCalledWith('doc-1');
+  });
+
+  it('still warns, without a count, when the sub-document count cannot be read', () => {
+    const getList = vi.fn().mockReturnValue(throwError(() => new Error('offline')));
+    const reparse = vi.fn();
+    const { component } = setup(ENTRY_AND_CONFIRM, undefined, { getList, reparse });
+    const confirmation = TestBed.inject(ConfirmationService) as unknown as { warn: ReturnType<typeof vi.fn> };
+    component.document.set(documentOf(FULL, 'contract', TYPED));
+
+    component.reparse();
+
+    expect(confirmation.warn).toHaveBeenCalledWith('::Document:Reparse:Confirm', '::AreYouSure');
+    // The default stub resolves the dialog as dismissed: nothing is queued and the button is free again.
+    expect(reparse).not.toHaveBeenCalled();
+    expect(component.isReparsing()).toBe(false);
   });
 });
 
@@ -678,8 +800,8 @@ describe('DocumentDetailComponent — a mutation result without a verdict (#639 
   });
 });
 
-// #639 review, finding 2: the page's own fetch serves the poll, Refresh, and the reload after re-recognize /
-// re-extract / retry. A re-recognition can move the document into a type the caller may not read, and the next
+// #639 review, finding 2: the page's own fetch serves the poll, Refresh, and the reload after re-parse /
+// re-extract / retry. A re-parse can move the document into a type the caller may not read, and the next
 // fetch is then refused. That refusal is an answer, not a failure — every other error is still a failure.
 describe('DocumentDetailComponent — the document fetch is refused or fails (#639 review)', () => {
   beforeEach(() => {
