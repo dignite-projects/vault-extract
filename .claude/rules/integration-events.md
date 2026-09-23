@@ -15,7 +15,7 @@ paths:
 | Stage event | Trigger | Gated by Ready |
 |---------|---------|----------------|
 | `DocumentUploadedEto` | document upload completed | No |
-| `DocumentTextExtractedEto` | text extraction completed (image OCR or digital-native); an observability signal, not a state-machine input | No |
+| `DocumentTextExtractedEto` | text extraction completed (image OCR or digital-native); an observability signal, not a state-machine input. Re-fires when an operator re-parses the document (#660): the Markdown was replaced, so a consumer that indexed it should pull it again | No |
 | `DocumentClassifiedEto` | document classification completed | No |
 | `DocumentReadyEto` | **full pipeline complete + no blocking review reason** (`ReviewReasonPolicy.Blocking`); also re-fires when field extraction re-runs on an already-Ready document (bulk/on-demand re-extraction, #289; the round-trip exists because #411 made FieldExtraction a key pipeline) or when an operator edits fields on an already-Ready document (#650) | **Yes** |
 
@@ -25,7 +25,7 @@ The wire names are published to integrators in `docs/en/egress/integration-event
 
 | Lifecycle event | Trigger |
 |------------|---------|
-| `DocumentDeletedEto` | document soft-deleted (into recycle bin) — downstream should set derived data to a recoverable archived state |
+| `DocumentDeletedEto` | document soft-deleted (into recycle bin) — downstream should set derived data to a recoverable archived state. Also fires for each sub-document withdrawn because its parent was re-parsed (#660) or a container was reclassified to a concrete type (#349); such a sub-document cannot be restored, since its parent's split no longer produces it |
 | `DocumentRestoredEto` | document restored from recycle bin — downstream should un-archive |
 | `DocumentPermanentlyDeletedEto` | document permanently deleted (including the original file / archive blob) — downstream should physically delete derived data |
 | `DocumentReclassifiedToContainerEto` | a previously concrete-typed document was re-recognized as a **container** (#355) — its type + type-bound fields are cleared, so downstream should **retract** the record it derived from the former type. The document itself is not deleted; its constituents become sub-documents queryable by `OriginDocumentId`. Thin payload (`DocumentId` / `TenantId` / `EventTime`), not Ready-gated. The type→container mirror of the container→type retraction (#349, which reuses `DocumentDeletedEto` for the spawned sub-documents). Fires only on a real transition — a fresh upload first classified as a container emits nothing. |

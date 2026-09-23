@@ -128,22 +128,22 @@ public class DocumentOwnership_Tests : DocumentAccessTestBase
         reclassified.DocumentTypeCode.ShouldBe(TypeA.TypeCode);
     }
 
-    // ===================== AI re-classification asks DeclareType too (#648) =====================
+    // ===================== Re-parse re-classifies, so it asks DeclareType too (#648 / #660) =====================
 
     /// <summary>
-    /// #648: the classifier picks the target and may land the document in any type of the layer, so
-    /// <c>RerecognizeAsync</c> judges <see cref="DocumentAccessRule.DeclareType"/> on the empty subject — leaving
+    /// #648: the classifier picks the target and may land the document in any type of the layer, so re-parse
+    /// (<c>ReparseAsync</c>, #660, which re-runs classification) judges <see cref="DocumentAccessRule.DeclareType"/> on the empty subject — leaving
     /// its role-level arm only, exactly as an untyped upload is judged. A per-type uploader keeps the manual
     /// path, which names a type their grant covers.
     /// </summary>
     [Fact]
-    public async Task An_uploader_is_refused_AI_reclassification_of_their_own_document_but_still_reclassifies_it()
+    public async Task An_uploader_is_refused_reparse_of_their_own_document_but_still_reclassifies_it()
     {
         var own = StubDocument(TypeA.Id, creatorId: OwnerId, markdown: "# body");
         GrantUploaderOnTypeA();
 
         await Should.ThrowAsync<AbpAuthorizationException>(
-            () => AsOwnerAsync(() => AppService.RerecognizeAsync(own.Id)));
+            () => AsOwnerAsync(() => AppService.ReparseAsync(own.Id)));
 
         var reclassified = await AsOwnerAsync(() =>
             AppService.ReclassifyAsync(own.Id, new ReclassifyDocumentInput { DocumentTypeId = TypeA.Id }));
@@ -156,27 +156,28 @@ public class DocumentOwnership_Tests : DocumentAccessTestBase
     /// out of the type the grant was given on.
     /// </summary>
     [Fact]
-    public async Task An_Edit_grant_alone_does_not_admit_AI_reclassification_of_someone_elses_document()
+    public async Task An_Edit_grant_alone_does_not_admit_reparse_of_someone_elses_document()
     {
         var theirs = StubDocument(TypeA.Id, creatorId: OwnerId, markdown: "# body");
         Grant(VaultExtractPermissions.Documents.Default);
         GrantResource(VaultExtractResourcePermissions.Edit, TypeA.Id, StrangerId);
 
         await Should.ThrowAsync<AbpAuthorizationException>(
-            () => AsStrangerAsync(() => AppService.RerecognizeAsync(theirs.Id)));
+            () => AsStrangerAsync(() => AppService.ReparseAsync(theirs.Id)));
 
-        (await LatestClassificationRunAsync(theirs)).ShouldBeNull();
+        (await LatestParseRunAsync(theirs)).ShouldBeNull();
     }
 
     [Fact]
-    public async Task AI_reclassification_admits_ConfirmClassification_on_someone_elses_document()
+    public async Task Reparse_admits_ConfirmClassification_on_someone_elses_document()
     {
+        BlobContainer.ExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
         var theirs = StubDocument(TypeA.Id, creatorId: OwnerId, markdown: "# body");
         Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.ConfirmClassification);
 
-        await AsStrangerAsync(() => AppService.RerecognizeAsync(theirs.Id));
+        await AsStrangerAsync(() => AppService.ReparseAsync(theirs.Id));
 
-        (await LatestClassificationRunAsync(theirs))!.Status.ShouldBe(PipelineRunStatus.Pending);
+        (await LatestParseRunAsync(theirs))!.Status.ShouldBe(PipelineRunStatus.Pending);
     }
 
     /// <summary>
@@ -184,14 +185,15 @@ public class DocumentOwnership_Tests : DocumentAccessTestBase
     /// DeclareType half alone.
     /// </summary>
     [Fact]
-    public async Task AI_reclassification_admits_Documents_Upload_on_ones_own_document()
+    public async Task Reparse_admits_Documents_Upload_on_ones_own_document()
     {
+        BlobContainer.ExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
         var own = StubDocument(TypeA.Id, creatorId: OwnerId, markdown: "# body");
         Grant(VaultExtractPermissions.Documents.Default, VaultExtractPermissions.Documents.Upload);
 
-        await AsOwnerAsync(() => AppService.RerecognizeAsync(own.Id));
+        await AsOwnerAsync(() => AppService.ReparseAsync(own.Id));
 
-        (await LatestClassificationRunAsync(own))!.Status.ShouldBe(PipelineRunStatus.Pending);
+        (await LatestParseRunAsync(own))!.Status.ShouldBe(PipelineRunStatus.Pending);
     }
 
     /// <summary>
@@ -199,19 +201,19 @@ public class DocumentOwnership_Tests : DocumentAccessTestBase
     /// error is an oracle for this document's processing state.
     /// </summary>
     [Fact]
-    public async Task AI_reclassification_denies_before_the_NotTextExtracted_guard_can_answer()
+    public async Task Reparse_denies_before_the_NotTextExtracted_guard_can_answer()
     {
         var own = StubDocument(TypeA.Id, creatorId: OwnerId);
         own.Markdown.ShouldBeNullOrEmpty();
         GrantUploaderOnTypeA();
 
         await Should.ThrowAsync<AbpAuthorizationException>(
-            () => AsOwnerAsync(() => AppService.RerecognizeAsync(own.Id)));
+            () => AsOwnerAsync(() => AppService.ReparseAsync(own.Id)));
     }
 
-    private Task<DocumentPipelineRun?> LatestClassificationRunAsync(Document document)
+    private Task<DocumentPipelineRun?> LatestParseRunAsync(Document document)
         => GetRequiredService<IDocumentPipelineRunRepository>()
-            .FindLatestByDocumentAndCodeAsync(document.Id, VaultExtractPipelines.Classification);
+            .FindLatestByDocumentAndCodeAsync(document.Id, VaultExtractPipelines.Parse);
 
     // ===================== The four-way: read / edit / delete / restore on one's own =====================
 
@@ -511,7 +513,7 @@ public class DocumentOwnership_Tests : DocumentAccessTestBase
         await Should.ThrowAsync<AbpAuthorizationException>(
             () => AsOwnerAsync(() => AppService.ReextractFieldsAsync(own.Id)));
         await Should.ThrowAsync<AbpAuthorizationException>(
-            () => AsOwnerAsync(() => AppService.RerecognizeAsync(own.Id)));
+            () => AsOwnerAsync(() => AppService.ReparseAsync(own.Id)));
         await Should.ThrowAsync<AbpAuthorizationException>(() => AsOwnerAsync(() =>
             AppService.UpdateCabinetAsync(own.Id, new UpdateDocumentCabinetInput { CabinetId = null })));
         await Should.ThrowAsync<AbpAuthorizationException>(() => AsOwnerAsync(() =>

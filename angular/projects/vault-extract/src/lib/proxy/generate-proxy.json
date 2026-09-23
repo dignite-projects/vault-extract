@@ -6325,6 +6325,27 @@
                   }
                 },
                 {
+                  "name": "ConfirmFieldEntryAsync",
+                  "parametersOnMethod": [
+                    {
+                      "name": "id",
+                      "typeAsString": "System.Guid, System.Private.CoreLib",
+                      "type": "System.Guid",
+                      "typeSimple": "string",
+                      "isOptional": false,
+                      "defaultValue": null,
+                      "summary": null,
+                      "description": null,
+                      "displayName": null
+                    }
+                  ],
+                  "returnValue": {
+                    "type": "Dignite.Vault.Extract.Documents.DocumentDto",
+                    "typeSimple": "Dignite.Vault.Extract.Documents.DocumentDto",
+                    "summary": null
+                  }
+                },
+                {
                   "name": "RetryPipelineAsync",
                   "parametersOnMethod": [
                     {
@@ -6357,7 +6378,7 @@
                   }
                 },
                 {
-                  "name": "RerecognizeAsync",
+                  "name": "ReparseAsync",
                   "parametersOnMethod": [
                     {
                       "name": "id",
@@ -7370,6 +7391,55 @@
               "description": null,
               "displayName": null
             },
+            "ConfirmFieldEntryAsyncById": {
+              "uniqueName": "ConfirmFieldEntryAsyncById",
+              "name": "ConfirmFieldEntryAsync",
+              "httpMethod": "POST",
+              "url": "api/vault-extract/documents/{id}/review/confirm-field-entry",
+              "supportedVersions": [],
+              "parametersOnMethod": [
+                {
+                  "name": "id",
+                  "typeAsString": "System.Guid, System.Private.CoreLib",
+                  "type": "System.Guid",
+                  "typeSimple": "string",
+                  "isOptional": false,
+                  "defaultValue": null,
+                  "summary": null,
+                  "description": null,
+                  "displayName": null
+                }
+              ],
+              "parameters": [
+                {
+                  "nameOnMethod": "id",
+                  "name": "id",
+                  "jsonName": null,
+                  "type": "System.Guid",
+                  "typeSimple": "string",
+                  "isOptional": false,
+                  "defaultValue": null,
+                  "constraintTypes": [],
+                  "bindingSourceId": "Path",
+                  "descriptorName": "",
+                  "summary": null,
+                  "description": null,
+                  "displayName": null
+                }
+              ],
+              "returnValue": {
+                "type": "Dignite.Vault.Extract.Documents.DocumentDto",
+                "typeSimple": "Dignite.Vault.Extract.Documents.DocumentDto",
+                "summary": null
+              },
+              "allowAnonymous": null,
+              "authorizeDatas": [],
+              "implementFrom": "Dignite.Vault.Extract.Documents.IDocumentAppService",
+              "summary": null,
+              "remarks": null,
+              "description": null,
+              "displayName": null
+            },
             "RetryPipelineAsyncByIdAndInput": {
               "uniqueName": "RetryPipelineAsyncByIdAndInput",
               "name": "RetryPipelineAsync",
@@ -7445,11 +7515,11 @@
               "description": null,
               "displayName": null
             },
-            "RerecognizeAsyncById": {
-              "uniqueName": "RerecognizeAsyncById",
-              "name": "RerecognizeAsync",
+            "ReparseAsyncById": {
+              "uniqueName": "ReparseAsyncById",
+              "name": "ReparseAsync",
               "httpMethod": "POST",
-              "url": "api/vault-extract/documents/{id}/rerecognize",
+              "url": "api/vault-extract/documents/{id}/reparse",
               "supportedVersions": [],
               "parametersOnMethod": [
                 {

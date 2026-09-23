@@ -381,7 +381,7 @@ public class DocumentClassificationBackgroundJob_Tests
     public async Task Automatic_Reclassify_Of_Segmented_Container_To_Concrete_Type_Clears_IsSegmented()
     {
         // #371/#377 post-merge fix: the AUTOMATIC high-confidence path (ApplyAutomaticClassificationResult, reachable
-        // via RerecognizeAsync) must clear IsSegmented on a container->concrete transition, exactly like the operator
+        // via re-recognition, now re-parse) must clear IsSegmented on a container->concrete transition, exactly like the operator
         // path (ConfirmClassification). Otherwise the stale resume marker silently gates off the now-concrete
         // document's own embedded-document routing (DocumentSegmentationJob's !AlreadySegmented gate skips the split),
         // so the embedded figure is never routed. This test fails on the pre-fix code (IsSegmented stays true).

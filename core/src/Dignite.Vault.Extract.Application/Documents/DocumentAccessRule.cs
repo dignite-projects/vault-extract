@@ -123,7 +123,7 @@ public sealed class DocumentAccessRule
     /// <summary>
     /// The operator edit family: confirm / reclassify (whose <b>target</b> type is judged separately by
     /// <see cref="DeclareType"/>), <c>UpdateMarkdownAsync</c>, <c>UpdateExtractedFieldsAsync</c>,
-    /// <c>RerecognizeAsync</c>, <c>ReextractFieldsAsync</c>, and <c>UpdateCabinetAsync</c> — filing is a write
+    /// <c>ReparseAsync</c>, <c>ReextractFieldsAsync</c>, and <c>UpdateCabinetAsync</c> — filing is a write
     /// (<c>SetCabinet</c> + <c>UpdateAsync</c>), so #635 moved it here off the Read rule, where a Read grant was
     /// no longer read-only.
     /// </summary>
@@ -169,7 +169,7 @@ public sealed class DocumentAccessRule
 
     /// <summary>
     /// <c>RetryPipelineAsync</c>. #635 revisits #632's "module-wide only, by decision": retry is a single-document
-    /// operator action on the detail page, the same act as <c>RerecognizeAsync</c> beside it, which already sits
+    /// operator action on the detail page, the same act as the re-run beside it (<c>ReparseAsync</c> since #660), which already sits
     /// on the Edit arm — it has none of the reasons the other three module-wide-only rows have (irreversible,
     /// admin-level bulk, whole-layer aggregate). Left as it was, a caller holding a <c>Read</c> grant plus
     /// <c>Pipelines.Retry</c> re-ran OCR and classification on any readable document, around the per-type Edit
@@ -187,7 +187,7 @@ public sealed class DocumentAccessRule
     /// Assigning a type to an existing document: the <b>target</b> type of Confirm / Reclassify. It is about the
     /// type being assigned, never about the document's current type, which is <see cref="Edit"/>'s job, and never
     /// about who owns anything (owning a document is not a licence to move it into a type the caller was never
-    /// granted). It also gates AI re-classification (<c>RerecognizeAsync</c>, #648), judged on
+    /// granted). It also gates AI re-classification (<c>ReparseAsync</c>; #648 introduced it for the former <c>RerecognizeAsync</c>), judged on
     /// <see cref="DocumentAccessSubject.None"/> because the classifier — not the caller — names the target type.
     /// <para>
     /// <b>The only row whose role-level set has two members</b> (#645 decision 1): <c>ConfirmClassification</c> is

@@ -80,12 +80,12 @@ It matters most for the per-type arm: handing out a resource grant is gated by `
 | Rule | Module-wide | Per-type grant | Owner arm | Operations it gates |
 | --- | --- | --- | --- | --- |
 | **Read** | `Documents.ReadAll` | `Read` | **always** | `GetAsync`, `GetBlobAsync`, list and recycle-bin membership, export rows, `DocumentPipelineRunAppService.GetListAsync`, MCP `get_document` / `search_documents` / document resources |
-| **Edit** | `Documents.ConfirmClassification` | `Edit` | **unless under review** | `ConfirmClassificationAsync` / `ReclassifyAsync` (whose **target** type is judged by *Declare a type*), `RerecognizeAsync` (likewise, on the empty subject), `ReextractFieldsAsync`, `UpdateExtractedFieldsAsync`, `UpdateMarkdownAsync`, `UpdateCabinetAsync` |
+| **Edit** | `Documents.ConfirmClassification` | `Edit` | **unless under review** | `ConfirmClassificationAsync` / `ReclassifyAsync` (whose **target** type is judged by *Declare a type*), `ReparseAsync` (likewise, on the empty subject), `ReextractFieldsAsync`, `UpdateExtractedFieldsAsync`, `UpdateMarkdownAsync`, `UpdateCabinetAsync` |
 | **Review** | `Documents.ConfirmClassification` | `Edit` | **never** | `AllowDuplicateAsync`, `ResolveFieldValidationWarningsAsync`, `RejectReviewAsync` |
 | **Delete** | `Documents.Delete` | `Delete` | **always** | `DeleteAsync` (soft delete) |
 | **Restore** | `Documents.Delete` — **whoever may delete may undo** | `Delete` — likewise | **always** | `RestoreAsync` |
 | **Retry** | `Documents.Pipelines.Retry` | `Edit` | **unless under review** | `RetryPipelineAsync` |
-| **Declare a type** | `Documents.ConfirmClassification` **or** `Documents.Upload` | `Upload` on the **target** type | never | the target type of `ConfirmClassificationAsync` / `ReclassifyAsync`; and `RerecognizeAsync`, judged on the **empty subject** — the classifier names the target, so only the module-wide column can admit it |
+| **Declare a type** | `Documents.ConfirmClassification` **or** `Documents.Upload` | `Upload` on the **target** type | never | the target type of `ConfirmClassificationAsync` / `ReclassifyAsync`; and `ReparseAsync`, judged on the **empty subject** — its classification names the target, so only the module-wide column can admit it |
 | **Upload** | `Documents.Upload` | `Upload` on the declared type | never | `UploadAsync`, judged once; an untyped upload has no type, so only `Documents.Upload` admits it |
 | **Permanent delete** | `Documents.PermanentDelete` | — | never | `PermanentDeleteAsync` |
 | **Reprocess (fields)** | `Documents.Reprocessing.FieldExtraction` | — | never | `PreviewFieldExtractionAsync`, `StartFieldExtractionAsync` |
@@ -97,7 +97,7 @@ The module-wide column of each row is a set, and any member admits. Every row ha
 
 Reclassifying a document from type A to type B needs two rows: **Edit** on A (it is an edit of that document) and **Declare a type** on B (it is a decision about B), or a module-wide permission in place of either. Owning the document satisfies the first and never the second — owning a document is not a licence to move it into a type you were never granted.
 
-AI re-classification (`RerecognizeAsync`, the detail page's *Re-recognize*) needs the same two rows: **Edit** on the document, and **Declare a type** on the empty subject, because the classifier picks the target and it may be any type of the layer. That leaves `ConfirmClassification` or `Documents.Upload` as the only ways in — the same judgment an untyped upload gets, for the same reason. A caller whose right to assign types is per type uses the manual path instead and names one their grant covers.
+Re-parse (`ReparseAsync`, the detail page's *Re-parse*, [#660](https://github.com/dignite-projects/vault-extract/issues/660)) re-runs classification, so it needs the same two rows: **Edit** on the document, and **Declare a type** on the empty subject, because the classifier picks the target and it may be any type of the layer. That leaves `ConfirmClassification` or `Documents.Upload` as the only ways in — the same judgment an untyped upload gets, for the same reason. A caller whose right to assign types is per type uses the manual path instead and names one their grant covers.
 
 ### The owner arm has three values, and Review is why
 
@@ -122,7 +122,7 @@ The client sees this without a special case: `rights.canEdit` and `rights.canRet
 
 **Restore** is the **Delete** row: at the role level it is `Documents.Delete`, at the type level the `Delete` grant, and the owner may always restore their own. Undoing an operation is not a wider right than the operation, and a deleter who could not restore would have to escalate a mistake of their own making to an admin. There is no separate restore permission any more — see the CHANGELOG entry for #645 if a role of yours held one.
 
-**Retry** used to be module-wide only, by decision. It is not any more: it is a single-document operator action on the detail page, the same act as `RerecognizeAsync` beside it, and none of the reasons the remaining module-wide-only rows have (irreversible, admin-level bulk, whole-layer aggregate) applies to it. Left as it was, a caller holding a `Read` grant plus `Pipelines.Retry` re-ran OCR and classification on any readable document, around the per-type `Edit` gate.
+**Retry** used to be module-wide only, by decision. It is not any more: it is a single-document operator action on the detail page, the same act as the re-run beside it (then `RerecognizeAsync`, now `ReparseAsync`), and none of the reasons the remaining module-wide-only rows have (irreversible, admin-level bulk, whole-layer aggregate) applies to it. Left as it was, a caller holding a `Read` grant plus `Pipelines.Retry` re-ran OCR and classification on any readable document, around the per-type `Edit` gate.
 
 **`UpdateCabinetAsync`** moved from Read to Edit: it calls `SetCabinet` + `UpdateAsync`, so filing a document is a write however it is described, and leaving it on Read meant a `Read` grant was no longer read-only. Assigning to a cabinet still additionally requires `Cabinets.Default`.
 
@@ -227,7 +227,7 @@ The lists themselves are narrowed on the server, so the UI never hides a row it 
 | Surface | Shown when |
 | --- | --- |
 | Document list / detail → Confirm classification, Reclassify, Re-extract fields, Edit fields, Correct Markdown, Change cabinet | `rights.canEdit` |
-| Document detail → Re-recognize | `rights.canEdit` **and** `ConfirmClassification` or `Documents.Upload` — the `DeclareType` row's module-wide column, since the classifier names the target type |
+| Document detail → Re-parse | `rights.canEdit` **and** `ConfirmClassification` or `Documents.Upload` — the `DeclareType` row's module-wide column, since the classifier names the target type; never on a sub-document |
 | Document list / detail → Delete | `rights.canDelete` |
 | Document list → selection checkboxes and bulk delete | `rights.canDelete` on at least one row of the page; rows without it drop out of the selection |
 | Document detail → Reject review, Allow duplicate, Resolve warnings | `rights.canReview` |

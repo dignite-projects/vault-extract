@@ -104,10 +104,10 @@ export class DocumentService {
     { apiName: this.apiName,...config });
   
 
-  rerecognize = (id: string, config?: Partial<Rest.Config>) =>
+  reparse = (id: string, config?: Partial<Rest.Config>) =>
     this.restService.request<any, void>({
       method: 'POST',
-      url: `/api/vault-extract/documents/${id}/rerecognize`,
+      url: `/api/vault-extract/documents/${id}/reparse`,
     },
     { apiName: this.apiName,...config });
   

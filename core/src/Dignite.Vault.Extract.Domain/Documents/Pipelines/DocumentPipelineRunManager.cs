@@ -161,6 +161,23 @@ public class DocumentPipelineRunManager : DomainService
     }
 
     /// <summary>
+    /// Re-parse (#660): replaces the text-extraction outputs of a document that already has Markdown and completes
+    /// the run. The write-once <see cref="CompleteParseAsync"/> stays the only path for the first parse; see
+    /// <see cref="Document.ReplaceParseOutput"/> for why the two never share a writer.
+    /// </summary>
+    public virtual Task CompleteReparseAsync(
+        Document document,
+        DocumentPipelineRun run,
+        string markdown,
+        string? title,
+        string? language = null,
+        DocumentParseMetadata? extractionMetadata = null)
+    {
+        document.ReplaceParseOutput(markdown, title, language, extractionMetadata);
+        return CompleteAsync(document, run);
+    }
+
+    /// <summary>
     /// Records classification results and completes the run (high-confidence path).
     /// This path clears <see cref="DocumentReviewReasons.UnresolvedClassification"/> because classification is resolved.
     /// AI classification reason is only written on the low-confidence path (<see cref="CompleteClassificationWithLowConfidenceAsync"/>).

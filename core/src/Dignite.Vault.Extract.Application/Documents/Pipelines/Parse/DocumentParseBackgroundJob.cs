@@ -9,6 +9,7 @@ using Dignite.Vault.Extract.Ai;
 using Dignite.Vault.Extract.Documents;
 using Dignite.Vault.Extract.Documents.Cabinets;
 using Dignite.Vault.Extract.Documents.Pipelines.Classification;
+using Dignite.Vault.Extract.Documents.Pipelines.Segmentation;
 using Dignite.Vault.Extract.Documents.Segments;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
@@ -59,6 +60,8 @@ public class DocumentParseBackgroundJob
     // manual-classification sequence when one is declared.
     private readonly IDocumentTypeRepository _documentTypeRepository;
     private readonly ManualClassificationApplier _manualClassificationApplier;
+    // #660: a re-parse withdraws the sub-documents split from the Markdown it replaces.
+    private readonly SubDocumentRetractor _subDocumentRetractor;
 
     public DocumentParseBackgroundJob(
         IDocumentRepository documentRepository,
@@ -79,7 +82,8 @@ public class DocumentParseBackgroundJob
         IRepository<DocumentSegment, Guid> documentSegmentRepository,
         ICurrentTenant currentTenant,
         IDocumentTypeRepository documentTypeRepository,
-        ManualClassificationApplier manualClassificationApplier)
+        ManualClassificationApplier manualClassificationApplier,
+        SubDocumentRetractor subDocumentRetractor)
         : base(documentRepository, runRepository, pipelineRunManager, pipelineRunAccessor, unitOfWorkManager)
     {
         _pipelineJobScheduler = pipelineJobScheduler;
@@ -96,6 +100,7 @@ public class DocumentParseBackgroundJob
         _currentTenant = currentTenant;
         _documentTypeRepository = documentTypeRepository;
         _manualClassificationApplier = manualClassificationApplier;
+        _subDocumentRetractor = subDocumentRetractor;
     }
 
     public override async Task ExecuteAsync(DocumentParseJobArgs args)
@@ -163,7 +168,7 @@ public class DocumentParseBackgroundJob
             // Archiving fails open: over limit / write failure / disabled archive affects only the manifest, not text extraction completion below.
             var extractionMetadata = await ArchiveNativePayloadAndBuildMetadataAsync(args.DocumentId, result);
 
-            await CompleteRunAsync(args.DocumentId, workItem.RunId, result, title, extractionMetadata);
+            await CompleteRunAsync(args.DocumentId, workItem.RunId, result, title, extractionMetadata, args.IsReparse);
         }
         catch (Exception ex)
         {
@@ -216,12 +221,32 @@ public class DocumentParseBackgroundJob
         Guid runId,
         TextExtractionResult result,
         string? title,
-        DocumentParseMetadata extractionMetadata)
+        DocumentParseMetadata extractionMetadata,
+        bool isReparse)
     {
-        using var uow = UnitOfWorkManager.Begin(requiresNew: true);
+        // #660: an empty re-parse result is refused before anything is written, so the previous text stays and the
+        // run fails with a message an operator can act on (retry, or re-upload a better file).
+        if (isReparse && string.IsNullOrWhiteSpace(result.Markdown))
+        {
+            throw new InvalidOperationException(
+                $"Re-parse produced no text; the previous Markdown is kept (run {runId}).");
+        }
+
+        // #660: a re-parse's completion is one transaction. It queues classification, replaces the parse outputs and
+        // withdraws sub-documents, and several of those writes flush early (autoSave); without a transaction a failure
+        // late in the phase would leave a classification run queued against the old Markdown. The first-parse path
+        // keeps its non-transactional unit of work.
+        using var uow = UnitOfWorkManager.Begin(requiresNew: true, isTransactional: isReparse);
 
         var (document, run) = await LoadDocumentAndRunAsync(
             documentId, runId, VaultExtractPipelines.Parse);
+
+        if (isReparse)
+        {
+            await CompleteReparseAsync(document, run, result, title, extractionMetadata);
+            await uow.CompleteAsync();
+            return;
+        }
 
         await PipelineRunManager.CompleteParseAsync(
             document, run, result.Markdown, title,
@@ -252,9 +277,9 @@ public class DocumentParseBackgroundJob
         // violate the background-jobs.md "no slow work inside a UoW" rule; it also keeps the declaration and its
         // Classification-run bookkeeping atomic with Parse's own completion.
         //
-        // This short-circuits only the *first* automatic classification. A later operator "re-recognize"
-        // (RerecognizeAsync) enqueues the LLM classification job directly -- it never routes back through this
-        // Parse job -- so it is unaffected by this branch and still runs the LLM as always. Container detection
+        // This short-circuits only the *first* automatic classification. A later operator re-parse (#660) takes
+        // CompleteReparseAsync instead of this path and always runs the LLM, which is #623's remedy for a declared
+        // type that is really a bundle. Container detection
         // and embedded-document routing are intentionally skipped for a declared type (#623 decision 1): both
         // ride the classification stage, and a declared type is treated as a concrete document -- the same
         // outcome as an operator Reclassify to a concrete type today.
@@ -298,14 +323,62 @@ public class DocumentParseBackgroundJob
         // "One-shot" behavior (#265 guardrail 3) is naturally guaranteed by the Markdown write-once invariant:
         // CompleteParseAsync -> SetMarkdown throws MarkdownIsImmutable when Markdown already exists -> FailRun.
         // Therefore this success path can be hit <b>at most once</b> per document.
-        // Retry is allowed only for Failed runs, with the first success happening here, and rerecognize re-enqueues only classification
-        // without rerunning text extraction, so neither duplicates the fan-out.
+        // Retry is allowed only for Failed runs, with the first success happening here, and a re-parse (#660) returns
+        // through CompleteReparseAsync before reaching this line, so neither duplicates the fan-out.
         // Do not gate by AttemptNumber==1: that would miss the first-success case where the first attempt failed and retry succeeded
         // with successful run AttemptNumber > 1.
         await _backgroundJobManager.EnqueueAsync(
             new DocumentCabinetSuggestionJobArgs { DocumentId = document.Id, TenantId = document.TenantId });
 
         await uow.CompleteAsync();
+    }
+
+    /// <summary>
+    /// Re-parse completion (#660), inside the Complete-phase UoW. A re-parse runs the document through the pipeline
+    /// again as a fresh upload would, so it differs from a first parse in four ways:
+    /// <list type="number">
+    ///   <item>LLM classification is queued <b>before</b> this run completes. The document's earlier classification and
+    ///   field-extraction runs already succeeded, so completing this run first would derive Ready inside this UoW and
+    ///   fire <c>DocumentReadyEto</c> for content nobody has classified yet (the #527 §8 ordering).</item>
+    ///   <item>It always runs the LLM, even over an operator-confirmed or upload-declared (#623) type: only the classifier
+    ///   can say the new text is a bundle, and #623 names a re-run of classification as the remedy for a declared type
+    ///   that is really one.</item>
+    ///   <item>The parse outputs are replaced as one unit through <see cref="DocumentPipelineRunManager.CompleteReparseAsync"/>,
+    ///   and every sub-document split from the old Markdown is withdrawn with its ledger rows, so the new Markdown is
+    ///   split from scratch and no old child stays live next to a new one.</item>
+    ///   <item>No cabinet suggestion: the cabinet is operator-owned and the #265 suggestion is one-shot.</item>
+    /// </list>
+    /// The caller runs this in a transactional unit of work, so a failure anywhere in it — a concurrency conflict on a
+    /// withdrawn ledger row included — rolls back the queued classification with everything else and fails the run
+    /// with the previous text still in place.
+    /// </summary>
+    protected virtual async Task CompleteReparseAsync(
+        Document document,
+        DocumentPipelineRun run,
+        TextExtractionResult result,
+        string? title,
+        DocumentParseMetadata extractionMetadata)
+    {
+        await _pipelineJobScheduler.QueueAsync(document, VaultExtractPipelines.Classification);
+
+        await PipelineRunManager.CompleteReparseAsync(
+            document, run, result.Markdown, title,
+            language: result.DetectedLanguage,
+            extractionMetadata: extractionMetadata);
+
+        var withdrawn = await _subDocumentRetractor.RetractAllAsync(document.Id);
+
+        await _distributedEventBus.PublishAsync(
+            new DocumentTextExtractedEto
+            {
+                DocumentId = document.Id,
+                TenantId = document.TenantId,
+                EventTime = _clock.Now
+            });
+
+        Logger.LogInformation(
+            "Document {DocumentId} re-parsed; withdrew {SubDocumentCount} sub-document(s) and queued classification (#660).",
+            document.Id, withdrawn);
     }
 
     /// <summary>
@@ -446,4 +519,10 @@ public class DocumentParseJobArgs
     public Guid DocumentId { get; set; }
     public Guid? TenantId { get; set; }
     public Guid? PipelineRunId { get; set; }
+
+    /// <summary>
+    /// #660: this run re-parses a document that already has Markdown, replacing its parse outputs and sub-documents
+    /// and re-running classification. Absent from args serialized before #660, so those deserialize as a first parse.
+    /// </summary>
+    public bool IsReparse { get; set; }
 }

@@ -721,6 +721,18 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
                     throw new BusinessException(VaultExtractErrorCodes.Document.RestoreConflict)
                         .WithData("DocumentId", id);
                 }
+
+                // #660: "a live routed child ⟺ its ledger row exists". A sub-document whose row is gone was withdrawn
+                // because the parent's split no longer produces it — a re-parse re-split new Markdown, or a
+                // container→concrete reclassify retracted the bundle constituents — so bringing it back would put it
+                // next to the sub-documents that replaced it.
+                var stillRouted = await _documentRepository.IsRoutedBySourceLedgerAsync(
+                    document.OriginDocumentId.Value, document.OriginConstituentKey, document.Id);
+                if (!stillRouted)
+                {
+                    throw new BusinessException(VaultExtractErrorCodes.Document.RestoreSuperseded)
+                        .WithData("DocumentId", id);
+                }
             }
 
             // #531: DocumentType is schema identity, so a document may only come back to life while the type it
@@ -785,8 +797,8 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         var document = await _documentRepository.GetAsync(id, includeDetails: false);
 
         // #635 Retry rule, replacing the method-level [Authorize(Pipelines.Retry)]. Retry is a single-document
-        // operator action on the detail page, the same act as RerecognizeAsync beside it — which #632 already put
-        // on the Edit arm — so it gets the same per-type arm and the owner arm, with Pipelines.Retry keeping its
+        // operator action on the detail page, the same act as the re-run beside it (then RerecognizeAsync, #660
+        // ReparseAsync) — which #632 already put on the Edit arm — so it gets the same per-type arm and the owner arm, with Pipelines.Retry keeping its
         // meaning as the module-wide one. Left as it was, a caller holding a Read grant plus Pipelines.Retry
         // re-ran OCR and classification on any readable document, around the per-type Edit gate. It runs BEFORE
         // EnsureNotDeleted and EnsureRetryableAsync, both of which report this document's state.
@@ -800,53 +812,72 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
             "RetryPipelineAsync user={UserId} tenant={TenantId} doc={DocumentId} pipeline={PipelineCode} previousAttempt={Attempt}",
             CurrentUser.Id, CurrentTenant.Id, document.Id, input.PipelineCode, latestRun.AttemptNumber);
 
-        await _pipelineJobScheduler.QueueAsync(document, input.PipelineCode);
+        // #660: a failed text-extraction run on a document that already has Markdown was a re-parse (a first parse
+        // writes Markdown only on success), so its retry is one too. Decided from the document, not the failed run,
+        // for the same reason the mode travels in the job args: the first-parse path must never see existing Markdown.
+        var isReparse = input.PipelineCode == VaultExtractPipelines.Parse && !string.IsNullOrEmpty(document.Markdown);
+
+        await _pipelineJobScheduler.QueueAsync(document, input.PipelineCode, isReparse: isReparse);
     }
 
     /// <summary>
-    /// "Re-recognize" (#263): reruns AI automatic classification on existing Markdown -> cascades field re-extraction, without rerunning OCR.
-    /// Re-enqueues the classification job on the same path used after text extraction completes. The background job performs LLM automatic reclassification;
-    /// after completion, high confidence emits <see cref="DocumentClassifiedEto"/> to cascade field re-extraction, while low confidence enters manual review.
-    /// <para>
-    /// See <see cref="IDocumentAppService.RerecognizeAsync"/> for semantic boundaries with <see cref="ReclassifyAsync"/>
-    /// (operator-specified type, synchronous persistence) and <see cref="RetryPipelineAsync"/> (only Failed runs are retryable).
-    /// </para>
+    /// Re-parse (#660): re-runs text extraction from the stored original file, then LLM classification and its normal
+    /// cascade. Queues a text-extraction run marked as a re-parse; <c>DocumentParseBackgroundJob.CompleteReparseAsync</c>
+    /// replaces the parse outputs, withdraws the old sub-documents and queues classification. See
+    /// <see cref="IDocumentAppService.ReparseAsync"/> for what it overwrites.
     /// </summary>
-    public virtual async Task RerecognizeAsync(Guid id)
+    public virtual async Task ReparseAsync(Guid id)
     {
         // #635: entry before the load, so an unauthenticated caller cannot tell a real id from an
         // unknown one by whether it gets 404 or 403. The rule itself needs the document in hand and runs below.
         await _documentAccess.CheckEntryAsync();
 
-        // Need only scalar fields (IsDeleted / Markdown / FileOrigin); field values are not touched. Tenant isolation is enforced by the ambient IMultiTenant filter.
+        // Need only scalar fields (IsDeleted / Markdown / FileOrigin / OriginDocumentId); field values are not touched.
+        // Tenant isolation is enforced by the ambient IMultiTenant filter.
         var document = await _documentRepository.GetAsync(id, includeDetails: false);
 
-        // #632 Edit rule (replaces the method-level [Authorize(ConfirmClassification)], which would have denied a
-        // per-type Edit holder before this body could offer the other half of the OR).
         await _documentAccess.CheckAsync(DocumentAccessRule.Edit, DocumentAccessSubject.Of(document));
 
-        // #648: the classifier picks the target, and it may be any type of the layer, so DeclareType is judged on
-        // the empty subject — leaving its role-level arm only. Same judgment UploadAsync makes for an untyped
-        // upload, and the same Edit-then-DeclareType pair as ApplyManualClassificationAsync.
+        // #648: re-parse re-runs classification, and the classifier may land the document in any type of the layer,
+        // so DeclareType is judged on the empty subject — leaving its role-level arm only. Same pair as the manual
+        // reclassification, with the target unknown.
         await _documentAccess.CheckAsync(DocumentAccessRule.DeclareType, DocumentAccessSubject.None);
 
         EnsureNotDeleted(document);
 
-        // Automatic classification input is Document.Markdown. If text extraction has not produced text yet, reclassification cannot run.
+        // A sub-document's text is a slice of its parent's Markdown and it has no file of its own (#487); re-parsing
+        // the parent re-splits it.
+        if (document.OriginDocumentId.HasValue)
+        {
+            throw new BusinessException(VaultExtractErrorCodes.Document.ReparseSubDocument);
+        }
+
+        // A re-parse replaces existing Markdown. A document whose first parse never succeeded is retried instead.
         if (string.IsNullOrEmpty(document.Markdown))
         {
             throw new BusinessException(VaultExtractErrorCodes.Document.NotTextExtracted);
         }
 
-        // Concurrency guard: do not re-enqueue while classification is Pending/Running. New attempts do not collide with the unique index for Running, so this must be blocked explicitly.
+        // A re-parse reads the stored original file. Refused up front when it is not there (no FileOrigin, or lost
+        // from blob storage): accepted, the run would fail in the background and leave a document whose text is
+        // intact marked Failed, and every retry would fail the same way.
+        if (document.FileOrigin == null || !await _blobContainer.ExistsAsync(document.FileOrigin.BlobName))
+        {
+            throw new BusinessException(VaultExtractErrorCodes.Document.ReparseSourceFileMissing);
+        }
+
+        // Every stage a re-parse restarts must be idle: an in-flight classification or field extraction would finish
+        // against the old Markdown after the new one is written.
+        await _pipelineRunManager.EnsureNotInProgressAsync(id, VaultExtractPipelines.Parse);
         await _pipelineRunManager.EnsureNotInProgressAsync(id, VaultExtractPipelines.Classification);
+        await _pipelineRunManager.EnsureNotInProgressAsync(id, VaultExtractPipelines.FieldExtraction);
 
         Logger.LogInformation(
-            "RerecognizeAsync user={UserId} tenant={TenantId} doc={DocumentId}",
+            "ReparseAsync user={UserId} tenant={TenantId} doc={DocumentId}",
             CurrentUser.Id, CurrentTenant.Id, document.Id);
 
-        // Re-enqueue automatic classification. QueueAsync creates a Pending run, derives LifecycleStatus -> Processing, and enqueues the background job.
-        await _pipelineJobScheduler.QueueAsync(document, VaultExtractPipelines.Classification);
+        // QueueAsync creates a Pending run, derives LifecycleStatus -> Processing, and enqueues the background job.
+        await _pipelineJobScheduler.QueueAsync(document, VaultExtractPipelines.Parse, isReparse: true);
     }
 
     /// <summary>
@@ -863,7 +894,8 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // Need only scalar fields (IsDeleted / DocumentTypeId / Markdown); field values are not touched. Tenant isolation is enforced by the ambient IMultiTenant filter.
         var document = await _documentRepository.GetAsync(id, includeDetails: false);
 
-        // #632 Edit rule (see RerecognizeAsync for why the attribute is gone).
+        // #632 Edit rule (no [Authorize]: it would deny a per-type Edit holder before the body could offer the
+        // other arms of the rule — .claude/rules/authorization.md).
         await _documentAccess.CheckAsync(DocumentAccessRule.Edit, DocumentAccessSubject.Of(document));
 
         EnsureNotDeleted(document);
@@ -888,7 +920,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
 
     /// <summary>
     /// Shared recycle-bin guard (code-review follow-up on #555): rejects an operator action on a
-    /// soft-deleted document, used by every action that requires a live document -- retry, rerecognize,
+    /// soft-deleted document, used by every action that requires a live document -- retry, re-parse,
     /// field re-extraction, and Markdown correction -- so the exception shape and the #485 null-safe
     /// diagnostic cannot drift between call sites the way they had before this was extracted.
     /// </summary>
@@ -955,7 +987,8 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
             throw new EntityNotFoundException(typeof(Document), id);
         }
 
-        // #632 Edit rule (see RerecognizeAsync for why the attribute is gone).
+        // #632 Edit rule (no [Authorize]: it would deny a per-type Edit holder before the body could offer the
+        // other arms of the rule — .claude/rules/authorization.md).
         await _documentAccess.CheckAsync(DocumentAccessRule.Edit, DocumentAccessSubject.Of(document));
 
         // #635: with the ownership arm, an uploader reaches their own document while it sits in their own recycle
@@ -1082,7 +1115,7 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
     /// guard + enqueue pair <see cref="ReextractFieldsAsync"/> uses (<see cref="QueueFieldReextractionAsync"/>),
     /// which round-trips the lifecycle through Processing and, when it derives Ready again, re-fires <see cref="DocumentReadyEto"/>. It does
     /// not touch classification or segmentation — those are
-    /// <see cref="RerecognizeAsync"/>'s job. Reprocess = <c>false</c> writes the Markdown only: no
+    /// <see cref="ReparseAsync"/>'s and <see cref="ReclassifyAsync"/>'s job. Reprocess = <c>false</c> writes the Markdown only: no
     /// re-extraction, no event at all — a deliberate accepted trade-off (a downstream consumer that already
     /// pulled the document via <c>DocumentReadyEto</c> will not know the content changed until it re-fetches).
     /// </para>
@@ -1107,7 +1140,8 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
             throw new EntityNotFoundException(typeof(Document), id);
         }
 
-        // #632 Edit rule (see RerecognizeAsync for why the attribute is gone).
+        // #632 Edit rule (no [Authorize]: it would deny a per-type Edit holder before the body could offer the
+        // other arms of the rule — .claude/rules/authorization.md).
         await _documentAccess.CheckAsync(DocumentAccessRule.Edit, DocumentAccessSubject.Of(document));
 
         EnsureNotDeleted(document);
@@ -1410,12 +1444,12 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         // authorization outranks a fast-fail, because a business error is an oracle.
         await _documentAccess.CheckAsync(DocumentAccessRule.DeclareType, DocumentAccessSubject.OfType(typeDef));
 
-        // A type can only be confirmed on a document that has text -- mirrors RerecognizeAsync / ReextractFieldsAsync.
+        // A type can only be confirmed on a document that has text -- mirrors ReparseAsync / ReextractFieldsAsync.
         // Without this guard the cascade field extraction below would run over an empty body, and since
         // MissingRequiredFields is non-blocking, the document could reach Ready with no fields at all. This guard is
         // also what makes the Parse-cascade declared-type branch (DocumentParseBackgroundJob.CompleteRunAsync)
         // race-free: no path can create a Classification run before Parse writes Markdown -- bulk reprocessing
-        // requires Markdown, RerecognizeAsync carries this same guard, and derived sub-documents are always created
+        // requires Markdown, ReparseAsync carries this same guard, and derived sub-documents are always created
         // typeless -- so by the time Parse completes, no operator action could have gotten here first.
         if (string.IsNullOrEmpty(document.Markdown))
         {

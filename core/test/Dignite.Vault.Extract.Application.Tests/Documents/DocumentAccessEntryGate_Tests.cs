@@ -262,7 +262,7 @@ public class DocumentAccessEntryGate_Tests : DocumentAccessTestBase
 
     /// <summary>
     /// #635's revisit of #632's "module-wide only, by decision": retry's per-type arm is the <c>Edit</c> grant,
-    /// the same one <c>RerecognizeAsync</c> beside it already used. A <c>Read</c> grant does not reach it.
+    /// the same one the re-run beside it (<c>ReparseAsync</c>) uses. A <c>Read</c> grant does not reach it.
     /// </summary>
     [Fact]
     public async Task RetryPipelineAsync_refuses_a_Read_grant_holder()

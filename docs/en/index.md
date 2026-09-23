@@ -22,7 +22,7 @@ The Markdown-first extraction layer: choosing and configuring an OCR provider.
 How a document moves from extracted Markdown to a confirmed type and extracted fields.
 
 - [Classification](pipeline/classification.md) — document-type pipeline and prompt tuning
-- [Reprocessing](pipeline/reprocessing.md) — bulk re-run of classification / field extraction over existing documents after a config change
+- [Reprocessing](pipeline/reprocessing.md) — bulk re-run of classification / field extraction over existing documents after a config change, and single-document re-parse from the original file
 - [Pipeline runs](pipeline/pipeline-runs.md) — run history and review-UI payloads
 
 ## Egress

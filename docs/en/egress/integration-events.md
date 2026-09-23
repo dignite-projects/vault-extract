@@ -9,7 +9,7 @@ Fired as a document moves through the pipeline. Only `DocumentReadyEto` is gated
 | Event | Wire name | When it fires | Gated by Ready |
 | --- | --- | --- | --- |
 | `DocumentUploadedEto` | `VaultExtract.Document.Uploaded` | Document upload completed | No |
-| `DocumentTextExtractedEto` | `VaultExtract.Document.TextExtracted` | Text extraction completed (image OCR or digital-native) | No |
+| `DocumentTextExtractedEto` | `VaultExtract.Document.TextExtracted` | Text extraction completed (image OCR or digital-native). Fires again when an operator re-parses the document from its original file: the Markdown was replaced, so pull it again | No |
 | `DocumentClassifiedEto` | `VaultExtract.Document.Classified` | Document classification completed | No |
 | `DocumentReadyEto` | `VaultExtract.Document.Ready` | Full pipeline complete, no blocking review reason remains | **Yes** |
 
@@ -19,7 +19,7 @@ Orthogonal to the pipeline above — recycle-bin and reclassification transition
 
 | Event | Wire name | Meaning |
 | --- | --- | --- |
-| `DocumentDeletedEto` | `VaultExtract.Document.Deleted` | Document soft-deleted (moved to the recycle bin); downstream should archive derived data |
+| `DocumentDeletedEto` | `VaultExtract.Document.Deleted` | Document soft-deleted (moved to the recycle bin); downstream should archive derived data. Also fires for each sub-document withdrawn when its parent is re-parsed (it is split again from the new text) or when a bundle is reclassified to a single document type; such a sub-document is not restored later |
 | `DocumentRestoredEto` | `VaultExtract.Document.Restored` | Document restored from the recycle bin; downstream should un-archive |
 | `DocumentPermanentlyDeletedEto` | `VaultExtract.Document.PermanentlyDeleted` | Document permanently deleted, including its original file; downstream should physically delete derived data |
 | `DocumentReclassifiedToContainerEto` | `VaultExtract.Document.ReclassifiedToContainer` | A previously concrete-typed document was re-recognized as a **container** — its type and type-bound fields are cleared, so downstream should retract the record it derived from the former type. Fires only on a real transition; a fresh upload classified immediately as a container never fires it |
@@ -34,7 +34,7 @@ Dignite Vault Extract delivers every event through ABP's built-in **transactiona
 
 Deduplication and ordering are the consumer's responsibility. Every ETO carries `EventTime` (set from the server clock at publish time); a consumer does idempotency by `(DocumentId, EventType, EventTime)` as a high-water mark: discard an incoming event whose `EventTime` is at or before the one already recorded for that key, otherwise apply it and store its `EventTime` as the new mark. A consumer that is itself an ABP application can instead enable the built-in **inbox** (`ConfigureEventInbox()`) for automatic exactly-once consumption by message id.
 
-**`DocumentReadyEto` may fire more than once for the same document** — a pipeline retry, a reclassification, or an operator editing fields on an already-Ready document all re-fire it. Treat it as an **upsert**: the latest `EventTime` wins, not the first delivery.
+**`DocumentReadyEto` may fire more than once for the same document** — a pipeline retry, a reclassification, a re-parse, or an operator editing fields on an already-Ready document all re-fire it. Treat it as an **upsert**: the latest `EventTime` wins, not the first delivery.
 
 ## Compatibility
 

@@ -133,4 +133,4 @@ The hard constraints are in CLAUDE.md ("Document field-extension hard constraint
 - **Generic, shared across consumers** → may be added to `Document`, still with an Issue to discuss shape: `PageBlocks` (citation highlighting in any business), OCR provider name/version (debugging).
 - **Business-specific** (contract amount / invoice number / ID-card name / receipt line items) → stored by downstream consumers in their own aggregate roots (`Contract` / `Invoice` / `IdCardRecord`); **`Document` is not polluted**.
 - **OCR out-of-band signals** belong to neither downstream business nor the Markdown string (that would break Markdown-first): carry them on `Document` as named, strongly-typed, nullable fields, **one Issue per signal**.
-- `Title` is an immutable display snapshot derived from Markdown; `RejectionReason` is the operator's manual note (#284) — neither is a new text payload.
+- `Title` is a display snapshot derived from Markdown (replaced only together with it, by a re-parse, #660); `RejectionReason` is the operator's manual note (#284) — neither is a new text payload.

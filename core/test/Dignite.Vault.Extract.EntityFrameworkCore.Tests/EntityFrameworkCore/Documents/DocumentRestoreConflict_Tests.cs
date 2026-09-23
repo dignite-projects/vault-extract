@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Dignite.Vault.Extract.Abstractions.Documents;
 using Dignite.Vault.Extract.Documents;
+using Dignite.Vault.Extract.Documents.Segments;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Shouldly;
@@ -10,6 +11,7 @@ using Volo.Abp.BackgroundJobs;
 using Volo.Abp.BlobStoring;
 using Volo.Abp.Data;
 using Volo.Abp.Domain.Entities;
+using Volo.Abp.Domain.Repositories;
 using Volo.Abp.EventBus.Distributed;
 using Volo.Abp.Guids;
 using Volo.Abp.Modularity;
@@ -45,6 +47,7 @@ public class DocumentRestoreConflict_Tests : VaultExtractTestBase<DocumentRestor
     private readonly IDistributedEventBus _eventBus;
     private readonly IGuidGenerator _guidGenerator;
     private readonly IDataFilter _dataFilter;
+    private readonly IRepository<DocumentSegment, Guid> _segmentRepository;
 
     public DocumentRestoreConflict_Tests()
     {
@@ -53,6 +56,7 @@ public class DocumentRestoreConflict_Tests : VaultExtractTestBase<DocumentRestor
         _eventBus = GetRequiredService<IDistributedEventBus>();
         _guidGenerator = GetRequiredService<IGuidGenerator>();
         _dataFilter = GetRequiredService<IDataFilter>();
+        _segmentRepository = GetRequiredService<IRepository<DocumentSegment, Guid>>();
     }
 
     [Fact]
@@ -93,11 +97,15 @@ public class DocumentRestoreConflict_Tests : VaultExtractTestBase<DocumentRestor
     [Fact]
     public async Task RestoreAsync_Succeeds_And_Publishes_DocumentRestoredEto_When_No_Live_Duplicate_Exists()
     {
-        var sourceId = _guidGenerator.Create();
+        // #660: the child is still routed by its source's ledger, the state an operator's own soft delete leaves.
+        var sourceId = await InsertSourceAsync();
         var childId = _guidGenerator.Create();
 
-        await WithUnitOfWorkAsync(() => _documentRepository.InsertAsync(
-            NewDerivedDocument(childId, sourceId, "slice-1"), autoSave: true));
+        await WithUnitOfWorkAsync(async () =>
+        {
+            await _documentRepository.InsertAsync(NewDerivedDocument(childId, sourceId, "slice-1"), autoSave: true);
+            await InsertLedgerRowAsync(sourceId, "slice-1", childId);
+        });
         await WithUnitOfWorkAsync(() => _documentRepository.DeleteAsync(childId));
 
         await _appService.RestoreAsync(childId);
@@ -106,6 +114,82 @@ public class DocumentRestoreConflict_Tests : VaultExtractTestBase<DocumentRestor
             (await _documentRepository.GetAsync(childId)).IsDeleted.ShouldBeFalse());
         await _eventBus.Received(1).PublishAsync(
             Arg.Is<DocumentRestoredEto>(e => e.DocumentId == childId));
+    }
+
+    [Fact]
+    public async Task RestoreAsync_Rejects_A_Child_Its_Source_Ledger_No_Longer_Routes()
+    {
+        // #660: "a live routed child <=> its ledger row exists". The row is gone (a re-parse re-split the source, or a
+        // container->concrete reclassify retracted it), so the child was superseded, and restoring it would put it next
+        // to whatever replaced it. No live duplicate shares its key, so only the ledger check stands in the way.
+        var sourceId = await InsertSourceAsync();
+        var childId = _guidGenerator.Create();
+
+        await WithUnitOfWorkAsync(() => _documentRepository.InsertAsync(
+            NewDerivedDocument(childId, sourceId, "slice-1"), autoSave: true));
+        await WithUnitOfWorkAsync(() => _documentRepository.DeleteAsync(childId));
+
+        var exception = await Should.ThrowAsync<BusinessException>(() => _appService.RestoreAsync(childId));
+        exception.Code.ShouldBe(VaultExtractErrorCodes.Document.RestoreSuperseded);
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            using (_dataFilter.Disable<ISoftDelete>())
+            {
+                (await _documentRepository.GetAsync(childId)).IsDeleted.ShouldBeTrue();
+            }
+        });
+        await _eventBus.DidNotReceive().PublishAsync(Arg.Any<DocumentRestoredEto>());
+    }
+
+    [Fact]
+    public async Task RestoreAsync_Rejects_A_Child_Whose_Ledger_Row_Routes_Another_Document()
+    {
+        // The key is still in the ledger, but routed to a different child (itself in the recycle bin, so the
+        // live-duplicate check does not fire). This child is not the one the source's split produced.
+        var sourceId = await InsertSourceAsync();
+        var childId = _guidGenerator.Create();
+        var otherChildId = _guidGenerator.Create();
+
+        await WithUnitOfWorkAsync(async () =>
+        {
+            await _documentRepository.InsertAsync(NewDerivedDocument(childId, sourceId, "slice-1"), autoSave: true);
+            await _documentRepository.InsertAsync(NewDerivedDocument(otherChildId, sourceId, "slice-1"), autoSave: true);
+            await InsertLedgerRowAsync(sourceId, "slice-1", otherChildId);
+        });
+        await WithUnitOfWorkAsync(async () =>
+        {
+            await _documentRepository.DeleteAsync(childId);
+            await _documentRepository.DeleteAsync(otherChildId);
+        });
+
+        var exception = await Should.ThrowAsync<BusinessException>(() => _appService.RestoreAsync(childId));
+        exception.Code.ShouldBe(VaultExtractErrorCodes.Document.RestoreSuperseded);
+    }
+
+    private async Task<Guid> InsertSourceAsync()
+    {
+        // The ledger row's FK needs a real source row.
+        var sourceId = _guidGenerator.Create();
+        await WithUnitOfWorkAsync(() => _documentRepository.InsertAsync(
+            new Document(sourceId, tenantId: null, fileOrigin: new FileOrigin(
+                blobName: $"blobs/{sourceId:N}.pdf",
+                uploadedByUserName: "test-user",
+                contentType: "application/pdf",
+                contentHash: $"{Guid.NewGuid():N}{Guid.NewGuid():N}"[..64],
+                fileSize: 2048,
+                originalFileName: "bundle.pdf")),
+            autoSave: true));
+        return sourceId;
+    }
+
+    private async Task InsertLedgerRowAsync(Guid sourceId, string segmentKey, Guid routedDocumentId)
+    {
+        var segment = new DocumentSegment(
+            _guidGenerator.Create(), tenantId: null, sourceDocumentId: sourceId,
+            segmentKey: segmentKey, sliceText: segmentKey, ordinal: 0, kind: DocumentSegmentKind.Text);
+        segment.MarkSpawned(routedDocumentId);
+        await _segmentRepository.InsertAsync(segment, autoSave: true);
     }
 
     private Document NewDerivedDocument(Guid id, Guid sourceId, string constituentKey) =>

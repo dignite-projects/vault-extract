@@ -155,6 +155,23 @@ public class ContainerReclassifyRetraction_Tests
             Arg.Is<DocumentDeletedEto>(e => e.DocumentId == figureChildId));
     }
 
+    [Fact]
+    public async Task A_Text_Child_Retracted_By_The_Reclassify_Cannot_Be_Restored()
+    {
+        // #660: the retraction removed its ledger row, so restoring it would revive a bundle constituent of what is
+        // now a single concrete document, an orphan the ledger no longer routes.
+        var typeId = await SeedDocumentTypeAsync("invoice.general");
+        var containerId = await ArrangeSegmentedContainerAsync(subDocumentCount: 1);
+        var textChildId = Guid.Empty;
+        await WithUnitOfWorkAsync(async () =>
+            textChildId = (await _documentRepository.GetListAsync(d => d.OriginDocumentId == containerId)).Single().Id);
+
+        await _appService.ReclassifyAsync(containerId, new ReclassifyDocumentInput { DocumentTypeId = typeId });
+
+        var ex = await Should.ThrowAsync<Volo.Abp.BusinessException>(() => _appService.RestoreAsync(textChildId));
+        ex.Code.ShouldBe(VaultExtractErrorCodes.Document.RestoreSuperseded);
+    }
+
     private async Task<Guid> SeedDocumentTypeAsync(string typeCode)
     {
         var typeId = _guidGenerator.Create();

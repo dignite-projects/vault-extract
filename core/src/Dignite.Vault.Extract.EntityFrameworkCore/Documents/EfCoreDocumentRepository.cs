@@ -7,6 +7,7 @@ using Dignite.Vault.Extract;
 using Dignite.Vault.Extract.Documents;
 using Dignite.Vault.Extract.Documents.DocumentTypes;
 using Dignite.Vault.Extract.Documents.Fields;
+using Dignite.Vault.Extract.Documents.Segments;
 using Dignite.Vault.Extract.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Volo.Abp;
@@ -101,6 +102,20 @@ public class EfCoreDocumentRepository
                 && d.OriginConstituentKey == originConstituentKey
                 && d.Id != excludeDocumentId
                 && !d.IsDeleted,
+            GetCancellationToken(cancellationToken));
+    }
+
+    public virtual async Task<bool> IsRoutedBySourceLedgerAsync(
+        Guid originDocumentId,
+        string originConstituentKey,
+        Guid documentId,
+        CancellationToken cancellationToken = default)
+    {
+        var dbContext = await GetDbContextAsync();
+        return await dbContext.Set<DocumentSegment>().AnyAsync(
+            s => s.SourceDocumentId == originDocumentId
+                && s.SegmentKey == originConstituentKey
+                && s.RoutedDocumentId == documentId,
             GetCancellationToken(cancellationToken));
     }
 

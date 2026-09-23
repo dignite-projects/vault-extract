@@ -21,10 +21,18 @@ public static class VaultExtractErrorCodes
         public const string Duplicate = "Extract:DocumentDuplicate";
         public const string InRecycleBin = "Extract:DocumentInRecycleBin";
         public const string NotClassified = "Extract:DocumentNotClassified";
-        // #263: prerequisite for "re-recognize" (rerun automatic classification). Automatic
-        // classification input is Document.Markdown, so without text extraction output there is
-        // nothing to reclassify.
+        // #263: prerequisite for the operations that run on existing Markdown (#660: re-parse replaces it, so it
+        // must exist; a failed first parse is RetryPipelineAsync's job). Without text extraction output there is
+        // nothing to reclassify, re-extract or replace.
         public const string NotTextExtracted = "Extract:DocumentNotTextExtracted";
+        // #660: re-parse refused on a sub-document. It has no file of its own (#487) — its text is a slice of the
+        // parent's Markdown — so the only way to re-parse it is to re-parse the parent, which re-splits it.
+        public const string ReparseSubDocument = "Extract:DocumentReparseSubDocument";
+        // #660: re-parse refused because the original file is not in blob storage (no FileOrigin, or the blob is
+        // gone). Refused up front: accepted, the background run would fail and leave a document whose text is
+        // intact marked Failed, and every retry would fail the same way. Distinct from NoSourceBlob, whose message
+        // is about downloading.
+        public const string ReparseSourceFileMissing = "Extract:DocumentReparseSourceFileMissing";
         // #221: upload fail-closed validation failure codes (size exceeded / content-type + extension
         // not in whitelist).
         public const string FileTooLarge = "Extract:DocumentFileTooLarge";
@@ -37,6 +45,11 @@ public static class VaultExtractErrorCodes
         // same (OriginDocumentId, OriginConstituentKey) identity — the application-layer fail-close that replaces
         // the fail-close the #481-dropped #391 filtered-unique index used to give for free at restore time.
         public const string RestoreConflict = "Extract:DocumentRestoreConflict";
+        // #660: restoring a sub-document whose ledger row is gone. Its parent's segmentation no longer routes it — a
+        // re-parse withdrew it and re-split the new Markdown, or a container→concrete reclassify retracted it — so
+        // restoring it would revive a child next to the ones that replaced it ("live routed child ⟺ its ledger row
+        // exists", .claude/rules/sub-document-segmentation.md). Remedy: re-parse the parent.
+        public const string RestoreSuperseded = "Extract:DocumentRestoreSuperseded";
         // #508: a source still has LIVE derived sub-documents, so soft-deleting it is blocked — they would be left
         // with a dangling OriginDocumentId, which since #487 is their ONLY route to a source file (they carry no
         // FileOrigin of their own). Same string as before #481 removed it; nothing consumed it in the interim,
