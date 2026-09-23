@@ -54,3 +54,11 @@ Reading on the server normally goes through `DocumentPipelineRunToDocumentPipeli
 ### Angular Notes
 
 Use `run.candidates` directly. Treat `null` as "no low-confidence candidate list" — do not coalesce to an empty array if you need to distinguish "no review needed" from "reviewed and resolved without candidates".
+
+## Runs ended by a deletion
+
+A document can be deleted while one of its pipeline jobs (text extraction, classification, field extraction) is still queued: an operator deletes it, or it is a sub-document withdrawn because its parent was re-parsed or reclassified from a bundle to a single type. When the job's turn comes, it ends at once and marks its run **Failed** with the message *"The document was deleted before this run could complete."* ([#662](https://github.com/dignite-projects/vault-extract/issues/662)). Nothing is published.
+
+If the document is restored from the recycle bin, it comes back with that failed run. Retry the pipeline from the detail page to continue; it is not resumed automatically. (A withdrawn sub-document cannot be restored — its parent's split no longer produces it.)
+
+A document deleted *while* a job is working on it fails that attempt, and the job's automatic retry then ends it the same way.

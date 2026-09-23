@@ -11,7 +11,9 @@ using Dignite.Vault.Extract.Documents.Pipelines.Segmentation;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Volo.Abp.BackgroundJobs;
+using Volo.Abp.Data;
 using Volo.Abp.DependencyInjection;
+using Volo.Abp.Domain.Entities;
 using Volo.Abp.EventBus.Distributed;
 using Volo.Abp.MultiTenancy;
 using Volo.Abp.Timing;
@@ -39,6 +41,7 @@ public class DocumentClassificationBackgroundJob
         DocumentPipelineRunManager pipelineRunManager,
         DocumentPipelineRunAccessor pipelineRunAccessor,
         IUnitOfWorkManager unitOfWorkManager,
+        IDataFilter dataFilter,
         IDocumentTypeRepository documentTypeRepository,
         DocumentClassificationWorkflow workflow,
         IDistributedEventBus distributedEventBus,
@@ -48,7 +51,7 @@ public class DocumentClassificationBackgroundJob
         IBackgroundJobManager backgroundJobManager,
         DocumentPipelineJobScheduler pipelineJobScheduler,
         IFlexFieldIndexManager<Document> indexManager)
-        : base(documentRepository, runRepository, pipelineRunManager, pipelineRunAccessor, unitOfWorkManager)
+        : base(documentRepository, runRepository, pipelineRunManager, pipelineRunAccessor, unitOfWorkManager, dataFilter)
     {
         _documentTypeRepository = documentTypeRepository;
         _workflow = workflow;
@@ -71,7 +74,17 @@ public class DocumentClassificationBackgroundJob
 
     private async Task ExecuteInTenantAsync(DocumentClassificationJobArgs args)
     {
-        var workItem = await BeginRunAsync(args);
+        ClassificationWorkItem workItem;
+        try
+        {
+            workItem = await BeginRunAsync(args);
+        }
+        catch (EntityNotFoundException ex) when (IsDocumentGone(ex))
+        {
+            // #662: deleted while queued — end the job instead of letting ABP retry it until it abandons it.
+            await EndForDeletedDocumentAsync(args.DocumentId, args.PipelineRunId, VaultExtractPipelines.Classification);
+            return;
+        }
 
         try
         {

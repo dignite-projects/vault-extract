@@ -45,6 +45,10 @@ The CompleteRun / FailRun phases share the same prelude, "load Document + locate
 
 **This is the only exception for this entity**. Other pipeline-related child entities (for example a future ChunkBlock) still follow the standard "access through the aggregate root" model. See Issue #216 for the decision record.
 
+## A job whose document is gone ends; it does not rethrow (#662)
+
+Every document pipeline job's Begin phase loads the document with `GetAsync`, which throws `EntityNotFoundException` for a soft-deleted (or permanently deleted) document. Each job catches exactly that (`DocumentPipelineBackgroundJobBase.IsDocumentGone`) and calls `EndForDeletedDocumentAsync`: with the soft-delete filter off it fails the run (`DocumentDeletedRunMessage`) and re-derives the lifecycle, then returns. Rethrowing used to hand the job to ABP's retry loop until it was abandoned (about 12 attempts over two days), and a document restored after that kept a `Pending` run nothing executed and `RetryPipelineAsync` refused. A new pipeline job follows the same pattern: catch only the not-found of the document itself, around the Begin phase only.
+
 ## Tests
 
 When changing a background job that performs slow or external work, keep or add tests that verify the external work runs without an ambient UoW. A direct assertion such as `_unitOfWorkManager.Current.ShouldBeNull()` at the external call boundary is preferred.

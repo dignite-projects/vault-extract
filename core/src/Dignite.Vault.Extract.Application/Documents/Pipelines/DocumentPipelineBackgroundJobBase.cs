@@ -1,6 +1,9 @@
 using System;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Volo.Abp;
 using Volo.Abp.BackgroundJobs;
+using Volo.Abp.Data;
 using Volo.Abp.Domain.Entities;
 using Volo.Abp.Uow;
 
@@ -27,19 +30,86 @@ public abstract class DocumentPipelineBackgroundJobBase<TArgs> : AsyncBackground
     protected DocumentPipelineRunManager PipelineRunManager { get; }
     protected DocumentPipelineRunAccessor PipelineRunAccessor { get; }
     protected IUnitOfWorkManager UnitOfWorkManager { get; }
+    protected IDataFilter DataFilter { get; }
+
+    /// <summary>
+    /// #662: the status message of a run ended because its document was deleted while the job waited. Operators see
+    /// it in the pipeline-run list; after a restore the run is <c>Failed</c> and retryable.
+    /// </summary>
+    public const string DocumentDeletedRunMessage = "The document was deleted before this run could complete.";
 
     protected DocumentPipelineBackgroundJobBase(
         IDocumentRepository documentRepository,
         IDocumentPipelineRunRepository runRepository,
         DocumentPipelineRunManager pipelineRunManager,
         DocumentPipelineRunAccessor pipelineRunAccessor,
-        IUnitOfWorkManager unitOfWorkManager)
+        IUnitOfWorkManager unitOfWorkManager,
+        IDataFilter dataFilter)
     {
         DocumentRepository = documentRepository;
         RunRepository = runRepository;
         PipelineRunManager = pipelineRunManager;
         PipelineRunAccessor = pipelineRunAccessor;
         UnitOfWorkManager = unitOfWorkManager;
+        DataFilter = dataFilter;
+    }
+
+    /// <summary>
+    /// #662: whether a Begin phase failed because this job's document no longer resolves — it was soft-deleted (an
+    /// operator delete, or a sub-document withdrawn by a re-parse / container→concrete reclassify) or permanently
+    /// deleted while the job waited in the queue. Each job's Begin loads the document with <c>GetAsync</c>, so this is
+    /// the <see cref="EntityNotFoundException"/> it throws for <see cref="Document"/>.
+    /// </summary>
+    protected static bool IsDocumentGone(EntityNotFoundException exception)
+        => exception.EntityType == typeof(Document);
+
+    /// <summary>
+    /// #662: ends a job whose document is gone, instead of rethrowing into ABP's retry loop. Rethrowing used to retry
+    /// the job with backoff until ABP abandoned it (about 12 attempts over two days), and a document restored after
+    /// that kept a <c>Pending</c> run nothing would execute: stuck in Processing, and <c>RetryPipelineAsync</c> refuses
+    /// a run that is not <c>Failed</c>.
+    /// <para>
+    /// A soft-deleted document's run — <c>Pending</c> if the job never began, <c>Running</c> if it was deleted mid-run and
+    /// the job is being retried — is marked <c>Failed</c> with <see cref="DocumentDeletedRunMessage"/>, and the lifecycle
+    /// is re-derived with the soft-delete filter off. If the document is restored, it comes back Failed with a run the
+    /// operator can retry. A permanently deleted document has nothing left to record, so the job just ends. Nothing is
+    /// published: the run-completed event is local and has no handler, and a Failed transition fires no egress event.
+    /// </para>
+    /// </summary>
+    protected virtual async Task EndForDeletedDocumentAsync(Guid documentId, Guid? pipelineRunId, string pipelineCode)
+    {
+        using var uow = UnitOfWorkManager.Begin(requiresNew: true);
+
+        using (DataFilter.Disable<ISoftDelete>())
+        {
+            var document = await DocumentRepository.FindAsync(documentId, includeDetails: false);
+            if (document == null)
+            {
+                Logger.LogInformation(
+                    "Document {DocumentId} was permanently deleted before its queued {PipelineCode} job ran; ending the job.",
+                    documentId, pipelineCode);
+                await uow.CompleteAsync();
+                return;
+            }
+
+            var run = pipelineRunId.HasValue ? await RunRepository.FindAsync(pipelineRunId.Value) : null;
+            if (run == null || run.PipelineCode != pipelineCode)
+            {
+                run = await RunRepository.FindLatestByDocumentAndCodeAsync(documentId, pipelineCode);
+            }
+
+            if (run is { Status: PipelineRunStatus.Pending or PipelineRunStatus.Running })
+            {
+                await PipelineRunManager.FailAsync(document, run, DocumentDeletedRunMessage);
+                await DocumentRepository.UpdateAsync(document, autoSave: true);
+            }
+
+            Logger.LogInformation(
+                "Document {DocumentId} was deleted before its queued {PipelineCode} job ran; ended the job and failed its run (#662).",
+                documentId, pipelineCode);
+        }
+
+        await uow.CompleteAsync();
     }
 
     /// <summary>

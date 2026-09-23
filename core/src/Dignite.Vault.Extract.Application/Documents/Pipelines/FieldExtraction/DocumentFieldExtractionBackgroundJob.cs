@@ -2,7 +2,9 @@ using System;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Volo.Abp.BackgroundJobs;
+using Volo.Abp.Data;
 using Volo.Abp.DependencyInjection;
+using Volo.Abp.Domain.Entities;
 using Volo.Abp.MultiTenancy;
 using Volo.Abp.Uow;
 
@@ -42,9 +44,10 @@ public class DocumentFieldExtractionBackgroundJob
         DocumentPipelineRunManager pipelineRunManager,
         DocumentPipelineRunAccessor pipelineRunAccessor,
         IUnitOfWorkManager unitOfWorkManager,
+        IDataFilter dataFilter,
         FieldExtractionService fieldExtractionService,
         ICurrentTenant currentTenant)
-        : base(documentRepository, runRepository, pipelineRunManager, pipelineRunAccessor, unitOfWorkManager)
+        : base(documentRepository, runRepository, pipelineRunManager, pipelineRunAccessor, unitOfWorkManager, dataFilter)
     {
         _fieldExtractionService = fieldExtractionService;
         _currentTenant = currentTenant;
@@ -60,7 +63,18 @@ public class DocumentFieldExtractionBackgroundJob
 
     private async Task ExecuteInTenantAsync(DocumentFieldExtractionJobArgs args)
     {
-        var (documentId, runId, tenantId) = await BeginRunAsync(args);
+        Guid documentId, runId;
+        Guid? tenantId;
+        try
+        {
+            (documentId, runId, tenantId) = await BeginRunAsync(args);
+        }
+        catch (EntityNotFoundException ex) when (IsDocumentGone(ex))
+        {
+            // #662: deleted while queued — end the job instead of letting ABP retry it until it abandons it.
+            await EndForDeletedDocumentAsync(args.DocumentId, args.PipelineRunId, VaultExtractPipelines.FieldExtraction);
+            return;
+        }
 
         try
         {
