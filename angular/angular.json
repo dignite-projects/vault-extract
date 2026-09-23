@@ -117,11 +117,6 @@
                 "bundleName": "bootstrap-icons"
               },
               {
-                "input": "node_modules/ng-zorro-antd/style/index.min.css",
-                "inject": true,
-                "bundleName": "ng-zorro-antd-core.min"
-              },
-              {
                 "input": "node_modules/ng-zorro-antd/select/style/index.min.css",
                 "inject": true,
                 "bundleName": "ng-zorro-antd-select.min"

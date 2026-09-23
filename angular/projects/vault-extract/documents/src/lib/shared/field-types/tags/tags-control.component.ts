@@ -19,6 +19,7 @@ import { TagsConfiguration } from './tags-configuration';
 @Component({
   selector: 'lib-tags-control',
   templateUrl: './tags-control.component.html',
+  styleUrls: ['./tags-control.component.scss'],
   imports: [CommonModule, ReactiveFormsModule, NzSelectModule],
 })
 export class TagsControlComponent extends FieldTypeControlBase {
