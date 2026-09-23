@@ -72,13 +72,13 @@
          They drifted 6 rc's apart (rc.5 here against rc.11 there) with no build ever catching it before
          this note was added. -->
     <ItemGroup Label="FlexFields">
-        <PackageVersion Include="Dignite.Abp.FlexFields.Abstractions" Version="10.0.0-rc.16" />
-        <PackageVersion Include="Dignite.Abp.FlexFields.Domain" Version="10.0.0-rc.16" />
-        <PackageVersion Include="Dignite.Abp.FlexFields.EntityFrameworkCore" Version="10.0.0-rc.16" />
+        <PackageVersion Include="Dignite.Abp.FlexFields.Abstractions" Version="10.0.0-rc.17" />
+        <PackageVersion Include="Dignite.Abp.FlexFields.Domain" Version="10.0.0-rc.17" />
+        <PackageVersion Include="Dignite.Abp.FlexFields.EntityFrameworkCore" Version="10.0.0-rc.17" />
         <!-- Serves FieldDataType.LongText in v3: CKEditorFieldType.IndexValueType is null, so
              "never indexed, never queryable" stays a structural guarantee, and ContentFormat=Markdown
              persists the value as a plain GFM string (#559 resolution 1). -->
-        <PackageVersion Include="Dignite.Abp.FlexFields.CKEditor" Version="10.0.0-rc.16" />
+        <PackageVersion Include="Dignite.Abp.FlexFields.CKEditor" Version="10.0.0-rc.17" />
     </ItemGroup>
 
     <ItemGroup Label="LeptonX">
