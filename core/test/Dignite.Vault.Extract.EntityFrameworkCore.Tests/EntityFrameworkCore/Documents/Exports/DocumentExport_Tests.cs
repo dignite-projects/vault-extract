@@ -31,6 +31,8 @@ namespace Dignite.Vault.Extract.EntityFrameworkCore.Documents;
 /// Column headers come from <c>Field.DisplayName</c>; how a cell renders comes from <c>Field.FieldTypeName</c>
 /// plus its configuration (#208, now #559), neither of which is persisted beside the value.
 /// </summary>
+// Lowers DocumentExportConsts limits for three facts; see ProcessWideStaticsCollection.
+[Collection(ProcessWideStaticsCollection.Name)]
 public class DocumentExport_Tests : VaultExtractEntityFrameworkCoreTestBase
 {
     private const string TypeCode = "invoice.general";
