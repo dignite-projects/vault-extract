@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0-preview.8] - 2026-09-24
+
+A follow-up to preview.7's flex-fields `10.0.0-rc.17` bump, which changed the host contract without saying so ([#666](https://github.com/dignite-projects/vault-extract/pull/666)). CKEditor fields render as an editor again, which needs **two new `angular.json` entries in every host** (see the entry below). `provideExtract()` now registers every field type the editor needs, so hosts can drop their own `provideFlexFields()` / `provideCKEditorFieldType()` / `provideTagsFieldType()` calls. And the pre-release npm package on GitHub Packages installs again: preview.5 through .7 were published with a dependency spec npm refuses to parse.
+
+No EF migration and no server-side change; the only deployment step is those `angular.json` entries, for a host that builds its own Angular app.
+
 ### Changed
 
 - **`provideExtract()` now registers every field type the document field editor needs**: `provideFlexFields()`, `provideCKEditorFieldType()` and `provideTagsFieldType()`, which each host used to call itself in its application config. None of them is optional — the server offers CKEditor and Tags for every new field — and a host that left one out got an extracted-fields form that rendered those fields empty, with no console error. `@dignite/ng.vault-extract` now declares `@dignite/ng.flex-fields-ckeditor` as a dependency of its own, so installing the package is the whole install. **Downstream hosts:** you can delete your own `provideFlexFields()` / `provideCKEditorFieldType()` / `provideTagsFieldType()` calls; keeping them is harmless, since the field-type registry is keyed by type name.
@@ -543,7 +549,8 @@ Preview of the 0.2.0 line. This release rebrands the project to **Dignite Vault 
 - Legacy Angular document-upload route.
 - Dead fields from the segmentation subsystem (#390).
 
-[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.7...HEAD
+[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.8...HEAD
+[0.5.0-preview.8]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.7...v0.5.0-preview.8
 [0.5.0-preview.7]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.6...v0.5.0-preview.7
 [0.5.0-preview.6]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.5...v0.5.0-preview.6
 [0.5.0-preview.5]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.4...v0.5.0-preview.5
