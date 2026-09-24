@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0-preview.7] - 2026-09-24
+
+Two tracks. [#660](https://github.com/dignite-projects/vault-extract/issues/660) replaces re-classify with a re-parse from the original file and lets an operator change a document's type in place — **breaking for an API caller of `rerecognize`** and **for a custom text extractor** (`TextExtractionResult.UsedOcr` / `FigureOcrCount` are gone); the migration for each is in its entry below. The rest is correctness: [#655](https://github.com/dignite-projects/vault-extract/issues/655) scopes the upload-time content-hash dedup to the uploader, [#657](https://github.com/dignite-projects/vault-extract/issues/657) stops an empty field submission from releasing an oversized document to Ready, and [#662](https://github.com/dignite-projects/vault-extract/issues/662) stops a queued job for a deleted document from retrying for two days.
+
+No EF migration and no deployment step is required; [#657](https://github.com/dignite-projects/vault-extract/issues/657) carries one optional SQL check for documents already released by the old path.
+
 ### Added
 
 - **Re-parse a document from its original file** ([#660](https://github.com/dignite-projects/vault-extract/issues/660)). `POST /api/vault-extract/documents/{id}/reparse` (`IDocumentAppService.ReparseAsync`, the detail page's "重新解析") re-runs text extraction from the stored file, then classification and field extraction as for a fresh upload. It replaces the Markdown, title, language and extraction metadata together, always re-runs classification (an operator-confirmed type included), and withdraws every sub-document split from the old text so the new text is split from scratch: each withdrawn sub-document gets a `DocumentDeletedEto`, and the parent re-publishes `DocumentTextExtractedEto`. Refused on a sub-document (`Extract:DocumentReparseSubDocument` — re-parse its parent). Judged like a reclassification whose target the classifier picks: `Edit` on the document plus `ConfirmClassification` or `Documents.Upload`. Batch re-OCR stays out of scope (#396).
@@ -21,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A withdrawn sub-document can no longer be restored** ([#660](https://github.com/dignite-projects/vault-extract/issues/660)). `RestoreAsync` refuses a sub-document whose parent's segment ledger no longer routes it (`Extract:DocumentRestoreSuperseded`): one withdrawn by a re-parse, and also one retracted by the existing container→concrete reclassify, which could previously be restored as an orphan next to the document that replaced it. A sub-document the operator deleted themselves is still restorable.
 - **The upload-time content-hash dedup is scoped to the uploader** ([#655](https://github.com/dignite-projects/vault-extract/issues/655), follow-up to [#651](https://github.com/dignite-projects/vault-extract/issues/651)). `UploadAsync` used to reject any file whose SHA-256 matched a document already in the tenant layer, whoever uploaded it — so a department uploading the same vendor invoice another department already holds was refused before [#651](https://github.com/dignite-projects/vault-extract/issues/651)'s `Uploader` scope could apply, and the refusal carried the other user's `ExistingDocumentId`. It now rejects only a match on the caller's **own** documents (`Document.Duplicate`, or `Document.InRecycleBin` when that copy is in the recycle bin, which the caller can restore); a null `CurrentUser.Id` matches only a null `CreatorId`, so machine-identity uploads share one bucket. **Behaviour change:** a byte-identical file uploaded by a different user is now accepted, stored, parsed and classified as its own document and publishes `DocumentUploadedEto`, where it used to fail. For a type on the default `Layer` scope the only remaining cross-uploader duplicate detection is the field-fingerprint path, which exists only for types that have `IsUniqueKey` fields. `IDocumentRepository.FindByContentHashAsync` gains a required `Guid? creatorId` before the cancellation token — BREAKING for a downstream that calls or overrides it. The error codes are unchanged; the `Extract:DocumentDuplicate` / `Extract:DocumentInRecycleBin` messages now say the caller already uploaded the file, in all four resource files.
+- **`Dignite.Abp.FlexFields.*` and `@dignite/ng.flex-fields` bumped to `10.0.0-rc.17`**, in lockstep across both sides. rc.17 makes the read-only DateTime view respect the field's `DateTime.InputMode`: under rc.16 every value rendered as date-time, so a Table column configured as Date showed a spurious `00:00` on the document detail page. Date / Month values now render as `yyyy-MM-dd` / `yyyy-MM`. No API change.
 
 ### Fixed
 
@@ -527,7 +534,8 @@ Preview of the 0.2.0 line. This release rebrands the project to **Dignite Vault 
 - Legacy Angular document-upload route.
 - Dead fields from the segmentation subsystem (#390).
 
-[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.6...HEAD
+[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.7...HEAD
+[0.5.0-preview.7]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.6...v0.5.0-preview.7
 [0.5.0-preview.6]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.5...v0.5.0-preview.6
 [0.5.0-preview.5]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.4...v0.5.0-preview.5
 [0.5.0-preview.4]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.3...v0.5.0-preview.4
