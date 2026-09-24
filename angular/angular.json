@@ -118,8 +118,13 @@
               },
               {
                 "input": "node_modules/ng-zorro-antd/select/style/index.min.css",
-                "inject": true,
-                "bundleName": "ng-zorro-antd-select.min"
+                "inject": false,
+                "bundleName": "ng-zorro-antd-select"
+              },
+              {
+                "input": "node_modules/ckeditor5/dist/ckeditor5.css",
+                "inject": false,
+                "bundleName": "ckeditor5"
               },
               {
                 "input": "node_modules/ng-zorro-antd/empty/style/index.min.css",

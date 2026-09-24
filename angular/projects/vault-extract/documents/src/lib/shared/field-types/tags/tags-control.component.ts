@@ -1,8 +1,8 @@
-import { Component } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { AbstractControl, FormControl, ReactiveFormsModule, ValidationErrors, ValidatorFn, Validators } from '@angular/forms';
 import { NzSelectModule } from 'ng-zorro-antd/select';
-import { FieldTypeControlBase } from '@dignite/ng.flex-fields';
+import { FieldTypeControlBase, FlexFieldsStyleLoader, NZ_SELECT_STYLE } from '@dignite/ng.flex-fields';
 import { TagsConfiguration } from './tags-configuration';
 
 /**
@@ -22,8 +22,19 @@ import { TagsConfiguration } from './tags-configuration';
   styleUrls: ['./tags-control.component.scss'],
   imports: [CommonModule, ReactiveFormsModule, NzSelectModule],
 })
-export class TagsControlComponent extends FieldTypeControlBase {
+export class TagsControlComponent extends FieldTypeControlBase implements OnInit {
+  private readonly styleLoader = inject(FlexFieldsStyleLoader);
+
   protected readonly tokenSeparators = [','];
+
+  /**
+   * Fetches `ng-zorro-antd-select.css` by bundle name, the way the kernel's own `Select` control does:
+   * the host declares that bundle with `inject: false`, so nothing else puts it on the page. Same
+   * loader as flex-fields, so it is requested once however many selects render.
+   */
+  ngOnInit(): void {
+    this.styleLoader.load(NZ_SELECT_STYLE);
+  }
 
   protected get valueControl(): FormControl<string[]> {
     return this.fieldControl as FormControl<string[]>;
