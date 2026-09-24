@@ -41,8 +41,8 @@ export const appConfig: ApplicationConfig = {
     provideThemeLeptonX(),
     provideSideMenuLayout(),
     provideLogo(withEnvironmentOptions(environment)),
-    // Menu entries plus every field type the document field editor needs (kernel built-ins, CKEditor,
-    // Tags) - see provideExtract() for why the library registers those itself.
+    // Menu entries. The field types the document pages need (kernel built-ins, CKEditor, Tags) are
+    // registered by DOCUMENTS_ROUTES on its own lazy route, not here - see documents.routes.ts.
     provideExtract(),
   ]
 };
