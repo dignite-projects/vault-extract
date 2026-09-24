@@ -15,6 +15,7 @@ npm install @dignite/ng.vault-extract
 ### Application config
 
 ```ts
+// app.config.ts
 import { provideExtract } from '@dignite/ng.vault-extract/config';
 
 export const appConfig: ApplicationConfig = {
@@ -23,9 +24,15 @@ export const appConfig: ApplicationConfig = {
     provideExtract(),
   ],
 };
+
+// app.routes.ts
+{
+  path: 'documents',
+  loadChildren: () => import('@dignite/ng.vault-extract/documents').then(m => m.DOCUMENTS_ROUTES),
+}
 ```
 
-`provideExtract()` adds the Documents menu and registers every field type the document field editor uses (the `@dignite/ng.flex-fields` built-ins, CKEditor, and Vault Extract's own Tags), so the host does not call `provideFlexFields()` or any `provide…FieldType()` itself. It must stay in the application config, not a lazy-loaded route: the field-type registry is read once, when it is first injected. Routes are wired separately, via `loadChildren: () => import('@dignite/ng.vault-extract/documents').then(m => m.DOCUMENTS_ROUTES)`.
+`provideExtract()` adds the Documents menu. `DOCUMENTS_ROUTES` registers every field type the document pages use (the `@dignite/ng.flex-fields` built-ins, CKEditor, and Vault Extract's own Tags) on its own route, together with a route-level `FieldTypeResolver`, so the host calls neither `provideFlexFields()` nor any `provide…FieldType()`, and a lazy-loaded `DOCUMENTS_ROUTES` keeps flex-fields and the CKEditor adapter out of the initial bundle. A field type the host registers itself, at the root or on a route wrapping `DOCUMENTS_ROUTES`, is not visible on these pages: the route's own registration replaces its parents'. The set of field types is decided by the server-side registry, and each one the server offers is registered here.
 
 ### Required global styles
 

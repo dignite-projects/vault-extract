@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The document pages' field types are registered on `DOCUMENTS_ROUTES`, not in `provideExtract()`.** 0.5.0-preview.8 moved the registration into the library but put it in `provideExtract()`, at the root, which forced flex-fields and the CKEditor adapter into every host's initial bundle — for a host that lazy-loads the documents route, measured at +111 kB transferred (422.76 → 534.04 kB, +26%). `DOCUMENTS_ROUTES` is now one componentless parent route whose `providers` hold `provideFlexFields()`, `provideCKEditorFieldType()`, `provideTagsFieldType()` and a route-level `FieldTypeResolver` (the root one is `providedIn: 'root'` and reads the registry once, so it would never see types registered on a route); the existing routes are its children, at the same paths. `provideExtract()` goes back to adding the menu only. **Hosts:** nothing to do — neither function changes its signature, and the field types still need no host wiring. A host that wrapped `DOCUMENTS_ROUTES` to register the field types lazily itself can drop that wrapper. A field type registered by the host, at the root or on a route wrapping `DOCUMENTS_ROUTES`, is not visible on these pages, because a route's registration replaces its parents'; the server-side registry decides which types exist.
+
 ## [0.5.0-preview.8] - 2026-09-24
 
 A follow-up to preview.7's flex-fields `10.0.0-rc.17` bump, which changed the host contract without saying so ([#666](https://github.com/dignite-projects/vault-extract/pull/666)). CKEditor fields render as an editor again, which needs **two new `angular.json` entries in every host** (see the entry below). `provideExtract()` now registers every field type the editor needs, so hosts can drop their own `provideFlexFields()` / `provideCKEditorFieldType()` / `provideTagsFieldType()` calls. And the pre-release npm package on GitHub Packages installs again: preview.5 through .7 were published with a dependency spec npm refuses to parse.
