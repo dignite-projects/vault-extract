@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0-preview.9] - 2026-09-24
+
+One fix to preview.8's field-type registration ([#667](https://github.com/dignite-projects/vault-extract/pull/667)): the field types move from `provideExtract()` to `DOCUMENTS_ROUTES`, so a host that lazy-loads the documents route keeps flex-fields and the CKEditor adapter out of its initial bundle again (−111 kB transferred, measured on this repo's host app). No signature changes and nothing to wire; a host that wrapped `DOCUMENTS_ROUTES` to register the field types itself can drop that wrapper.
+
+No EF migration, no server-side change and no deployment step.
+
 ### Changed
 
 - **The document pages' field types are registered on `DOCUMENTS_ROUTES`, not in `provideExtract()`.** 0.5.0-preview.8 moved the registration into the library but put it in `provideExtract()`, at the root, which forced flex-fields and the CKEditor adapter into every host's initial bundle — for a host that lazy-loads the documents route, measured at +111 kB transferred (422.76 → 534.04 kB, +26%). `DOCUMENTS_ROUTES` is now one componentless parent route whose `providers` hold `provideFlexFields()`, `provideCKEditorFieldType()`, `provideTagsFieldType()` and a route-level `FieldTypeResolver` (the root one is `providedIn: 'root'` and reads the registry once, so it would never see types registered on a route); the existing routes are its children, at the same paths. `provideExtract()` goes back to adding the menu only. **Hosts:** nothing to do — neither function changes its signature, and the field types still need no host wiring. A host that wrapped `DOCUMENTS_ROUTES` to register the field types lazily itself can drop that wrapper. A field type registered by the host, at the root or on a route wrapping `DOCUMENTS_ROUTES`, is not visible on these pages, because a route's registration replaces its parents'; the server-side registry decides which types exist.
@@ -553,7 +559,8 @@ Preview of the 0.2.0 line. This release rebrands the project to **Dignite Vault 
 - Legacy Angular document-upload route.
 - Dead fields from the segmentation subsystem (#390).
 
-[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.8...HEAD
+[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.9...HEAD
+[0.5.0-preview.9]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.8...v0.5.0-preview.9
 [0.5.0-preview.8]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.7...v0.5.0-preview.8
 [0.5.0-preview.7]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.6...v0.5.0-preview.7
 [0.5.0-preview.6]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.5...v0.5.0-preview.6
