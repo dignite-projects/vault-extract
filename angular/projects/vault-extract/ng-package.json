@@ -10,6 +10,7 @@
     "@abp/ng.permission-management",
     "@abp/ng.theme.shared",
     "marked",
-    "@dignite/ng.flex-fields"
+    "@dignite/ng.flex-fields",
+    "@dignite/ng.flex-fields-ckeditor"
   ]
 }

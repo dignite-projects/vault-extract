@@ -13,10 +13,7 @@ import { provideLogo, withEnvironmentOptions } from "@abp/ng.theme.shared";
 import { ApplicationConfig } from '@angular/core';
 import { provideAnimations } from '@angular/platform-browser/animations';
 import { provideRouter } from '@angular/router';
-import { provideFlexFields } from '@dignite/ng.flex-fields';
-import { provideCKEditorFieldType } from '@dignite/ng.flex-fields-ckeditor';
 import { provideExtract } from '@dignite/ng.vault-extract/config';
-import { provideTagsFieldType } from '@dignite/ng.vault-extract/documents';
 import { environment } from '../environments/environment';
 import { APP_ROUTES } from './app.routes';
 import { HOME_MENU_PROVIDER } from './home/home.menu.provider';
@@ -44,17 +41,8 @@ export const appConfig: ApplicationConfig = {
     provideThemeLeptonX(),
     provideSideMenuLayout(),
     provideLogo(withEnvironmentOptions(environment)),
+    // Menu entries plus every field type the document field editor needs (kernel built-ins, CKEditor,
+    // Tags) - see provideExtract() for why the library registers those itself.
     provideExtract(),
-    // Registers the field-type designer/control/search/view components <ff-flex-field-*> dispatches
-    // to. provideFlexFields() supplies the eight kernel built-ins (Text/Number/Boolean/DateTime/Select/
-    // Tree/Matrix/Table, #625); the two bolt-ons after it add CKEditor (long text) and Vault Extract's
-    // own Tags. Order matters only for same-name overrides, which neither bolt-on is. Vault Extract's
-    // own backend only ever offers Text/Number/Boolean/DateTime/Select/CKEditor/Tags/Table for a new
-    // field (IVaultExtractFieldTypeRegistry has no extension for Tree/Matrix) - registering all eight
-    // kernel types here only means Tree/Matrix would render correctly if ever encountered, not that
-    // they become choosable in the field designer, which is server-filtered.
-    provideFlexFields(),
-    provideCKEditorFieldType(),
-    provideTagsFieldType(),
   ]
 };
