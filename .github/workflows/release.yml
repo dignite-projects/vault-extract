@@ -197,6 +197,11 @@ jobs:
       # plain key rename, so the dependency still installs under the name the compiled bundle's bare
       # specifiers import while resolving from @dignite-projects. angular/package.json uses the same
       # alias for this workspace's own build. Mirrors site's release workflow, which solved this first.
+      #
+      # An entry the library's package.json ALREADY writes in alias form (it does whenever flex-fields
+      # is consumed from GitHub Packages, as since rc.16) is left alone. Prefixing it again produced
+      # "npm:@dignite-projects/x@npm:@dignite-projects/x@<version>", which npm refuses to parse
+      # ("nested aliases not supported") - the state 0.5.0-preview.5 through .7 were published in.
       - name: Publish pre-release Angular package to GitHub Packages
         if: steps.channel.outputs.channel == 'preview'
         run: |
@@ -212,7 +217,7 @@ jobs:
             const pkgPath = path.join(process.env.PKG_DIR, "package.json");
             const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
             for (const [name, range] of Object.entries(pkg.dependencies || {})) {
-              if (name.startsWith("@dignite/")) {
+              if (name.startsWith("@dignite/") && !range.startsWith("npm:")) {
                 pkg.dependencies[name] = `npm:@dignite-projects/${name.slice("@dignite/".length)}@${range}`;
               }
             }
