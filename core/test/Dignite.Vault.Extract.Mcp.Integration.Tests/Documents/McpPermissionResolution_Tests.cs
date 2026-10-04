@@ -23,7 +23,7 @@ namespace Dignite.Vault.Extract.Mcp.Documents;
 /// around — re-established here without that channel: the principal is a <b>bare</b> <see cref="ClaimsPrincipal"/>
 /// carrying only <c>AbpClaimTypes.UserId</c> (all ABP permission resolution reads) plus a non-empty authentication
 /// type, so the test is independent of how an authenticated caller was produced. These tests drive the real
-/// <c>search_documents</c> / <c>list_cabinets</c> tools as that principal and assert:
+/// <c>vault_extract_search_documents</c> / <c>vault_extract_list_cabinets</c> tools as that principal and assert:
 ///   (a) granted the minimal <c>Documents.Default</c> -> <c>CheckPolicyAsync</c> passes and a search returns rows;
 ///   (b) NOT granted -> fail-closed <see cref="AbpAuthorizationException"/> (the LLM tool-dispatch path is not a privilege-escalation channel);
 ///   (c) <c>CurrentUser.Id</c> == the service account.

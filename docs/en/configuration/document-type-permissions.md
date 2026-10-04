@@ -79,7 +79,7 @@ It matters most for the per-type arm: handing out a resource grant is gated by `
 
 | Rule | Module-wide | Per-type grant | Owner arm | Operations it gates |
 | --- | --- | --- | --- | --- |
-| **Read** | `Documents.ReadAll` | `Read` | **always** | `GetAsync`, `GetBlobAsync`, list and recycle-bin membership, export rows, `DocumentPipelineRunAppService.GetListAsync`, MCP `get_document` / `search_documents` / document resources |
+| **Read** | `Documents.ReadAll` | `Read` | **always** | `GetAsync`, `GetBlobAsync`, list and recycle-bin membership, export rows, `DocumentPipelineRunAppService.GetListAsync`, MCP `vault_extract_get_document` / `vault_extract_search_documents` / document resources |
 | **Edit** | `Documents.ConfirmClassification` | `Edit` | **unless under review** | `ConfirmClassificationAsync` / `ReclassifyAsync` (whose **target** type is judged by *Declare a type*), `ReparseAsync` (likewise, on the empty subject), `ReextractFieldsAsync`, `UpdateExtractedFieldsAsync`, `UpdateMarkdownAsync`, `UpdateCabinetAsync` |
 | **Review** | `Documents.ConfirmClassification` | `Edit` | **never** | `AllowDuplicateAsync`, `ResolveFieldValidationWarningsAsync`, `RejectReviewAsync` |
 | **Delete** | `Documents.Delete` | `Delete` | **always** | `DeleteAsync` (soft delete) |

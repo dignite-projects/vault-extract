@@ -54,7 +54,7 @@ Five ways to get it wrong:
 Correct essentials, in order — (1) explicit permission assertion in the method body (fail closed); (2) tenant isolation left to the global filter; (3) business filter + mandatory `Take(N)`; (4) user-derived free text wrapped with `PromptBoundary.WrapField(...)` on the way out; system fields need no wrap.
 
 ```csharp
-[McpServerTool(Name = "search_documents")]
+[McpServerTool(Name = "vault_extract_search_documents")]
 [Description("Search Dignite Vault Extract documents by structured criteria.")]   // compile-time constant
 private static async Task<string> SearchAsync(string? keyword, IServiceProvider sp, CancellationToken ct = default)
 {
@@ -95,7 +95,7 @@ Admission order: `VaultExtractMcpOptions.AllowExplicitTenantScope` defaults to `
 **A schema correctness issue, not a security one** (`DocumentSearchTool.fieldFilters` once silently broke). ABP uses Autofac, which treats every collection relationship type (`IEnumerable<T>`, `IReadOnlyList<T>`, `IList<T>`, `ICollection<T>`, `IReadOnlyCollection<T>`, `T[]`) as an implicitly resolvable service — `IServiceProviderIsService.IsService(...)` returns `true`. The MCP SDK (ModelContextProtocol 1.3.0) excludes any parameter with `IsService == true` from the inputSchema and injects it from DI. So the parameter **silently disappears** for the LLM, the tool stays callable (an empty collection is injected), and the feature it backs is permanently broken with no error. Scalars (`string`, `int?`) are unaffected.
 
 ```csharp
-[McpServerTool(Name = "search_documents")]
+[McpServerTool(Name = "vault_extract_search_documents")]
 public static async Task<...> SearchAsync(
     string documentTypeCode,                          // ok: IsService=false
     // ❌ IReadOnlyList<FieldFilter>? / FieldFilter[]? are excluded from the schema (T[] too — counterintuitive)
@@ -127,7 +127,7 @@ Every LLM-facing path picks exactly one bound, following the semantics of the ca
 | `DocumentSegmentationJob` | **yes** — a boundary can be anywhere | **gate** at `MaxSegmentationMarkdownLength` → `SegmentationIncomplete` |
 | `FieldExtractionService` | **yes** — a field can be anywhere | **gate** at `MaxFieldExtractionMarkdownLength` → `FieldExtractionIncomplete` |
 | `FieldExtractionWorkflow` field schema (`Σ FieldDefinition.Prompt`) | **yes** — every field instruction is load-bearing | **reject the configuration write** at the per-type `MaxFieldSchemaPromptLength`; assert again at the call site |
-| MCP `get_document` / `documents/{id}` | no — the client can re-read | truncate at `VaultExtractMcpConsts.MaxDocumentMarkdownChars` + announce |
+| MCP `vault_extract_get_document` / `documents/{id}` | no — the client can re-read | truncate at `VaultExtractMcpConsts.MaxDocumentMarkdownChars` + announce |
 
 ```csharp
 // Gate: no call at all above the ceiling, a review signal instead, and a TERMINAL outcome (never a rethrow).

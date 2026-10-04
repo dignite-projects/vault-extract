@@ -5,6 +5,7 @@ using Dignite.Vault.Extract.Host.Data;
 using Dignite.Vault.Extract.Host.HealthChecks;
 using Dignite.Vault.Extract.Host.Localization;
 using Dignite.Vault.Extract.Localization;
+using Dignite.Abp.AspNetCore.Mcp;
 using Dignite.Vault.Extract.Mcp.Authentication;
 using Dignite.Vault.Extract.Ocr.VisionLlm;
 using Dignite.Vault.Extract.Parse;
@@ -274,6 +275,7 @@ public class VaultExtractHostModule : AbpModule
         ConfigureOpenTelemetry(context, configuration);
         ConfigureRequestLimits(context);
         ConfigureMcpRateLimiter(context);
+        ConfigureMcpServer();
     }
 
     // #433: rate-limit the /mcp egress endpoint (a DoS / abuse backstop against unauthenticated probing).
@@ -282,6 +284,19 @@ public class VaultExtractHostModule : AbpModule
     // with generous limits (Mcp:RateLimit), applied to /mcp via RequireRateLimiting in
     // OnApplicationInitialization so it also covers the #278 discovery-401 path. The limiter never fires for
     // legitimate, in-limit MCP session traffic.
+    /// <summary>
+    /// This deployment's settings for the shared MCP server (Dignite.Abp.AspNetCore.Mcp).
+    /// </summary>
+    private void ConfigureMcpServer()
+    {
+        Configure<AbpMcpServerOptions>(options =>
+        {
+            // #433: scopes the /mcp rate limiter to this endpoint, covering the #278 discovery-401 path and
+            // all /mcp traffic in one place.
+            options.EndpointConventions.Add(endpoint => endpoint.RequireRateLimiting(McpRateLimiterDefaults.PolicyName));
+        });
+    }
+
     private void ConfigureMcpRateLimiter(ServiceConfigurationContext context)
     {
         var configuration = context.Services.GetConfiguration();
@@ -368,8 +383,8 @@ public class VaultExtractHostModule : AbpModule
     //      without relying on any authorization policy and without separately mapping an endpoint.
     //   2. Provide 401 challenge by injecting the `WWW-Authenticate: Bearer resource_metadata="..."` pointer.
     // Note that McpAuth must not enter the /mcp endpoint authorization policy AuthenticationSchemes. Otherwise PolicyEvaluator would
-    // re-authenticate and lose the principal enriched by UseDynamicClaims. McpDiscoveryAuthorizationResultHandler triggers the challenge
-    // only for marked /mcp endpoints; see that handler's comments.
+    // re-authenticate and lose the principal enriched by UseDynamicClaims. Dignite.Abp.AspNetCore.Mcp's
+    // AbpMcpAuthorizationMiddlewareResultHandler triggers the challenge only for its /mcp endpoint; see that handler's comments.
     // Token validation, dynamic claims, and tenant resolution all still use the endpoint default policy + existing OpenIddict chain.
     // Manual token paths (mcp-remote static Bearer / Inspector manual token / password-grant) are unaffected; discovery triggers only on 401 without token.
     private void ConfigureMcpAuthentication(ServiceConfigurationContext context)
@@ -385,12 +400,18 @@ public class VaultExtractHostModule : AbpModule
         }
 
         var selfUrl = configuration["App:SelfUrl"]?.TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(selfUrl))
+        {
+            // Same reasoning as the authority guard: the metadata must name this server's own URI, and
+            // deriving it from the request's Host header instead is not something to do silently.
+            return;
+        }
 
         // #422: the discovery mechanics (McpAuth scheme registration, login-page hiding, challenge-only
-        // result-handler replacement) are owned by the Mcp egress module's AddVaultExtractMcpDiscovery. The
-        // host keeps only the deployment-specific decisions: whether discovery is enabled (the authority
-        // guard above) and the ProtectedResourceMetadata values below.
-        context.Services.AddVaultExtractMcpDiscovery(metadata =>
+        // result-handler replacement) are owned by the shared MCP server module, Dignite.Abp.AspNetCore.Mcp
+        // (AddAbpMcpAuthenticationDiscovery). The host keeps only the deployment-specific decisions: whether
+        // discovery is enabled (the guards above) and the ProtectedResourceMetadata values below.
+        context.Services.AddAbpMcpAuthenticationDiscovery(metadata =>
         {
             // RFC 9728 `resource`: the MCP server's canonical URI. The MCP authorization spec
             // says a client SHOULD use the most-specific URI it can, so we advertise the full
@@ -400,7 +421,7 @@ public class VaultExtractHostModule : AbpModule
             // (see the rationale there), so the issued token's aud stays "VaultExtract". Set
             // explicitly rather than left to handler inference so it remains correct behind a
             // reverse proxy (inference derives it from request host/scheme headers).
-            metadata.Resource = string.IsNullOrWhiteSpace(selfUrl) ? null : $"{selfUrl}/mcp";
+            metadata.Resource = $"{selfUrl}/mcp";
             metadata.AuthorizationServers = new List<string> { authority };
             metadata.ScopesSupported = new List<string> { "VaultExtract" };
             metadata.BearerMethodsSupported = new List<string> { "header" };
@@ -869,19 +890,11 @@ public class VaultExtractHostModule : AbpModule
 
         app.UseAuditing();
         app.UseAbpSerilogEnrichers();
-        app.UseConfiguredEndpoints(endpoints =>
-        {
-            // MCP export endpoint (Streamable HTTP). Reuse the host's existing OpenIddict Bearer:
-            // RequireAuthorization enforces authentication at the endpoint, with authenticate using the default policy and preserving dynamic-claims enrichment.
-            // Tool / resource method bodies still perform explicit permission assertions as fail-closed double insurance.
-            // #278: McpDiscoveryChallengeMarker lets 401 responses without token be routed by McpDiscoveryAuthorizationResultHandler
-            // to McpAuth challenge, injecting the `WWW-Authenticate: Bearer resource_metadata="..."` discovery pointer.
-            // #433: RequireRateLimiting scopes the /mcp rate limiter to this endpoint, covering the #278
-            // discovery-401 path and all /mcp traffic in one place.
-            endpoints.MapMcp("/mcp")
-                .RequireAuthorization()
-                .RequireRateLimiting(McpRateLimiterDefaults.PolicyName)
-                .WithMetadata(McpDiscoveryChallengeMarker.Instance);
-        });
+        // The MCP export endpoint (Streamable HTTP, /mcp) is mapped here too, by Dignite.Abp.AspNetCore.Mcp
+        // through AbpEndpointRouterOptions: RequireAuthorization on the default policy (the host's existing
+        // OpenIddict Bearer, with dynamic-claims enrichment preserved), plus the #278 discovery 401 and the
+        // #433 rate limiter configured in ConfigureMcpServer. Tool / resource method bodies still perform
+        // explicit permission assertions as fail-closed double insurance.
+        app.UseConfiguredEndpoints();
     }
 }

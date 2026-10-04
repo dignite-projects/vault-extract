@@ -97,7 +97,13 @@
     </ItemGroup>
 
     <ItemGroup Label="MCP">
-        <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="1.4.1" />
+        <!-- At least the version Dignite.Abp.AspNetCore.Mcp is built against: every module on one MCP
+             server shares this SDK, so it moves with abp-modules rather than on its own. -->
+        <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="2.1.0" />
+        <!-- The shared MCP server (transport, /mcp, permission filtering, error envelope, namespaces) that
+             Dignite.Vault.Extract.Mcp contributes its tools to. Released with abp-modules in lockstep, so
+             it moves with the Dignite.Abp.FlexFields.* pins above. -->
+        <PackageVersion Include="Dignite.Abp.AspNetCore.Mcp" Version="10.0.0-rc.18" />
     </ItemGroup>
 
     <ItemGroup Label="OpenTelemetry">

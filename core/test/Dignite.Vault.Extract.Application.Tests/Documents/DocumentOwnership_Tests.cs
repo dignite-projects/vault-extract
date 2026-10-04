@@ -758,7 +758,7 @@ public class DocumentOwnership_Tests : DocumentAccessTestBase
     // ===================== Export narrows by the same scope, ownership included =====================
 
     /// <summary>
-    /// Acceptance: "GetListAsync, ExportAsync and MCP search_documents return the caller's own documents in
+    /// Acceptance: "GetListAsync, ExportAsync and MCP vault_extract_search_documents return the caller's own documents in
     /// addition to the types they may read." The list is covered above and MCP search calls
     /// <c>GetListAsync</c>, but <see cref="Documents.Exports.DocumentExportAppService"/> composes its own query
     /// and resolves the <see cref="DocumentAccessRule.Read"/> scope separately from its own admission rule

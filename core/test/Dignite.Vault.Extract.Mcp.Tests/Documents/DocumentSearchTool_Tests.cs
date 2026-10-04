@@ -502,7 +502,7 @@ public class DocumentSearchTool_Tests : VaultExtractTestBase<DocumentSearchToolT
     [Fact]
     public async Task Signals_truncation_when_more_matched_than_returned()
     {
-        // #445: parity with list_document_types. The hard cap (MaxSearchResultCount) can elide matches, so the
+        // #445: parity with vault_extract_list_document_types. The hard cap (MaxSearchResultCount) can elide matches, so the
         // result carries an explicit truncation signal — otherwise the LLM cannot tell a complete result from
         // "the first 50 of thousands" and may answer as if it had seen every match. TotalCount is the pre-cap
         // match count reported by the paged use case.

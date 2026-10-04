@@ -76,7 +76,7 @@ public class DocumentTools_Tests : VaultExtractTestBase<DocumentToolsTestModule>
 
     /// <summary>
     /// #491: Take(N) bounds a result set's row count but not one row's payload, so an uncapped body would let a single
-    /// get_document consume the client's whole context window. The body is clipped and the clipping is announced — an
+    /// vault_extract_get_document consume the client's whole context window. The body is clipped and the clipping is announced — an
     /// LLM must never mistake a prefix for the whole document.
     /// </summary>
     [Fact]
