@@ -98,7 +98,7 @@ public sealed class DocumentTypeResources
         // Cross-tenant or nonexistent codes are absent from the collection and are treated as not
         // found.
         // #636: this path lists types for an LLM and never reads a caller's per-type grants, so it uses the
-        // narrow summary read (see list_document_types) — only TypeCode / Id are used below.
+        // narrow summary read (see vault_extract_list_document_types) — only TypeCode / Id are used below.
         var documentTypes = await documentTypeAppService.GetVisibleSummariesAsync();
         var documentType = documentTypes.FirstOrDefault(t => t.TypeCode == code);
         if (documentType is null)
@@ -142,7 +142,7 @@ public sealed class DocumentTypeResources
     /// result cap from llm-call-anti-patterns counterexample B point 3 because tenant admins can
     /// create any number of types. resources/list protocol entries cannot carry a truncation signal,
     /// so direct truncation is acceptable; full discovery with truncated / totalCount signals is
-    /// provided by the <c>list_document_types</c> tool.
+    /// provided by the <c>vault_extract_list_document_types</c> tool.
     /// </summary>
     public static async Task<ListResourcesResult> ListVisibleAsync(IDocumentTypeAppService documentTypeAppService)
     {

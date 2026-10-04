@@ -5,7 +5,7 @@ using Dignite.Vault.Extract.Ai;
 namespace Dignite.Vault.Extract.Mcp.Documents;
 
 /// <summary>
-/// LLM-facing projection logic for ExtractedFields. Shared by the search tool and get_document tool so
+/// LLM-facing projection logic for ExtractedFields. Shared by the search tool and vault_extract_get_document tool so
 /// PromptBoundary wrapping rules are exactly consistent in both places, with one implementation source
 /// for the safety rule.
 /// </summary>

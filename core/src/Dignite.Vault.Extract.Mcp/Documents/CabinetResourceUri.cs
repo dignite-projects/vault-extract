@@ -5,7 +5,7 @@ namespace Dignite.Vault.Extract.Mcp.Documents;
 /// <summary>
 /// Single source for MCP cabinet resource URIs. Cabinet resources follow the existing per-item
 /// document/document-type convention; bounded collection discovery is provided by resources/list
-/// and the list_cabinets tool.
+/// and the vault_extract_list_cabinets tool.
 /// </summary>
 public static class CabinetResourceUri
 {

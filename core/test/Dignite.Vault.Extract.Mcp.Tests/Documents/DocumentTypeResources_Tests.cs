@@ -274,7 +274,7 @@ public class DocumentTypeResources_Tests : VaultExtractTestBase<DocumentTypeReso
     {
         // Hard result-set limit (llm-call-anti-patterns counterexample B point 3): tenant admins can
         // create arbitrarily many types. resources/list protocol entries have no place to carry a
-        // truncation signal, so truncate directly; full discovery goes through the list_document_types
+        // truncation signal, so truncate directly; full discovery goes through the vault_extract_list_document_types
         // tool.
         var total = VaultExtractMcpConsts.MaxDocumentTypeResults + 3;
         var types = Enumerable.Range(0, total)

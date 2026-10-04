@@ -5,7 +5,7 @@ using System.Text.Json;
 namespace Dignite.Vault.Extract.Mcp.Documents;
 
 /// <summary>
-/// Structured return value for the <c>get_document</c> tool. Compared with search results, it adds
+/// Structured return value for the <c>vault_extract_get_document</c> tool. Compared with search results, it adds
 /// the <see cref="Markdown"/> body so MCP clients without <c>resources/read</c> support can read full
 /// documents through a tool call (#285). <see cref="Title"/> and <see cref="Markdown"/> are
 /// user-derived content and are wrapped with <c>PromptBoundary</c> inside the tool to prevent indirect

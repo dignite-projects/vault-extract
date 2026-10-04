@@ -114,7 +114,7 @@ public class FieldDefinitionAppService : VaultExtractAppService, IFieldDefinitio
         // Current tenant layer only (CLAUDE.md "two layers are mutually exclusive, no mixing").
         // Tenant isolation is enforced by the ABP IMultiTenant global filter.
         // When DocumentTypeId is specified, match exactly one type by immutable Id (#207); missing type naturally returns an empty set.
-        // Empty = all field definitions in the current layer, the batch path used by MCP list_document_types and similar callers to fetch once and avoid per-type N+1.
+        // Empty = all field definitions in the current layer, the batch path used by MCP vault_extract_list_document_types and similar callers to fetch once and avoid per-type N+1.
         if (input.OnlyDeleted)
         {
             // Trash view is consumed only by schema management screens, so keep the admin gate (#223).

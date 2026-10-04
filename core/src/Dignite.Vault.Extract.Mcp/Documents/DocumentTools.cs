@@ -19,7 +19,7 @@ namespace Dignite.Vault.Extract.Mcp.Documents;
 [McpServerToolType]
 public sealed class DocumentTools
 {
-    [McpServerTool(Name = "get_document", Title = "Get Document", ReadOnly = true)]
+    [McpServerTool(Name = "vault_extract_get_document", Title = "Get Document", ReadOnly = true)]
     [Description("Read a Dignite Vault Extract document's full content by id: title, type, lifecycle, language, "
         + "created-at, the Markdown body, and all extracted field values. "
         + "Use this when resources/read is unavailable to follow up on a search result's id. "
@@ -29,9 +29,9 @@ public sealed class DocumentTools
         + "content is absent from the document merely because it is absent from the clipped body. When "
         + "fieldExtractionDeclined is true the document was too large to extract fields from, so extractedFields is "
         + "empty or out of date and must not be treated as the document's current field values. Discover document "
-        + "ids with search_documents first.")]
+        + "ids with vault_extract_search_documents first.")]
     public static async Task<DocumentDetailResult> GetAsync(
-        [Description("The document id (UUID) to read. Obtain it from search_documents results.")]
+        [Description("The document id (UUID) to read. Obtain it from vault_extract_search_documents results.")]
         string id,
         IDocumentAppService documentAppService,
         [Description("Optional tenant id (UUID). When supplied, read only that tenant and return tenant-scoped resource URIs.")]

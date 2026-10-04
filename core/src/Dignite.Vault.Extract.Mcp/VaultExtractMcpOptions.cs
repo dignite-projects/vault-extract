@@ -9,8 +9,11 @@ namespace Dignite.Vault.Extract.Mcp;
 /// and cabinet categories, and a downstream module appends its own in
 /// <c>Configure&lt;VaultExtractMcpOptions&gt;</c>. A contributor added here must also be DI-registered
 /// (e.g. via <c>ITransientDependency</c>) — the catalog resolves entries from the request scope by type.
-/// Tools need no options entry — a downstream module adds
-/// tool classes additively via <c>context.Services.AddMcpServer().WithTools&lt;TTools&gt;()</c>.
+/// Contributors added here list <c>vault-extract://</c> resources only - the shared MCP server rejects a URI
+/// outside this module's scheme; a downstream product with a scheme of its own registers its own MCP module.
+/// Tools need no options entry — a downstream module adds tool classes to this namespace additively via
+/// <c>context.Services.AddAbpMcpModule("vault_extract", mcp => mcp.AddTools&lt;TTools&gt;())</c>, naming them
+/// <c>vault_extract_…</c>.
 /// <see cref="AllowExplicitTenantScope"/> is a separate, unrelated deployment-level gate: it does not
 /// register anything, it only decides whether the explicit-<c>tenantId</c> tool parameters / resource-uri
 /// segments may be used at all (#524).

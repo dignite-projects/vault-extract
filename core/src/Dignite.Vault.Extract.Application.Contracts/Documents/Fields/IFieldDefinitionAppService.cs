@@ -17,7 +17,7 @@ public interface IFieldDefinitionAppService : IApplicationService
     /// When <see cref="GetFieldDefinitionListInput.DocumentTypeId"/> is specified, returns only fields
     /// under that document type. When omitted (<c>null</c>), returns all field definitions in the
     /// current layer in one call, the bulk-read path used by callers such as MCP
-    /// <c>list_document_types</c> to group in memory and eliminate per-type N+1 queries.
+    /// <c>vault_extract_list_document_types</c> to group in memory and eliminate per-type N+1 queries.
     /// When <see cref="GetFieldDefinitionListInput.OnlyDeleted"/> is <c>false</c>, returns active
     /// fields ordered by DisplayOrder, or by DocumentTypeId then DisplayOrder in bulk mode. When
     /// <c>true</c>, returns recycle-bin (soft-deleted) fields ordered by descending DeletionTime.

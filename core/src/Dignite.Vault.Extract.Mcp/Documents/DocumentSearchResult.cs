@@ -4,7 +4,7 @@ using Dignite.Vault.Extract.Documents;
 namespace Dignite.Vault.Extract.Mcp.Documents;
 
 /// <summary>
-/// Structured return value for the <c>search_documents</c> tool (LLM-facing). <see cref="Items"/> is
+/// Structured return value for the <c>vault_extract_search_documents</c> tool (LLM-facing). <see cref="Items"/> is
 /// hard-capped to <see cref="DocumentConsts.MaxSearchResultCount"/> — a fail-closed boundary against
 /// prompt-injection-induced broad queries / LLM-context blowup (llm-call-anti-patterns counterexample B
 /// point 3), <b>not</b> pagination, so this tool provides no paging parameters. When more documents matched

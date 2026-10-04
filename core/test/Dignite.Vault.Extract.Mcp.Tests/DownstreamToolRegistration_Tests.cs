@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
+using Dignite.Abp.AspNetCore.Mcp;
 using Dignite.Vault.Extract.Documents;
 using Dignite.Vault.Extract.Mcp.Documents;
 using Microsoft.Extensions.DependencyInjection;
@@ -19,7 +20,7 @@ namespace Dignite.Vault.Extract.Mcp;
 [McpServerToolType]
 public sealed class FakeDownstreamTools
 {
-    [McpServerTool(Name = "search_tenant_documents")]
+    [McpServerTool(Name = "vault_extract_search_tenant_documents")]
     [Description("Test-only downstream tool standing in for a commercial cross-tenant search.")]
     public static string Search(string query) => query;
 }
@@ -30,7 +31,7 @@ public class UpstreamMcpToolRegistrationTestModule : AbpModule
     public override void ConfigureServices(ServiceConfigurationContext context)
     {
         context.Services.AddSingleton(Substitute.For<IDocumentAppService>());
-        context.Services.AddMcpServer().WithTools<DocumentSearchTool>();
+        context.Services.AddAbpMcpModule(VaultExtractMcpConsts.ModuleName, mcp => mcp.AddTools<DocumentSearchTool>());
     }
 }
 
@@ -39,15 +40,15 @@ public class DownstreamMcpToolRegistrationTestModule : AbpModule
 {
     public override void ConfigureServices(ServiceConfigurationContext context)
     {
-        // The documented downstream seam: a second module calls AddMcpServer().WithTools again to add
-        // its own tool classes next to the open-source ones.
-        context.Services.AddMcpServer().WithTools<FakeDownstreamTools>();
+        // The documented downstream seam: a second module calls AddAbpMcpModule with the same namespace
+        // again, which extends it - its tools must then carry the vault_extract_ prefix too.
+        context.Services.AddAbpMcpModule(VaultExtractMcpConsts.ModuleName, mcp => mcp.AddTools<FakeDownstreamTools>());
     }
 }
 
 /// <summary>
 /// Guards the tool extension seam for downstream modules: calling
-/// <c>AddMcpServer().WithTools&lt;TTools&gt;()</c> from a second ABP module is additive — the built-in
+/// <c>AddAbpMcpModule("vault_extract", mcp => mcp.AddTools&lt;TTools&gt;())</c> from a second ABP module is additive — the built-in
 /// tool set is neither replaced nor duplicated. Runs under Autofac like production (base class uses
 /// UseAutofac).
 /// </summary>
@@ -60,9 +61,9 @@ public class DownstreamToolRegistration_Tests : VaultExtractTestBase<DownstreamM
             .Select(t => t.ProtocolTool.Name)
             .ToList();
 
-        toolNames.ShouldContain("search_documents");
-        toolNames.ShouldContain("search_tenant_documents");
-        toolNames.Count(n => n == "search_documents").ShouldBe(1);
-        toolNames.Count(n => n == "search_tenant_documents").ShouldBe(1);
+        toolNames.ShouldContain("vault_extract_search_documents");
+        toolNames.ShouldContain("vault_extract_search_tenant_documents");
+        toolNames.Count(n => n == "vault_extract_search_documents").ShouldBe(1);
+        toolNames.Count(n => n == "vault_extract_search_tenant_documents").ShouldBe(1);
     }
 }

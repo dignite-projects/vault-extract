@@ -3,7 +3,7 @@ using System;
 namespace Dignite.Vault.Extract.Mcp.Documents;
 
 /// <summary>
-/// LLM-facing cabinet projection shared by the cabinet resource and list_cabinets tool. Name and
+/// LLM-facing cabinet projection shared by the cabinet resource and vault_extract_list_cabinets tool. Name and
 /// Description are administrator-controlled free text and are PromptBoundary-wrapped before use.
 /// </summary>
 public sealed record CabinetSchema

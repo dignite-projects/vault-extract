@@ -24,12 +24,12 @@ namespace Dignite.Vault.Extract.Mcp.Documents;
 /// lenient parsing of lifecycle strings, hard result-set limit clamped to <see cref="DocumentConsts.MaxSearchResultCount"/> to protect LLM context,
 /// wrapping title / field values with <c>PromptBoundary</c> to prevent indirect prompt injection, and surfacing a
 /// truncation signal (<see cref="DocumentSearchResult.Truncated"/> / <see cref="DocumentSearchResult.TotalCount"/>)
-/// so a capped result is not mistaken for the complete set (#445, parity with list_document_types).
+/// so a capped result is not mistaken for the complete set (#445, parity with vault_extract_list_document_types).
 /// </summary>
 [McpServerToolType]
 public sealed class DocumentSearchTool
 {
-    [McpServerTool(Name = "search_documents", Title = "Search Documents", ReadOnly = true)]
+    [McpServerTool(Name = "vault_extract_search_documents", Title = "Search Documents", ReadOnly = true)]
     [Description("Search Extract documents within a required structured scope by metadata and/or one or "
         + "more extracted-field filters (all combined with AND). Returns an object with items "
         + "(up to 50: id, uri, cabinet id, title, type, lifecycle, created-at, and extracted field values) "
@@ -42,7 +42,7 @@ public sealed class DocumentSearchTool
         + "documentTypeCode, originDocumentId, or cabinetId. Extracted-field filters always require documentTypeCode. "
         + "To list the sub-documents of a container, pass that container's id as originDocumentId. Discover a "
         + "type's filterable fields via a document-type resource uri; discover cabinet ids via "
-        + "resources/list or list_cabinets.")]
+        + "resources/list or vault_extract_list_cabinets.")]
     public static async Task<DocumentSearchResult> SearchAsync(
         IDocumentAppService documentAppService,
         [Description("The document type code to search within (e.g. a classification result like "
@@ -55,7 +55,7 @@ public sealed class DocumentSearchTool
             + "sub-documents. Optional; when given, documentTypeCode is not required.")]
         string? originDocumentId = null,
         [Description("Filter to one cabinet id (UUID). Resolve a user-facing cabinet name through resources/list "
-            + "or list_cabinets first. Optional; when given, documentTypeCode is not required unless fieldFilters "
+            + "or vault_extract_list_cabinets first. Optional; when given, documentTypeCode is not required unless fieldFilters "
             + "are also supplied.")]
         string? cabinetId = null,
         [Description("Filter by lifecycle status. One of: Uploaded, Processing, Ready, Failed, Archived. Optional.")]
@@ -116,7 +116,7 @@ public sealed class DocumentSearchTool
             throw new McpException(
                 "At least one search scope is required: documentTypeCode, originDocumentId, or cabinetId. "
                 + "Extracted-field filters require documentTypeCode. Discover document types through "
-                + "list_document_types and cabinet ids through list_cabinets.");
+                + "vault_extract_list_document_types and cabinet ids through vault_extract_list_cabinets.");
         }
 
         // Leniently parse lifecycle filter values. LLM clients usually pass string names such as "Ready".
@@ -175,7 +175,7 @@ public sealed class DocumentSearchTool
             })
             .ToList();
 
-        // Parity with list_document_types (DocumentTypeListResult): the hard cap can elide matches, so carry
+        // Parity with vault_extract_list_document_types (DocumentTypeListResult): the hard cap can elide matches, so carry
         // an explicit truncation signal. Without it the calling LLM cannot tell a complete result from "the
         // first N of thousands" and may answer as if it had seen every match. TotalCount is the pre-cap match
         // count from the paged use case; Truncated trips whenever more matched than were returned (the

@@ -6,7 +6,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <RootNamespace>Dignite.Vault.Extract</RootNamespace>
-    <Description>MCP server exit of Dignite Vault Extract: exposes documents, document types, and cabinets as resources and provides structured metadata/extracted-field search tools for Claude Desktop, Cursor, and any MCP client. Endpoint mapping (MapMcp) stays in the host application.</Description>
+    <Description>MCP server exit of Dignite Vault Extract: exposes documents, document types, and cabinets as resources and provides structured metadata/extracted-field search tools for Claude Desktop, Cursor, and any MCP client. Contributes to the application's shared MCP server (Dignite.Abp.AspNetCore.Mcp) under the vault_extract namespace.</Description>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,6 +16,8 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" VersionOverride="10.9.0" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" />
+    <!-- The shared MCP server this module contributes to (AddAbpMcpModule) instead of hosting its own. -->
+    <PackageReference Include="Dignite.Abp.AspNetCore.Mcp" />
     <!-- Used only to translate EntityNotFoundException from AppService.GetAsync into a clean McpException
          resource not-found protocol error. This is ABP's DDD abstractions package; the REST HttpApi exit
          also receives it transitively through AspNetCore.Mvc. This does not conflict with #222

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking: every MCP tool name now starts with `vault_extract_`** (`vault_extract_search_documents`,
+  `vault_extract_get_document`, `vault_extract_list_document_types`, `vault_extract_list_cabinets`); resource
+  URIs keep their `vault-extract://` scheme. MCP clients configured with the old names (permission
+  allow-lists, saved prompts) need the new ones.
+- **`Dignite.Vault.Extract.Mcp` contributes to a shared MCP server instead of hosting its own.** Transport,
+  the `/mcp` endpoint, `tools/list` permission filtering, the structured tool-error envelope and the RFC 9728
+  discovery challenge now come from `Dignite.Abp.AspNetCore.Mcp` (abp-modules), the server other Dignite
+  modules' tools share in one host; the C# SDK silently keeps only the first of two same-named tools, so each
+  module owns a name prefix and the server refuses to start on a collision. The host no longer calls
+  `MapMcp`; `AddVaultExtractMcpDiscovery` and `McpDiscoveryChallengeMarker` are replaced by
+  `AddAbpMcpAuthenticationDiscovery`, and the rate limiter is attached through
+  `AbpMcpServerOptions.EndpointConventions`. Downstream tools are added with
+  `AddAbpMcpModule("vault_extract", …)` instead of `AddMcpServer().WithTools<T>()`.
+- `resources/list` returns an empty list, rather than an authorization error, to a caller granted none of
+  the categories - a refusal would also hide other modules' resources on the shared server.
+- Discovery is now skipped when `App:SelfUrl` is unset, as it already was without `AuthServer:Authority`,
+  instead of letting the SDK derive the advertised resource from the request's Host header.
+- `ModelContextProtocol.AspNetCore` 1.4.1 → 2.1.0, the version the shared server is built against.
+
 ## [0.5.0-preview.9] - 2026-09-24
 
 One fix to preview.8's field-type registration ([#667](https://github.com/dignite-projects/vault-extract/pull/667)): the field types move from `provideExtract()` to `DOCUMENTS_ROUTES`, so a host that lazy-loads the documents route keeps flex-fields and the CKEditor adapter out of its initial bundle again (−111 kB transferred, measured on this repo's host app). No signature changes and nothing to wire; a host that wrapped `DOCUMENTS_ROUTES` to register the field types itself can drop that wrapper.

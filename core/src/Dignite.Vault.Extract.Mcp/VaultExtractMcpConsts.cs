@@ -9,6 +9,13 @@ namespace Dignite.Vault.Extract.Mcp;
 public static class VaultExtractMcpConsts
 {
     /// <summary>
+    /// The MCP namespace this module owns on the application's shared MCP server: every tool is named
+    /// <c>vault_extract_…</c>, and every resource uses the <c>vault-extract</c> scheme of
+    /// <see cref="UriScheme"/> (the server derives the scheme from this name by turning '_' into '-').
+    /// </summary>
+    public const string ModuleName = "vault_extract";
+
+    /// <summary>
     /// Root of the MCP resource URI scheme. Single source every per-resource URI helper derives from,
     /// so the scheme cannot drift across resource kinds.
     /// </summary>
@@ -23,7 +30,7 @@ public static class VaultExtractMcpConsts
 
     /// <summary>
     /// Hard cap on the number of document types returned in one document type enumeration
-    /// (<c>list_document_types</c> tool and <c>resources/list</c>). Tenant admins can create any number
+    /// (<c>vault_extract_list_document_types</c> tool and <c>resources/list</c>). Tenant admins can create any number
     /// of document types; unbounded enumeration can blow up LLM context and create a cost-attack
     /// surface. 100 is twice <c>DocumentConsts.MaxSearchResultCount</c>: types are schema-level
     /// metadata, each item is much smaller than a document search row because there is no Markdown /
@@ -36,7 +43,7 @@ public static class VaultExtractMcpConsts
 
     /// <summary>
     /// Hard cap on the number of Markdown characters of a single document body handed to an MCP client
-    /// (<c>get_document</c> tool and the <c>vault-extract://documents/{id}</c> resource, including its
+    /// (<c>vault_extract_get_document</c> tool and the <c>vault-extract://documents/{id}</c> resource, including its
     /// explicit-tenant equivalent). The existing
     /// <c>Take(N)</c> discipline bounds the <b>row count</b> of a result set but says nothing about the
     /// <b>payload size of one row</b>, so a single read of a large document could consume the client's
