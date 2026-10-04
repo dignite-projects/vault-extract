@@ -27,6 +27,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Discovery is now skipped when `App:SelfUrl` is unset, as it already was without `AuthServer:Authority`,
   instead of letting the SDK derive the advertised resource from the request's Host header.
 - `ModelContextProtocol.AspNetCore` 1.4.1 → 2.1.0, the version the shared server is built against.
+- `Dignite.Abp.AspNetCore.Mcp` and `Dignite.Abp.FlexFields.*` move to abp-modules `10.0.0-rc.19` together, so
+  the two never mix releases of one repository.
+
+### Fixed
+
+- **A failed save in an MCP tool call no longer cuts the client's connection.** Through
+  `Dignite.Abp.AspNetCore.Mcp` `10.0.0-rc.19`, each call's changes are saved before its result is written and
+  rolled back on failure, so a save that fails (a unique index, a concurrency conflict) comes back as the
+  call's structured error; before, it surfaced only after the result was already on the wire and aborted the
+  response. Failures reported as tool results are now also logged, as they are over the REST API.
 
 ## [0.5.0-preview.9] - 2026-09-24
 
