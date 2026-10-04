@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0-preview.10] - 2026-10-04
+
+The MCP server moves to the one Dignite modules share ([#671](https://github.com/dignite-projects/vault-extract/pull/671)): `Dignite.Vault.Extract.Mcp` now contributes its tools and resources to `Dignite.Abp.AspNetCore.Mcp` (abp-modules `10.0.0-rc.19`) instead of hosting a server of its own, so a host can serve Vault Extract's tools next to other modules' on one `/mcp` endpoint. **Every tool name changes** - it now starts with `vault_extract_` - so MCP clients configured with the old names need the new ones; resource URIs are unchanged.
+
+No EF migration. A host that wires MCP itself replaces `AddVaultExtractMcpDiscovery` with `AddAbpMcpAuthenticationDiscovery` and stops calling `MapMcp` (see the entries below).
+
 ### Changed
 
 - **Breaking: every MCP tool name now starts with `vault_extract_`** (`vault_extract_search_documents`,
@@ -27,6 +33,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Discovery is now skipped when `App:SelfUrl` is unset, as it already was without `AuthServer:Authority`,
   instead of letting the SDK derive the advertised resource from the request's Host header.
 - `ModelContextProtocol.AspNetCore` 1.4.1 → 2.1.0, the version the shared server is built against.
+- `Dignite.Abp.AspNetCore.Mcp` and `Dignite.Abp.FlexFields.*` move to abp-modules `10.0.0-rc.19` together, so
+  the two never mix releases of one repository.
+
+### Fixed
+
+- **A failed save in an MCP tool call no longer cuts the client's connection.** Through
+  `Dignite.Abp.AspNetCore.Mcp` `10.0.0-rc.19`, each call's changes are saved before its result is written and
+  rolled back on failure, so a save that fails (a unique index, a concurrency conflict) comes back as the
+  call's structured error; before, it surfaced only after the result was already on the wire and aborted the
+  response. Failures reported as tool results are now also logged, as they are over the REST API.
 
 ## [0.5.0-preview.9] - 2026-09-24
 
@@ -580,7 +596,8 @@ Preview of the 0.2.0 line. This release rebrands the project to **Dignite Vault 
 - Legacy Angular document-upload route.
 - Dead fields from the segmentation subsystem (#390).
 
-[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.9...HEAD
+[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.10...HEAD
+[0.5.0-preview.10]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.9...v0.5.0-preview.10
 [0.5.0-preview.9]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.8...v0.5.0-preview.9
 [0.5.0-preview.8]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.7...v0.5.0-preview.8
 [0.5.0-preview.7]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.6...v0.5.0-preview.7
