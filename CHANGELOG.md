@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0-preview.10] - 2026-10-04
+
+The MCP server moves to the one Dignite modules share ([#671](https://github.com/dignite-projects/vault-extract/pull/671)): `Dignite.Vault.Extract.Mcp` now contributes its tools and resources to `Dignite.Abp.AspNetCore.Mcp` (abp-modules `10.0.0-rc.19`) instead of hosting a server of its own, so a host can serve Vault Extract's tools next to other modules' on one `/mcp` endpoint. **Every tool name changes** - it now starts with `vault_extract_` - so MCP clients configured with the old names need the new ones; resource URIs are unchanged.
+
+No EF migration. A host that wires MCP itself replaces `AddVaultExtractMcpDiscovery` with `AddAbpMcpAuthenticationDiscovery` and stops calling `MapMcp` (see the entries below).
+
 ### Changed
 
 - **Breaking: every MCP tool name now starts with `vault_extract_`** (`vault_extract_search_documents`,
@@ -590,7 +596,8 @@ Preview of the 0.2.0 line. This release rebrands the project to **Dignite Vault 
 - Legacy Angular document-upload route.
 - Dead fields from the segmentation subsystem (#390).
 
-[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.9...HEAD
+[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.10...HEAD
+[0.5.0-preview.10]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.9...v0.5.0-preview.10
 [0.5.0-preview.9]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.8...v0.5.0-preview.9
 [0.5.0-preview.8]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.7...v0.5.0-preview.8
 [0.5.0-preview.7]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.6...v0.5.0-preview.7
