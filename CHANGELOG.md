@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0-preview.11] - 2026-10-07
+
+Operator notifications ([#680](https://github.com/dignite-projects/vault-extract/issues/680)): the uploader is told in the operator UI when a document needs review, fails, is rejected, or becomes Ready.
+
+Adds one EF migration, `V680_AddNotificationCenter` (four new tables); run the host with `--migrate-database`. `Dignite.Vault.Extract.Application` gains one package dependency, `Dignite.Abp.Notifications` `10.0.0-rc.21`.
+
 ### Added
 
 - **Operator notifications ([#680](https://github.com/dignite-projects/vault-extract/issues/680)).** The uploader
@@ -615,7 +621,8 @@ Preview of the 0.2.0 line. This release rebrands the project to **Dignite Vault 
 - Legacy Angular document-upload route.
 - Dead fields from the segmentation subsystem (#390).
 
-[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.10...HEAD
+[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.11...HEAD
+[0.5.0-preview.11]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.10...v0.5.0-preview.11
 [0.5.0-preview.10]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.9...v0.5.0-preview.10
 [0.5.0-preview.9]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.8...v0.5.0-preview.9
 [0.5.0-preview.8]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.7...v0.5.0-preview.8
