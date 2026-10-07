@@ -40,7 +40,7 @@
     "@angular/router": "~21.2.0",
     "@dignite/ng.flex-fields": "npm:@dignite-projects/ng.flex-fields@10.0.0-rc.17",
     "@dignite/ng.flex-fields-ckeditor": "npm:@dignite-projects/ng.flex-fields-ckeditor@10.0.0-rc.17",
-    "@dignite/ng.notification-center": "10.0.0-rc.20",
+    "@dignite/ng.notification-center": "10.0.0-rc.21",
     "marked": "^18.0.0",
     "rxjs": "~7.8.0",
     "tslib": "^2.1.0",

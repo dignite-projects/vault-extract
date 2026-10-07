@@ -38,8 +38,8 @@ Delivery is the persisted inbox row plus a live push over SignalR (`/signalr-hub
 
 The handler and the four notification definitions are part of `Dignite.Vault.Extract.Application`, so any host that includes it already publishes. What happens to the notifications is the host's choice:
 
-- **Nothing added:** they go to the framework's no-op store with no channel, and are dropped.
-- **Live push:** depend on `AbpNotificationsSignalRModule` (`Dignite.Abp.Notifications.SignalR`). The definitions route to the channel named `SignalR`; without its notifier registered the channel is simply never called.
+- **Nothing added:** Application routes the four notifications to the `SignalR` channel by default. With no notifier hosting that channel the framework logs a startup warning naming it, and with no inbox store nothing delivers them, so they are dropped.
+- **Live push:** depend on `AbpNotificationsSignalRModule` (`Dignite.Abp.Notifications.SignalR`). That is what the default routing (`NotificationRoutingOptions`, set by the Application module) already targets. To change it, override in your host module, which is configured last and wins: `Configure<NotificationRoutingOptions>(o => o.ForNotification(VaultExtractNotificationNames.DocumentReady, "SignalR", "Email"))`, or `o.InboxOnly(...)` to keep a notification out of every external channel.
 - **Inbox:** also depend on the `Dignite.NotificationCenter.*` modules, call `ConfigureNotificationCenter()` in the context you migrate from, and add a migration.
 
 The notification names (`VaultExtract.Document.NeedsReview`, `.Failed`, `.Rejected`, `.Ready`) and the entity type `VaultExtract.Document` are stored with each notification and are frozen.

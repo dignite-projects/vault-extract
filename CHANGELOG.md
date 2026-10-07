@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fails, is rejected by an operator, or becomes Ready. `Dignite.Vault.Extract.Application` now turns the
   in-process `DocumentLifecycleStatusChangedEvent` into notifications through the
   [Dignite.Abp.Notifications](https://github.com/dignite-projects/abp-modules/tree/main/notifications)
-  `10.0.0-rc.20` framework (a new package dependency of Application); the host adds the SignalR channel and the
+  `10.0.0-rc.21` framework (a new package dependency of Application); the host adds the SignalR channel and the
   Dignite.NotificationCenter persistent inbox and REST API at `/api/notification-center`, and the Angular app
   adds `@dignite/ng.notification-center`. Sub-documents never notify. A failure to publish is
   logged and never affects the document. No new ETO and no event payload change; see

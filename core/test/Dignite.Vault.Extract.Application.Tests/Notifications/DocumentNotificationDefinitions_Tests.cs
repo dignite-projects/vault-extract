@@ -1,9 +1,11 @@
+using System;
 using System.Globalization;
 using System.Linq;
 using Dignite.Abp.Notifications;
 using Dignite.Abp.Notifications.SignalR;
 using Dignite.Vault.Extract.Localization;
 using Microsoft.Extensions.Localization;
+using Microsoft.Extensions.Options;
 using Shouldly;
 using Volo.Abp.Localization;
 using Xunit;
@@ -27,7 +29,7 @@ public class DocumentNotificationDefinitions_Tests
     };
 
     [Fact]
-    public void All_four_notifications_are_defined_in_one_group_and_routed_to_SignalR()
+    public void All_four_notifications_are_defined_in_one_group_without_a_permission_gate()
     {
         var manager = GetRequiredService<INotificationDefinitionManager>();
 
@@ -35,12 +37,34 @@ public class DocumentNotificationDefinitions_Tests
         {
             var definition = manager.Get(name);
             definition.GroupName.ShouldBe(VaultExtractNotificationNames.GroupName);
-            definition.GetChannelsOrNull().ShouldBe(new[] { VaultExtractNotificationConsts.SignalRChannelName });
             // Access to a document is the documents domain's own rule table, so no ABP permission gate.
             definition.PermissionName.ShouldBeNull();
         }
 
         manager.GetGroups().Select(g => g.Name).ShouldContain(VaultExtractNotificationNames.GroupName);
+    }
+
+    [Fact]
+    public void Names_All_lists_exactly_the_defined_notifications()
+    {
+        // The default routing is applied to Names.All, so a notification missing from it would silently route to
+        // nothing; and a stale entry would fail host startup (a rule for a notification no provider defines).
+        VaultExtractNotificationNames.All.OrderBy(n => n, StringComparer.Ordinal)
+            .ShouldBe(Names.OrderBy(n => n, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void Every_notification_is_routed_to_SignalR_by_default()
+    {
+        // Routing, not the definition, carries the channel since Dignite.Abp.Notifications 10.0.0-rc.21. It is a
+        // default the Application module ships so a host that runs the framework stateless (which fails at startup
+        // for a notification that resolves to no channel) still starts without configuring anything.
+        var routing = GetRequiredService<IOptions<NotificationRoutingOptions>>().Value;
+
+        foreach (var name in Names)
+        {
+            routing.Notifications[name].ShouldBe(new[] { VaultExtractNotificationConsts.SignalRChannelName });
+        }
     }
 
     [Fact]
