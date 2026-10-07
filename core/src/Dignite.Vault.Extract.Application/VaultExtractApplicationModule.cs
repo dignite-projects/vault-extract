@@ -1,3 +1,4 @@
+using Dignite.Abp.Notifications;
 using Dignite.Vault.Extract.Abstractions;
 using Dignite.Vault.Extract.Ai;
 using Microsoft.Extensions.DependencyInjection;
@@ -14,6 +15,7 @@ namespace Dignite.Vault.Extract;
     typeof(VaultExtractApplicationContractsModule),
     typeof(AbpDddApplicationModule),
     typeof(AbpBackgroundJobsModule),
+    typeof(AbpNotificationsModule),   // operator notifications for the uploader (#680)
     typeof(AbpMapperlyModule)
     )]
 public class VaultExtractApplicationModule : AbpModule

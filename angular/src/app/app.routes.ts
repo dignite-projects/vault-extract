@@ -23,6 +23,10 @@ export const APP_ROUTES: Routes = [
     loadChildren: () => import('@abp/ng.tenant-management').then(c => c.createRoutes()),
   },
   {
+    path: 'notifications',
+    loadChildren: () => import('@dignite/ng.notification-center').then(c => c.createRoutes()),
+  },
+  {
     path: 'documents',
     loadChildren: () => import('@dignite/ng.vault-extract/documents').then(m => m.DOCUMENTS_ROUTES),
   },

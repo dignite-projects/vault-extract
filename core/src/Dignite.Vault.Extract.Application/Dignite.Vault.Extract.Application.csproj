@@ -18,6 +18,9 @@
     <PackageReference Include="Microsoft.Agents.AI" />
     <PackageReference Include="Markdig" />
     <PackageReference Include="ClosedXML" />
+    <!-- #680: the notification framework's core (definitions + INotificationPublisher; no ASP.NET). The channel
+         and the inbox are the host's choice - see VaultExtractNotificationConsts.SignalRChannelName. -->
+    <PackageReference Include="Dignite.Abp.Notifications" />
     <PackageReference Include="Volo.Abp.BackgroundJobs" />
     <PackageReference Include="Volo.Abp.BlobStoring" />
     <PackageReference Include="Volo.Abp.Auditing" />

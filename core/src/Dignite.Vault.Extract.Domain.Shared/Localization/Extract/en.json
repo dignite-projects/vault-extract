@@ -492,6 +492,16 @@
     "Extract:InvalidCabinetName": "Cabinet name '{name}' contains control characters (newlines, tabs, etc.), which are not allowed.",
     "Extract:InvalidCabinetDescription": "Cabinet description contains control characters (newlines, tabs, etc.), which are not allowed.",
     "Extract:CabinetNameAlreadyExists": "A cabinet named '{Name}' already exists in this scope.",
-    "Extract:InvalidCabinetId": "The selected cabinet does not exist in this scope."
+    "Extract:InvalidCabinetId": "The selected cabinet does not exist in this scope.",
+
+    "Notification:Group:Documents": "Documents",
+    "Notification:NeedsReview": "Document needs review",
+    "Notification:NeedsReview:Message": "A document you uploaded is waiting for review.",
+    "Notification:Failed": "Document processing failed",
+    "Notification:Failed:Message": "Processing of a document you uploaded failed.",
+    "Notification:Rejected": "Document rejected",
+    "Notification:Rejected:Message": "A document you uploaded was rejected: {0}",
+    "Notification:Ready": "Document is ready",
+    "Notification:Ready:Message": "A document you uploaded has finished processing."
   }
 }

@@ -7,6 +7,9 @@ using Dignite.Vault.Extract.Host.Localization;
 using Dignite.Vault.Extract.Localization;
 using Dignite.Abp.AspNetCore.Mcp;
 using Dignite.Vault.Extract.Mcp.Authentication;
+using Dignite.Abp.Notifications.SignalR;
+using Dignite.NotificationCenter;
+using Dignite.NotificationCenter.EntityFrameworkCore;
 using Dignite.Vault.Extract.Ocr.VisionLlm;
 using Dignite.Vault.Extract.Parse;
 using Dignite.Vault.Extract.Parse.ElBrunoMarkItDown;
@@ -136,6 +139,14 @@ namespace Dignite.Vault.Extract.Host;
     typeof(VaultExtractMcpModule),          // MCP exit adapter, parallel to the HttpApi REST exit.
     typeof(VaultExtractApplicationModule),
     typeof(VaultExtractEntityFrameworkCoreModule),
+
+    // Operator notifications (#680). Application publishes them to the uploader on document lifecycle transitions;
+    // these three are what the host does with them: live push over SignalR, then a persistent inbox + the
+    // /api/notification-center REST API (Dignite.NotificationCenter).
+    typeof(AbpNotificationsSignalRModule),
+    typeof(NotificationCenterApplicationModule),
+    typeof(NotificationCenterHttpApiModule),
+    typeof(NotificationCenterEntityFrameworkCoreModule),
 
     // Extract infrastructure modules
     typeof(VaultExtractParseModule),

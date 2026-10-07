@@ -18,6 +18,7 @@ import { environment } from '../environments/environment';
 import { APP_ROUTES } from './app.routes';
 import { HOME_MENU_PROVIDER } from './home/home.menu.provider';
 import { FOOTER_PROVIDER } from './footer/footer.config';
+import { provideExtractNotifications } from './notifications/notifications.provider';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -44,5 +45,7 @@ export const appConfig: ApplicationConfig = {
     // Menu entries. The field types the document pages need (kernel built-ins, CKEditor, Tags) are
     // registered by DOCUMENTS_ROUTES on its own lazy route, not here - see documents.routes.ts.
     provideExtract(),
+    // Notification bell + inbox route + document click-through (#680).
+    provideExtractNotifications(),
   ]
 };

@@ -16,6 +16,8 @@
     <ProjectReference Include="..\Dignite.Vault.Extract.Domain.Tests\Dignite.Vault.Extract.Domain.Tests.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="Volo.Abp.EntityFrameworkCore.Sqlite" />
+    <!-- #680: only to pin the SignalR channel name Application spells out (DocumentNotificationDefinitions_Tests). -->
+    <PackageReference Include="Dignite.Abp.Notifications.SignalR" />
   </ItemGroup>
 
   <ItemGroup>

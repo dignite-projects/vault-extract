@@ -75,3 +75,25 @@
   -webkit-mask-size: auto 32px;
           mask-size: auto 32px;
 }
+
+/*
+ * #680: the notification bell's dropdown (@dignite/ng.notification-center) hard-codes #fff / #ddd / #eee / #f0f0f0
+ * in its component styles, so under a dark theme it is a white card holding the theme's pale text. Bridge the
+ * surface and the dividers to the theme's own variables: --lpx-card-bg is white under LeptonX Lite and flips under
+ * the commercial theme's dark mode; --bs-border-color flips with data-bs-theme. NOT --bs-body-bg: under Lite that
+ * is the sidebar's #161616, not a surface colour (see #642 above).
+ * A component style carries an attribute selector (emulated encapsulation) and outranks a global rule, hence
+ * !important. Drop this once the library's own styles use these variables.
+ */
+.abp-notification-dropdown {
+  background: var(--lpx-card-bg, #fff) !important;
+  border-color: var(--bs-border-color, #ddd) !important;
+}
+
+.abp-notification-dropdown-header {
+  border-bottom-color: var(--bs-border-color, #eee) !important;
+}
+
+.abp-notification-item {
+  border-bottom-color: var(--bs-border-color, #f0f0f0) !important;
+}

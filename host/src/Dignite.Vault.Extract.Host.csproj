@@ -91,6 +91,17 @@
     <PackageReference Include="Volo.Abp.EntityFrameworkCore.SqlServer" />
   </ItemGroup>
 
+  <ItemGroup Label="Operator notifications (#680)">
+    <!-- Application publishes the uploader notifications; these are the host's choices for what happens to them:
+         the live-push channel (SignalR hub at /signalr-hubs/notifications) and a persistent inbox + REST API
+         (/api/notification-center). EF Core only registers the module's own DbContext; the tables are created by
+         the host migration (VaultExtractHostDbContext.ConfigureNotificationCenter). -->
+    <PackageReference Include="Dignite.Abp.Notifications.SignalR" />
+    <PackageReference Include="Dignite.NotificationCenter.Application" />
+    <PackageReference Include="Dignite.NotificationCenter.HttpApi" />
+    <PackageReference Include="Dignite.NotificationCenter.EntityFrameworkCore" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\core\src\Dignite.Vault.Extract.HttpApi\Dignite.Vault.Extract.HttpApi.csproj" />
     <ProjectReference Include="..\..\core\src\Dignite.Vault.Extract.Mcp\Dignite.Vault.Extract.Mcp.csproj" />
