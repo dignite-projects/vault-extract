@@ -1,6 +1,6 @@
 # Deployment
 
-This page covers what a host operator needs to configure to run Extract: the relational database, the authentication signing certificate, the OCR sidecar, and the Docker layout. For per-feature configuration (OCR, AI provider) see the matching feature doc.
+This page covers what a host operator needs to configure to run Extract: the relational database, the authentication signing certificate, the OCR sidecar, the Docker layout, and, if you run one, the reverse proxy. For per-feature configuration (OCR, AI provider) see the matching feature doc.
 
 > **Channel positioning**: Dignite Vault Extract outputs Markdown + structured metadata to downstream consumers (RAG platforms, business systems, MCP clients). It does **not** ship a vector database, embedding pipeline, or chat platform — those belong on the downstream side. See `CLAUDE.md` → "OUT of scope".
 
@@ -105,6 +105,43 @@ cd host/etc/docker
 ```
 
 For local development without the full image build, see [local-development.md](../get-started/local-development.md) — it runs the API via `dotnet run` against a local SQL Server (LocalDB or container) and only spins up the PaddleOCR / observability sidecars via `host/docker-compose.yml`.
+
+## Reverse proxy
+
+Skip this section if clients reach the host directly (Kestrel itself, or a load balancer that already forwards WebSockets).
+
+The operator UI's notification bell opens a **WebSocket** to the host at `/signalr-hubs/notifications` ([Operator notifications](../egress/operator-notifications.md)). A WebSocket starts as an ordinary HTTP request that carries `Upgrade: websocket` and `Connection: Upgrade` headers, and many reverse proxies do not forward those two by default, so the handshake fails.
+
+Nothing breaks when that happens. SignalR falls back to Server-Sent Events and then to long polling, and notifications still arrive, because the inbox (`/api/notification-center/notifications`) is the source of truth. The cost is higher latency and more open requests per signed-in user. Treat the proxy setting as part of a correct deployment, not as an outage fix.
+
+nginx (the `map` goes in the `http` block):
+
+```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    # ...
+    location /signalr-hubs/ {
+        proxy_pass         http://<host-address>;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade    $http_upgrade;
+        proxy_set_header   Connection $connection_upgrade;
+        proxy_set_header   Host       $host;
+        proxy_cache        off;
+        proxy_buffering    off;
+        proxy_read_timeout 100s;
+    }
+}
+```
+
+For any other proxy or gateway, make sure the path `/signalr-hubs/` passes the `Upgrade` and `Connection` headers (IIS needs the WebSocket Protocol feature installed), and check that product's WebSocket documentation.
+
+The browser connects to the host directly from the SPA's origin, so `App:CorsOrigins` must list that origin. It is already needed for the REST API.
+
+To check it after deploying, use the "Operator notifications" section of the [deployment checklist](deployment-checklist.md): the WebSocket request to `/signalr-hubs/notifications` must come back as `101 Switching Protocols`.
 
 ## Migrations
 

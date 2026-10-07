@@ -41,7 +41,7 @@ The live egress channels that expose outputs to downstream consumers.
 
 ## Deployment & operations
 
-- [Deployment](deployment/deployment.md) — DB, certificate, Docker
+- [Deployment](deployment/deployment.md) — DB, certificate, Docker, reverse proxy
 - [Deployment checklist](deployment/deployment-checklist.md) — per-release smoke tests
 - [Field architecture v2 → v3 migration](deployment/field-architecture-v3-migration.md) — the `0.5.0` field-storage upgrade: what runs it, how to verify it, and why the old tables stay
 - [Observability](deployment/observability.md) — OpenTelemetry pipeline, aspire-dashboard for local dev, switching OTLP backends

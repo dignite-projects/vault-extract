@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **EF migration `V680_AddNotificationCenter`** creates four new tables (`NotifNotifications`,
   `NotifUserNotifications`, `NotifNotificationSubscriptions`, `NotifPushDevices`). It only adds tables. Run the
-  host with `--migrate-database`. Behind a reverse proxy, allow WebSocket upgrades on `/signalr-hubs/`.
+  host with `--migrate-database`. If a reverse proxy sits in front of the host, let it pass WebSocket upgrades on `/signalr-hubs/` (see [Deployment: Reverse proxy](docs/en/deployment/deployment.md#reverse-proxy); without it the bell still works, through a slower fallback).
 
 ## [0.5.0-preview.10] - 2026-10-04
 
