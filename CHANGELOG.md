@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Operator notifications ([#680](https://github.com/dignite-projects/vault-extract/issues/680)).** The uploader
+  now gets an in-app notification (toolbar bell + inbox, live over SignalR) when their document needs review,
+  fails, is rejected by an operator, or becomes Ready. `Dignite.Vault.Extract.Application` now turns the
+  in-process `DocumentLifecycleStatusChangedEvent` into notifications through the
+  [Dignite.Abp.Notifications](https://github.com/dignite-projects/abp-modules/tree/main/notifications)
+  `10.0.0-rc.20` framework (a new package dependency of Application); the host adds the SignalR channel and the
+  Dignite.NotificationCenter persistent inbox and REST API at `/api/notification-center`, and the Angular app
+  adds `@dignite/ng.notification-center`. Sub-documents never notify. A failure to publish is
+  logged and never affects the document. No new ETO and no event payload change; see
+  [Operator notifications](docs/en/egress/operator-notifications.md).
+
+### Deploy note
+
+- **EF migration `V680_AddNotificationCenter`** creates four new tables (`NotifNotifications`,
+  `NotifUserNotifications`, `NotifNotificationSubscriptions`, `NotifPushDevices`). It only adds tables. Run the
+  host with `--migrate-database`. Behind a reverse proxy, allow WebSocket upgrades on `/signalr-hubs/`.
+
 ## [0.5.0-preview.10] - 2026-10-04
 
 The MCP server moves to the one Dignite modules share ([#671](https://github.com/dignite-projects/vault-extract/pull/671)): `Dignite.Vault.Extract.Mcp` now contributes its tools and resources to `Dignite.Abp.AspNetCore.Mcp` (abp-modules `10.0.0-rc.19`) instead of hosting a server of its own, so a host can serve Vault Extract's tools next to other modules' on one `/mcp` endpoint. **Every tool name changes** - it now starts with `vault_extract_` - so MCP clients configured with the old names need the new ones; resource URIs are unchanged.

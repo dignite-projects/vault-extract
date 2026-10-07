@@ -1,3 +1,4 @@
+using Dignite.NotificationCenter.EntityFrameworkCore;
 using Dignite.Vault.Extract.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Volo.Abp.EntityFrameworkCore;
@@ -64,5 +65,11 @@ public class VaultExtractHostDbContext
 
         // Extract core module
         builder.ConfigureVaultExtract();
+
+        // Dignite.NotificationCenter tables (#680). Like ConfigureVaultExtract above this context only exists to
+        // build the migration: the module reads and writes through its own NotificationCenterDbContext against the
+        // same database. The outbox/inbox tables it also declares are already configured above, once - the outbox
+        // stays on this context (ConfigureDistributedEventBus), so UseNotificationCenterEfCoreOutbox is NOT used.
+        builder.ConfigureNotificationCenter();
     }
 }

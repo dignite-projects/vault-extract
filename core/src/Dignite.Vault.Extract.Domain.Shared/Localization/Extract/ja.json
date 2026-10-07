@@ -492,6 +492,16 @@
     "Extract:InvalidCabinetName": "キャビネット名 '{name}' に制御文字（改行、タブなど）が含まれており、使用できません。",
     "Extract:InvalidCabinetDescription": "キャビネットの説明に制御文字（改行、タブなど）が含まれており、使用できません。",
     "Extract:CabinetNameAlreadyExists": "このスコープには '{Name}' という名前のキャビネットが既に存在します。",
-    "Extract:InvalidCabinetId": "選択されたキャビネットはこのスコープに存在しません。"
+    "Extract:InvalidCabinetId": "選択されたキャビネットはこのスコープに存在しません。",
+
+    "Notification:Group:Documents": "ドキュメント",
+    "Notification:NeedsReview": "ドキュメントの確認が必要です",
+    "Notification:NeedsReview:Message": "アップロードしたドキュメントが確認待ちです。",
+    "Notification:Failed": "ドキュメントの処理に失敗しました",
+    "Notification:Failed:Message": "アップロードしたドキュメントの処理に失敗しました。",
+    "Notification:Rejected": "ドキュメントが却下されました",
+    "Notification:Rejected:Message": "アップロードしたドキュメントが却下されました：{0}",
+    "Notification:Ready": "ドキュメントの準備が完了しました",
+    "Notification:Ready:Message": "アップロードしたドキュメントの処理が完了しました。"
   }
 }

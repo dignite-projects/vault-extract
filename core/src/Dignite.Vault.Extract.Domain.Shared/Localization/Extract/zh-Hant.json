@@ -492,6 +492,16 @@
     "Extract:InvalidCabinetName": "文件櫃名稱 '{name}' 包含換行 / 定位字元等控制字元，不允許使用。",
     "Extract:InvalidCabinetDescription": "文件櫃說明包含換行 / 定位字元等控制字元，不允許使用。",
     "Extract:CabinetNameAlreadyExists": "目前範圍下已存在名為 '{Name}' 的文件櫃。",
-    "Extract:InvalidCabinetId": "所選文件櫃在目前範圍下不存在。"
+    "Extract:InvalidCabinetId": "所選文件櫃在目前範圍下不存在。",
+
+    "Notification:Group:Documents": "文件",
+    "Notification:NeedsReview": "文件需要審核",
+    "Notification:NeedsReview:Message": "你上傳的文件正在等待審核。",
+    "Notification:Failed": "文件處理失敗",
+    "Notification:Failed:Message": "你上傳的文件處理失敗。",
+    "Notification:Rejected": "文件已被駁回",
+    "Notification:Rejected:Message": "你上傳的文件已被駁回：{0}",
+    "Notification:Ready": "文件已就緒",
+    "Notification:Ready:Message": "你上傳的文件已處理完成。"
   }
 }

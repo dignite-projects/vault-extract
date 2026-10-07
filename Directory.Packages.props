@@ -106,6 +106,18 @@
         <PackageVersion Include="Dignite.Abp.AspNetCore.Mcp" Version="10.0.0-rc.19" />
     </ItemGroup>
 
+    <ItemGroup Label="Notifications">
+        <!-- Dignite.NotificationCenter (#680): operator in-app notifications. Published to nuget.org with
+             abp-modules (no GitHub Packages source needed). The NuGet packages and the npm package
+             @dignite/ng.notification-center always share one version - keep this equal to
+             angular/package.json's pin. -->
+        <PackageVersion Include="Dignite.Abp.Notifications" Version="10.0.0-rc.20" />
+        <PackageVersion Include="Dignite.Abp.Notifications.SignalR" Version="10.0.0-rc.20" />
+        <PackageVersion Include="Dignite.NotificationCenter.Application" Version="10.0.0-rc.20" />
+        <PackageVersion Include="Dignite.NotificationCenter.HttpApi" Version="10.0.0-rc.20" />
+        <PackageVersion Include="Dignite.NotificationCenter.EntityFrameworkCore" Version="10.0.0-rc.20" />
+    </ItemGroup>
+
     <ItemGroup Label="OpenTelemetry">
         <!-- Aligned with the OTel 1.15.x family that Microsoft.Agents.AI 1.4+ depends on
              (see the plan doc section "MAF version upgrade 1.2 -> 1.5"). The host wires up the export

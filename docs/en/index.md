@@ -32,6 +32,7 @@ The live egress channels that expose outputs to downstream consumers.
 - [MCP server](egress/mcp-server.md) — document resources + structured search tool over Streamable HTTP, OpenIddict Bearer auth
 - [Data Download](egress/data-download.md) — CSV / XLSX file egress for the human operator: the document list's filters, every field of the type, zero business transformation
 - [Integration events](egress/integration-events.md) — the EventBus ETO contract: stage / lifecycle events, the Ready gate, and at-least-once delivery semantics
+- [Operator notifications](egress/operator-notifications.md) — the in-app bell and inbox that tell the uploader a document needs review, failed, was rejected, or is ready (not part of the egress contract)
 
 ## Configuration
 
