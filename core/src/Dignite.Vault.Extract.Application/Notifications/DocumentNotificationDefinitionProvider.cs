@@ -8,7 +8,8 @@ namespace Dignite.Vault.Extract.Notifications;
 /// Defines the four document notifications. Deliberately without <c>RequirePermission</c>: who may see a document
 /// is decided by the documents domain's access rules, not by an ABP permission, so a definition-level gate could not
 /// express it. Eligibility is instead the recipient choice itself (the uploader; see
-/// <see cref="DocumentNotificationPlanner"/>).
+/// <see cref="DocumentNotificationPlanner"/>). Delivery channels are not part of a definition either: since
+/// Dignite.Abp.Notifications 10.0.0-rc.21 they are routing (<c>NotificationRoutingOptions</c>).
 /// </summary>
 public class DocumentNotificationDefinitionProvider : NotificationDefinitionProvider
 {
@@ -18,25 +19,22 @@ public class DocumentNotificationDefinitionProvider : NotificationDefinitionProv
             VaultExtractNotificationNames.GroupName,
             LocalizableString.Create<VaultExtractResource>("Notification:Group:Documents"));
 
-        // SignalR for the live bell; the persisted inbox row is written regardless of channels.
+        // Which channels carry these is routing, not definition: see VaultExtractApplicationModule (default) and
+        // NotificationRoutingOptions (the host overrides).
         group.AddNotification(
-                VaultExtractNotificationNames.DocumentNeedsReview,
-                LocalizableString.Create<VaultExtractResource>("Notification:NeedsReview"))
-            .UseChannels(VaultExtractNotificationConsts.SignalRChannelName);
+            VaultExtractNotificationNames.DocumentNeedsReview,
+            LocalizableString.Create<VaultExtractResource>("Notification:NeedsReview"));
 
         group.AddNotification(
-                VaultExtractNotificationNames.DocumentFailed,
-                LocalizableString.Create<VaultExtractResource>("Notification:Failed"))
-            .UseChannels(VaultExtractNotificationConsts.SignalRChannelName);
+            VaultExtractNotificationNames.DocumentFailed,
+            LocalizableString.Create<VaultExtractResource>("Notification:Failed"));
 
         group.AddNotification(
-                VaultExtractNotificationNames.DocumentRejected,
-                LocalizableString.Create<VaultExtractResource>("Notification:Rejected"))
-            .UseChannels(VaultExtractNotificationConsts.SignalRChannelName);
+            VaultExtractNotificationNames.DocumentRejected,
+            LocalizableString.Create<VaultExtractResource>("Notification:Rejected"));
 
         group.AddNotification(
-                VaultExtractNotificationNames.DocumentReady,
-                LocalizableString.Create<VaultExtractResource>("Notification:Ready"))
-            .UseChannels(VaultExtractNotificationConsts.SignalRChannelName);
+            VaultExtractNotificationNames.DocumentReady,
+            LocalizableString.Create<VaultExtractResource>("Notification:Ready"));
     }
 }

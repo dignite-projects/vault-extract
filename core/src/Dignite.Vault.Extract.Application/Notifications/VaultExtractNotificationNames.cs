@@ -20,6 +20,15 @@ public static class VaultExtractNotificationNames
 
     public const string DocumentReady = "VaultExtract.Document.Ready";
 
+    /// <summary>Every notification this assembly defines; the default routing is applied to exactly this set.</summary>
+    public static readonly string[] All =
+    {
+        DocumentNeedsReview,
+        DocumentFailed,
+        DocumentRejected,
+        DocumentReady
+    };
+
     /// <summary>
     /// <c>EntityTypeName</c> of the document a notification is about. The Angular UI keys its click-through
     /// resolver on it.

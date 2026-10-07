@@ -111,11 +111,11 @@
              abp-modules (no GitHub Packages source needed). The NuGet packages and the npm package
              @dignite/ng.notification-center always share one version - keep this equal to
              angular/package.json's pin. -->
-        <PackageVersion Include="Dignite.Abp.Notifications" Version="10.0.0-rc.20" />
-        <PackageVersion Include="Dignite.Abp.Notifications.SignalR" Version="10.0.0-rc.20" />
-        <PackageVersion Include="Dignite.NotificationCenter.Application" Version="10.0.0-rc.20" />
-        <PackageVersion Include="Dignite.NotificationCenter.HttpApi" Version="10.0.0-rc.20" />
-        <PackageVersion Include="Dignite.NotificationCenter.EntityFrameworkCore" Version="10.0.0-rc.20" />
+        <PackageVersion Include="Dignite.Abp.Notifications" Version="10.0.0-rc.21" />
+        <PackageVersion Include="Dignite.Abp.Notifications.SignalR" Version="10.0.0-rc.21" />
+        <PackageVersion Include="Dignite.NotificationCenter.Application" Version="10.0.0-rc.21" />
+        <PackageVersion Include="Dignite.NotificationCenter.HttpApi" Version="10.0.0-rc.21" />
+        <PackageVersion Include="Dignite.NotificationCenter.EntityFrameworkCore" Version="10.0.0-rc.21" />
     </ItemGroup>
 
     <ItemGroup Label="OpenTelemetry">
