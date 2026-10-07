@@ -31,7 +31,7 @@ Delivery is the persisted inbox row plus a live push over SignalR (`/signalr-hub
 
 - **Database.** One host migration, `V680_AddNotificationCenter`, creates four tables: `NotifNotifications`, `NotifUserNotifications`, `NotifNotificationSubscriptions` and `NotifPushDevices`. It only adds tables. Run it with the normal `--migrate-database` step.
 - **Connection.** The notification store uses the host's `Default` connection string. The distributed-event outbox stays on the host's own context.
-- **SignalR.** The hub is served by the host itself. The browser connects to it directly, so a reverse proxy must pass WebSocket upgrades on `/signalr-hubs/` and `App:CorsOrigins` must contain the SPA origin.
+- **SignalR.** The hub is served by the host itself and the browser connects to it directly, so `App:CorsOrigins` must contain the SPA origin. If a reverse proxy sits in front of the host it should pass WebSocket upgrades on `/signalr-hubs/`; without that the bell still works, through a slower fallback. See [Deployment: Reverse proxy](../deployment/deployment.md#reverse-proxy).
 - **Subscriptions.** The notification module's "Subscriptions" settings tab is not enabled: every notification goes to an explicit recipient, which bypasses subscriptions, so its toggles would do nothing.
 
 ## For a host that embeds Application

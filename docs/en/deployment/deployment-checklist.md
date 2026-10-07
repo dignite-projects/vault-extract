@@ -92,3 +92,14 @@ Each of these migrations creates an index on a hot channel table; on a large tab
 
 - [ ] `Limit_DocumentExtractedField_StringValue_Length` narrows `StringValue` from `nvarchar(max)` → `nvarchar(256)`. On data with existing values longer than 256, `ALTER COLUMN` **aborts the migration** (fail-fast, not silent truncation). Probe first — `SELECT COUNT(*) FROM VaultDocumentExtractedFields WHERE LEN(StringValue) > 256` must be `0` (the write-side validator already caps new values at 256, so this is historical-data-only risk).
 - [ ] Forward-only awareness: `Merge_FieldDataType_Integer_Decimal_Into_Number` and `Add_DocumentExtractedField_Order_And_FieldDefinition_AllowMultiple` have **lossy `Down()`** (the first collapses the Integer/Decimal distinction; the second deletes multi-value rows where `Order <> 0`). Prefer a forward-only rollback strategy in production; do not rely on these `Down()` to restore data.
+
+---
+
+## Operator notifications — live push (#680)
+
+Re-run when deploying to a new environment or changing the proxy in front of the host. The first item only applies if the host sits behind a reverse proxy; see [Reverse proxy](deployment.md#reverse-proxy) in the deployment guide.
+
+- [ ] Sign in to the SPA, open the browser dev tools, Network tab, filter `WS`: the request to `/signalr-hubs/notifications` returns **101 Switching Protocols**. If you see a `text/event-stream` request or a repeating `/signalr-hubs/notifications?id=...` request instead, the proxy is not passing the WebSocket upgrade. The bell still works through that fallback, but it is slower and holds more requests open; fix the proxy.
+- [ ] Upload a small `.txt` document: the bell badge appears **without a page refresh** once the document lands in review or becomes Ready.
+- [ ] `App:CorsOrigins` contains the SPA origin. Otherwise the browser blocks the SignalR negotiate request and no notification ever shows.
+- [ ] Migration `V680_AddNotificationCenter` is applied: `GET /api/notification-center/notifications` returns `200`, not `500`.
