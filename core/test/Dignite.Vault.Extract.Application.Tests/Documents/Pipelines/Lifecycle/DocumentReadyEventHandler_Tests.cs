@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Dignite.Vault.Extract.Abstractions.Documents;
 using Dignite.Vault.Extract.Documents;
+using Dignite.Vault.Extract.Features;
 using Dignite.Vault.Extract.Documents.Pipelines.Lifecycle;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
@@ -35,6 +36,7 @@ public class DocumentReadyEventHandler_Tests
     private readonly IDocumentRepository _documentRepository;
     private readonly IDocumentTypeRepository _documentTypeRepository;
     private readonly IDistributedEventBus _eventBus;
+    private readonly TestFeatureValueProvider _testFeatures;
 
     public DocumentReadyEventHandler_Tests()
     {
@@ -42,6 +44,7 @@ public class DocumentReadyEventHandler_Tests
         _documentRepository = GetRequiredService<IDocumentRepository>();
         _documentTypeRepository = GetRequiredService<IDocumentTypeRepository>();
         _eventBus = GetRequiredService<IDistributedEventBus>();
+        _testFeatures = GetRequiredService<TestFeatureValueProvider>();
     }
 
     [Fact]
@@ -64,6 +67,28 @@ public class DocumentReadyEventHandler_Tests
                 e.DocumentId == doc.Id &&
                 e.TenantId == doc.TenantId &&
                 e.DocumentTypeCode == "contract.general"),
+            Arg.Any<bool>());
+    }
+
+    /// <summary>
+    /// <c>VaultExtract.Enable</c> gates the application services, not the pipeline: this handler runs with no
+    /// signed-in user, where an edition-granted feature would read as off. See <see cref="VaultExtractFeatures.Enable"/>.
+    /// </summary>
+    [Fact]
+    public async Task Ready_Transition_Still_Publishes_When_The_VaultExtract_Feature_Is_Off()
+    {
+        _testFeatures.Set(VaultExtractFeatures.Enable, "false");
+        var doc = CreateDocument(documentTypeCode: "contract.general");
+        SetupDocumentRepository(doc);
+        _documentTypeRepository
+            .FindAsync(TypeId("contract.general"), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(new DocumentType(TypeId("contract.general"), null, "contract.general", "Contract"));
+
+        await _handler.HandleEventAsync(new DocumentLifecycleStatusChangedEvent(
+            doc.Id, DocumentLifecycleStatus.Processing, DocumentLifecycleStatus.Ready));
+
+        await _eventBus.Received(1).PublishAsync(
+            Arg.Is<DocumentReadyEto>(e => e.DocumentId == doc.Id),
             Arg.Any<bool>());
     }
 

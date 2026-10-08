@@ -35,6 +35,9 @@
     <ProjectReference Include="..\..\src\Dignite.Vault.Extract.Mcp\Dignite.Vault.Extract.Mcp.csproj" />
     <ProjectReference Include="..\..\src\Dignite.Vault.Extract.Application\Dignite.Vault.Extract.Application.csproj" />
     <ProjectReference Include="..\..\src\Dignite.Vault.Extract.EntityFrameworkCore\Dignite.Vault.Extract.EntityFrameworkCore.csproj" />
+    <!-- Only for TestFeatureValueProvider (the VaultExtract.Enable override); this host still does not depend on
+         VaultExtractTestBaseModule, whose AddAlwaysAllowAuthorization would defeat the point of the project. -->
+    <ProjectReference Include="..\Dignite.Vault.Extract.TestBase\Dignite.Vault.Extract.TestBase.csproj" />
   </ItemGroup>
 
 </Project>

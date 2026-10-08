@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`VaultExtract.Enable`, a feature that decides whether a tenant may use Vault Extract's application services.**
+  A toggle feature, **on by default** and visible to clients. `[RequiresFeature]` sits on `VaultExtractAppService`,
+  so every application service is gated at once, and with them the REST controllers and the MCP tools and
+  resources, which only call those services. A host that wants Extract to be opt-in (Dignite.Cloud) overrides the
+  default to `false` in its own `FeatureDefinitionProvider` and grants the feature per edition or tenant; a host
+  without Feature Management changes nothing. The document pipeline is not gated: its background jobs and event
+  handlers run without a signed-in user, so ABP cannot resolve the Edition level of the feature for them, and
+  they never call an application service (a test pins that). A token without a user behind it, such as an OAuth
+  `client_credentials` service account, is gated like everyone else once the feature is edition-granted. No EF
+  migration.
+
 ## [0.5.0-preview.12] - 2026-10-08
 
 VisionLlm OCR shrinks a large image before the vision call ([#692](https://github.com/dignite-projects/vault-extract/issues/692)): a large phone photo or screenshot no longer comes back with empty Markdown. New option `VisionLlmOcr:MaxImagePixels` (default `1500000`).

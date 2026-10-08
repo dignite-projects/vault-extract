@@ -1,5 +1,6 @@
 using Dignite.Vault.Extract.Documents;
 using Dignite.Vault.Extract.EntityFrameworkCore;
+using Dignite.Vault.Extract.Features;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -12,6 +13,7 @@ using Volo.Abp.BackgroundJobs;
 using Volo.Abp.BlobStoring;
 using Volo.Abp.EntityFrameworkCore;
 using Volo.Abp.EntityFrameworkCore.Sqlite;
+using Volo.Abp.Features;
 using Volo.Abp.Modularity;
 using Volo.Abp.PermissionManagement;
 using Volo.Abp.PermissionManagement.EntityFrameworkCore;
@@ -66,6 +68,15 @@ public class McpPermissionPipelineTestModule : AbpModule
         // Parse pipeline job. Substituting the manager keeps the fact about the permission chain rather than about
         // background execution; nothing in this project asserts on enqueued jobs.
         context.Services.AddSingleton(Substitute.For<IBackgroundJobManager>());
+
+        // The VaultExtract.Enable override a test can write to, registered by hand because this host does not
+        // depend on VaultExtractTestBaseModule (which would install AddAlwaysAllowAuthorization). Last in the list,
+        // so it has the final say; holding nothing it changes no feature's value.
+        context.Services.AddSingleton<TestFeatureValueProvider>();
+        Configure<AbpFeatureOptions>(options =>
+        {
+            options.ValueProviders.Add<TestFeatureValueProvider>();
+        });
 
         context.Services.AddAlwaysDisableUnitOfWorkTransaction();
 
