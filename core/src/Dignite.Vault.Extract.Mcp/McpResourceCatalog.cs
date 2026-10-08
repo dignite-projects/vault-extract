@@ -18,6 +18,14 @@ namespace Dignite.Vault.Extract.Mcp;
 /// <see cref="AbpAuthorizationException"/>. Contributors are resolved from the current (request) scope so
 /// authorization sees the calling principal; each delegated AppService still repeats its own fail-closed
 /// authorization assertion.
+/// <para>
+/// A contributor whose delegated AppService <b>refuses</b> (throws <see cref="AbpAuthorizationException"/>
+/// after the contributor's own permission check passed) is denied the same way as one that returned
+/// <c>null</c>: that category is skipped and the rest still list. The case that matters is
+/// <c>VaultExtract.Enable</c> being off for the tenant, which refuses every Extract application service
+/// whatever the caller's permissions; without this, the built-in categories would abort the loop and hide
+/// the downstream categories registered after them.
+/// </para>
 /// </summary>
 public class McpResourceCatalog : IMcpResourceCatalog, ITransientDependency
 {
@@ -37,7 +45,17 @@ public class McpResourceCatalog : IMcpResourceCatalog, ITransientDependency
         foreach (var contributorType in _options.ResourceListContributors)
         {
             var contributor = (IMcpResourceListContributor)_serviceProvider.GetRequiredService(contributorType);
-            var contributed = await contributor.ListAsync(cancellationToken);
+            IList<Resource>? contributed;
+            try
+            {
+                contributed = await contributor.ListAsync(cancellationToken);
+            }
+            catch (AbpAuthorizationException)
+            {
+                // Fail closed for this category only; see the type doc.
+                continue;
+            }
+
             if (contributed is null)
             {
                 continue;

@@ -17,7 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without Feature Management changes nothing. The document pipeline is not gated: its background jobs and event
   handlers run without a signed-in user, so ABP cannot resolve the Edition level of the feature for them, and
   they never call an application service (a test pins that). A token without a user behind it, such as an OAuth
-  `client_credentials` service account, is gated like everyone else once the feature is edition-granted. No EF
+  `client_credentials` service account, is gated like everyone else once the feature is edition-granted. MCP
+  `resources/list` treats a category whose service refuses as denied and still lists the others, so a downstream
+  category registered after the built-in ones is not hidden for a tenant without the feature. No EF
   migration.
 
 ## [0.5.0-preview.12] - 2026-10-08

@@ -181,4 +181,45 @@ public class McpResourceCatalog_Tests : VaultExtractTestBase<McpResourceCatalogT
         await Should.ThrowAsync<AbpAuthorizationException>(() =>
             _catalog.ListVisibleAsync());
     }
+
+    [Fact]
+    public async Task Category_whose_application_service_refuses_is_skipped_and_the_rest_still_list()
+    {
+        // The case behind it: VaultExtract.Enable off refuses every Extract application service, whatever the
+        // caller holds. The caller passes the contributor's own permission check and is then refused by the
+        // service; that is a denied category, not a failure of the whole listing.
+        _authorization.Granted = new HashSet<string>
+        {
+            VaultExtractPermissions.Documents.Default
+        };
+        _documentTypeAppService.GetVisibleSummariesAsync()
+            .Returns(Task.FromException<List<DocumentTypeSummaryDto>>(new AbpAuthorizationException()));
+        var cabinetId = Guid.NewGuid();
+        _cabinetReadAppService.GetListAsync().Returns(
+            new PagedResultDto<CabinetDto>(1, new List<CabinetDto>
+            {
+                new() { Id = cabinetId, Name = "Legal" }
+            }));
+
+        var result = await _catalog.ListVisibleAsync();
+
+        result.Resources.Count.ShouldBe(1);
+        result.Resources[0].Uri.ShouldBe(CabinetResourceUri.Format(cabinetId));
+    }
+
+    [Fact]
+    public async Task Caller_whose_every_category_is_refused_by_its_application_service_is_denied()
+    {
+        _authorization.Granted = new HashSet<string>
+        {
+            VaultExtractPermissions.Documents.Default
+        };
+        _documentTypeAppService.GetVisibleSummariesAsync()
+            .Returns(Task.FromException<List<DocumentTypeSummaryDto>>(new AbpAuthorizationException()));
+        _cabinetReadAppService.GetListAsync()
+            .Returns(Task.FromException<PagedResultDto<CabinetDto>>(new AbpAuthorizationException()));
+
+        await Should.ThrowAsync<AbpAuthorizationException>(() =>
+            _catalog.ListVisibleAsync());
+    }
 }
