@@ -30,6 +30,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no `features`, keeps the menu. The routes are not guarded: a direct URL still opens the page, and the server refuses
   its calls. `EXTRACT_FEATURES` and `isExtractFeatureDisabled` are exported from `@dignite/ng.vault-extract` for hosts
   that build their own navigation.
+- **Erases the uploader's name when ABP's GDPR module reports a user-data deletion request
+  ([#698](https://github.com/dignite-projects/vault-extract/issues/698)).** Application subscribes to
+  `GdprUserDataDeletionRequestedEto` (new package reference `Volo.Abp.Gdpr.Abstractions`, LGPL-3.0-only) and replaces
+  `FileOrigin.UploadedByUserName` with `[deleted user]` on every document the user uploaded, recycle bin included.
+  Documents, `CreatorId` and the other audit columns are kept, and the update does not stamp the documents as modified
+  (it does change the concurrency stamp, so a save that was already in flight fails instead of writing the old name
+  back). The event carries only a user id, so the handler walks the Host and every tenant, each in its own unit of
+  work. A tenant that fails is logged and skipped rather than thrown, so one broken tenant cannot make the event bus
+  re-run Identity's own erasure; the price is that nothing retries it on its own, and the remedy is to publish the event
+  again. Cancellation and a failure to list the tenants still fail the event. The event is published only by the
+  commercial GDPR module, so on a host without it the handler never runs. Known limit: documents are found by
+  `CreatorId`, which ABP leaves empty when a Host user uploads while acting inside a tenant, so those names stay. Once
+  the publishing host has anonymized and deleted the account, nobody holds the owner arm on the user's documents: they
+  stay reachable through role-level permissions or a per-type grant only. See
+  [GDPR user-data erasure](docs/en/deployment/gdpr-user-data-erasure.md). No EF migration.
 
 ## [0.5.0-preview.12] - 2026-10-08
 

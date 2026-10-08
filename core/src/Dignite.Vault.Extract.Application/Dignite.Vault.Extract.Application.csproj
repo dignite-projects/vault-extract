@@ -24,6 +24,10 @@
     <PackageReference Include="Volo.Abp.BackgroundJobs" />
     <PackageReference Include="Volo.Abp.BlobStoring" />
     <PackageReference Include="Volo.Abp.Auditing" />
+    <!-- #698: only the event contract (GdprUserDataDeletionRequestedEto). The GDPR module that publishes it is the
+         host's choice and is commercial; this package is LGPL-3.0-only (per its nuspec) and depends only on ABP
+         packages (Core, EventBus.Abstractions). -->
+    <PackageReference Include="Volo.Abp.Gdpr.Abstractions" />
     <PackageReference Include="Volo.Abp.Ddd.Application" />
     <PackageReference Include="Volo.Abp.Mapperly" />
     <ProjectReference Include="..\Dignite.Vault.Extract.Abstractions\Dignite.Vault.Extract.Abstractions.csproj" />

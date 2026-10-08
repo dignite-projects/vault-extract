@@ -19,6 +19,7 @@
         <PackageVersion Include="Volo.Abp.Validation" Version="10.5.0" />
         <PackageVersion Include="Volo.Abp.VirtualFileSystem" Version="10.5.0" />
         <PackageVersion Include="Volo.Abp.EventBus.Abstractions" Version="10.5.0" />
+        <PackageVersion Include="Volo.Abp.Gdpr.Abstractions" Version="10.5.0" />
         <PackageVersion Include="Volo.Abp.Http.Client" Version="10.5.0" />
         <PackageVersion Include="Volo.Abp.Mapperly" Version="10.5.0" />
         <PackageVersion Include="Volo.Abp.Ddd.Domain.Shared" Version="10.5.0" />
