@@ -8,7 +8,7 @@ import type { CurrentTenantDto, CurrentUserDto } from '@abp/ng.core';
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { EXTRACT_PERMISSIONS } from '@dignite/ng.vault-extract';
+import { EXTRACT_FEATURES, EXTRACT_PERMISSIONS, isExtractFeatureDisabled } from '@dignite/ng.vault-extract';
 
 interface HomeEntryPoint {
   title: string;
@@ -17,6 +17,8 @@ interface HomeEntryPoint {
   iconClass: string;
   toneClass: string;
   policies?: string[];
+  // A feature the entry needs; an entry whose feature the tenant does not have is not offered.
+  feature?: string;
 }
 
 @Component({
@@ -39,6 +41,7 @@ export class HomeComponent {
       iconClass: 'fas fa-file-lines',
       toneClass: 'text-bg-primary',
       policies: [EXTRACT_PERMISSIONS.Documents.Default],
+      feature: EXTRACT_FEATURES.Enable,
     },
     {
       title: 'Users',
@@ -112,6 +115,10 @@ export class HomeComponent {
   }
 
   private isEntryVisible(entry: HomeEntryPoint): boolean {
+    if (entry.feature && isExtractFeatureDisabled(this.configState.getFeature(entry.feature))) {
+      return false;
+    }
+
     if (!entry.policies?.length) {
       return true;
     }

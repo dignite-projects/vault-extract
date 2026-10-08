@@ -1,20 +1,27 @@
-import { eLayoutType, RoutesService } from '@abp/ng.core';
+import { ConfigStateService, eLayoutType, RoutesService } from '@abp/ng.core';
 import {
+  DestroyRef,
   EnvironmentProviders,
   inject,
   makeEnvironmentProviders,
   provideAppInitializer,
 } from '@angular/core';
-import { EXTRACT_PERMISSIONS } from '@dignite/ng.vault-extract';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { EXTRACT_FEATURES, EXTRACT_PERMISSIONS, isExtractFeatureDisabled } from '@dignite/ng.vault-extract';
+import { distinctUntilChanged, map } from 'rxjs';
 
 /**
- * Adds the Documents menu. The field types the document pages need are not registered here: DOCUMENTS_ROUTES
- * registers them on its own route, so they load with it and stay out of the host's initial bundle.
+ * Adds the Documents menu, and takes it out of sight while the tenant does not have the
+ * `VaultExtract.Enable` feature. The field types the document pages need are not registered here:
+ * DOCUMENTS_ROUTES registers them on its own route, so they load with it and stay out of the host's initial
+ * bundle.
  */
 export function provideExtract(): EnvironmentProviders {
   return makeEnvironmentProviders([
     provideAppInitializer(() => {
       const routes = inject(RoutesService);
+      const configState = inject(ConfigStateService);
+      const destroyRef = inject(DestroyRef);
       routes.add([
         {
           path: '/documents',
@@ -74,6 +81,16 @@ export function provideExtract(): EnvironmentProviders {
           layout: eLayoutType.application,
         },
       ]);
+
+      // A stream and not a read at startup, for two reasons: the initial configuration may not have arrived
+      // when this initializer runs, and it is fetched again on sign-in, sign-out and tenant switch, where the
+      // feature can change. ABP's own `requiredPolicy` filtering re-runs on every update the same way. Hiding
+      // the parent is enough: the visible tree is built from the items that pass the filter, and an item whose
+      // parent did not pass is dropped with it (documents.provider.spec.ts pins that).
+      configState
+        .getFeature$(EXTRACT_FEATURES.Enable)
+        .pipe(map(isExtractFeatureDisabled), distinctUntilChanged(), takeUntilDestroyed(destroyRef))
+        .subscribe(invisible => routes.patch('::Menu:Documents', { invisible }));
     }),
   ]);
 }

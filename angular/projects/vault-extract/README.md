@@ -32,7 +32,7 @@ export const appConfig: ApplicationConfig = {
 }
 ```
 
-`provideExtract()` adds the Documents menu. `DOCUMENTS_ROUTES` registers every field type the document pages use (the `@dignite/ng.flex-fields` built-ins, CKEditor, and Vault Extract's own Tags) on its own route, together with a route-level `FieldTypeResolver`, so the host calls neither `provideFlexFields()` nor any `provide…FieldType()`, and a lazy-loaded `DOCUMENTS_ROUTES` keeps flex-fields and the CKEditor adapter out of the initial bundle. A field type the host registers itself, at the root or on a route wrapping `DOCUMENTS_ROUTES`, is not visible on these pages: the route's own registration replaces its parents'. The set of field types is decided by the server-side registry, and each one the server offers is registered here.
+`provideExtract()` adds the Documents menu, and hides it while the tenant does not have the `VaultExtract.Enable` feature (read from `application-configuration`; a missing value counts as enabled, and the server refuses the calls either way). `DOCUMENTS_ROUTES` registers every field type the document pages use (the `@dignite/ng.flex-fields` built-ins, CKEditor, and Vault Extract's own Tags) on its own route, together with a route-level `FieldTypeResolver`, so the host calls neither `provideFlexFields()` nor any `provide…FieldType()`, and a lazy-loaded `DOCUMENTS_ROUTES` keeps flex-fields and the CKEditor adapter out of the initial bundle. A field type the host registers itself, at the root or on a route wrapping `DOCUMENTS_ROUTES`, is not visible on these pages: the route's own registration replaces its parents'. The set of field types is decided by the server-side registry, and each one the server offers is registered here.
 
 ### Required global styles
 
