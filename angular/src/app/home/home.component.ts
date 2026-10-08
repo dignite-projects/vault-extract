@@ -7,8 +7,9 @@ import {
 import type { CurrentTenantDto, CurrentUserDto } from '@abp/ng.core';
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
-import { EXTRACT_PERMISSIONS } from '@dignite/ng.vault-extract';
+import { EXTRACT_FEATURES, EXTRACT_PERMISSIONS, isExtractFeatureDisabled } from '@dignite/ng.vault-extract';
 
 interface HomeEntryPoint {
   title: string;
@@ -17,6 +18,8 @@ interface HomeEntryPoint {
   iconClass: string;
   toneClass: string;
   policies?: string[];
+  // A feature the entry needs; an entry whose feature the tenant does not have is not offered.
+  feature?: string;
 }
 
 @Component({
@@ -30,6 +33,11 @@ export class HomeComponent {
   private readonly authService = inject(AuthService);
   private readonly configState = inject(ConfigStateService);
   private readonly permissionService = inject(PermissionService);
+  // A signal, so that an entry's feature is re-read when application-configuration is fetched again while this
+  // page stays open (the component is OnPush, and the template reads `visibleEntryPoints` through a getter).
+  private readonly features = toSignal(this.configState.getOne$('features'), {
+    initialValue: this.configState.getOne('features'),
+  });
 
   private readonly entryPoints: HomeEntryPoint[] = [
     {
@@ -39,6 +47,7 @@ export class HomeComponent {
       iconClass: 'fas fa-file-lines',
       toneClass: 'text-bg-primary',
       policies: [EXTRACT_PERMISSIONS.Documents.Default],
+      feature: EXTRACT_FEATURES.Enable,
     },
     {
       title: 'Users',
@@ -112,6 +121,10 @@ export class HomeComponent {
   }
 
   private isEntryVisible(entry: HomeEntryPoint): boolean {
+    if (entry.feature && isExtractFeatureDisabled(this.features()?.values?.[entry.feature])) {
+      return false;
+    }
+
     if (!entry.policies?.length) {
       return true;
     }

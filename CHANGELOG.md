@@ -23,6 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `resources/list` treats a category whose service refuses as denied and still lists the others, so a downstream
   category registered after the built-in ones is not hidden for a tenant without the feature. No EF
   migration.
+- **The SPA hides the Documents menu when the tenant does not have `VaultExtract.Enable`.** `provideExtract()` follows
+  the feature in `application-configuration` (it changes on sign-in and tenant switch, so it is a stream, not a read
+  at startup) and hides the Documents entry with its children; the host app's home page drops its Vault Extract card
+  the same way. Only an explicit `false` hides: a server that does not define the feature yet, or a configuration with
+  no `features`, keeps the menu. The routes are not guarded: a direct URL still opens the page, and the server refuses
+  its calls. `EXTRACT_FEATURES` and `isExtractFeatureDisabled` are exported from `@dignite/ng.vault-extract` for hosts
+  that build their own navigation.
 
 ## [0.5.0-preview.12] - 2026-10-08
 
