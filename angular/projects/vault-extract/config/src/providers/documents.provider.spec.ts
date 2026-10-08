@@ -95,6 +95,24 @@ describe('provideExtract menu', () => {
     expect(visibleMenu()).toBeUndefined();
   });
 
+  it('keeps the menu hidden when its parent entry is registered again', () => {
+    configure('false');
+    expect(visibleMenu()).toBeUndefined();
+
+    // `RoutesService.add` replaces an item of the same name wholesale, which drops the flag; the feature value
+    // has not changed, so nothing but the route list can bring the hiding back.
+    routes.add([
+      {
+        path: '/documents',
+        name: DOCUMENTS_MENU,
+        requiredPolicy: EXTRACT_PERMISSIONS.Documents.Default,
+        order: 2,
+      },
+    ]);
+
+    expect(visibleMenu()).toBeUndefined();
+  });
+
   it('leaves the other entries of the host alone', () => {
     routes.add([{ path: '/', name: '::Menu:Home', order: 1 }]);
     configure('false');
