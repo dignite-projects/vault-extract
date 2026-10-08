@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0-preview.12] - 2026-10-08
+
+VisionLlm OCR shrinks a large image before the vision call ([#692](https://github.com/dignite-projects/vault-extract/issues/692)): a large phone photo or screenshot no longer comes back with empty Markdown. New option `VisionLlmOcr:MaxImagePixels` (default `1500000`).
+
+No EF migration, no new library: `Dignite.Vault.Extract.Ocr.VisionLlm` references `SkiaSharp` directly, at the version PDFtoImage already brings.
+
 ### Fixed
 
 - **A large photo no longer comes back from VisionLlm OCR with empty Markdown
@@ -639,7 +645,8 @@ Preview of the 0.2.0 line. This release rebrands the project to **Dignite Vault 
 - Legacy Angular document-upload route.
 - Dead fields from the segmentation subsystem (#390).
 
-[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.11...HEAD
+[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.12...HEAD
+[0.5.0-preview.12]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.11...v0.5.0-preview.12
 [0.5.0-preview.11]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.10...v0.5.0-preview.11
 [0.5.0-preview.10]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.9...v0.5.0-preview.10
 [0.5.0-preview.9]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.8...v0.5.0-preview.9
