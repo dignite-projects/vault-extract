@@ -407,6 +407,10 @@
 
     "Failed": "失敗",
 
+    "Feature:VaultExtract": "Vault Extract",
+    "Feature:VaultExtract.Enable": "Vault Extract を有効にする",
+    "Feature:VaultExtract.Enable:Description": "テナントが Vault Extract のアプリケーションサービス（オペレーター UI、REST API、MCP サーバー）を利用できるかどうかを制御します。すでにアップロード済みのドキュメントの処理パイプラインは止まりません。",
+
     "Permission:Extract": "Vault Extract",
     "Permission:Documents": "ドキュメントへのアクセス",
     "Permission:Documents.ReadAll": "すべてのタイプのドキュメントを閲覧",
