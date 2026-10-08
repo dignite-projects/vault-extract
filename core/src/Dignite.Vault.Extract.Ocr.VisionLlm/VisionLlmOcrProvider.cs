@@ -77,13 +77,15 @@ public class VisionLlmOcrProvider : IOcrProvider, ITransientDependency
         string mediaType,
         CancellationToken cancellationToken)
     {
+        var image = PrepareImage(imageBytes, mediaType);
+
         var messages = new List<ChatMessage>
         {
             new(ChatRole.System, VisionLlmOcrInstructions.SystemPrompt),
             new(ChatRole.User, new List<AIContent>
             {
                 new TextContent(VisionLlmOcrInstructions.UserPrompt),
-                new DataContent(imageBytes, mediaType)
+                new DataContent(image.Bytes, image.MediaType)
             })
         };
 
@@ -157,6 +159,47 @@ public class VisionLlmOcrProvider : IOcrProvider, ITransientDependency
         }
 
         return ImageTranscription.Complete(text);
+    }
+
+    /// <summary>
+    /// Shrinks an image that is over <see cref="VisionLlmOcrOptions.MaxImagePixels"/> before it is sent (#692):
+    /// a large photo makes the vision model loop, and the repetition guard then discards the whole page.
+    /// Fail-open — an image this step cannot read or resize is sent as it is, because a shrink problem must
+    /// never fail the OCR call.
+    /// </summary>
+    protected virtual (byte[] Bytes, string MediaType) PrepareImage(byte[] imageBytes, string mediaType)
+    {
+        ImageDownscaleResult result;
+        try
+        {
+            result = VisionLlmImageDownscaler.Downscale(imageBytes, _options.MaxImagePixels);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
+        {
+            Logger.LogWarning(
+                ex,
+                "VisionLlm OCR failed to shrink a {MediaType} image of {Bytes} bytes; sending it as it is.",
+                mediaType, imageBytes.Length);
+            return (imageBytes, mediaType);
+        }
+
+        switch (result.Status)
+        {
+            case ImageDownscaleStatus.Downscaled:
+                Logger.LogInformation(
+                    "VisionLlm OCR shrank an image from {OriginalWidth}x{OriginalHeight} ({OriginalBytes} bytes) to {Width}x{Height} ({Bytes} bytes) before sending it.",
+                    result.OriginalWidth, result.OriginalHeight, imageBytes.Length,
+                    result.Width, result.Height, result.Data!.Length);
+                return (result.Data!, result.MediaType!);
+
+            case ImageDownscaleStatus.Unreadable:
+                Logger.LogWarning(
+                    "VisionLlm OCR could not read a {MediaType} image of {Bytes} bytes to check its size; sending it as it is.",
+                    mediaType, imageBytes.Length);
+                break;
+        }
+
+        return (imageBytes, mediaType);
     }
 
     /// <summary>

@@ -60,7 +60,7 @@ repository, so no additional obligation beyond normal LGPL compliance
 | Azure.AI.DocumentIntelligence |
 | ElBruno.MarkItDotNet, ElBruno.MarkItDotNet.Excel |
 | DocumentFormat.OpenXml |
-| PDFtoImage, SkiaSharp.NativeAssets.Linux |
+| PDFtoImage, SkiaSharp, SkiaSharp.NativeAssets.Linux |
 | ClosedXML |
 
 ### BSD-2-Clause

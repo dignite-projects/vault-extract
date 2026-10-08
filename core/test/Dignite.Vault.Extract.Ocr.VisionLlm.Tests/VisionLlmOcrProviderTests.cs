@@ -8,6 +8,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 using Shouldly;
+using SkiaSharp;
 using Xunit;
 using Dignite.Vault.Extract.Ocr;
 
@@ -276,5 +277,114 @@ public class VisionLlmOcrProviderTests
 
         result.Markdown.ShouldBe("scanned text");
         _rasterizer.Received(1).GetPageCount(Arg.Any<byte[]>());
+    }
+
+    // ---- #692: a large image is shrunk before the vision call ----
+
+    /// <summary>Answers every call and records the image (bytes + media type) each call carried.</summary>
+    private List<(byte[] Bytes, string MediaType)> CaptureSentImages(string answer = "ok")
+    {
+        var sent = new List<(byte[], string)>();
+        _chatClient
+            .GetResponseAsync(Arg.Any<IEnumerable<ChatMessage>>(), Arg.Any<ChatOptions?>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                var image = ((IEnumerable<ChatMessage>)ci[0]).SelectMany(m => m.Contents).OfType<DataContent>().Single();
+                sent.Add((image.Data.ToArray(), image.MediaType));
+                return new ChatResponse(new ChatMessage(ChatRole.Assistant, answer));
+            });
+        return sent;
+    }
+
+    private static byte[] SolidImage(int width, int height, SKEncodedImageFormat format)
+    {
+        using var bitmap = new SKBitmap(width, height);
+        using (var canvas = new SKCanvas(bitmap))
+        {
+            canvas.Clear(SKColors.Gray);
+        }
+
+        using var image = SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(format, 95);
+        return data.ToArray();
+    }
+
+    private static (int Width, int Height) SizeOf(byte[] encoded)
+    {
+        using var codec = SKCodec.Create(new MemoryStream(encoded));
+        return (codec.Info.Width, codec.Info.Height);
+    }
+
+    [Fact]
+    public async Task Should_Shrink_A_Large_Image_Before_Sending_It()
+    {
+        var sent = CaptureSentImages();
+        var original = SolidImage(3000, 2000, SKEncodedImageFormat.Jpeg);
+
+        await CreateProvider().RecognizeAsync(new MemoryStream(original), new OcrOptions { ContentType = "image/jpeg" });
+
+        var (bytes, mediaType) = sent.ShouldHaveSingleItem();
+        mediaType.ShouldBe("image/jpeg");
+        bytes.Length.ShouldBeLessThan(original.Length);
+        var (width, height) = SizeOf(bytes);
+        ((long)width * height).ShouldBeLessThanOrEqualTo(_options.MaxImagePixels);
+    }
+
+    [Fact]
+    public async Task Should_Send_An_Image_Within_The_Budget_Byte_For_Byte_Unchanged()
+    {
+        var sent = CaptureSentImages();
+        var original = SolidImage(1000, 800, SKEncodedImageFormat.Jpeg);
+
+        await CreateProvider().RecognizeAsync(new MemoryStream(original), new OcrOptions { ContentType = "image/jpeg" });
+
+        var (bytes, mediaType) = sent.ShouldHaveSingleItem();
+        bytes.ShouldBe(original);
+        mediaType.ShouldBe("image/jpeg");
+    }
+
+    [Fact]
+    public async Task Should_Send_Bytes_It_Cannot_Read_As_They_Are()
+    {
+        // The 6-byte FakeJpeg() has a JPEG signature but no image behind it: the shrink step must fail open.
+        var sent = CaptureSentImages();
+
+        var result = await CreateProvider().RecognizeAsync(
+            new MemoryStream(FakeJpeg()), new OcrOptions { ContentType = "image/jpeg" });
+
+        var (bytes, mediaType) = sent.ShouldHaveSingleItem();
+        bytes.ShouldBe(FakeJpeg());
+        mediaType.ShouldBe("image/jpeg");
+        result.Markdown.ShouldBe("ok");
+    }
+
+    [Fact]
+    public async Task Should_Send_A_Large_Image_As_It_Is_When_MaxImagePixels_Is_Zero()
+    {
+        _options.MaxImagePixels = 0;
+        var sent = CaptureSentImages();
+        var original = SolidImage(3000, 2000, SKEncodedImageFormat.Jpeg);
+
+        await CreateProvider().RecognizeAsync(new MemoryStream(original), new OcrOptions { ContentType = "image/jpeg" });
+
+        sent.ShouldHaveSingleItem().Bytes.ShouldBe(original);
+    }
+
+    [Fact]
+    public async Task Should_Shrink_A_Rasterized_Pdf_Page_Too_And_Keep_It_A_Png()
+    {
+        // An A4 page at 300 dpi is 2479 x 3508, the size PDFtoImage's default rasterization produces.
+        var sent = CaptureSentImages();
+        var page = SolidImage(2479, 3508, SKEncodedImageFormat.Png);
+        _rasterizer.GetPageCount(Arg.Any<byte[]>()).Returns(1);
+        _rasterizer.RenderPageToPng(Arg.Any<byte[]>(), Arg.Any<int>()).Returns(page);
+
+        await CreateProvider().RecognizeAsync(new MemoryStream(FakePdf()), new OcrOptions { ContentType = "application/pdf" });
+
+        var (bytes, mediaType) = sent.ShouldHaveSingleItem();
+        mediaType.ShouldBe("image/png");
+        var (width, height) = SizeOf(bytes);
+        ((long)width * height).ShouldBeLessThanOrEqualTo(_options.MaxImagePixels);
+        ((double)width / height).ShouldBe(2479d / 3508d, tolerance: 0.01);
     }
 }

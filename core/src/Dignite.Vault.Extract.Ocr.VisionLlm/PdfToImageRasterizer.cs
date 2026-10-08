@@ -28,8 +28,9 @@ public class PdfToImageRasterizer : IPdfRasterizer, ITransientDependency
     {
         using var stream = new MemoryStream();
         // SavePng renders the page to an SKBitmap and PNG-encodes it into the stream internally,
-        // so this project never touches SkiaSharp types directly. page (System.Index) accepts the
-        // 0-based int via implicit conversion.
+        // so the rasterizer itself never touches SkiaSharp types (VisionLlmImageDownscaler does, later,
+        // when the page is over the pixel budget). page (System.Index) accepts the 0-based int via
+        // implicit conversion.
         Conversion.SavePng(stream, pdf, pageIndex);
         return stream.ToArray();
     }
