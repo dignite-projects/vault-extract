@@ -8,7 +8,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { EXTRACT_FEATURES, EXTRACT_PERMISSIONS, isExtractFeatureDisabled } from '@dignite/ng.vault-extract';
-import { combineLatest, map } from 'rxjs';
+import { distinctUntilChanged, map } from 'rxjs';
 
 // The parent entry. Its children name it as their `parentName`, and hiding it is what hides the menu.
 const DOCUMENTS_MENU = '::Menu:Documents';
@@ -91,21 +91,13 @@ export function provideExtract(): EnvironmentProviders {
       // the parent is enough: the visible tree is built from the items that pass the filter, and an item whose
       // parent did not pass is dropped with it (documents.provider.spec.ts pins that).
       //
-      // The route list is watched too, and the flag is compared with what is already there rather than with the
-      // last value seen: `RoutesService.add` replaces an item of the same name wholesale, which drops `invisible`,
-      // and the feature value itself would not change to bring it back. Patching publishes the list again; the
-      // comparison is what ends that round.
-      combineLatest([
-        configState.getFeature$(EXTRACT_FEATURES.Enable).pipe(map(isExtractFeatureDisabled)),
-        routes.flat$,
-      ])
-        .pipe(takeUntilDestroyed(destroyRef))
-        .subscribe(([invisible, items]) => {
-          const documents = items.find(item => item.name === DOCUMENTS_MENU);
-          if (documents && Boolean(documents.invisible) !== invisible) {
-            routes.patch(DOCUMENTS_MENU, { invisible });
-          }
-        });
+      // Not covered: `RoutesService.add` replaces an item of the same name wholesale and drops `invisible`, so a
+      // host that registers this parent entry again after the menu was hidden shows it until the feature value
+      // changes. A host that customizes the entry should `patch` it, which keeps the flag.
+      configState
+        .getFeature$(EXTRACT_FEATURES.Enable)
+        .pipe(map(isExtractFeatureDisabled), distinctUntilChanged(), takeUntilDestroyed(destroyRef))
+        .subscribe(invisible => routes.patch(DOCUMENTS_MENU, { invisible }));
     }),
   ]);
 }
