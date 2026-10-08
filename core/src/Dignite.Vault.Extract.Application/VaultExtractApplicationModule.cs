@@ -5,6 +5,7 @@ using Dignite.Vault.Extract.Notifications;
 using Microsoft.Extensions.DependencyInjection;
 using Volo.Abp.Application;
 using Volo.Abp.BackgroundJobs;
+using Volo.Abp.Gdpr;
 using Volo.Abp.Mapperly;
 using Volo.Abp.Modularity;
 
@@ -17,6 +18,7 @@ namespace Dignite.Vault.Extract;
     typeof(AbpDddApplicationModule),
     typeof(AbpBackgroundJobsModule),
     typeof(AbpNotificationsModule),   // operator notifications for the uploader (#680)
+    typeof(AbpGdprAbstractionsModule),   // the user-data deletion event the uploader's name is erased on (#698)
     typeof(AbpMapperlyModule)
     )]
 public class VaultExtractApplicationModule : AbpModule

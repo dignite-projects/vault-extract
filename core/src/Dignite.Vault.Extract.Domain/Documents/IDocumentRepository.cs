@@ -390,6 +390,39 @@ public interface IDocumentRepository : IRepository<Document, Guid>
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Erases the uploader's name from every document <paramref name="creatorId"/> uploaded (#698, GDPR): sets
+    /// <c>FileOrigin.UploadedByUserName</c> to <see cref="FileOriginConsts.AnonymizedUploaderName"/> and returns how
+    /// many rows changed. <c>CreatorId</c> and everything else stay as they are: the account is anonymized by
+    /// Identity, so the id no longer names anyone, and the owner arm and the duplicate key still need it.
+    /// <para>
+    /// <b>One UPDATE, not load-and-save, and not a method on <see cref="Document"/>.</b> Saving the aggregate would
+    /// run ABP's audit stamping with no current user, which nulls <c>LastModifierId</c> and bumps
+    /// <c>LastModificationTime</c> - erasing a trace of <i>other</i> people who edited the document, for a change
+    /// that is not an edit. It also needs no batching: the statement streams nothing back, so no Markdown is
+    /// materialized. This is the one place that writes <c>FileOrigin</c> after construction.
+    /// </para>
+    /// <para>
+    /// <b>It does bump <c>ConcurrencyStamp</c></b>, which is not an audit column: an aggregate loaded before the
+    /// erasure and saved after it would otherwise match its WHERE clause and write the old name back. With the
+    /// bump that stale save fails with a concurrency exception, like any other lost update.
+    /// </para>
+    /// <para>
+    /// <b>Matched by <c>CreatorId</c>.</b> A document whose creator was never recorded cannot be found. ABP leaves
+    /// <c>CreatorId</c> empty when the document's tenant differs from the signed-in user's, so a Host user who
+    /// uploads while acting inside a tenant leaves a name behind that this does not reach. Closing that gap means
+    /// persisting the uploader's id on <c>FileOrigin</c>, a schema change that needs its own Issue.
+    /// </para>
+    /// <para>
+    /// <b>Traverses soft delete</b>: a recycle-bin document still carries the name and can be restored. Only
+    /// <c>ISoftDelete</c> is disabled; <c>IMultiTenant</c> applies by ambient state, so the call erases within one
+    /// layer (active tenant, or Host when there is none) and the caller walks the layers. A derived sub-document has
+    /// no <c>FileOrigin</c> and is skipped. Idempotent: a row already carrying the placeholder does not match, so a
+    /// redelivered event changes nothing and returns 0.
+    /// </para>
+    /// </summary>
+    Task<int> AnonymizeUploaderAsync(Guid creatorId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Aggregate overview statistics for the current ambient layer (#333): per-lifecycle document counts,
     /// the needs-review count, and the total original uploaded size (sum of <c>FileOrigin.FileSize</c>).
     /// <para>

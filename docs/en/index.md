@@ -45,6 +45,7 @@ The live egress channels that expose outputs to downstream consumers.
 - [Deployment checklist](deployment/deployment-checklist.md) — per-release smoke tests
 - [Field architecture v2 → v3 migration](deployment/field-architecture-v3-migration.md) — the `0.5.0` field-storage upgrade: what runs it, how to verify it, and why the old tables stay
 - [Observability](deployment/observability.md) — OpenTelemetry pipeline, aspire-dashboard for local dev, switching OTLP backends
+- [GDPR user-data erasure](deployment/gdpr-user-data-erasure.md) — what happens to the uploader's name when ABP's GDPR module reports a deletion request, across the Host and every tenant
 
 ## External references
 

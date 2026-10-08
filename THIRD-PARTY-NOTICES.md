@@ -27,7 +27,7 @@ repository, so no additional obligation beyond normal LGPL compliance
 
 | Package | Notes |
 |---|---|
-| Volo.Abp.* (Core, Ddd.*, EntityFrameworkCore.*, AspNetCore.*, Identity.*, Account.*, PermissionManagement.*, FeatureManagement.*, SettingManagement.*, TenantManagement.*, BackgroundJobs.*, BlobStoring.*, Auditing, AuditLogging.*, Authorization, Autofac, Features, Guids, Validation, VirtualFileSystem, EventBus.Abstractions, Http.Client, Mapperly, Swashbuckle) | ABP Framework core packages |
+| Volo.Abp.* (Core, Ddd.*, EntityFrameworkCore.*, AspNetCore.*, Identity.*, Account.*, PermissionManagement.*, FeatureManagement.*, SettingManagement.*, TenantManagement.*, BackgroundJobs.*, BlobStoring.*, Auditing, AuditLogging.*, Authorization, Autofac, Features, Guids, Validation, VirtualFileSystem, EventBus.Abstractions, Gdpr.Abstractions, Http.Client, Mapperly, Swashbuckle) | ABP Framework core packages |
 | Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite | Free ABP theme, same repo/license as ABP Framework |
 | Volo.Abp.Studio.Client.AspNetCore | Confirmed `LGPL-3.0-only` on NuGet |
 

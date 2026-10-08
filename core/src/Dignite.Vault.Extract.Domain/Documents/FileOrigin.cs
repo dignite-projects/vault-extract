@@ -5,14 +5,19 @@ using Volo.Abp.Domain.Values;
 namespace Dignite.Vault.Extract.Documents;
 
 /// <summary>
-/// File origin information. Immutable after write and treated as a system-trusted anchor.
+/// File origin information. Immutable after write and treated as a system-trusted anchor, with one exception:
+/// <see cref="UploadedByUserName"/> is replaced by <c>IDocumentRepository.AnonymizeUploaderAsync</c> when the uploader's
+/// data is erased (#698), and nothing else writes it.
 /// </summary>
 public class FileOrigin : ValueObject
 {
     /// <summary>Key in BlobStore, immutable after write.</summary>
     public string BlobName { get; private set; } = default!;
 
-    /// <summary>Snapshot of uploader display name, redundantly stored to preserve information after user deletion.</summary>
+    /// <summary>
+    /// Snapshot of the uploader's display name, redundantly stored so the document still says who uploaded it after the
+    /// account is gone. When that user's data is erased (#698) it becomes <see cref="FileOriginConsts.AnonymizedUploaderName"/>.
+    /// </summary>
     public string UploadedByUserName { get; private set; } = default!;
 
     /// <summary>Original file name.</summary>

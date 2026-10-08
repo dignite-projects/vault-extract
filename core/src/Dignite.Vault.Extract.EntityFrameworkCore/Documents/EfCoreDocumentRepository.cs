@@ -86,6 +86,35 @@ public class EfCoreDocumentRepository
         }
     }
 
+    public virtual async Task<int> AnonymizeUploaderAsync(
+        Guid creatorId,
+        CancellationToken cancellationToken = default)
+    {
+        // #698: a single UPDATE, so ABP's audit stamping (which would null LastModifierId with no current user) never
+        // runs. Recycle-bin rows are in scope; ABP's ambient IMultiTenant predicate stays part of the statement, so
+        // this erases within the current layer only. The placeholder predicate makes a redelivery a no-op.
+        //
+        // ConcurrencyStamp is bumped on purpose: a bulk UPDATE does not go through ABP's stamping, and without a new
+        // stamp an aggregate that was loaded before the erasure and saved after it would still match its WHERE
+        // clause and write the old name back (ABP's UpdateAsync marks every column, owned ones included, modified).
+        // With the bump that save fails with a concurrency exception and its caller retries on fresh data.
+        using (DataFilter.Disable<ISoftDelete>())
+        {
+            var dbSet = await GetDbSetAsync();
+            return await dbSet
+                .Where(document => document.CreatorId == creatorId
+                    && document.FileOrigin != null
+                    && document.FileOrigin.UploadedByUserName != FileOriginConsts.AnonymizedUploaderName)
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(
+                            document => document.FileOrigin!.UploadedByUserName,
+                            FileOriginConsts.AnonymizedUploaderName)
+                        .SetProperty(document => document.ConcurrencyStamp, Guid.NewGuid().ToString("N")),
+                    GetCancellationToken(cancellationToken));
+        }
+    }
+
     public virtual async Task<bool> AnyLiveDerivedDuplicateAsync(
         Guid originDocumentId,
         string originConstituentKey,
