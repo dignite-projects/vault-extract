@@ -7,6 +7,7 @@ import {
 import type { CurrentTenantDto, CurrentUserDto } from '@abp/ng.core';
 import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { EXTRACT_FEATURES, EXTRACT_PERMISSIONS, isExtractFeatureDisabled } from '@dignite/ng.vault-extract';
 
@@ -32,6 +33,11 @@ export class HomeComponent {
   private readonly authService = inject(AuthService);
   private readonly configState = inject(ConfigStateService);
   private readonly permissionService = inject(PermissionService);
+  // A signal, so that an entry's feature is re-read when application-configuration is fetched again while this
+  // page stays open (the component is OnPush, and the template reads `visibleEntryPoints` through a getter).
+  private readonly features = toSignal(this.configState.getOne$('features'), {
+    initialValue: this.configState.getOne('features'),
+  });
 
   private readonly entryPoints: HomeEntryPoint[] = [
     {
@@ -115,7 +121,7 @@ export class HomeComponent {
   }
 
   private isEntryVisible(entry: HomeEntryPoint): boolean {
-    if (entry.feature && isExtractFeatureDisabled(this.configState.getFeature(entry.feature))) {
+    if (entry.feature && isExtractFeatureDisabled(this.features()?.values?.[entry.feature])) {
       return false;
     }
 
