@@ -15,9 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resources, which only call those services. A host that wants Extract to be opt-in (Dignite.Cloud) overrides the
   default to `false` in its own `FeatureDefinitionProvider` and grants the feature per edition or tenant; a host
   without Feature Management changes nothing. The document pipeline is not gated: its background jobs and event
-  handlers run without a signed-in user, so ABP cannot resolve the Edition level of the feature for them, and
-  they never call an application service (a test pins that). A token without a user behind it, such as an OAuth
-  `client_credentials` service account, is gated like everyone else once the feature is edition-granted. MCP
+  handlers run without a signed-in user, so ABP is expected not to be able to resolve the Edition level of the
+  feature for them (read from its implementation, not yet run with an edition-bearing token), and they never call
+  an application service (a test pins that). By the same expectation, a token without a user behind it, such as an
+  OAuth `client_credentials` service account, would be gated like everyone else once the feature is
+  edition-granted; confirm that before relying on it. MCP
   `resources/list` treats a category whose service refuses as denied and still lists the others, so a downstream
   category registered after the built-in ones is not hidden for a tenant without the feature. No EF
   migration.

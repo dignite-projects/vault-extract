@@ -72,7 +72,8 @@ public class DocumentReadyEventHandler_Tests
 
     /// <summary>
     /// <c>VaultExtract.Enable</c> gates the application services, not the pipeline: this handler runs with no
-    /// signed-in user, where an edition-granted feature would read as off. See <see cref="VaultExtractFeatures.Enable"/>.
+    /// signed-in user, where an edition-granted feature is expected to read as off (not yet confirmed end to end).
+    /// See <see cref="VaultExtractFeatures.Enable"/>.
     /// </summary>
     [Fact]
     public async Task Ready_Transition_Still_Publishes_When_The_VaultExtract_Feature_Is_Off()
