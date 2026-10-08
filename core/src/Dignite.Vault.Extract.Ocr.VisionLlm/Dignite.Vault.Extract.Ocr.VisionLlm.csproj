@@ -25,6 +25,10 @@
          Linux deployments additionally need SkiaSharp.NativeAssets.Linux + libfontconfig1
          (documented in docs/en/text-extraction/ocr-vision-llm.md). -->
     <PackageReference Include="PDFtoImage" />
+    <!-- Already in the tree through PDFtoImage (a hard dependency of it); referenced explicitly because
+         VisionLlmImageDownscaler (#692) uses its types directly, to shrink an image before the vision call.
+         Version pinned in Directory.Packages.props, which must match PDFtoImage's. -->
+    <PackageReference Include="SkiaSharp" />
   </ItemGroup>
 
   <ItemGroup>

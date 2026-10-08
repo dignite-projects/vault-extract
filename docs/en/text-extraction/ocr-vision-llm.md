@@ -74,7 +74,8 @@ Provider behaviour knobs (the model id / endpoint / key are host `ConfigureAI` c
 ```json
 "VisionLlmOcr": {
   "MaxOutputTokens": 4096,
-  "MaxPdfPages": 30
+  "MaxPdfPages": 30,
+  "MaxImagePixels": 1500000
 }
 ```
 
@@ -83,6 +84,7 @@ Provider behaviour knobs (the model id / endpoint / key are host `ConfigureAI` c
 | `MaxOutputTokens` | `4096` | Hard cap on tokens generated per image/page. Bounds worst-case cost **and** the length of a runaway loop |
 | `Temperature` | `0` | Deterministic transcription; reduces hallucination/looping |
 | `MaxPdfPages` | `30` | Max pages rasterized per PDF. Exceeding it throws (fails loudly) rather than silently dropping pages |
+| `MaxImagePixels` | `1500000` | Most pixels (width × height) of an image sent to the model; a larger one is [scaled down](#large-images-are-shrunk-first) first. `0` or less sends images as they are |
 | `MaxConsecutiveRepeatedLines` | `24` | Guard heuristic 1: trip on this many identical consecutive lines. Values below 2 are treated as 2 (strictest); set a very large value to disable |
 | `MinDistinctLineRatio` | `0.3` | Guard heuristic 2: trip if distinct/total line ratio drops below this over a large body |
 | `MinLinesForRatioCheck` | `40` | Guard heuristic 2: minimum lines before the distinct-ratio check applies |
@@ -90,6 +92,22 @@ Provider behaviour knobs (the model id / endpoint / key are host `ConfigureAI` c
 | `MaxRepeatedSegmentLength` | `120` | Guard heuristic 3: largest repeating-unit (period) length treated as a loop |
 | `MinRepeatedSegmentRepeats` | `8` | Guard heuristic 3: minimum times the unit must tile a line to trip |
 | `MaxNoContentRefusalLength` | `160` | No-content-refusal guard: only a response no longer than this is checked against refusal phrasings, so a genuine (longer) transcription is never mistaken for one |
+
+## Large images are shrunk first
+
+A vision model reads an image as a number of tokens that grows with its pixel count, and past a point it stops transcribing and writes the same empty table rows until it hits `MaxOutputTokens`. The [repetition guard](#hallucination--repetition-loop-guard) then (correctly) discards the page, and the document is left with no text, no type and no fields ([#692](https://github.com/dignite-projects/vault-extract/issues/692)). In the case that surfaced it, a 4.6-megapixel phone photo of a payslip looped at `temperature` 0; a 2.2-megapixel copy still looped, even at temperature 0.7 with a presence penalty; a 1.25-megapixel copy read correctly in 10–16 s. The cause is the pixel count, not the sampling settings.
+
+So the provider scales an image down before the call when it is over `MaxImagePixels` (default 1.5 megapixels):
+
+- **Within the budget** the original bytes are sent untouched, with no re-encoding.
+- **Over the budget** the image is scaled to at most that many pixels, keeping its aspect ratio. A PNG (a screenshot, a rasterized PDF page) stays a PNG so the text stays sharp; anything else becomes a JPEG (quality 90).
+- The EXIF orientation is applied, because the smaller copy carries no EXIF and a photo taken sideways would otherwise reach the model on its side.
+- An image SkiaSharp cannot read (HEIC, corrupt data), or any failure while shrinking, **sends the original** and logs a warning; shrinking never fails the OCR call.
+- Only the copy sent to the model is smaller; the stored original is untouched. One information line logs each shrink (original and new size).
+
+This applies to uploaded images, to the pages of a scanned PDF (PDFtoImage renders at 300 dpi, an A4 page is about 8.7 megapixels), and to images embedded in a PDF that the Markdown providers send here.
+
+The budget was measured on one image and one model, so treat 1.5 megapixels as usable rather than generous: a phone photo of a bank passbook and card statement at that size took 94 s. Lower it if your model loops on dense forms.
 
 ## Hallucination / repetition-loop guard
 
@@ -123,13 +141,13 @@ PDF rasterization uses [PDFtoImage](https://github.com/sungaila/PDFtoImage) (PDF
 - the `SkiaSharp.NativeAssets.Linux` package referenced in the host project, and
 - the `libfontconfig1` system library installed in the image (e.g. `apt-get install -y libfontconfig1`).
 
-(Image-only inputs need no fonts, but vector content in a PDF page does.)
+(Image-only inputs need no fonts, but vector content in a PDF page does. Shrinking an over-sized image (above) uses SkiaSharp too, but only to decode and encode pixels, so it needs no fonts either.)
 
 ## Limitations (v1)
 
 - **No language detection** — `DetectedLanguage` is left null (not this provider's job).
 - **No input-type routing** — VisionLlm fully handles its input domain (images + scanned PDFs); there is no composite that sends images to VisionLlm and scanned PDFs to PaddleOCR. If you need both engines at once, that's a future enhancement — open an issue.
-- **No image downscaling** — full-resolution images are sent as-is; downscaling to cut input-token cost is a possible future optimization.
+- **No retry on a loop** — when the repetition guard trips, the page is discarded; the provider does not retry at a smaller scale. Large images are shrunk up front (see above) so this is rare.
 
 ## See also
 

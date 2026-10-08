@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A large photo no longer comes back from VisionLlm OCR with empty Markdown
+  ([#692](https://github.com/dignite-projects/vault-extract/issues/692)).** The provider sent every image to the
+  vision model as it was, and past roughly 1.5 megapixels the model wrote empty table rows until it hit the token
+  limit; the repetition guard then discarded the page, and classification and field extraction ran on nothing. An
+  image over the new `VisionLlmOcr:MaxImagePixels` (default `1500000`; `0` turns it off) is now scaled down before
+  the call, with its EXIF rotation applied. PNG stays PNG, everything else becomes JPEG; an image within the
+  budget is sent untouched, and one that cannot be read is sent as it is with a warning. Rasterized scanned-PDF
+  pages (about 8.7 megapixels each) go through the same path. Only the copy sent to the model is smaller. Hosts
+  must upgrade the package to get the fix. Documents already stored with empty Markdown can be repaired with the
+  per-document re-parse (#660).
+
+### Changed
+
+- `Dignite.Vault.Extract.Ocr.VisionLlm` now references `SkiaSharp` directly (3.119.2, the version PDFtoImage
+  already brings; no new library in the host). The VisionLlm provider tests now load the SkiaSharp native library.
+
 ## [0.5.0-preview.11] - 2026-10-07
 
 Operator notifications ([#680](https://github.com/dignite-projects/vault-extract/issues/680)): the uploader is told in the operator UI when a document needs review, fails, is rejected, or becomes Ready.

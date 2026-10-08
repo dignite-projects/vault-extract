@@ -76,4 +76,11 @@ public class VisionLlmOcrOptions
     /// happens to contain a word like "text".
     /// </summary>
     public int MaxNoContentRefusalLength { get; set; } = 160;
+
+    /// <summary>
+    /// The most pixels (width times height) of an image sent to the vision model; a larger one is scaled
+    /// down first, keeping its aspect ratio. A large photo or screenshot can send the model into a repetition
+    /// loop that discards the whole page (#692). Zero or less sends images as they are.
+    /// </summary>
+    public int MaxImagePixels { get; set; } = VisionLlmImageDownscaler.DefaultMaxPixels;
 }
