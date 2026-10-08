@@ -22,6 +22,8 @@
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="Volo.Abp.Autofac" />
     <PackageReference Include="Volo.Abp.Authorization"/>
+    <!-- TestFeatureValueProvider joins AbpFeatureOptions.ValueProviders. -->
+    <PackageReference Include="Volo.Abp.Features"/>
     <PackageReference Include="Volo.Abp.Guids"/>
     <PackageReference Include="Volo.Abp.TestBase"/>
   </ItemGroup>

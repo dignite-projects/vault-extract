@@ -407,6 +407,10 @@
 
     "Failed": "失败",
 
+    "Feature:VaultExtract": "Vault Extract",
+    "Feature:VaultExtract.Enable": "启用 Vault Extract",
+    "Feature:VaultExtract.Enable:Description": "控制租户能否使用 Vault Extract 的应用服务：操作界面、REST API 和 MCP 服务器。已上传的文档会继续走完处理流水线。",
+
     "Permission:Extract": "Vault Extract",
     "Permission:Documents": "访问文档",
     "Permission:Documents.ReadAll": "查看所有类型的文档",

@@ -6,6 +6,7 @@ using Dignite.Vault.Extract.Permissions;
 using ModelContextProtocol.Protocol;
 using NSubstitute;
 using Shouldly;
+using Volo.Abp.Authorization;
 using Volo.Abp.DependencyInjection;
 using Volo.Abp.Modularity;
 using Xunit;
@@ -99,5 +100,24 @@ public class DownstreamResourceContributor_Tests : VaultExtractTestBase<Downstre
         result.Resources.Count.ShouldBe(1);
         result.Resources[0].Uri.ShouldBe(FakeLedgerResourceListContributor.LedgerUri);
         await _documentTypeAppService.DidNotReceive().GetVisibleSummariesAsync();
+    }
+
+    [Fact]
+    public async Task Built_in_category_refused_by_its_application_service_does_not_hide_the_downstream_category()
+    {
+        // VaultExtract.Enable off: the built-in category passes its permission check and is then refused by
+        // the gated application service. It must not abort the loop before the downstream category, which
+        // registers after it and is authorized independently.
+        _authorization.Granted = new HashSet<string>
+        {
+            VaultExtractPermissions.DocumentTypes.Default
+        };
+        _documentTypeAppService.GetVisibleSummariesAsync()
+            .Returns(Task.FromException<List<DocumentTypeSummaryDto>>(new AbpAuthorizationException()));
+
+        var result = await _catalog.ListVisibleAsync();
+
+        result.Resources.Count.ShouldBe(1);
+        result.Resources[0].Uri.ShouldBe(FakeLedgerResourceListContributor.LedgerUri);
     }
 }

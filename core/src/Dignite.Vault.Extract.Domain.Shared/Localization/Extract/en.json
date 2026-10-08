@@ -407,6 +407,10 @@
 
     "Failed": "Failed",
 
+    "Feature:VaultExtract": "Vault Extract",
+    "Feature:VaultExtract.Enable": "Enable Vault Extract",
+    "Feature:VaultExtract.Enable:Description": "Lets the tenant use Vault Extract's application services: the operator UI, the REST API and the MCP server. Documents already uploaded keep going through the processing pipeline.",
+
     "Permission:Extract": "Vault Extract",
     "Permission:Documents": "Access Documents",
     "Permission:Documents.ReadAll": "Read Documents of All Types",
