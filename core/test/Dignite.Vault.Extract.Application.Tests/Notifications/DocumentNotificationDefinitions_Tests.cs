@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.Linq;
+using System.Threading.Tasks;
 using Dignite.Abp.Notifications;
 using Dignite.Abp.Notifications.SignalR;
 using Dignite.Vault.Extract.Localization;
@@ -29,19 +30,19 @@ public class DocumentNotificationDefinitions_Tests
     };
 
     [Fact]
-    public void All_four_notifications_are_defined_in_one_group_without_a_permission_gate()
+    public async Task All_four_notifications_are_defined_in_one_group_without_a_permission_gate()
     {
         var manager = GetRequiredService<INotificationDefinitionManager>();
 
         foreach (var name in Names)
         {
-            var definition = manager.Get(name);
+            var definition = await manager.GetAsync(name);
             definition.GroupName.ShouldBe(VaultExtractNotificationNames.GroupName);
             // Access to a document is the documents domain's own rule table, so no ABP permission gate.
             definition.PermissionName.ShouldBeNull();
         }
 
-        manager.GetGroups().Select(g => g.Name).ShouldContain(VaultExtractNotificationNames.GroupName);
+        (await manager.GetGroupsAsync()).Select(g => g.Name).ShouldContain(VaultExtractNotificationNames.GroupName);
     }
 
     [Fact]
