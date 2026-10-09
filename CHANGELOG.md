@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0-preview.14] - 2026-10-09
+
+The abp-modules libraries move to `10.0.0-rc.24`, and a host can now run operator notifications as a split deployment. No EF migration.
+
 ### Changed
 
 - **abp-modules `10.0.0-rc.24`, on both sides.** `Dignite.Abp.FlexFields.*`, `Dignite.Abp.AspNetCore.Mcp`,
@@ -729,7 +733,8 @@ Preview of the 0.2.0 line. This release rebrands the project to **Dignite Vault 
 - Legacy Angular document-upload route.
 - Dead fields from the segmentation subsystem (#390).
 
-[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.13...HEAD
+[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.14...HEAD
+[0.5.0-preview.14]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.13...v0.5.0-preview.14
 [0.5.0-preview.13]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.12...v0.5.0-preview.13
 [0.5.0-preview.12]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.11...v0.5.0-preview.12
 [0.5.0-preview.11]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.10...v0.5.0-preview.11
