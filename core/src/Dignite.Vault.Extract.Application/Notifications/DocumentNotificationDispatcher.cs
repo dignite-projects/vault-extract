@@ -50,9 +50,12 @@ public class DocumentNotificationDispatcher : ITransientDependency
         try
         {
             // INotificationPublisher records CurrentTenant.Id, and nothing guarantees the ambient tenant here is the
-            // document's, so name it explicitly (null = host). Transactional on purpose: the inbox rows (the
-            // notification store's DbContext) and the delivery event (the host's outbox) share the default
-            // connection, so one transaction is what makes "persisted" and "will be delivered" agree.
+            // document's, so name it explicitly (null = host). Transactional on purpose. Published in process (the
+            // host installs Dignite.NotificationCenter.*), the inbox rows (the notification store's DbContext) and
+            // the delivery event (the host's outbox) share the default connection, so one transaction is what makes
+            // "persisted" and "will be delivered" agree. Published remotely (the host installs
+            // Dignite.Abp.Notifications.Remote), the transaction holds only the outbox write of the publish request:
+            // the inbox rows are written by the notification service that receives it.
             using (_currentTenant.Change(expected.TenantId))
             using (var unitOfWork = _unitOfWorkManager.Begin(requiresNew: true, isTransactional: true))
             {

@@ -114,6 +114,8 @@ The operator UI's notification bell opens a **WebSocket** to the host at `/signa
 
 Nothing breaks when that happens. SignalR falls back to Server-Sent Events and then to long polling, and notifications still arrive, because the inbox (`/api/notification-center/notifications`) is the source of truth. The cost is higher latency and more open requests per signed-in user. Treat the proxy setting as part of a correct deployment, not as an outage fix.
 
+This is the default install, where the host itself runs the Notification Center and serves the hub (the monolith). A host in a split deployment installs `Dignite.Abp.Notifications.Remote` and `Dignite.Abp.Notifications.DefinitionStore.EntityFrameworkCore` instead, maps the `NotificationCenter` connection string to the notification service's database, and does not serve the hub: the notification service does, so everything in this section applies to the proxy in front of that service. See [Two ways to install the host](../egress/operator-notifications.md#two-ways-to-install-the-host).
+
 nginx (the `map` goes in the `http` block):
 
 ```nginx
@@ -141,7 +143,7 @@ For any other proxy or gateway, make sure the path `/signalr-hubs/` passes the `
 
 The browser connects to the host directly from the SPA's origin, so `App:CorsOrigins` must list that origin. It is already needed for the REST API.
 
-To check it after deploying, use the "Operator notifications" section of the [deployment checklist](deployment-checklist.md): the WebSocket request to `/signalr-hubs/notifications` must come back as `101 Switching Protocols`.
+To check it after deploying, use the "Operator notifications" section of the [deployment checklist](deployment-checklist.md): the WebSocket request to `/signalr-hubs/notifications` must come back as `101 Switching Protocols`. In a split deployment that request goes to the notification service.
 
 ## Migrations
 

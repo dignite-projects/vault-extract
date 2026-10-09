@@ -103,3 +103,13 @@ Re-run when deploying to a new environment or changing the proxy in front of the
 - [ ] Upload a small `.txt` document: the bell badge appears **without a page refresh** once the document lands in review or becomes Ready.
 - [ ] `App:CorsOrigins` contains the SPA origin. Otherwise the browser blocks the SignalR negotiate request and no notification ever shows.
 - [ ] Migration `V680_AddNotificationCenter` is applied: `GET /api/notification-center/notifications` returns `200`, not `500`.
+
+### Which install the host has
+
+A host installs the notification packages one of two ways (see [Two ways to install the host](../egress/operator-notifications.md#two-ways-to-install-the-host)). Tick the block that matches the deployment and skip the other. The items above are for the monolith install. In a split deployment, run the WebSocket and CORS items against the notification service and skip the migration item: this host no longer owns the Notification Center tables.
+
+- [ ] **Monolith** (`Dignite.NotificationCenter.*`; `Dignite.Abp.Notifications.Distribution` comes with it): the host does not also reference `Dignite.Abp.Notifications.Remote`, which would fail the start.
+- [ ] **Split deployment** (`Dignite.Abp.Notifications.Remote` + `Dignite.Abp.Notifications.DefinitionStore.EntityFrameworkCore`): the host references no `Dignite.NotificationCenter.*` package, and its `NotificationCenter` connection string points at the notification service's database.
+- [ ] **Split deployment**: the notification service's `NotifDefinitions` table holds the four `VaultExtract.Document.*` notifications after this host's first start. Otherwise the service refuses the publish requests and its event inbox keeps retrying them.
+- [ ] **Split deployment**: upload a small `.txt` document; the bell badge appears and `/signalr-hubs/notifications` is served by the notification service (the WebSocket request returns **101 Switching Protocols** from there).
+- [ ] **Upgrading from `abp-modules` 10.0.0-rc.22 or earlier**: `AbpBackgroundJobs` holds no row whose `JobName` is `Dignite.Abp.Notifications.NotificationDistributionJobArgs`; the job is now named `Dignite.Abp.Notifications.Distribute`, and rows under the old name are not picked up.
