@@ -114,7 +114,7 @@ The operator UI's notification bell opens a **WebSocket** to the host at `/signa
 
 Nothing breaks when that happens. SignalR falls back to Server-Sent Events and then to long polling, and notifications still arrive, because the inbox (`/api/notification-center/notifications`) is the source of truth. The cost is higher latency and more open requests per signed-in user. Treat the proxy setting as part of a correct deployment, not as an outage fix.
 
-This is the default install, where the host itself runs the Notification Center and serves the hub (the monolith). A host in a split deployment installs `Dignite.Abp.Notifications.Remote` and `Dignite.Abp.Notifications.DefinitionStore.EntityFrameworkCore` instead, maps the `NotificationCenter` connection string to the notification service's database, and does not serve the hub: the notification service does, so everything in this section applies to the proxy in front of that service. See [Two ways to install the host](../egress/operator-notifications.md#two-ways-to-install-the-host).
+This is the default install, where the host itself runs the Notification Center and serves the hub (the monolith). A host in a split deployment installs `Dignite.Abp.Notifications.Client` and `Dignite.Abp.Notifications.EntityFrameworkCore` (or `.MongoDB`) instead, maps the `NotificationCenter` connection string to the notification service's database, and does not serve the hub: the notification service does, so everything in this section applies to the proxy in front of that service. See [Two ways to install the host](../egress/operator-notifications.md#two-ways-to-install-the-host).
 
 nginx (the `map` goes in the `http` block):
 

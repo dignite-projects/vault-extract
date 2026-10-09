@@ -9,20 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **abp-modules `10.0.0-rc.23`, on both sides.** `Dignite.Abp.FlexFields.*`, `Dignite.Abp.AspNetCore.Mcp`,
-  `Dignite.Abp.Notifications` / `.SignalR` and `Dignite.NotificationCenter.*` move to `10.0.0-rc.23`, and the
-  Angular pins `@dignite/ng.flex-fields`, `@dignite/ng.flex-fields-ckeditor` and `@dignite/ng.notification-center`
-  move with them, so the wire shape stays the same on both ends. rc.23 moves the notification distribution
-  pipeline out of `Dignite.Abp.Notifications` into a new package, `Dignite.Abp.Notifications.Distribution`, which
-  this host receives through `Dignite.NotificationCenter.Application`. Vault Extract's production code does not
-  change; the one test that called `INotificationDefinitionManager` awaits its new asynchronous methods.
-  **Host impact:** the distribution background job is renamed `Dignite.Abp.Notifications.Distribute`, so jobs still
-  queued under the old name (`Dignite.Abp.Notifications.NotificationDistributionJobArgs`) are not picked up after
-  the upgrade. Vault Extract sends each notification to one explicit recipient, which is distributed inline, so its
-  own queue is normally empty; check that `AbpBackgroundJobs` holds no row under the old name before deploying. No
-  EF migration.
+- **abp-modules `10.0.0-rc.24`, on both sides.** `Dignite.Abp.FlexFields.*`, `Dignite.Abp.AspNetCore.Mcp`,
+  `Dignite.Abp.Notifications.*` and `Dignite.NotificationCenter.*` move to `10.0.0-rc.24`, and the Angular pins
+  `@dignite/ng.flex-fields`, `@dignite/ng.flex-fields-ckeditor` and `@dignite/ng.notification-center` move with them,
+  so the wire shape stays the same on both ends. rc.23 made `INotificationDefinitionManager` asynchronous, so the one
+  test that called it awaits `GetAsync` / `GetGroupsAsync`. rc.24 renames the notifications packages after ABP's own
+  layout: the contracts are now `Dignite.Abp.Notifications.Abstractions`, and the plain `Dignite.Abp.Notifications` is
+  the in-process implementation (the local publisher, the distributor and the delivery handlers).
+  **`Dignite.Vault.Extract.Application` now references `Dignite.Abp.Notifications.Abstractions` and depends on
+  `AbpNotificationsAbstractionsModule`**, where it referenced `Dignite.Abp.Notifications` and depended on
+  `AbpNotificationsModule`. Left as it was, it would have pulled the distributor into every process that embeds
+  Application, and a publisher using `Dignite.Abp.Notifications.Client` would then have distributed its notifications
+  itself instead of sending them to the notification service. Its production code is otherwise unchanged.
+  **Host impact:**
+  - The Vault Extract host as shipped does not change: `Dignite.NotificationCenter.Application` brings the
+    implementation.
+  - A host that embeds Application and installs neither the Notification Center nor `.Client` now resolves
+    `NullNotificationPublisher`: each notification logs a warning and is dropped. Install one of the two to deliver.
+  - The distribution background job is named `Dignite.Abp.Notifications.Distribute` (since rc.23), so jobs still
+    queued under the old name (`Dignite.Abp.Notifications.NotificationDistributionJobArgs`) are not picked up after the
+    upgrade. Vault Extract sends each notification to one explicit recipient, which is distributed inline, so its own
+    queue is normally empty; check that `AbpBackgroundJobs` holds no row under the old name before deploying.
+  - No EF migration (`dotnet ef migrations has-pending-model-changes` reports none).
 - **Operator notifications can run as a split deployment (optional).** A host may install
-  `Dignite.Abp.Notifications.Remote` and `Dignite.Abp.Notifications.DefinitionStore.EntityFrameworkCore` instead of
+  `Dignite.Abp.Notifications.Client` and `Dignite.Abp.Notifications.EntityFrameworkCore` (or `.MongoDB`) instead of
   `Dignite.NotificationCenter.*`, map the `NotificationCenter` connection string to a notification service's
   database, and let that service own the inbox and the SignalR hub. The Vault Extract host as shipped keeps the
   monolith install and does not change. In a split deployment the transaction in `DocumentNotificationDispatcher`
