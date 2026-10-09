@@ -54,7 +54,7 @@ public class DocumentNotificationDispatcher : ITransientDependency
             // host installs Dignite.NotificationCenter.*), the inbox rows (the notification store's DbContext) and
             // the delivery event (the host's outbox) share the default connection, so one transaction is what makes
             // "persisted" and "will be delivered" agree. Published remotely (the host installs
-            // Dignite.Abp.Notifications.Remote), the transaction holds only the outbox write of the publish request:
+            // Dignite.Abp.Notifications.Client), the transaction holds only the outbox write of the publish request:
             // the inbox rows are written by the notification service that receives it.
             using (_currentTenant.Change(expected.TenantId))
             using (var unitOfWork = _unitOfWorkManager.Begin(requiresNew: true, isTransactional: true))

@@ -17,7 +17,7 @@ namespace Dignite.Vault.Extract;
     typeof(VaultExtractApplicationContractsModule),
     typeof(AbpDddApplicationModule),
     typeof(AbpBackgroundJobsModule),
-    typeof(AbpNotificationsModule),   // operator notifications for the uploader (#680)
+    typeof(AbpNotificationsAbstractionsModule),   // operator notifications for the uploader (#680)
     typeof(AbpGdprAbstractionsModule),   // the user-data deletion event the uploader's name is erased on (#698)
     typeof(AbpMapperlyModule)
     )]
