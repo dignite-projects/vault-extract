@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0-preview.13] - 2026-10-09
+
+A tenant can now be switched off from Vault Extract with a feature, and the abp-modules libraries move to `10.0.0-rc.22`. No EF migration.
+
+### Changed
+
+- **abp-modules `10.0.0-rc.22`, on both sides.** `Dignite.Abp.FlexFields.*`, `Dignite.Abp.AspNetCore.Mcp`,
+  `Dignite.Abp.Notifications` / `.SignalR` and `Dignite.NotificationCenter.*` move to `10.0.0-rc.22`, and the
+  Angular pins `@dignite/ng.flex-fields`, `@dignite/ng.flex-fields-ckeditor` (`rc.17` before) and
+  `@dignite/ng.notification-center` (`rc.21` before) move with them, so the wire shape stays the same on both ends.
+
 ### Added
 
 - **`VaultExtract.Enable`, a feature that decides whether a tenant may use Vault Extract's application services.**
@@ -684,7 +695,8 @@ Preview of the 0.2.0 line. This release rebrands the project to **Dignite Vault 
 - Legacy Angular document-upload route.
 - Dead fields from the segmentation subsystem (#390).
 
-[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.12...HEAD
+[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.13...HEAD
+[0.5.0-preview.13]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.12...v0.5.0-preview.13
 [0.5.0-preview.12]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.11...v0.5.0-preview.12
 [0.5.0-preview.11]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.10...v0.5.0-preview.11
 [0.5.0-preview.10]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.9...v0.5.0-preview.10

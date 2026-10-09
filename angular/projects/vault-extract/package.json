@@ -13,8 +13,8 @@
     "@abp/ng.core": "~10.5.0",
     "@abp/ng.permission-management": "~10.5.0",
     "@abp/ng.theme.shared": "~10.5.0",
-    "@dignite/ng.flex-fields": "npm:@dignite-projects/ng.flex-fields@10.0.0-rc.17",
-    "@dignite/ng.flex-fields-ckeditor": "npm:@dignite-projects/ng.flex-fields-ckeditor@10.0.0-rc.17",
+    "@dignite/ng.flex-fields": "npm:@dignite-projects/ng.flex-fields@10.0.0-rc.22",
+    "@dignite/ng.flex-fields-ckeditor": "npm:@dignite-projects/ng.flex-fields-ckeditor@10.0.0-rc.22",
     "marked": "^18.0.0",
     "tslib": "^2.1.0"
   },
