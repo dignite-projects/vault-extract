@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **abp-modules `10.0.0-rc.23`, on both sides.** `Dignite.Abp.FlexFields.*`, `Dignite.Abp.AspNetCore.Mcp`,
+  `Dignite.Abp.Notifications` / `.SignalR` and `Dignite.NotificationCenter.*` move to `10.0.0-rc.23`, and the
+  Angular pins `@dignite/ng.flex-fields`, `@dignite/ng.flex-fields-ckeditor` and `@dignite/ng.notification-center`
+  move with them, so the wire shape stays the same on both ends. rc.23 moves the notification distribution
+  pipeline out of `Dignite.Abp.Notifications` into a new package, `Dignite.Abp.Notifications.Distribution`, which
+  this host receives through `Dignite.NotificationCenter.Application`. Vault Extract's production code does not
+  change; the one test that called `INotificationDefinitionManager` awaits its new asynchronous methods.
+  **Host impact:** the distribution background job is renamed `Dignite.Abp.Notifications.Distribute`, so jobs still
+  queued under the old name (`Dignite.Abp.Notifications.NotificationDistributionJobArgs`) are not picked up after
+  the upgrade. Vault Extract sends each notification to one explicit recipient, which is distributed inline, so its
+  own queue is normally empty; check that `AbpBackgroundJobs` holds no row under the old name before deploying. No
+  EF migration.
+- **Operator notifications can run as a split deployment (optional).** A host may install
+  `Dignite.Abp.Notifications.Remote` and `Dignite.Abp.Notifications.DefinitionStore.EntityFrameworkCore` instead of
+  `Dignite.NotificationCenter.*`, map the `NotificationCenter` connection string to a notification service's
+  database, and let that service own the inbox and the SignalR hub. The Vault Extract host as shipped keeps the
+  monolith install and does not change. In a split deployment the transaction in `DocumentNotificationDispatcher`
+  holds only the outbox write of the publish request, not the inbox rows, which the service writes; the comment
+  there said otherwise and now says both. See
+  [Operator notifications](docs/en/egress/operator-notifications.md#two-ways-to-install-the-host) and the
+  [deployment checklist](docs/en/deployment/deployment-checklist.md).
+
 ## [0.5.0-preview.13] - 2026-10-09
 
 A tenant can now be switched off from Vault Extract with a feature, and the abp-modules libraries move to `10.0.0-rc.22`. No EF migration.
