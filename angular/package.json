@@ -41,10 +41,10 @@
     "@dignite/ng.flex-fields": "npm:@dignite-projects/ng.flex-fields@10.0.0-rc.25",
     "@dignite/ng.flex-fields-ckeditor": "npm:@dignite-projects/ng.flex-fields-ckeditor@10.0.0-rc.25",
     "@dignite/ng.notification-center": "10.0.0-rc.25",
-    "marked": "^18.0.0",
+    "marked": "^18.1.0",
     "rxjs": "~7.8.0",
     "tslib": "^2.1.0",
-    "zone.js": "~0.16.2"
+    "zone.js": "~0.16.3"
   },
   "devDependencies": {
     "@abp/ng.schematics": "~10.5.0",
@@ -53,13 +53,13 @@
     "@angular/cli": "~21.2.21",
     "@angular/compiler-cli": "~21.2.0",
     "@angular/language-service": "~21.2.0",
-    "@types/node": "^26.4.0",
+    "@types/node": "^26.6.4",
     "angular-eslint": "~21.4.0",
-    "eslint": "^10.9.1",
-    "jsdom": "^30.0.1",
+    "eslint": "^10.12.0",
+    "jsdom": "^30.1.2",
     "ng-packagr": "~21.2.0",
     "typescript": "~5.9.0",
-    "typescript-eslint": "^8.69.0",
-    "vitest": "^4.0.0"
+    "typescript-eslint": "^8.71.1",
+    "vitest": "^5.0.3"
   }
 }
