@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **abp-modules `10.0.0-rc.25`, on both sides.** `Dignite.Abp.FlexFields.*`, `Dignite.Abp.AspNetCore.Mcp`,
+  `Dignite.Abp.Notifications.*` and `Dignite.NotificationCenter.*` move to `10.0.0-rc.25`, and the Angular pins
+  `@dignite/ng.flex-fields`, `@dignite/ng.flex-fields-ckeditor` and `@dignite/ng.notification-center` move with them.
+  rc.25 removes `Dignite.FileExplorer.*` from abp-modules and leaves file-storing with its core only; Vault Extract
+  does not use File Explorer, so this is a lockstep upgrade with no behaviour change and no EF migration.
+
 ## [0.5.0-preview.14] - 2026-10-09
 
 The abp-modules libraries move to `10.0.0-rc.24`, and a host can now run operator notifications as a split deployment. No EF migration.
