@@ -73,13 +73,13 @@
          They drifted 6 rc's apart (rc.5 here against rc.11 there) with no build ever catching it before
          this note was added. -->
     <ItemGroup Label="FlexFields">
-        <PackageVersion Include="Dignite.Abp.FlexFields.Abstractions" Version="10.0.0-rc.24" />
-        <PackageVersion Include="Dignite.Abp.FlexFields.Domain" Version="10.0.0-rc.24" />
-        <PackageVersion Include="Dignite.Abp.FlexFields.EntityFrameworkCore" Version="10.0.0-rc.24" />
+        <PackageVersion Include="Dignite.Abp.FlexFields.Abstractions" Version="10.0.0-rc.25" />
+        <PackageVersion Include="Dignite.Abp.FlexFields.Domain" Version="10.0.0-rc.25" />
+        <PackageVersion Include="Dignite.Abp.FlexFields.EntityFrameworkCore" Version="10.0.0-rc.25" />
         <!-- Serves FieldDataType.LongText in v3: CKEditorFieldType.IndexValueType is null, so
              "never indexed, never queryable" stays a structural guarantee, and ContentFormat=Markdown
              persists the value as a plain GFM string (#559 resolution 1). -->
-        <PackageVersion Include="Dignite.Abp.FlexFields.CKEditor" Version="10.0.0-rc.24" />
+        <PackageVersion Include="Dignite.Abp.FlexFields.CKEditor" Version="10.0.0-rc.25" />
     </ItemGroup>
 
     <ItemGroup Label="LeptonX">
@@ -104,7 +104,7 @@
         <!-- The shared MCP server (transport, /mcp, permission filtering, error envelope, namespaces) that
              Dignite.Vault.Extract.Mcp contributes its tools to. Released with abp-modules in lockstep, so
              it moves with the Dignite.Abp.FlexFields.* pins above. -->
-        <PackageVersion Include="Dignite.Abp.AspNetCore.Mcp" Version="10.0.0-rc.24" />
+        <PackageVersion Include="Dignite.Abp.AspNetCore.Mcp" Version="10.0.0-rc.25" />
     </ItemGroup>
 
     <ItemGroup Label="Notifications">
@@ -112,11 +112,11 @@
              abp-modules (no GitHub Packages source needed). The NuGet packages and the npm package
              @dignite/ng.notification-center always share one version - keep this equal to
              angular/package.json's pin. -->
-        <PackageVersion Include="Dignite.Abp.Notifications.Abstractions" Version="10.0.0-rc.24" />
-        <PackageVersion Include="Dignite.Abp.Notifications.SignalR" Version="10.0.0-rc.24" />
-        <PackageVersion Include="Dignite.NotificationCenter.Application" Version="10.0.0-rc.24" />
-        <PackageVersion Include="Dignite.NotificationCenter.HttpApi" Version="10.0.0-rc.24" />
-        <PackageVersion Include="Dignite.NotificationCenter.EntityFrameworkCore" Version="10.0.0-rc.24" />
+        <PackageVersion Include="Dignite.Abp.Notifications.Abstractions" Version="10.0.0-rc.25" />
+        <PackageVersion Include="Dignite.Abp.Notifications.SignalR" Version="10.0.0-rc.25" />
+        <PackageVersion Include="Dignite.NotificationCenter.Application" Version="10.0.0-rc.25" />
+        <PackageVersion Include="Dignite.NotificationCenter.HttpApi" Version="10.0.0-rc.25" />
+        <PackageVersion Include="Dignite.NotificationCenter.EntityFrameworkCore" Version="10.0.0-rc.25" />
     </ItemGroup>
 
     <ItemGroup Label="OpenTelemetry">
