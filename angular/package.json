@@ -37,7 +37,7 @@
     "@angular/localize": "~21.2.0",
     "@angular/platform-browser": "~21.2.0",
     "@angular/platform-browser-dynamic": "~21.2.0",
-    "@angular/router": "~21.2.0",
+    "@angular/router": "~21.2.24",
     "@dignite/ng.flex-fields": "npm:@dignite-projects/ng.flex-fields@10.0.0-rc.25",
     "@dignite/ng.flex-fields-ckeditor": "npm:@dignite-projects/ng.flex-fields-ckeditor@10.0.0-rc.25",
     "@dignite/ng.notification-center": "10.0.0-rc.25",
