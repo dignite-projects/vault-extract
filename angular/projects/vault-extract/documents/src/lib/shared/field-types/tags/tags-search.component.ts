@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { AbstractControl, ReactiveFormsModule } from '@angular/forms';
 import { FieldTypeControlBase } from '@dignite/ng.flex-fields';
@@ -12,6 +12,7 @@ import { TagsConfiguration } from './tags-configuration';
 @Component({
   selector: 'lib-tags-search',
   templateUrl: './tags-search.component.html',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, ReactiveFormsModule],
 })
 export class TagsSearchComponent extends FieldTypeControlBase {

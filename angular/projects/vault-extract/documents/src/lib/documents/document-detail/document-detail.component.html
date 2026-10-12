@@ -340,7 +340,7 @@
                 } @else if (isPdf() && fileBlob.safeResourceUrl()) {
                   <iframe
                     [src]="fileBlob.safeResourceUrl()"
-                    [title]="document()!.fileOrigin?.originalFileName"
+                    [title]="document()!.fileOrigin?.originalFileName ?? ''"
                     class="w-100 border rounded"
                     style="min-height: 70vh;"
                   ></iframe>

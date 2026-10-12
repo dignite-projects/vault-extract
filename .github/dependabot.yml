@@ -98,7 +98,7 @@ updates:
         patterns:
           - "*"
     ignore:
-      # ABP 10.5.0 pairs with Angular 21; Angular 22 is the ABP 10.6.0-track version. 21.x
+      # ABP 10.7.0 pairs with Angular 22; Angular 23 will be a later ABP line's version. 22.x
       # patch/minor bumps still flow through normally.
       - dependency-name: "@angular/*"
         update-types: ["version-update:semver-major"]
@@ -112,7 +112,7 @@ updates:
       - dependency-name: "angular-eslint"
         update-types: ["version-update:semver-major"]
       # TypeScript's usable range is dictated by @angular/compiler-cli, whose peer on Angular
-      # 21.2 is ">=5.9 <6.1". A major bump installs cleanly and then fails the library build with
+      # 22.x is ">=6.0 <6.1". A major bump installs cleanly and then fails the library build with
       # "Cannot read properties of undefined (reading 'useCaseSensitiveFileNames')", because the
       # Angular compiler is calling a TypeScript API that moved - npm has no way to know, since
       # typescript is not under the @angular scope. Same shape as the ng-packagr gap above;
@@ -120,8 +120,8 @@ updates:
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
       # All @abp/* packages (incl. @abp/ng.theme.lepton-x, which uses its own 5.x line) are
-      # released in lockstep with the ABP Framework version - pinned at 10.5.0, don't bump to
-      # whatever ships alongside 10.6.0.
+      # released in lockstep with the ABP Framework version - pinned at 10.7.0, don't bump to
+      # whatever ships alongside 10.8.0.
       - dependency-name: "@abp/*"
         update-types: ["version-update:semver-minor", "version-update:semver-major"]
 
