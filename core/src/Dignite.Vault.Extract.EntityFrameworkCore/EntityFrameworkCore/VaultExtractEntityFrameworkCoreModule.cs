@@ -13,7 +13,7 @@ namespace Dignite.Vault.Extract.EntityFrameworkCore;
     typeof(AbpEntityFrameworkCoreModule),
     // Field architecture v3 (#558): the relational index/query base classes DocumentFlexFieldIndexManager
     // and DocumentFlexFieldQueryExecutor derive from.
-    typeof(Abp.FlexFields.EntityFrameworkCore.FlexFieldsEntityFrameworkCoreModule)
+    typeof(Abp.FlexFields.EntityFrameworkCore.AbpFlexFieldsEntityFrameworkCoreModule)
 )]
 public class VaultExtractEntityFrameworkCoreModule : AbpModule
 {
