@@ -1,7 +1,6 @@
 {
   "compileOnSave": false,
   "compilerOptions": {
-    "baseUrl": ".",
     "outDir": "./dist/out-tsc",
     "sourceMap": true,
     "declaration": false,
@@ -16,9 +15,9 @@
     "useDefineForClassFields": false,
     "strict": true,
     "paths": {
-      "@dignite/ng.vault-extract": ["projects/vault-extract/src/public-api.ts"],
-      "@dignite/ng.vault-extract/documents": ["projects/vault-extract/documents/src/public-api.ts"],
-      "@dignite/ng.vault-extract/config": ["projects/vault-extract/config/src/public-api.ts"]
+      "@dignite/ng.vault-extract": ["./projects/vault-extract/src/public-api.ts"],
+      "@dignite/ng.vault-extract/documents": ["./projects/vault-extract/documents/src/public-api.ts"],
+      "@dignite/ng.vault-extract/config": ["./projects/vault-extract/config/src/public-api.ts"]
     }
   },
   "angularCompilerOptions": {

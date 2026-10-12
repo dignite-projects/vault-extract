@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { DynamicLayoutComponent } from '@abp/ng.core';
 import { LoaderBarComponent } from '@abp/ng.theme.shared';
 
@@ -9,6 +9,7 @@ import { LoaderBarComponent } from '@abp/ng.theme.shared';
     <abp-loader-bar />
     <abp-dynamic-layout />
   `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [LoaderBarComponent, DynamicLayoutComponent],
 })
 export class AppComponent {}

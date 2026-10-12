@@ -1,4 +1,4 @@
-import { Component, Input } from '@angular/core';
+import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { CoreModule } from '@abp/ng.core';
 import type { FlexFieldValue } from '@dignite/ng.flex-fields';
@@ -7,6 +7,7 @@ import type { FlexFieldValue } from '@dignite/ng.flex-fields';
 @Component({
   selector: 'lib-tags-view',
   templateUrl: './tags-view.component.html',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, CoreModule],
 })
 export class TagsViewComponent {
