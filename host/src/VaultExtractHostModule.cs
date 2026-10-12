@@ -144,9 +144,9 @@ namespace Dignite.Vault.Extract.Host;
     // these three are what the host does with them: live push over SignalR, then a persistent inbox + the
     // /api/notification-center REST API (Dignite.NotificationCenter).
     typeof(AbpNotificationsSignalRModule),
-    typeof(NotificationCenterApplicationModule),
-    typeof(NotificationCenterHttpApiModule),
-    typeof(NotificationCenterEntityFrameworkCoreModule),
+    typeof(AbpNotificationCenterApplicationModule),
+    typeof(AbpNotificationCenterHttpApiModule),
+    typeof(AbpNotificationCenterEntityFrameworkCoreModule),
 
     // Extract infrastructure modules
     typeof(VaultExtractParseModule),

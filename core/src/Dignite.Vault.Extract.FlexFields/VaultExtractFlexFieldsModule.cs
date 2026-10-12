@@ -15,10 +15,10 @@ namespace Dignite.Vault.Extract.FlexFields;
 /// </para>
 /// </summary>
 [DependsOn(
-    typeof(FlexFieldsAbstractionsModule),
+    typeof(AbpFlexFieldsAbstractionsModule),
     // The CKEditor bolt-on field type, which carries what v2 called LongText. Registered here so the
     // whole set of field types a Vault Extract Field may name resolves from one module.
-    typeof(Dignite.Abp.FlexFields.CKEditor.FlexFieldsCKEditorModule)
+    typeof(Dignite.Abp.FlexFields.CKEditor.AbpFlexFieldsCKEditorModule)
     )]
 public class VaultExtractFlexFieldsModule : AbpModule
 {

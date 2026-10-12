@@ -33,7 +33,7 @@ public class VaultExtractEntityFrameworkCoreTestModule : AbpModule
         // persistence, because that stack has none. This one does, so the migrator stand-in has to go.
         // Unlike the index manager and query executor — implemented in VaultExtractEntityFrameworkCoreModule,
         // which configures after the Application test module and therefore wins — the migrator is the
-        // kernel's open-generic FlexFieldValueMigrator<T>, registered by FlexFieldsDomainModule long before
+        // kernel's open-generic FlexFieldValueMigrator<T>, registered by AbpFlexFieldsDomainModule long before
         // the substitute. Leave it and the substitute wins here: a field rename becomes a silent no-op, the
         // bag keeps the old key, and every value under it turns unreachable.
         context.Services.RemoveAll<IFlexFieldValueMigrator<Document>>();

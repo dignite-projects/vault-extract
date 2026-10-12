@@ -7,13 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-The .NET side moves to ABP Framework 10.7.0 and abp-modules `10.0.0-rc.28`; the Angular side moves with it in a second PR. One EF migration, `Abp107_BackgroundJobsCompletionTime`: ABP 10.6's
+## [0.5.0-preview.16] - 2026-10-12
+
+Both sides move to ABP Framework 10.7.0 and abp-modules `10.0.0-rc.29`, with Angular 22 on the frontend. One EF migration, `Abp107_BackgroundJobsCompletionTime`: ABP 10.6's
 background-jobs change adds a nullable `CompletionTime` column to `AbpBackgroundJobs` and replaces the index
 `IX_AbpBackgroundJobs_IsAbandoned_NextTryTime` with `IX_AbpBackgroundJobs_ApplicationName_CompletionTime_IsAbandoned_NextTryTime`.
 Additive, no data change; `StoreSuccessfulJobs` stays off, so the column is written only by jobs that fail.
 
 ### Changed
 
+- **abp-modules `10.0.0-rc.29`, on both sides.** `Dignite.Abp.FlexFields.*`, `Dignite.Abp.AspNetCore.Mcp`,
+  `Dignite.Abp.Notifications.*` and `Dignite.NotificationCenter.*` move from rc.28 to rc.29, along with
+  `@dignite/ng.flex-fields`, `@dignite/ng.flex-fields-ckeditor` and `@dignite/ng.notification-center` and the
+  published Angular library's dependency pins. FlexFields and Notification Center module references use the new
+  `AbpFlexFields*Module` / `AbpNotificationCenter*Module` class names; namespaces and package names stay the same.
+  `Microsoft.Extensions.FileProviders.Embedded` moves to `10.0.12` to meet the new packages' minimum.
+  The CKEditor dependency moves to v49 with its Angular adapter v12. No additional EF migration.
 - **Breaking - ABP Framework 10.7.0 (was 10.5.0).** Every `Volo.Abp.*` pin in `Directory.Packages.props` moves to
   10.7.0, so the published `Dignite.Vault.Extract.*` packages now depend on `Volo.Abp.* >= 10.7.0`: a consuming host
   must be on ABP 10.7.0 or later. abp-modules `10.0.0-rc.28` requires it (its packages depend on
@@ -47,6 +56,13 @@ Additive, no data change; `StoreSuccessfulJobs` stays off, so the column is writ
   still sweeps the Host and every tenant and does not read the event's tenant. No behaviour change: the "drop the
   sweep on 10.7" note in the handler and in the docs is replaced by this decision, and a test pins that an event
   naming a tenant still reaches every layer.
+
+### Fixed
+
+- Pre-release Angular publishing keeps the `@dignite/ng.flex-fields` and `@dignite/ng.flex-fields-ckeditor`
+  dependencies on npmjs instead of rewriting them to GitHub Packages aliases. Those aliases no longer resolve
+  for the new abp-modules releases. The published Vault Extract preview package itself still uses the
+  `@dignite-projects/ng.vault-extract` name on GitHub Packages.
 
 ## [0.5.0-preview.15] - 2026-10-10
 

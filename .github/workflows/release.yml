@@ -157,9 +157,7 @@ jobs:
       - name: Upgrade npm for trusted publishing
         run: npm install -g npm@^11.5.1
 
-      # angular/.npmrc routes @dignite-projects:* to GitHub Packages and reads the credential from
-      # GITHUB_PACKAGES_TOKEN. Cross-repo access, so the default job token is not enough - same real
-      # PAT the CI workflow uses. Without this the install fails E401 on @dignite-projects/ng.flex-fields.
+      # Angular dependencies, including the @dignite/* FlexFields packages, resolve from npmjs.
       - name: Install Angular dependencies
         run: npm ci
         working-directory: angular
@@ -172,8 +170,8 @@ jobs:
 
       # Pack the built library into a versioned .tgz next to the .nupkg files in ./artifacts, so a
       # single release run always emits both backend (NuGet) and frontend (npm) packages. Pre-release
-      # UI libs are not published to any npm registry (see the stable-only publish step below); this
-      # tarball is the artifact downstream verticals pin as a `file:` dependency.
+      # UI libs also publish to GitHub Packages below; this tarball retains the public @dignite/*
+      # name for downstream consumers that pin it as a `file:` dependency.
       - name: Pack npm tarball
         run: npm pack ./dist/vault-extract --pack-destination ../artifacts
         working-directory: angular
@@ -191,17 +189,8 @@ jobs:
       # scope belongs to npmjs (stable releases, below). The rename happens in a scratch copy of the
       # packed tarball so the working tree and the npmjs artifact keep the public name.
       #
-      # Every @dignite/* dependency needs the same scope swap: the packed package.json names
-      # "@dignite/ng.flex-fields", which only exists on npmjs once flex-fields ships a stable
-      # release - today only @dignite-projects/* does. Rewritten to the npm alias form rather than a
-      # plain key rename, so the dependency still installs under the name the compiled bundle's bare
-      # specifiers import while resolving from @dignite-projects. angular/package.json uses the same
-      # alias for this workspace's own build. Mirrors site's release workflow, which solved this first.
-      #
-      # An entry the library's package.json ALREADY writes in alias form (it does whenever flex-fields
-      # is consumed from GitHub Packages, as since rc.16) is left alone. Prefixing it again produced
-      # "npm:@dignite-projects/x@npm:@dignite-projects/x@<version>", which npm refuses to parse
-      # ("nested aliases not supported") - the state 0.5.0-preview.5 through .7 were published in.
+      # Dependencies retain their @dignite/* names and npmjs versions: FlexFields rc.28+ resolves
+      # there, and rewriting it to @dignite-projects/* would leave consumers with missing packages.
       - name: Publish pre-release Angular package to GitHub Packages
         if: steps.channel.outputs.channel == 'preview'
         run: |
@@ -211,18 +200,6 @@ jobs:
           workdir=$(mktemp -d)
           tar -xzf "$tarball" -C "$workdir"
           npm pkg set name="@dignite-projects/ng.vault-extract" --prefix "$workdir/package"
-          PKG_DIR="$workdir/package" node -e '
-            const fs = require("fs");
-            const path = require("path");
-            const pkgPath = path.join(process.env.PKG_DIR, "package.json");
-            const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
-            for (const [name, range] of Object.entries(pkg.dependencies || {})) {
-              if (name.startsWith("@dignite/") && !range.startsWith("npm:")) {
-                pkg.dependencies[name] = `npm:@dignite-projects/${name.slice("@dignite/".length)}@${range}`;
-              }
-            }
-            fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-          '
           # npm publish has no --skip-duplicate equivalent (unlike the dotnet nuget push calls
           # above); re-dispatching at an unchanged pre-release version is expected and should not
           # fail the run, so treat "already published" as a soft skip and let anything else fail.
@@ -251,10 +228,7 @@ jobs:
             fi
           fi
         working-directory: angular
-        # angular/.npmrc's ${GITHUB_PACKAGES_TOKEN} placeholder must resolve, and a project-level
-        # .npmrc outranks the user-level file this step appends to above. Without this the placeholder
-        # resolves to the earlier step's read-only PACKAGES_READ_TOKEN and shadows the write-scoped
-        # token written above - an E401 on this push despite the echo lines looking correct.
+        # Use the write-scoped job token for the GitHub Packages publish.
         env:
           GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
