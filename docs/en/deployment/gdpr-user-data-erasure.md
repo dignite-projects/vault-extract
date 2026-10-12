@@ -19,9 +19,9 @@ Not handled here, because it belongs to other modules: the notification inbox (D
 
 The handler subscribes to `GdprUserDataDeletionRequestedEto` from the `Volo.Abp.Gdpr.Abstractions` package. **That event is published by ABP's GDPR module, which is a commercial module (ABP Team license or higher).** Vault Extract does not ship it, so on a host without that module nothing ever publishes the event and the handler stays idle. Hosts that run the module need no configuration.
 
-The event carries only the user's id. Vault Extract sweeps the Host and every tenant, inactive tenants included, because one account can be a member of several tenants. Each layer is erased in its own unit of work. Documents in the recycle bin are erased too.
+The event names the user and, from ABP 10.7 on, the tenant the deletion was requested in. Vault Extract still sweeps the Host and every tenant, inactive tenants included: the tenant on the event is where the request was made, not where the user's documents are, and one account can be a member of several tenants. Each layer is erased in its own unit of work. Documents in the recycle bin are erased too.
 
-> The tenant sweep can be dropped once ABP carries the tenant on the event. ABP's 10.7.0-rc.2 Pro release entry ([PR 22698](https://abp.io/pro-releases/pr/22698)) says published events now do; confirm that against the final package before removing it. Until then the cost is one extra statement per tenant.
+The cost of the sweep is one `UPDATE` per tenant, matching no rows in the layers where the user uploaded nothing. The ABP 10.7 behaviour was checked against the released packages: `GdprUserDataDeletionRequestedEto` carries a `TenantId`, the GDPR module's publisher sets it to the tenant of the request, and the event bus runs the handler inside that tenant when it is set. The handler does not read it.
 
 ## Delivery and failure
 

@@ -68,7 +68,7 @@ public class GdprUserDataDeletionEventHandler_Tests : VaultExtractApplicationTes
     private static TenantConfiguration Tenant(Guid id, bool active = true) =>
         new(id, $"tenant-{id.ToString()[..4]}") { IsActive = active };
 
-    private static GdprUserDataDeletionRequestedEto EventFor(Guid userId) => new() { UserId = userId };
+    private static GdprUserDataDeletionRequestedEto EventFor(Guid userId, Guid? tenantId = null) => new() { UserId = userId, TenantId = tenantId };
 
     /// <summary>
     /// Delivers the event the way the bus does: the handler is resolved from a scope of its own.
@@ -179,8 +179,9 @@ public class GdprUserDataDeletionEventHandler_Tests : VaultExtractApplicationTes
     [Fact]
     public async Task The_host_is_handled_in_the_host_even_when_the_event_arrives_under_a_tenant()
     {
-        // The handler runs under whatever tenant is ambient when the event is delivered. The Host layer must still
-        // switch to the Host explicitly, or it would erase the ambient tenant's rows a second time and never the Host's.
+        // The handler runs under whatever tenant is ambient when the event is delivered (on ABP 10.7 the bus itself
+        // enters the event's tenant). The Host layer must still switch to the Host explicitly, or it would erase the
+        // ambient tenant's rows a second time and never the Host's.
         HaveTenants(Tenant(TenantA));
 
         using (_currentTenant.Change(TenantB))
@@ -199,6 +200,20 @@ public class GdprUserDataDeletionEventHandler_Tests : VaultExtractApplicationTes
         await GetRequiredService<IDistributedEventBus>().PublishAsync(EventFor(User));
 
         _calls.ShouldContain(call => call.Tenant == null && call.User == User);
+    }
+
+    [Fact]
+    public async Task The_tenant_on_the_event_does_not_narrow_the_walk()
+    {
+        // ABP 10.7 puts the tenant the deletion was requested in on the event, and the bus enters that tenant before
+        // calling the handler. A shared account's documents can sit in any layer, so that tenant is where the request
+        // came from, not where the documents are: the Host and every tenant are still visited, each under its own
+        // tenant, in the usual order and none of them twice.
+        HaveTenants(Tenant(TenantA), Tenant(TenantB));
+
+        await GetRequiredService<IDistributedEventBus>().PublishAsync(EventFor(User, tenantId: TenantB));
+
+        _calls.Select(call => call.Tenant).ShouldBe(new Guid?[] { null, TenantA, TenantB });
     }
 
     private sealed class RecordingLogger<T> : ILogger<T>

@@ -40,6 +40,13 @@ Additive, no data change; `StoreSuccessfulJobs` stays off, so the column is writ
   npmjs.org under their `@dignite/*` names: the `npm:@dignite-projects/...` alias and the GitHub Packages registry
   lines in `angular/.npmrc` are gone (the `@dignite-projects` names no longer resolve there).
 - `.github/dependabot.yml` now holds `Volo.Abp.*` at the 10.7 line, `Volo.Abp.Studio.Client.AspNetCore` below 3.1.5, and `@angular/*` at the 22 line.
+- **GDPR erasure keeps its tenant sweep on ABP 10.7 (#698).** ABP 10.7's `GdprUserDataDeletionRequestedEto` carries a
+  `TenantId`; the GDPR module's publisher sets it to the tenant the deletion was requested in, and the event bus runs
+  the handler inside that tenant when it is set. That names the layer the request came from, not every layer the
+  user's documents can sit in (one account can be a member of several tenants), so `GdprUserDataDeletionEventHandler`
+  still sweeps the Host and every tenant and does not read the event's tenant. No behaviour change: the "drop the
+  sweep on 10.7" note in the handler and in the docs is replaced by this decision, and a test pins that an event
+  naming a tenant still reaches every layer.
 
 ## [0.5.0-preview.15] - 2026-10-10
 
