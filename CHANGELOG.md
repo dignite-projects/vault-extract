@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-The .NET side moves to ABP Framework 10.7.0 and abp-modules `10.0.0-rc.28`; the Angular side follows in a separate change. One EF migration, `Abp107_BackgroundJobsCompletionTime`: ABP 10.6's
+The .NET side moves to ABP Framework 10.7.0 and abp-modules `10.0.0-rc.28`; the Angular side moves with it in a second PR. One EF migration, `Abp107_BackgroundJobsCompletionTime`: ABP 10.6's
 background-jobs change adds a nullable `CompletionTime` column to `AbpBackgroundJobs` and replaces the index
 `IX_AbpBackgroundJobs_IsAbandoned_NextTryTime` with `IX_AbpBackgroundJobs_ApplicationName_CompletionTime_IsAbandoned_NextTryTime`.
 Additive, no data change; `StoreSuccessfulJobs` stays off, so the column is written only by jobs that fail.
@@ -23,10 +23,23 @@ Additive, no data change; `StoreSuccessfulJobs` stays off, so the column is writ
 - **abp-modules `10.0.0-rc.28`, .NET side.** `Dignite.Abp.FlexFields.*`, `Dignite.Abp.AspNetCore.Mcp`,
   `Dignite.Abp.Notifications.*` and `Dignite.NotificationCenter.*` move from rc.25 to rc.28. rc.28 renames the
   file-storing module to `Dignite.Abp.BlobStoring.Pipeline` / `.Imaging` (contributors for ABP 10.7's BLOB content
-  pipeline); Vault Extract uses neither the old nor the new packages and keeps `Volo.Abp.BlobStoring` as is. The
-  Angular pins (`@dignite/ng.*`) stay on rc.25 until the Angular 22 / `@abp/ng.*` 10.7 upgrade, which rc.28's Angular
-  packages require.
-- `.github/dependabot.yml` now holds `Volo.Abp.*` at the 10.7 line and `Volo.Abp.Studio.Client.AspNetCore` below 3.1.5.
+  pipeline); Vault Extract uses neither the old nor the new packages and keeps `Volo.Abp.BlobStoring` as is.
+- **Breaking - Angular 22, `@abp/ng.*` 10.7.0, TypeScript 6 (was Angular 21, 10.5.0, TypeScript 5.9).** The workspace
+  follows ABP 10.7.0's Angular template: `@angular/*` 22.2, `@angular/cli` / `@angular/build` 22.2, `ng-packagr` 22.2,
+  `typescript` 6.0.3, `@abp/ng.*` `~10.7.0`, `@abp/ng.theme.lepton-x` `~5.7.0`, `angular-eslint` 22. The published
+  `@dignite/ng.vault-extract` now peers on `@angular/* ^22.0.0` and depends on `@abp/ng.* ~10.7.0`: a consuming
+  Angular host must be on Angular 22 and ABP 10.7. Angular's v22 migrations were applied and then trimmed: the six components that declared no change-detection
+  strategy now declare `OnPush` like the other fourteen (the migration inserts `ChangeDetectionStrategy.Eager`,
+  which the workspace's `prefer-on-push-component-change-detection` lint rule rejects; their templates hold only
+  reactive-form bindings and plain inputs), and the `$safeNavigationMigration()` wrappers and the
+  extended-diagnostics suppression the migration adds were dropped, since the build needs neither. TypeScript 6
+  deprecates `baseUrl`, so `tsconfig.base.json` drops it and its `paths` are relative to the file. `legacy-peer-deps` stays: `@abp/ng.theme.shared` 10.7 still
+  depends on `ngx-datatable` 22 and `ng-bootstrap` 20, whose peer ranges stop before Angular 22.
+- **abp-modules `10.0.0-rc.28`, Angular side.** `@dignite/ng.flex-fields`, `@dignite/ng.flex-fields-ckeditor` and
+  `@dignite/ng.notification-center` move from rc.25 to rc.28, and the two flex-fields packages are now installed from
+  npmjs.org under their `@dignite/*` names: the `npm:@dignite-projects/...` alias and the GitHub Packages registry
+  lines in `angular/.npmrc` are gone (the `@dignite-projects` names no longer resolve there).
+- `.github/dependabot.yml` now holds `Volo.Abp.*` at the 10.7 line, `Volo.Abp.Studio.Client.AspNetCore` below 3.1.5, and `@angular/*` at the 22 line.
 
 ## [0.5.0-preview.15] - 2026-10-10
 

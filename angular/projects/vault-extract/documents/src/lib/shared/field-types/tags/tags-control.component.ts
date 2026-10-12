@@ -1,4 +1,4 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnInit, inject, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { AbstractControl, FormControl, ReactiveFormsModule, ValidationErrors, ValidatorFn, Validators } from '@angular/forms';
 import { NzSelectModule } from 'ng-zorro-antd/select';
@@ -20,6 +20,7 @@ import { TagsConfiguration } from './tags-configuration';
   selector: 'lib-tags-control',
   templateUrl: './tags-control.component.html',
   styleUrls: ['./tags-control.component.scss'],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, ReactiveFormsModule, NzSelectModule],
 })
 export class TagsControlComponent extends FieldTypeControlBase implements OnInit {

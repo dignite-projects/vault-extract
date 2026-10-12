@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { CoreModule } from '@abp/ng.core';
 import { ReactiveFormsModule } from '@angular/forms';
 import { FieldTypeConfigBase } from '@dignite/ng.flex-fields';
@@ -8,6 +8,7 @@ import { TagsConfiguration } from './tags-configuration';
 @Component({
   selector: 'lib-tags-config',
   templateUrl: './tags-config.component.html',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CoreModule, ReactiveFormsModule],
 })
 export class TagsConfigComponent extends FieldTypeConfigBase {
