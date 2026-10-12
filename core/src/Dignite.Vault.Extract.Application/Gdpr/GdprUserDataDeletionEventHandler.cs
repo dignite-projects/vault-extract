@@ -24,12 +24,15 @@ namespace Dignite.Vault.Extract.Gdpr;
 /// the publisher to the host.
 /// </para>
 /// <para>
-/// <b>It walks the Host and every tenant.</b> The event carries only a user id, and the handler runs under whatever
-/// tenant happens to be ambient, but one account can be a member of every tenant (the Pro edition shares users
-/// across tenants), so its documents can sit in any layer. Each layer gets its own unit of work, and so its own
-/// DbContext. <b>Remove the walk once ABP carries the tenant on the event</b> (the Pro 10.7.0-rc.2 release entry,
-/// PR 22698, says published events now do; confirm against the final package first) - it is all in
-/// <see cref="GetLayersAsync"/>.
+/// <b>It walks the Host and every tenant, and does not read the tenant on the event.</b> Since ABP 10.7 the event
+/// carries a <c>TenantId</c> (<c>IEventDataMayHaveTenantId</c>): the GDPR module's publisher sets it to the tenant
+/// the deletion was requested in (<c>GdprRequestAppService.DeleteUserDataAsync</c>, <c>TenantId = CurrentTenant.Id</c>),
+/// and the event bus runs this handler inside that tenant when it is set; when it is null (a Host user) the bus
+/// treats the event as tenant-less and leaves the ambient tenant as it is. That names one layer, the one the request
+/// came from. One account can be a member of every tenant (the Pro edition shares users across tenants), so its
+/// documents can sit in any layer, and the event cannot say which. So the walk stays (#698, decision 3): each layer
+/// gets its own unit of work, and so its own DbContext, and the explicit tenant switch overrides whatever the bus
+/// set. Narrowing the walk to the event's tenant would leave the name in every other layer.
 /// </para>
 /// <para>
 /// <b>A failing layer is logged and skipped, not thrown.</b> The event bus retries a failed event as a whole, so a
@@ -96,8 +99,8 @@ public class GdprUserDataDeletionEventHandler
 
     /// <summary>
     /// Every layer a user's documents can be in: the Host (<c>null</c>) and each tenant, inactive ones included - a
-    /// disabled tenant's documents still carry the name. This is the walk to delete when ABP puts the tenant on the
-    /// event.
+    /// disabled tenant's documents still carry the name. The tenant on the event is deliberately not used to shorten
+    /// this list; see the class remarks.
     /// </summary>
     protected virtual async Task<IReadOnlyList<Guid?>> GetLayersAsync()
     {
