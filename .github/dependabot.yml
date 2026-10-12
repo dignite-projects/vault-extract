@@ -26,16 +26,16 @@ updates:
         patterns:
           - "*"
     ignore:
-      # Pinned to ABP Framework 10.5.0 - do not bump Volo.Abp.* to 10.6.0+.
+      # Pinned to ABP Framework 10.7.0 - do not bump Volo.Abp.* to 10.8.0+.
       - dependency-name: "Volo.Abp.*"
         update-types: ["version-update:semver-minor", "version-update:semver-major"]
       # Its own version line (2.x/3.x) is decoupled from the ABP core version it requires:
-      # Volo.Abp.Studio.Client.AspNetCore 3.0.7/3.0.8 depend on Volo.Abp.AspNetCore 10.5.0, but
-      # 3.0.9+ silently require 10.6.0 - dependabot classifies e.g. 3.0.7->3.0.10 as a same-line
-      # patch update, so the semver-based ignore above doesn't catch it (confirmed in abp-modules).
+      # Volo.Abp.Studio.Client.AspNetCore 3.1.4 requires Volo.Abp.AspNetCore >= 10.6.1 (fine on 10.7.0),
+      # but a later 3.1.x may silently require a newer ABP - dependabot classifies e.g. 3.1.4->3.1.6 as a
+      # same-line patch update, so the semver-based ignore above doesn't catch it (confirmed in abp-modules).
       - dependency-name: "Volo.Abp.Studio.Client.AspNetCore"
-        versions: [">= 3.0.9"]
-      # Volo.Abp.Swashbuckle 10.5.0 pulls in Swashbuckle.AspNetCore, whose Swashbuckle.AspNetCore.Swagger
+        versions: [">= 3.1.5"]
+      # Volo.Abp.Swashbuckle 10.7.0 pulls in Swashbuckle.AspNetCore, whose Swashbuckle.AspNetCore.Swagger
       # sub-package is compiled against Microsoft.OpenApi 2.x (floor 2.3.0). 3.x is a breaking rewrite
       # Swashbuckle hasn't picked up yet, so a 3.x bump would resolve fine on paper but break Swagger
       # generation at runtime (confirmed in abp-modules).

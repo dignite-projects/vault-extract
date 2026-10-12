@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The .NET side moves to ABP Framework 10.7.0 and abp-modules `10.0.0-rc.28`; the Angular side follows in a separate change. One EF migration, `Abp107_BackgroundJobsCompletionTime`: ABP 10.6's
+background-jobs change adds a nullable `CompletionTime` column to `AbpBackgroundJobs` and replaces the index
+`IX_AbpBackgroundJobs_IsAbandoned_NextTryTime` with `IX_AbpBackgroundJobs_ApplicationName_CompletionTime_IsAbandoned_NextTryTime`.
+Additive, no data change; `StoreSuccessfulJobs` stays off, so the column is written only by jobs that fail.
+
+### Changed
+
+- **Breaking - ABP Framework 10.7.0 (was 10.5.0).** Every `Volo.Abp.*` pin in `Directory.Packages.props` moves to
+  10.7.0, so the published `Dignite.Vault.Extract.*` packages now depend on `Volo.Abp.* >= 10.7.0`: a consuming host
+  must be on ABP 10.7.0 or later. abp-modules `10.0.0-rc.28` requires it (its packages depend on
+  `Volo.Abp.* >= 10.7.0`). `Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite` 5.5.0 -> 5.7.0 and
+  `Volo.Abp.Studio.Client.AspNetCore` 2.2.7 -> 3.1.4 (host only, never published) move with it. No source change was
+  needed to compile against 10.7.0.
+- **abp-modules `10.0.0-rc.28`, .NET side.** `Dignite.Abp.FlexFields.*`, `Dignite.Abp.AspNetCore.Mcp`,
+  `Dignite.Abp.Notifications.*` and `Dignite.NotificationCenter.*` move from rc.25 to rc.28. rc.28 renames the
+  file-storing module to `Dignite.Abp.BlobStoring.Pipeline` / `.Imaging` (contributors for ABP 10.7's BLOB content
+  pipeline); Vault Extract uses neither the old nor the new packages and keeps `Volo.Abp.BlobStoring` as is. The
+  Angular pins (`@dignite/ng.*`) stay on rc.25 until the Angular 22 / `@abp/ng.*` 10.7 upgrade, which rc.28's Angular
+  packages require.
+- `.github/dependabot.yml` now holds `Volo.Abp.*` at the 10.7 line and `Volo.Abp.Studio.Client.AspNetCore` below 3.1.5.
+
 ## [0.5.0-preview.15] - 2026-10-10
 
 The abp-modules libraries move to `10.0.0-rc.25` (File Explorer removed upstream; Vault Extract never used it). No EF migration.

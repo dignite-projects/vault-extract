@@ -11,57 +11,57 @@
     </ItemGroup>
 
     <ItemGroup Label="ABP Framework">
-        <PackageVersion Include="Volo.Abp.Core" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.Authorization" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.Autofac" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.Features" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.Guids" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.Validation" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.VirtualFileSystem" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.EventBus.Abstractions" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.Gdpr.Abstractions" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.Http.Client" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.Mapperly" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.Ddd.Domain.Shared" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.Ddd.Domain" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.Ddd.Application.Contracts" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.Ddd.Application" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.EntityFrameworkCore" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.EntityFrameworkCore.SqlServer" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.EntityFrameworkCore.Sqlite" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.BackgroundJobs" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.BackgroundJobs.EntityFrameworkCore" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.BlobStoring" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.BlobStoring.FileSystem" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.Auditing" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.AuditLogging.EntityFrameworkCore" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.AspNetCore.Mvc" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.AspNetCore.Serilog" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.Swashbuckle" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.Account.Application" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.Account.HttpApi" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.Account.Web.OpenIddict" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.Identity.Application" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.Identity.EntityFrameworkCore" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.Identity.HttpApi" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.OpenIddict.EntityFrameworkCore" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.PermissionManagement.Application" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.PermissionManagement.Domain.Identity" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.PermissionManagement.Domain.OpenIddict" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.PermissionManagement.EntityFrameworkCore" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.PermissionManagement.HttpApi" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.PermissionManagement.Web" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.FeatureManagement.Application" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.FeatureManagement.EntityFrameworkCore" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.FeatureManagement.HttpApi" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.SettingManagement.Application" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.SettingManagement.EntityFrameworkCore" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.SettingManagement.HttpApi" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.TenantManagement.Application" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.TenantManagement.EntityFrameworkCore" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.TenantManagement.HttpApi" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.TestBase" Version="10.5.0" />
-        <PackageVersion Include="Volo.Abp.AspNetCore.TestBase" Version="10.5.0" />
+        <PackageVersion Include="Volo.Abp.Core" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.Authorization" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.Autofac" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.Features" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.Guids" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.Validation" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.VirtualFileSystem" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.EventBus.Abstractions" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.Gdpr.Abstractions" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.Http.Client" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.Mapperly" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.Ddd.Domain.Shared" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.Ddd.Domain" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.Ddd.Application.Contracts" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.Ddd.Application" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.EntityFrameworkCore" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.EntityFrameworkCore.SqlServer" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.EntityFrameworkCore.Sqlite" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.BackgroundJobs" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.BackgroundJobs.EntityFrameworkCore" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.BlobStoring" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.BlobStoring.FileSystem" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.Auditing" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.AuditLogging.EntityFrameworkCore" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.AspNetCore.Mvc" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.AspNetCore.Serilog" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.Swashbuckle" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.Account.Application" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.Account.HttpApi" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.Account.Web.OpenIddict" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.Identity.Application" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.Identity.EntityFrameworkCore" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.Identity.HttpApi" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.OpenIddict.EntityFrameworkCore" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.PermissionManagement.Application" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.PermissionManagement.Domain.Identity" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.PermissionManagement.Domain.OpenIddict" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.PermissionManagement.EntityFrameworkCore" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.PermissionManagement.HttpApi" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.PermissionManagement.Web" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.FeatureManagement.Application" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.FeatureManagement.EntityFrameworkCore" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.FeatureManagement.HttpApi" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.SettingManagement.Application" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.SettingManagement.EntityFrameworkCore" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.SettingManagement.HttpApi" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.TenantManagement.Application" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.TenantManagement.EntityFrameworkCore" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.TenantManagement.HttpApi" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.TestBase" Version="10.7.0" />
+        <PackageVersion Include="Volo.Abp.AspNetCore.TestBase" Version="10.7.0" />
     </ItemGroup>
 
     <!-- Dignite.Abp.FlexFields: the runtime-defined-field constraint kernel field architecture v3 is
@@ -73,21 +73,21 @@
          They drifted 6 rc's apart (rc.5 here against rc.11 there) with no build ever catching it before
          this note was added. -->
     <ItemGroup Label="FlexFields">
-        <PackageVersion Include="Dignite.Abp.FlexFields.Abstractions" Version="10.0.0-rc.25" />
-        <PackageVersion Include="Dignite.Abp.FlexFields.Domain" Version="10.0.0-rc.25" />
-        <PackageVersion Include="Dignite.Abp.FlexFields.EntityFrameworkCore" Version="10.0.0-rc.25" />
+        <PackageVersion Include="Dignite.Abp.FlexFields.Abstractions" Version="10.0.0-rc.28" />
+        <PackageVersion Include="Dignite.Abp.FlexFields.Domain" Version="10.0.0-rc.28" />
+        <PackageVersion Include="Dignite.Abp.FlexFields.EntityFrameworkCore" Version="10.0.0-rc.28" />
         <!-- Serves FieldDataType.LongText in v3: CKEditorFieldType.IndexValueType is null, so
              "never indexed, never queryable" stays a structural guarantee, and ContentFormat=Markdown
              persists the value as a plain GFM string (#559 resolution 1). -->
-        <PackageVersion Include="Dignite.Abp.FlexFields.CKEditor" Version="10.0.0-rc.25" />
+        <PackageVersion Include="Dignite.Abp.FlexFields.CKEditor" Version="10.0.0-rc.28" />
     </ItemGroup>
 
     <ItemGroup Label="LeptonX">
-        <PackageVersion Include="Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite" Version="5.5.0" />
+        <PackageVersion Include="Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite" Version="5.7.0" />
     </ItemGroup>
 
     <ItemGroup Label="ABP Studio">
-        <PackageVersion Include="Volo.Abp.Studio.Client.AspNetCore" Version="2.2.7" />
+        <PackageVersion Include="Volo.Abp.Studio.Client.AspNetCore" Version="3.1.4" />
     </ItemGroup>
 
     <ItemGroup Label="AI">
@@ -104,7 +104,7 @@
         <!-- The shared MCP server (transport, /mcp, permission filtering, error envelope, namespaces) that
              Dignite.Vault.Extract.Mcp contributes its tools to. Released with abp-modules in lockstep, so
              it moves with the Dignite.Abp.FlexFields.* pins above. -->
-        <PackageVersion Include="Dignite.Abp.AspNetCore.Mcp" Version="10.0.0-rc.25" />
+        <PackageVersion Include="Dignite.Abp.AspNetCore.Mcp" Version="10.0.0-rc.28" />
     </ItemGroup>
 
     <ItemGroup Label="Notifications">
@@ -112,11 +112,11 @@
              abp-modules (no GitHub Packages source needed). The NuGet packages and the npm package
              @dignite/ng.notification-center always share one version - keep this equal to
              angular/package.json's pin. -->
-        <PackageVersion Include="Dignite.Abp.Notifications.Abstractions" Version="10.0.0-rc.25" />
-        <PackageVersion Include="Dignite.Abp.Notifications.SignalR" Version="10.0.0-rc.25" />
-        <PackageVersion Include="Dignite.NotificationCenter.Application" Version="10.0.0-rc.25" />
-        <PackageVersion Include="Dignite.NotificationCenter.HttpApi" Version="10.0.0-rc.25" />
-        <PackageVersion Include="Dignite.NotificationCenter.EntityFrameworkCore" Version="10.0.0-rc.25" />
+        <PackageVersion Include="Dignite.Abp.Notifications.Abstractions" Version="10.0.0-rc.28" />
+        <PackageVersion Include="Dignite.Abp.Notifications.SignalR" Version="10.0.0-rc.28" />
+        <PackageVersion Include="Dignite.NotificationCenter.Application" Version="10.0.0-rc.28" />
+        <PackageVersion Include="Dignite.NotificationCenter.HttpApi" Version="10.0.0-rc.28" />
+        <PackageVersion Include="Dignite.NotificationCenter.EntityFrameworkCore" Version="10.0.0-rc.28" />
     </ItemGroup>
 
     <ItemGroup Label="OpenTelemetry">
