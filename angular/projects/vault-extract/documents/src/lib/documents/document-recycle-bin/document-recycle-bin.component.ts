@@ -73,7 +73,7 @@ export class DocumentRecycleBinComponent implements OnInit {
       EntityProp.create<DocumentListItemDto>({
         type: ePropType.String,
         name: 'fileName',
-        displayName: '::Document:FileName',
+        displayName: 'VaultExtract::Document:FileName',
         sortable: false,
         columnWidth: 340,
         valueResolver: data => {
@@ -90,7 +90,7 @@ export class DocumentRecycleBinComponent implements OnInit {
       EntityProp.create<DocumentListItemDto>({
         type: ePropType.String,
         name: 'documentTypeCode',
-        displayName: '::Document:Type',
+        displayName: 'VaultExtract::Document:Type',
         sortable: false,
         columnWidth: 180,
         valueResolver: data => {
@@ -103,7 +103,7 @@ export class DocumentRecycleBinComponent implements OnInit {
       EntityProp.create<DocumentListItemDto>({
         type: ePropType.String,
         name: 'fileSize',
-        displayName: '::Document:Size',
+        displayName: 'VaultExtract::Document:Size',
         sortable: false,
         columnWidth: 140,
         valueResolver: data =>
@@ -112,7 +112,7 @@ export class DocumentRecycleBinComponent implements OnInit {
       EntityProp.create<DocumentListItemDto>({
         type: ePropType.String,
         name: 'deletionTime',
-        displayName: '::Document:DeletedAt',
+        displayName: 'VaultExtract::Document:DeletedAt',
         sortable: false,
         columnWidth: 180,
         valueResolver: data =>
@@ -173,7 +173,7 @@ export class DocumentRecycleBinComponent implements OnInit {
 
   restore(doc: DocumentListItemDto): void {
     this.confirmation
-      .warn('::Document:AreYouSureToRestore', '::AreYouSure')
+      .warn('VaultExtract::Document:AreYouSureToRestore', 'VaultExtract::AreYouSure')
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(status => {
         if (status !== Confirmation.Status.confirm) return;
@@ -181,19 +181,19 @@ export class DocumentRecycleBinComponent implements OnInit {
           .pipe(takeUntilDestroyed(this.destroyRef))
           .subscribe({
             next: () => {
-              this.toaster.success('::Document:RestoredSuccessfully', '::Success');
+              this.toaster.success('VaultExtract::Document:RestoredSuccessfully', 'VaultExtract::Success');
               this.clearSelection();
               this.list.getWithoutPageReset();
             },
-            error: () => this.toaster.error('::Document:RestoreFailed', '::Error'),
+            error: () => this.toaster.error('VaultExtract::Document:RestoreFailed', 'VaultExtract::Error'),
           });
       });
   }
 
   permanentDelete(doc: DocumentListItemDto): void {
     this.confirmation
-      .warn('::Document:AreYouSureToPermanentlyDelete', '::AreYouSure', {
-        yesText: '::Document:PermanentDelete',
+      .warn('VaultExtract::Document:AreYouSureToPermanentlyDelete', 'VaultExtract::AreYouSure', {
+        yesText: 'VaultExtract::Document:PermanentDelete',
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(status => {
@@ -202,11 +202,11 @@ export class DocumentRecycleBinComponent implements OnInit {
           .pipe(takeUntilDestroyed(this.destroyRef))
           .subscribe({
             next: () => {
-              this.toaster.success('::Document:PermanentlyDeletedSuccessfully', '::Success');
+              this.toaster.success('VaultExtract::Document:PermanentlyDeletedSuccessfully', 'VaultExtract::Success');
               this.clearSelection();
               this.list.getWithoutPageReset();
             },
-            error: () => this.toaster.error('::Document:PermanentDeleteFailed', '::Error'),
+            error: () => this.toaster.error('VaultExtract::Document:PermanentDeleteFailed', 'VaultExtract::Error'),
           });
       });
   }
@@ -219,8 +219,8 @@ export class DocumentRecycleBinComponent implements OnInit {
     if (selected.length === 0 || this.isBulkDeleting()) return;
 
     this.confirmation
-      .warn('::Document:Bulk:PermanentDeleteConfirm', '::AreYouSure', {
-        yesText: '::Document:Bulk:PermanentDelete',
+      .warn('VaultExtract::Document:Bulk:PermanentDeleteConfirm', 'VaultExtract::AreYouSure', {
+        yesText: 'VaultExtract::Document:Bulk:PermanentDelete',
         messageLocalizationParams: [String(selected.length)],
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -237,15 +237,15 @@ export class DocumentRecycleBinComponent implements OnInit {
             const succeeded = result.succeeded.length;
             const failed = result.failed.length;
             if (failed === 0) {
-              this.toaster.success('::Document:Bulk:PermanentDeleteSucceeded', '::Success', {
+              this.toaster.success('VaultExtract::Document:Bulk:PermanentDeleteSucceeded', 'VaultExtract::Success', {
                 messageLocalizationParams: [String(succeeded)],
               });
             } else if (succeeded > 0) {
-              this.toaster.warn('::Document:Bulk:PermanentDeletePartial', 'AbpUi::Warning', {
+              this.toaster.warn('VaultExtract::Document:Bulk:PermanentDeletePartial', 'AbpUi::Warning', {
                 messageLocalizationParams: [String(succeeded), String(failed)],
               });
             } else {
-              this.toaster.error('::Document:Bulk:PermanentDeleteFailed', '::Error', {
+              this.toaster.error('VaultExtract::Document:Bulk:PermanentDeleteFailed', 'VaultExtract::Error', {
                 messageLocalizationParams: [String(failed)],
               });
             }

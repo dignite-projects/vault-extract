@@ -3,11 +3,11 @@
   <div class="d-flex align-items-center mb-3 gap-2 flex-wrap">
     <button class="btn btn-outline-secondary btn-sm" (click)="goBack()">
       <i class="fas fa-arrow-left me-1"></i>
-      {{ '::Back' | abpLocalization }}
+      {{ 'VaultExtract::Back' | abpLocalization }}
     </button>
     <h5 class="mb-0 ms-2">
       <i class="fas fa-list-ul me-2"></i>
-      {{ '::FieldDefinition:Title' | abpLocalization }}
+      {{ 'VaultExtract::FieldDefinition:Title' | abpLocalization }}
     </h5>
     <span class="badge bg-info text-dark ms-1" [title]="documentTypeCode()">{{ documentTypeDisplayName() }}</span>
     <div class="ms-auto d-flex gap-2">
@@ -15,7 +15,7 @@
         class="btn btn-outline-secondary"
         (click)="refresh()"
         [disabled]="isLoading()"
-        title="{{ '::Refresh' | abpLocalization }}"
+        title="{{ 'VaultExtract::Refresh' | abpLocalization }}"
       >
         <i class="fas fa-sync-alt" [class.fa-spin]="isLoading()"></i>
       </button>
@@ -26,18 +26,18 @@
         (click)="toggleDeleted()"
       >
         <i class="fas fa-trash-can me-1"></i>
-        {{ '::FieldDefinition:ShowDeleted' | abpLocalization }}
+        {{ 'VaultExtract::FieldDefinition:ShowDeleted' | abpLocalization }}
       </button>
       @if (canReextractFields && !showDeleted()) {
         <button class="btn btn-outline-primary" (click)="openReextractFields()" [disabled]="isLoading() || !documentTypeId">
           <i class="fas fa-wand-magic-sparkles me-1"></i>
-          {{ '::Document:Reprocess:FieldExtraction:Action' | abpLocalization }}
+          {{ 'VaultExtract::Document:Reprocess:FieldExtraction:Action' | abpLocalization }}
         </button>
       }
       @if (canManage && !showDeleted()) {
         <button class="btn btn-primary" (click)="openCreate()">
           <i class="fas fa-plus me-1"></i>
-          {{ '::FieldDefinition:New' | abpLocalization }}
+          {{ 'VaultExtract::FieldDefinition:New' | abpLocalization }}
         </button>
       }
     </div>
@@ -56,7 +56,7 @@
       <div class="card-body text-center py-5">
         <i class="fas fa-list-ul fa-3x text-muted mb-3 d-block"></i>
         <p class="text-muted mb-0">
-          {{ (showDeleted() ? '::FieldDefinition:RecycleBinEmpty' : '::FieldDefinition:Empty') | abpLocalization }}
+          {{ (showDeleted() ? 'VaultExtract::FieldDefinition:RecycleBinEmpty' : 'VaultExtract::FieldDefinition:Empty') | abpLocalization }}
         </p>
       </div>
     </div>
@@ -76,7 +76,7 @@
                 <div ngbDropdownMenu>
                   <button type="button" ngbDropdownItem (click)="restore(field)">
                     <i class="fas fa-rotate-left me-2"></i>
-                    {{ '::FieldDefinition:Restore' | abpLocalization }}
+                    {{ 'VaultExtract::FieldDefinition:Restore' | abpLocalization }}
                   </button>
                 </div>
               </div>
@@ -89,11 +89,11 @@
               <div ngbDropdownMenu>
                 <button type="button" ngbDropdownItem (click)="openEdit(field)">
                   <i class="fas fa-pen me-2"></i>
-                  {{ '::Edit' | abpLocalization }}
+                  {{ 'VaultExtract::Edit' | abpLocalization }}
                 </button>
                 <button type="button" ngbDropdownItem (click)="delete(field)">
                   <i class="fas fa-trash me-2"></i>
-                  {{ '::Delete' | abpLocalization }}
+                  {{ 'VaultExtract::Delete' | abpLocalization }}
                 </button>
               </div>
             </div>
@@ -128,7 +128,7 @@
           <div class="modal-header">
             <h5 class="modal-title">
               <i class="fas fa-list-ul me-2"></i>
-              {{ (mode === 'create' ? '::FieldDefinition:New' : '::FieldDefinition:Edit') | abpLocalization }}
+              {{ (mode === 'create' ? 'VaultExtract::FieldDefinition:New' : 'VaultExtract::FieldDefinition:Edit') | abpLocalization }}
             </h5>
             <button type="button" class="btn-close" (click)="closeModal()"></button>
           </div>
@@ -137,7 +137,7 @@
                  prompt into clean Markdown); #264: draft the remaining metadata FROM the prompt. -->
             <div class="mb-3">
               <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
-                <label class="form-label mb-0">{{ '::FieldDefinition:Prompt' | abpLocalization }}</label>
+                <label class="form-label mb-0">{{ 'VaultExtract::FieldDefinition:Prompt' | abpLocalization }}</label>
                 <!-- #447: Edit / Preview toggle for the Markdown prompt. -->
                 <div class="btn-group btn-group-sm ms-auto" role="group">
                   <button
@@ -147,7 +147,7 @@
                     [class.btn-outline-secondary]="showPromptPreview()"
                     (click)="showPromptPreview.set(false)"
                   >
-                    {{ '::FieldDefinition:Prompt:Edit' | abpLocalization }}
+                    {{ 'VaultExtract::FieldDefinition:Prompt:Edit' | abpLocalization }}
                   </button>
                   <button
                     type="button"
@@ -157,7 +157,7 @@
                     (click)="showPromptPreview.set(true)"
                     [disabled]="!form.controls.description.value.trim()"
                   >
-                    {{ '::FieldDefinition:Prompt:Preview' | abpLocalization }}
+                    {{ 'VaultExtract::FieldDefinition:Prompt:Preview' | abpLocalization }}
                   </button>
                 </div>
                 <!-- #447: AI-polish the prompt text itself. -->
@@ -166,14 +166,14 @@
                   class="btn btn-sm btn-outline-primary"
                   (click)="polish()"
                   [disabled]="!form.controls.description.value.trim() || isPolishing()"
-                  title="{{ '::FieldDefinition:PolishHint' | abpLocalization }}"
+                  title="{{ 'VaultExtract::FieldDefinition:PolishHint' | abpLocalization }}"
                 >
                   @if (isPolishing()) {
                     <span class="spinner-border spinner-border-sm me-1"></span>
                   } @else {
                     <i class="fas fa-wand-magic-sparkles me-1"></i>
                   }
-                  {{ '::FieldDefinition:Polish' | abpLocalization }}
+                  {{ 'VaultExtract::FieldDefinition:Polish' | abpLocalization }}
                 </button>
                 <!-- #264: draft the remaining metadata FROM the prompt. -->
                 <button
@@ -181,14 +181,14 @@
                   class="btn btn-sm btn-outline-primary"
                   (click)="draft()"
                   [disabled]="!form.controls.description.value.trim() || isDrafting()"
-                  title="{{ '::FieldDefinition:DraftHint' | abpLocalization }}"
+                  title="{{ 'VaultExtract::FieldDefinition:DraftHint' | abpLocalization }}"
                 >
                   @if (isDrafting()) {
                     <span class="spinner-border spinner-border-sm me-1"></span>
                   } @else {
                     <i class="fas fa-list-check me-1"></i>
                   }
-                  {{ '::FieldDefinition:DraftFromPrompt' | abpLocalization }}
+                  {{ 'VaultExtract::FieldDefinition:DraftFromPrompt' | abpLocalization }}
                 </button>
               </div>
               @if (showPromptPreview()) {
@@ -198,22 +198,22 @@
                   class="form-control"
                   rows="5"
                   formControlName="description"
-                  placeholder="{{ '::FieldDefinition:PromptHint' | abpLocalization }}"
+                  placeholder="{{ 'VaultExtract::FieldDefinition:PromptHint' | abpLocalization }}"
                 ></textarea>
               }
-              <div class="form-text">{{ '::FieldDefinition:PromptMarkdownHint' | abpLocalization }}</div>
+              <div class="form-text">{{ 'VaultExtract::FieldDefinition:PromptMarkdownHint' | abpLocalization }}</div>
             </div>
 
             @if (justDrafted()) {
               <div class="alert alert-info py-2 px-3 small d-flex align-items-center gap-2" role="alert">
                 <i class="fas fa-circle-info"></i>
-                <span>{{ '::FieldDefinition:DraftReviewNotice' | abpLocalization }}</span>
+                <span>{{ 'VaultExtract::FieldDefinition:DraftReviewNotice' | abpLocalization }}</span>
               </div>
             }
 
             <div class="row g-3">
               <div class="col-md-6">
-                <label class="form-label">{{ '::FieldDefinition:DisplayName' | abpLocalization }}</label>
+                <label class="form-label">{{ 'VaultExtract::FieldDefinition:DisplayName' | abpLocalization }}</label>
                 <input
                   type="text"
                   class="form-control"
@@ -224,11 +224,11 @@
               </div>
               <div class="col-md-6">
                 <label class="form-label d-flex align-items-center gap-2">
-                  <span>{{ '::FieldDefinition:Name' | abpLocalization }}</span>
+                  <span>{{ 'VaultExtract::FieldDefinition:Name' | abpLocalization }}</span>
                   @if (isSuggesting()) {
                     <span class="text-muted small fw-normal">
                       <span class="spinner-border spinner-border-sm me-1" style="width:.75rem;height:.75rem;"></span>
-                      {{ '::FieldDefinition:NameSuggesting' | abpLocalization }}
+                      {{ 'VaultExtract::FieldDefinition:NameSuggesting' | abpLocalization }}
                     </span>
                   }
                 </label>
@@ -239,16 +239,16 @@
                   [class.is-invalid]="form.controls.name.touched && form.controls.name.invalid"
                   placeholder="party_name"
                 />
-                <div class="form-text">{{ '::FieldDefinition:NameHint' | abpLocalization }}</div>
+                <div class="form-text">{{ 'VaultExtract::FieldDefinition:NameHint' | abpLocalization }}</div>
                 @if (form.controls.name.touched && form.controls.name.invalid) {
-                  <div class="invalid-feedback d-block">{{ '::FieldDefinition:NameInvalid' | abpLocalization }}</div>
+                  <div class="invalid-feedback d-block">{{ 'VaultExtract::FieldDefinition:NameInvalid' | abpLocalization }}</div>
                 }
               </div>
             </div>
 
             <div class="row g-3 align-items-start mt-3">
               <div class="col-md-5">
-                <label class="form-label">{{ '::FieldDefinition:FieldType' | abpLocalization }}</label>
+                <label class="form-label">{{ 'VaultExtract::FieldDefinition:FieldType' | abpLocalization }}</label>
                 <select class="form-select" formControlName="fieldTypeName">
                   @for (type of fieldTypes(); track type.name) {
                     <option [value]="type.name">{{ type.displayNameKey | abpLocalization }}</option>
@@ -256,14 +256,14 @@
                 </select>
               </div>
               <div class="col-md-3">
-                <label class="form-label">{{ '::FieldDefinition:DisplayOrder' | abpLocalization }}</label>
+                <label class="form-label">{{ 'VaultExtract::FieldDefinition:DisplayOrder' | abpLocalization }}</label>
                 <input type="number" class="form-control" formControlName="displayOrder" step="1" />
               </div>
               <div class="col-md-4">
                 <div class="form-check mt-2">
                   <input type="checkbox" class="form-check-input" id="isRequired" formControlName="isRequired" />
                   <label class="form-check-label" for="isRequired">
-                    {{ '::FieldDefinition:Required' | abpLocalization }}
+                    {{ 'VaultExtract::FieldDefinition:Required' | abpLocalization }}
                   </label>
                 </div>
                 <!-- #559: whether this field's values reach the query index, and are therefore filterable.
@@ -273,11 +273,11 @@
                 <div class="form-check">
                   <input type="checkbox" class="form-check-input" id="isSearchable" formControlName="isSearchable" />
                   <label class="form-check-label" for="isSearchable">
-                    {{ '::FieldDefinition:IsSearchable' | abpLocalization }}
+                    {{ 'VaultExtract::FieldDefinition:IsSearchable' | abpLocalization }}
                   </label>
                 </div>
                 <div class="form-text">
-                  {{ (searchableUnsupported() ? '::FieldDefinition:NotIndexableHint' : '::FieldDefinition:IsSearchableHint') | abpLocalization }}
+                  {{ (searchableUnsupported() ? 'VaultExtract::FieldDefinition:NotIndexableHint' : 'VaultExtract::FieldDefinition:IsSearchableHint') | abpLocalization }}
                 </div>
                 <!-- #411: unique-key fields form the duplicate-detection fingerprint. #626: a type that
                      indexes nothing (long text) has the control disabled by applyUniqueKeyAvailability,
@@ -285,11 +285,11 @@
                 <div class="form-check mt-2">
                   <input type="checkbox" class="form-check-input" id="isUniqueKey" formControlName="isUniqueKey" />
                   <label class="form-check-label" for="isUniqueKey">
-                    {{ '::FieldDefinition:IsUniqueKey' | abpLocalization }}
+                    {{ 'VaultExtract::FieldDefinition:IsUniqueKey' | abpLocalization }}
                   </label>
                 </div>
                 <div class="form-text">
-                  {{ (uniqueKeyUnsupported() ? '::FieldDefinition:NotUniqueKeyableHint' : '::FieldDefinition:IsUniqueKeyHint') | abpLocalization }}
+                  {{ (uniqueKeyUnsupported() ? 'VaultExtract::FieldDefinition:NotUniqueKeyableHint' : 'VaultExtract::FieldDefinition:IsUniqueKeyHint') | abpLocalization }}
                 </div>
               </div>
             </div>
@@ -299,7 +299,7 @@
                  form's "configuration" group - adding a field type means registering it with
                  provideFlexFields()/provideFlexFieldTypes(), not editing this template. -->
             <fieldset class="mt-4 pt-3 border-top">
-              <legend class="fs-6 text-muted">{{ '::FieldDefinition:TypeConfiguration' | abpLocalization }}</legend>
+              <legend class="fs-6 text-muted">{{ 'VaultExtract::FieldDefinition:TypeConfiguration' | abpLocalization }}</legend>
               <ff-flex-field-config
                 [type]="form.controls.fieldTypeName.value"
                 [selected]="configSeed()"
@@ -309,13 +309,13 @@
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" (click)="closeModal()">
-              {{ '::Cancel' | abpLocalization }}
+              {{ 'VaultExtract::Cancel' | abpLocalization }}
             </button>
             <button type="submit" class="btn btn-primary" [disabled]="form.invalid || isSubmitting()">
               @if (isSubmitting()) {
                 <span class="spinner-border spinner-border-sm me-1"></span>
               }
-              {{ '::Save' | abpLocalization }}
+              {{ 'VaultExtract::Save' | abpLocalization }}
             </button>
           </div>
         </form>

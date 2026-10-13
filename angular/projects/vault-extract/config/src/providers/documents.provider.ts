@@ -11,7 +11,7 @@ import { EXTRACT_FEATURES, EXTRACT_PERMISSIONS, isExtractFeatureDisabled } from 
 import { distinctUntilChanged, map } from 'rxjs';
 
 // The parent entry. Its children name it as their `parentName`, and hiding it is what hides the menu.
-const DOCUMENTS_MENU = '::Menu:Documents';
+const DOCUMENTS_MENU = 'VaultExtract::Menu:VaultExtract';
 
 /**
  * Adds the Documents menu, and takes it out of sight while the tenant does not have the
@@ -27,7 +27,7 @@ export function provideExtract(): EnvironmentProviders {
       const destroyRef = inject(DestroyRef);
       routes.add([
         {
-          path: '/documents',
+          path: '/vault-extract',
           name: DOCUMENTS_MENU,
           iconClass: 'fas fa-file-alt',
           requiredPolicy: EXTRACT_PERMISSIONS.Documents.Default,
@@ -35,8 +35,8 @@ export function provideExtract(): EnvironmentProviders {
           layout: eLayoutType.application,
         },
         {
-          path: '/documents/overview',
-          name: '::Menu:DocumentOverview',
+          path: '/vault-extract/overview',
+          name: 'VaultExtract::Menu:DocumentOverview',
           iconClass: 'fas fa-chart-bar',
           parentName: DOCUMENTS_MENU,
           requiredPolicy: EXTRACT_PERMISSIONS.Documents.Default,
@@ -44,8 +44,8 @@ export function provideExtract(): EnvironmentProviders {
           layout: eLayoutType.application,
         },
         {
-          path: '/documents/list',
-          name: '::Menu:DocumentList',
+          path: '/vault-extract/documents',
+          name: 'VaultExtract::Menu:DocumentList',
           iconClass: 'fas fa-list',
           parentName: DOCUMENTS_MENU,
           requiredPolicy: EXTRACT_PERMISSIONS.Documents.Default,
@@ -53,8 +53,8 @@ export function provideExtract(): EnvironmentProviders {
           layout: eLayoutType.application,
         },
         {
-          path: '/documents/types',
-          name: '::Menu:DocumentTypes',
+          path: '/vault-extract/document-types',
+          name: 'VaultExtract::Menu:DocumentTypes',
           iconClass: 'fas fa-tags',
           parentName: DOCUMENTS_MENU,
           requiredPolicy: EXTRACT_PERMISSIONS.DocumentTypes.Default,
@@ -62,8 +62,8 @@ export function provideExtract(): EnvironmentProviders {
           layout: eLayoutType.application,
         },
         {
-          path: '/documents/cabinets',
-          name: '::Menu:Cabinets',
+          path: '/vault-extract/cabinets',
+          name: 'VaultExtract::Menu:Cabinets',
           iconClass: 'fas fa-folder',
           parentName: DOCUMENTS_MENU,
           requiredPolicy: EXTRACT_PERMISSIONS.Cabinets.Default,
@@ -71,8 +71,8 @@ export function provideExtract(): EnvironmentProviders {
           layout: eLayoutType.application,
         },
         {
-          path: '/documents/recycle',
-          name: '::Menu:DocumentRecycleBin',
+          path: '/vault-extract/documents-recycle-bin',
+          name: 'VaultExtract::Menu:DocumentRecycleBin',
           iconClass: 'fas fa-trash-can',
           parentName: DOCUMENTS_MENU,
           // #632/#645: must match the route guard, for the same reason — the page is for anyone who may

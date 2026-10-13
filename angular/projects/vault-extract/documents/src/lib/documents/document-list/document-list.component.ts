@@ -451,7 +451,7 @@ export class DocumentListComponent implements OnInit {
     if (!doc.originDocumentId) {
       return;
     }
-    this.router.navigate(['/documents', doc.originDocumentId]);
+    this.router.navigate(['/vault-extract/documents', doc.originDocumentId]);
   }
 
   // #354: from a sub-document row, focus the list on its siblings (all sub-documents of the same source,
@@ -563,7 +563,7 @@ export class DocumentListComponent implements OnInit {
   }
 
   // Mirror the active filters AND the ListService's page/sorting into the URL query string. replaceUrl keeps
-  // rapid changes from piling up Back-button steps (each replaces the current /documents/list entry rather
+  // rapid changes from piling up Back-button steps (each replaces the current /vault-extract/documents entry rather
   // than pushing a new one); null values are dropped by the merge handling, so cleared filters and the
   // default page/sort leave a clean URL. applyQueryParamFilters + applyQueryParamPaging re-seed from here on
   // Back, restoring the exact view.
@@ -621,7 +621,7 @@ export class DocumentListComponent implements OnInit {
       EntityProp.create<DocumentListItemDto>({
         type: ePropType.String,
         name: 'fileName',
-        displayName: '::Document:FileName',
+        displayName: 'VaultExtract::Document:FileName',
         sortable: false,
         columnWidth: 340,
         valueResolver: data => {
@@ -636,13 +636,13 @@ export class DocumentListComponent implements OnInit {
           // system-controlled signal carried on the list DTO. #354: the row's "view sub-documents" action
           // (containers only) drills into its children via the originDocumentId filter.
           const bundleBadge = doc.isContainer
-            ? ` <span class="badge bg-dark">${escapeHtmlChars(localization.instant('::Document:Bundle'))}</span>`
+            ? ` <span class="badge bg-dark">${escapeHtmlChars(localization.instant('VaultExtract::Document:Bundle'))}</span>`
             : '';
           // #354: mirror of the container Bundle badge on the child side — a sub-document carries
           // originDocumentId (its source) and is flagged so operators can tell it apart from a
           // normally-uploaded document; the row's "view parent / view siblings" actions drill the relationship.
           const subDocBadge = doc.originDocumentId
-            ? ` <span class="badge bg-secondary">${escapeHtmlChars(localization.instant('::Document:SubDocument'))}</span>`
+            ? ` <span class="badge bg-secondary">${escapeHtmlChars(localization.instant('VaultExtract::Document:SubDocument'))}</span>`
             : '';
           return of(
             `<span class="document-file-cell"><i class="${iconClass} me-2"></i><span class="fw-semibold text-truncate">${escapeHtmlChars(fileName)}</span>${bundleBadge}${subDocBadge}</span>`,
@@ -652,7 +652,7 @@ export class DocumentListComponent implements OnInit {
       EntityProp.create<DocumentListItemDto>({
         type: ePropType.String,
         name: 'documentType',
-        displayName: '::Document:Type',
+        displayName: 'VaultExtract::Document:Type',
         sortable: false,
         columnWidth: 180,
         valueResolver: data => {
@@ -668,7 +668,7 @@ export class DocumentListComponent implements OnInit {
       EntityProp.create<DocumentListItemDto>({
         type: ePropType.String,
         name: 'status',
-        displayName: '::Document:Status',
+        displayName: 'VaultExtract::Document:Status',
         sortable: false,
         columnWidth: 190,
         valueResolver: data => {
@@ -689,7 +689,7 @@ export class DocumentListComponent implements OnInit {
       EntityProp.create<DocumentListItemDto>({
         type: ePropType.String,
         name: 'creationTime',
-        displayName: '::Document:UploadedAt',
+        displayName: 'VaultExtract::Document:UploadedAt',
         sortable: true,
         columnWidth: 180,
         valueResolver: data =>
@@ -790,8 +790,8 @@ export class DocumentListComponent implements OnInit {
           this.isExporting.set(false);
           void readBlobErrorMessage(err).then(message =>
             this.toaster.error(
-              message ? escapeHtmlChars(message) : '::Document:Export:Failed',
-              '::Error',
+              message ? escapeHtmlChars(message) : 'VaultExtract::Document:Export:Failed',
+              'VaultExtract::Error',
             ),
           );
         },
@@ -874,17 +874,17 @@ export class DocumentListComponent implements OnInit {
   }
 
   openDetail(doc: DocumentListItemDto): void {
-    this.router.navigate(['/documents', doc.id]);
+    this.router.navigate(['/vault-extract/documents', doc.id]);
   }
 
   uploadNew(): void {
-    this.router.navigate(['/documents']);
+    this.router.navigate(['/vault-extract/documents']);
   }
 
   delete(doc: DocumentListItemDto, event: Event): void {
     event.stopPropagation();
     this.confirmation
-      .warn('::Document:AreYouSureToDelete', '::AreYouSure')
+      .warn('VaultExtract::Document:AreYouSureToDelete', 'VaultExtract::AreYouSure')
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(status => {
         if (status === Confirmation.Status.confirm) {
@@ -892,13 +892,13 @@ export class DocumentListComponent implements OnInit {
             .pipe(takeUntilDestroyed(this.destroyRef))
             .subscribe({
             next: () => {
-              this.toaster.success('::Document:DeletedSuccessfully', '::Success');
+              this.toaster.success('VaultExtract::Document:DeletedSuccessfully', 'VaultExtract::Success');
               this.clearSelection();
               this.list.getWithoutPageReset();
               // A deleted document leaves the (soft-delete-filtered) review queue — refresh the badge.
               this.loadReviewQueueCount();
             },
-            error: () => this.toaster.error('::Document:DeleteFailed', '::Error'),
+            error: () => this.toaster.error('VaultExtract::Document:DeleteFailed', 'VaultExtract::Error'),
           });
         }
       });
@@ -912,8 +912,8 @@ export class DocumentListComponent implements OnInit {
     if (selected.length === 0 || this.isBulkDeleting()) return;
 
     this.confirmation
-      .warn('::Document:Bulk:DeleteConfirm', '::AreYouSure', {
-        yesText: '::Document:Bulk:Delete',
+      .warn('VaultExtract::Document:Bulk:DeleteConfirm', 'VaultExtract::AreYouSure', {
+        yesText: 'VaultExtract::Document:Bulk:Delete',
         messageLocalizationParams: [String(selected.length)],
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -930,15 +930,15 @@ export class DocumentListComponent implements OnInit {
             const succeeded = result.succeeded.length;
             const failed = result.failed.length;
             if (failed === 0) {
-              this.toaster.success('::Document:Bulk:DeleteSucceeded', '::Success', {
+              this.toaster.success('VaultExtract::Document:Bulk:DeleteSucceeded', 'VaultExtract::Success', {
                 messageLocalizationParams: [String(succeeded)],
               });
             } else if (succeeded > 0) {
-              this.toaster.warn('::Document:Bulk:DeletePartial', 'AbpUi::Warning', {
+              this.toaster.warn('VaultExtract::Document:Bulk:DeletePartial', 'AbpUi::Warning', {
                 messageLocalizationParams: [String(succeeded), String(failed)],
               });
             } else {
-              this.toaster.error('::Document:Bulk:DeleteFailed', '::Error', {
+              this.toaster.error('VaultExtract::Document:Bulk:DeleteFailed', 'VaultExtract::Error', {
                 messageLocalizationParams: [String(failed)],
               });
             }
@@ -1023,14 +1023,14 @@ export class DocumentListComponent implements OnInit {
       next: () => {
         this.isConfirming.set(false);
         this.closeConfirmDialog();
-        this.toaster.success('::Document:ClassificationConfirmed', '::Success');
+        this.toaster.success('VaultExtract::Document:ClassificationConfirmed', 'VaultExtract::Success');
         this.list.getWithoutPageReset();
         // Confirming a classification clears its review reason — keep the badge in step with the queue.
         this.loadReviewQueueCount();
       },
       error: () => {
         this.isConfirming.set(false);
-        this.toaster.error('::Document:ConfirmFailed', '::Error');
+        this.toaster.error('VaultExtract::Document:ConfirmFailed', 'VaultExtract::Error');
       },
     });
   }
@@ -1057,40 +1057,40 @@ export class DocumentListComponent implements OnInit {
   reviewBadgeLabel(doc: DocumentListItemDto): string {
     const reasons = doc.reviewReasons ?? DocumentReviewReasons.None;
     if ((reasons & DocumentReviewReasons.UnresolvedClassification) !== DocumentReviewReasons.None) {
-      return '::Document:ReviewReason:UnresolvedClassification';
+      return 'VaultExtract::Document:ReviewReason:UnresolvedClassification';
     }
     if ((reasons & DocumentReviewReasons.DuplicateSuspected) !== DocumentReviewReasons.None) {
-      return '::Document:ReviewReason:DuplicateSuspected';
+      return 'VaultExtract::Document:ReviewReason:DuplicateSuspected';
     }
     if ((reasons & DocumentReviewReasons.MissingRequiredFields) !== DocumentReviewReasons.None) {
-      return '::Document:ReviewReason:MissingRequiredFields';
+      return 'VaultExtract::Document:ReviewReason:MissingRequiredFields';
     }
     if ((reasons & DocumentReviewReasons.FieldExtractionIncomplete) !== DocumentReviewReasons.None) {
-      return '::Document:ReviewReason:FieldExtractionIncomplete';
+      return 'VaultExtract::Document:ReviewReason:FieldExtractionIncomplete';
     }
     if ((reasons & DocumentReviewReasons.FieldValidationWarning) !== DocumentReviewReasons.None) {
-      return '::Document:ReviewReason:FieldValidationWarning';
+      return 'VaultExtract::Document:ReviewReason:FieldValidationWarning';
     }
     if ((reasons & DocumentReviewReasons.SegmentationIncomplete) !== DocumentReviewReasons.None) {
-      return '::Document:ReviewReason:SegmentationIncomplete';
+      return 'VaultExtract::Document:ReviewReason:SegmentationIncomplete';
     }
-    return '::Document:NeedsReview';
+    return 'VaultExtract::Document:NeedsReview';
   }
 
   getStatusLabel(status: DocumentLifecycleStatus | undefined): string {
     switch (status) {
       case DocumentLifecycleStatus.Uploaded:
-        return '::Document:Status:Uploaded';
+        return 'VaultExtract::Document:Status:Uploaded';
       case DocumentLifecycleStatus.Processing:
-        return '::Document:Status:Processing';
+        return 'VaultExtract::Document:Status:Processing';
       case DocumentLifecycleStatus.PendingReview:
-        return '::Document:Status:PendingReview';
+        return 'VaultExtract::Document:Status:PendingReview';
       case DocumentLifecycleStatus.Ready:
-        return '::Document:Status:Ready';
+        return 'VaultExtract::Document:Status:Ready';
       case DocumentLifecycleStatus.Failed:
-        return '::Document:Status:Failed';
+        return 'VaultExtract::Document:Status:Failed';
       default:
-        return '::Document:Status:Unknown';
+        return 'VaultExtract::Document:Status:Unknown';
     }
   }
 

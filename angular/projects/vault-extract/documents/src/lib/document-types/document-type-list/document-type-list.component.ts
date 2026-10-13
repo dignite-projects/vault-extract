@@ -198,7 +198,7 @@ export class DocumentTypeListComponent implements OnInit {
       EntityProp.create<DocumentTypeDto>({
         type: ePropType.String,
         name: 'typeCode',
-        displayName: '::DocumentType:TypeCode',
+        displayName: 'VaultExtract::DocumentType:TypeCode',
         sortable: true,
         columnWidth: 240,
         valueResolver: data =>
@@ -207,13 +207,13 @@ export class DocumentTypeListComponent implements OnInit {
       EntityProp.create<DocumentTypeDto>({
         type: ePropType.String,
         name: 'displayName',
-        displayName: '::DocumentType:DisplayName',
+        displayName: 'VaultExtract::DocumentType:DisplayName',
         sortable: true,
       }),
       EntityProp.create<DocumentTypeDto>({
         type: ePropType.Number,
         name: 'confidenceThreshold',
-        displayName: '::DocumentType:ConfidenceThreshold',
+        displayName: 'VaultExtract::DocumentType:ConfidenceThreshold',
         sortable: true,
         columnWidth: 190,
         valueResolver: data => of(`${((data.record.confidenceThreshold ?? 0) * 100).toFixed(0)}%`),
@@ -221,22 +221,22 @@ export class DocumentTypeListComponent implements OnInit {
       EntityProp.create<DocumentTypeDto>({
         type: ePropType.Number,
         name: 'priority',
-        displayName: '::DocumentType:Priority',
+        displayName: 'VaultExtract::DocumentType:Priority',
         sortable: true,
         columnWidth: 140,
       }),
       EntityProp.create<DocumentTypeDto>({
         type: ePropType.String,
         name: 'duplicateScope',
-        displayName: '::DocumentType:DuplicateScope',
+        displayName: 'VaultExtract::DocumentType:DuplicateScope',
         sortable: true,
         columnWidth: 170,
         valueResolver: data => {
           const localization = data.getInjected(LocalizationService);
           const scope = data.record.duplicateScope ?? DuplicateDetectionScope.Layer;
           const key = scope === DuplicateDetectionScope.Uploader
-            ? '::DocumentType:DuplicateScope:Uploader'
-            : '::DocumentType:DuplicateScope:Layer';
+            ? 'VaultExtract::DocumentType:DuplicateScope:Uploader'
+            : 'VaultExtract::DocumentType:DuplicateScope:Layer';
           return of(escapeHtmlChars(localization.instant(key)));
         },
       }),
@@ -392,7 +392,7 @@ export class DocumentTypeListComponent implements OnInit {
       this.service.create(input)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
-          next: () => this.onSaved('::DocumentType:CreatedSuccessfully'),
+          next: () => this.onSaved('VaultExtract::DocumentType:CreatedSuccessfully'),
           error: () => this.isSubmitting.set(false),
         });
       return;
@@ -426,7 +426,7 @@ export class DocumentTypeListComponent implements OnInit {
         },
         error: () => {
           this.isSubmitting.set(false);
-          this.toaster.error('::Document:Reprocess:PreviewFailed', '::Error');
+          this.toaster.error('VaultExtract::Document:Reprocess:PreviewFailed', 'VaultExtract::Error');
         },
       });
   }
@@ -440,7 +440,7 @@ export class DocumentTypeListComponent implements OnInit {
     // scope, and either direction can both flag and clear — a narrowing switch can also newly flag a
     // stale first-upload gap, not only release documents. One message, two counts; no direction branch.
     this.confirmation
-      .warn('::DocumentType:DuplicateScope:Preview:Message', '::DocumentType:DuplicateScope:Preview:Title', {
+      .warn('VaultExtract::DocumentType:DuplicateScope:Preview:Message', 'VaultExtract::DocumentType:DuplicateScope:Preview:Title', {
         messageLocalizationParams: [String(preview.willFlagCount ?? 0), String(preview.willClearCount ?? 0)],
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -462,7 +462,7 @@ export class DocumentTypeListComponent implements OnInit {
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => this.onSaved('::DocumentType:UpdatedSuccessfully'),
+        next: () => this.onSaved('VaultExtract::DocumentType:UpdatedSuccessfully'),
         error: () => this.isSubmitting.set(false),
       });
   }
@@ -470,7 +470,7 @@ export class DocumentTypeListComponent implements OnInit {
   private onSaved(messageKey: string): void {
     this.isSubmitting.set(false);
     this.closeModal();
-    this.toaster.success(messageKey, '::Success');
+    this.toaster.success(messageKey, 'VaultExtract::Success');
     this.onDocumentTypesChanged();
   }
 
@@ -492,7 +492,7 @@ export class DocumentTypeListComponent implements OnInit {
 
   delete(type: DocumentTypeDto): void {
     this.confirmation
-      .warn('::DocumentType:AreYouSureToDelete', '::AreYouSure')
+      .warn('VaultExtract::DocumentType:AreYouSureToDelete', 'VaultExtract::AreYouSure')
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(status => {
         if (status !== Confirmation.Status.confirm) return;
@@ -500,10 +500,10 @@ export class DocumentTypeListComponent implements OnInit {
           .pipe(takeUntilDestroyed(this.destroyRef))
           .subscribe({
             next: () => {
-              this.toaster.success('::DocumentType:DeletedSuccessfully', '::Success');
+              this.toaster.success('VaultExtract::DocumentType:DeletedSuccessfully', 'VaultExtract::Success');
               this.onDocumentTypesChanged();
             },
-            error: () => this.toaster.error('::DocumentType:DeleteFailed', '::Error'),
+            error: () => this.toaster.error('VaultExtract::DocumentType:DeleteFailed', 'VaultExtract::Error'),
           });
       });
   }
@@ -513,7 +513,7 @@ export class DocumentTypeListComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => {
-          this.toaster.success('::DocumentType:RestoredSuccessfully', '::Success');
+          this.toaster.success('VaultExtract::DocumentType:RestoredSuccessfully', 'VaultExtract::Success');
           this.onDocumentTypesChanged();
         },
       });
@@ -529,7 +529,7 @@ export class DocumentTypeListComponent implements OnInit {
   }
 
   manageFields(type: DocumentTypeDto): void {
-    this.router.navigate(['/documents/types', type.id, 'fields']);
+    this.router.navigate(['/vault-extract/document-types', type.id, 'fields']);
   }
 
   openReextractFields(type: DocumentTypeDto): void {
@@ -581,7 +581,7 @@ export class DocumentTypeListComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: pack => this.downloadPacks(pack, type.typeCode!),
-        error: () => this.toaster.error('::DocumentType:Pack:ExportFailed', '::Error'),
+        error: () => this.toaster.error('VaultExtract::DocumentType:Pack:ExportFailed', 'VaultExtract::Error'),
       });
   }
 
@@ -593,12 +593,12 @@ export class DocumentTypeListComponent implements OnInit {
       .subscribe({
         next: packs => {
           if (packs.length === 0) {
-            this.toaster.info('::DocumentType:Pack:NothingToExport');
+            this.toaster.info('VaultExtract::DocumentType:Pack:NothingToExport');
             return;
           }
           this.downloadPacks(packs, 'document-types');
         },
-        error: () => this.toaster.error('::DocumentType:Pack:ExportFailed', '::Error'),
+        error: () => this.toaster.error('VaultExtract::DocumentType:Pack:ExportFailed', 'VaultExtract::Error'),
       });
   }
 

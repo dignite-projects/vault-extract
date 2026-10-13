@@ -153,12 +153,12 @@ export class ReclassificationModalComponent implements OnInit {
       .subscribe({
         next: () => {
           this.isSubmitting.set(false);
-          this.toaster.success('::Document:Reprocess:Reclassification:Queued', '::Success');
+          this.toaster.success('VaultExtract::Document:Reprocess:Reclassification:Queued', 'VaultExtract::Success');
           this.close();
         },
         error: () => {
           this.isSubmitting.set(false);
-          this.toaster.error('::Document:Reprocess:Failed', '::Error');
+          this.toaster.error('VaultExtract::Document:Reprocess:Failed', 'VaultExtract::Error');
         },
       });
   }

@@ -10,7 +10,7 @@
       <div class="modal-header">
         <h5 class="modal-title">
           <i class="fas fa-shuffle me-2"></i>
-          {{ '::Document:Reprocess:Reclassification:Title' | abpLocalization }}
+          {{ 'VaultExtract::Document:Reprocess:Reclassification:Title' | abpLocalization }}
         </h5>
         <button type="button" class="btn-close" (click)="close()" [disabled]="isSubmitting()"></button>
       </div>
@@ -18,15 +18,15 @@
       <div class="modal-body" [formGroup]="form">
         <!-- Scope selection: humans choose by intent; the system does not prescribe a default. -->
         <div class="mb-3">
-          <label class="form-label fw-semibold">{{ '::Document:Reprocess:Reclassification:Scope' | abpLocalization }}</label>
+          <label class="form-label fw-semibold">{{ 'VaultExtract::Document:Reprocess:Reclassification:Scope' | abpLocalization }}</label>
 
           @if (hasType) {
             <div class="form-check">
               <input class="form-check-input" type="radio" formControlName="scope" id="scope-type"
                      [value]="Scope.OnlyCurrentType" />
               <label class="form-check-label" for="scope-type">
-                {{ '::Document:Reprocess:Reclassification:Scope:OnlyCurrentType' | abpLocalization: documentTypeDisplayName }}
-                <span class="d-block small text-muted">{{ '::Document:Reprocess:Reclassification:Scope:OnlyCurrentType:Hint' | abpLocalization }}</span>
+                {{ 'VaultExtract::Document:Reprocess:Reclassification:Scope:OnlyCurrentType' | abpLocalization: documentTypeDisplayName }}
+                <span class="d-block small text-muted">{{ 'VaultExtract::Document:Reprocess:Reclassification:Scope:OnlyCurrentType:Hint' | abpLocalization }}</span>
               </label>
             </div>
           }
@@ -35,8 +35,8 @@
             <input class="form-check-input" type="radio" formControlName="scope" id="scope-all"
                    [value]="Scope.AllDocuments" />
             <label class="form-check-label" for="scope-all">
-              {{ '::Document:Reprocess:Reclassification:Scope:AllDocuments' | abpLocalization }}
-              <span class="d-block small text-muted">{{ '::Document:Reprocess:Reclassification:Scope:AllDocuments:Hint' | abpLocalization }}</span>
+              {{ 'VaultExtract::Document:Reprocess:Reclassification:Scope:AllDocuments' | abpLocalization }}
+              <span class="d-block small text-muted">{{ 'VaultExtract::Document:Reprocess:Reclassification:Scope:AllDocuments:Hint' | abpLocalization }}</span>
             </label>
           </div>
 
@@ -44,8 +44,8 @@
             <input class="form-check-input" type="radio" formControlName="scope" id="scope-pending"
                    [value]="Scope.PendingReviewQueue" />
             <label class="form-check-label" for="scope-pending">
-              {{ '::Document:Reprocess:Reclassification:Scope:PendingReviewQueue' | abpLocalization }}
-              <span class="d-block small text-muted">{{ '::Document:Reprocess:Reclassification:Scope:PendingReviewQueue:Hint' | abpLocalization }}</span>
+              {{ 'VaultExtract::Document:Reprocess:Reclassification:Scope:PendingReviewQueue' | abpLocalization }}
+              <span class="d-block small text-muted">{{ 'VaultExtract::Document:Reprocess:Reclassification:Scope:PendingReviewQueue:Hint' | abpLocalization }}</span>
             </label>
           </div>
         </div>
@@ -55,8 +55,8 @@
           <input class="form-check-input" type="checkbox" formControlName="includeManuallyConfirmed"
                  id="include-confirmed" />
           <label class="form-check-label" for="include-confirmed">
-            {{ '::Document:Reprocess:Reclassification:IncludeConfirmed' | abpLocalization }}
-            <span class="d-block small text-muted">{{ '::Document:Reprocess:Reclassification:IncludeConfirmed:Hint' | abpLocalization }}</span>
+            {{ 'VaultExtract::Document:Reprocess:Reclassification:IncludeConfirmed' | abpLocalization }}
+            <span class="d-block small text-muted">{{ 'VaultExtract::Document:Reprocess:Reclassification:IncludeConfirmed:Hint' | abpLocalization }}</span>
           </label>
         </div>
 
@@ -64,29 +64,29 @@
         <div class="alert alert-secondary py-2">
           @if (isLoadingPreview()) {
             <span class="spinner-border spinner-border-sm me-2"></span>
-            {{ '::Document:Reprocess:Counting' | abpLocalization }}
+            {{ 'VaultExtract::Document:Reprocess:Counting' | abpLocalization }}
           } @else if (previewFailed()) {
             <span class="d-flex justify-content-between align-items-center">
-              <span class="text-danger">{{ '::Document:Reprocess:PreviewFailed' | abpLocalization }}</span>
+              <span class="text-danger">{{ 'VaultExtract::Document:Reprocess:PreviewFailed' | abpLocalization }}</span>
               <button type="button" class="btn btn-sm btn-outline-danger" (click)="refreshPreview()">
-                {{ '::Refresh' | abpLocalization }}
+                {{ 'VaultExtract::Refresh' | abpLocalization }}
               </button>
             </span>
           } @else {
-            <span class="fw-semibold">{{ '::Document:Reprocess:AffectedCount' | abpLocalization: (((documentCount() ?? 0) | number) ?? '') }}</span>
+            <span class="fw-semibold">{{ 'VaultExtract::Document:Reprocess:AffectedCount' | abpLocalization: (((documentCount() ?? 0) | number) ?? '') }}</span>
           }
         </div>
 
         <!-- Strong warning: cascading and destructive. -->
         <div class="alert alert-danger mb-0 small">
           <i class="fas fa-triangle-exclamation me-1"></i>
-          {{ '::Document:Reprocess:Reclassification:Warning' | abpLocalization }}
+          {{ 'VaultExtract::Document:Reprocess:Reclassification:Warning' | abpLocalization }}
         </div>
       </div>
 
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" (click)="close()" [disabled]="isSubmitting()">
-          {{ '::Cancel' | abpLocalization }}
+          {{ 'VaultExtract::Cancel' | abpLocalization }}
         </button>
         <button
           type="button"
@@ -97,7 +97,7 @@
           @if (isSubmitting()) {
             <span class="spinner-border spinner-border-sm me-1"></span>
           }
-          {{ '::Document:Reprocess:Reclassification:Start' | abpLocalization }}
+          {{ 'VaultExtract::Document:Reprocess:Reclassification:Start' | abpLocalization }}
         </button>
       </div>
     </div>

@@ -10,14 +10,14 @@
       <div class="modal-header">
         <h5 class="modal-title">
           <i class="fas fa-wand-magic-sparkles me-2"></i>
-          {{ '::Document:Reprocess:FieldExtraction:Title' | abpLocalization }}
+          {{ 'VaultExtract::Document:Reprocess:FieldExtraction:Title' | abpLocalization }}
         </h5>
         <button type="button" class="btn-close" (click)="close()" [disabled]="isSubmitting()"></button>
       </div>
 
       <div class="modal-body">
         <p class="text-muted small mb-3">
-          {{ '::Document:Reprocess:FieldExtraction:Subtitle' | abpLocalization: documentTypeDisplayName }}
+          {{ 'VaultExtract::Document:Reprocess:FieldExtraction:Subtitle' | abpLocalization: documentTypeDisplayName }}
         </p>
 
         @if (isLoadingPreview()) {
@@ -26,39 +26,39 @@
           </div>
         } @else if (previewFailed()) {
           <div class="alert alert-danger d-flex justify-content-between align-items-center mb-0">
-            <span>{{ '::Document:Reprocess:PreviewFailed' | abpLocalization }}</span>
+            <span>{{ 'VaultExtract::Document:Reprocess:PreviewFailed' | abpLocalization }}</span>
             <button type="button" class="btn btn-sm btn-outline-danger" (click)="loadPreview()">
-              {{ '::Refresh' | abpLocalization }}
+              {{ 'VaultExtract::Refresh' | abpLocalization }}
             </button>
           </div>
         } @else if (preview(); as p) {
           <div class="alert alert-secondary">
             <div class="fw-semibold mb-1">
-              {{ '::Document:Reprocess:AffectedCount' | abpLocalization: ((p.documentCount | number) ?? '') }}
+              {{ 'VaultExtract::Document:Reprocess:AffectedCount' | abpLocalization: ((p.documentCount | number) ?? '') }}
             </div>
             @if ((p.fieldNames?.length ?? 0) > 0) {
-              <div class="small text-muted mb-1">{{ '::Document:Reprocess:FieldExtraction:FieldsToExtract' | abpLocalization }}</div>
+              <div class="small text-muted mb-1">{{ 'VaultExtract::Document:Reprocess:FieldExtraction:FieldsToExtract' | abpLocalization }}</div>
               <div class="d-flex flex-wrap gap-1">
                 @for (name of (p.fieldNames ?? []); track name) {
                   <span class="badge bg-info text-dark">{{ name }}</span>
                 }
               </div>
             } @else {
-              <div class="small text-muted">{{ '::Document:Reprocess:FieldExtraction:NoFields' | abpLocalization }}</div>
+              <div class="small text-muted">{{ 'VaultExtract::Document:Reprocess:FieldExtraction:NoFields' | abpLocalization }}</div>
             }
           </div>
 
           <!-- Light warning: overwrites field values, including manual corrections. -->
           <div class="alert alert-warning mb-0 small">
             <i class="fas fa-triangle-exclamation me-1"></i>
-            {{ '::Document:Reprocess:FieldExtraction:Warning' | abpLocalization }}
+            {{ 'VaultExtract::Document:Reprocess:FieldExtraction:Warning' | abpLocalization }}
           </div>
         }
       </div>
 
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" (click)="close()" [disabled]="isSubmitting()">
-          {{ '::Cancel' | abpLocalization }}
+          {{ 'VaultExtract::Cancel' | abpLocalization }}
         </button>
         <button
           type="button"
@@ -69,7 +69,7 @@
           @if (isSubmitting()) {
             <span class="spinner-border spinner-border-sm me-1"></span>
           }
-          {{ '::Document:Reprocess:FieldExtraction:Start' | abpLocalization }}
+          {{ 'VaultExtract::Document:Reprocess:FieldExtraction:Start' | abpLocalization }}
         </button>
       </div>
     </div>

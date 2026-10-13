@@ -3,14 +3,14 @@
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h4 class="mb-0">
       <i class="fas fa-tags me-2"></i>
-      {{ '::DocumentType:Title' | abpLocalization }}
+      {{ 'VaultExtract::DocumentType:Title' | abpLocalization }}
     </h4>
     <div class="d-flex gap-2">
       <button
         class="btn btn-outline-secondary"
         (click)="refresh()"
         [disabled]="isLoading()"
-        title="{{ '::Refresh' | abpLocalization }}"
+        title="{{ 'VaultExtract::Refresh' | abpLocalization }}"
       >
         <i class="fas fa-sync-alt" [class.fa-spin]="isLoading()"></i>
       </button>
@@ -21,24 +21,24 @@
         (click)="toggleDeleted()"
       >
         <i class="fas fa-trash-can me-1"></i>
-        {{ '::DocumentType:ShowDeleted' | abpLocalization }}
+        {{ 'VaultExtract::DocumentType:ShowDeleted' | abpLocalization }}
       </button>
       @if (!showDeleted() && types().totalCount > 0) {
         <button class="btn btn-outline-secondary" (click)="exportAll()" [disabled]="isLoading()">
           <i class="fas fa-file-export me-1"></i>
-          {{ '::DocumentType:Pack:ExportAll' | abpLocalization }}
+          {{ 'VaultExtract::DocumentType:Pack:ExportAll' | abpLocalization }}
         </button>
       }
       @if (canImport && !showDeleted()) {
         <button class="btn btn-outline-primary" (click)="openImport()">
           <i class="fas fa-file-import me-1"></i>
-          {{ '::DocumentType:Pack:Import' | abpLocalization }}
+          {{ 'VaultExtract::DocumentType:Pack:Import' | abpLocalization }}
         </button>
       }
       @if (canManage && !showDeleted()) {
         <button class="btn btn-primary" (click)="openCreate()">
           <i class="fas fa-plus me-1"></i>
-          {{ '::DocumentType:New' | abpLocalization }}
+          {{ 'VaultExtract::DocumentType:New' | abpLocalization }}
         </button>
       }
     </div>
@@ -57,7 +57,7 @@
       <div class="card-body text-center py-5">
         <i class="fas fa-tags fa-3x text-muted mb-3 d-block"></i>
         <p class="text-muted mb-0">
-          {{ (showDeleted() ? '::DocumentType:RecycleBinEmpty' : '::DocumentType:Empty') | abpLocalization }}
+          {{ (showDeleted() ? 'VaultExtract::DocumentType:RecycleBinEmpty' : 'VaultExtract::DocumentType:Empty') | abpLocalization }}
         </p>
       </div>
     </div>
@@ -77,7 +77,7 @@
                 <div ngbDropdownMenu>
                   <button type="button" ngbDropdownItem (click)="restore(type)">
                     <i class="fas fa-rotate-left me-2"></i>
-                    {{ '::DocumentType:Restore' | abpLocalization }}
+                    {{ 'VaultExtract::DocumentType:Restore' | abpLocalization }}
                   </button>
                 </div>
               </div>
@@ -90,20 +90,20 @@
               <div ngbDropdownMenu>
                 <button type="button" ngbDropdownItem (click)="manageFields(type)">
                   <i class="fas fa-list-ul me-2"></i>
-                  {{ '::DocumentType:ManageFields' | abpLocalization }}
+                  {{ 'VaultExtract::DocumentType:ManageFields' | abpLocalization }}
                 </button>
                 <button type="button" ngbDropdownItem (click)="exportOne(type)">
                   <i class="fas fa-file-export me-2"></i>
-                  {{ '::DocumentType:Pack:Export' | abpLocalization }}
+                  {{ 'VaultExtract::DocumentType:Pack:Export' | abpLocalization }}
                 </button>
                 @if (canManage) {
                   <button type="button" ngbDropdownItem (click)="openEdit(type)">
                     <i class="fas fa-pen me-2"></i>
-                    {{ '::Edit' | abpLocalization }}
+                    {{ 'VaultExtract::Edit' | abpLocalization }}
                   </button>
                   <button type="button" ngbDropdownItem (click)="delete(type)">
                     <i class="fas fa-trash me-2"></i>
-                    {{ '::Delete' | abpLocalization }}
+                    {{ 'VaultExtract::Delete' | abpLocalization }}
                   </button>
                 }
                 @if (canManagePermissions) {
@@ -111,7 +111,7 @@
                        are all ABP's), gated server-side by DocumentTypes.ManagePermissions. -->
                   <button type="button" ngbDropdownItem (click)="openPermissions(type)">
                     <i class="fas fa-user-shield me-2"></i>
-                    {{ '::DocumentType:Permissions' | abpLocalization }}
+                    {{ 'VaultExtract::DocumentType:Permissions' | abpLocalization }}
                   </button>
                 }
                 @if (canReextractFields || canReclassify) {
@@ -120,13 +120,13 @@
                 @if (canReextractFields) {
                   <button type="button" ngbDropdownItem (click)="openReextractFields(type)">
                     <i class="fas fa-wand-magic-sparkles me-2"></i>
-                    {{ '::Document:Reprocess:FieldExtraction:Action' | abpLocalization }}
+                    {{ 'VaultExtract::Document:Reprocess:FieldExtraction:Action' | abpLocalization }}
                   </button>
                 }
                 @if (canReclassify) {
                   <button type="button" ngbDropdownItem class="text-danger" (click)="openReclassify(type)">
                     <i class="fas fa-shuffle me-2"></i>
-                    {{ '::Document:Reprocess:Reclassification:Action' | abpLocalization }}
+                    {{ 'VaultExtract::Document:Reprocess:Reclassification:Action' | abpLocalization }}
                   </button>
                 }
               </div>
@@ -162,13 +162,13 @@
           <div class="modal-header">
             <h5 class="modal-title">
               <i class="fas fa-tags me-2"></i>
-              {{ (mode === 'create' ? '::DocumentType:New' : '::DocumentType:Edit') | abpLocalization }}
+              {{ (mode === 'create' ? 'VaultExtract::DocumentType:New' : 'VaultExtract::DocumentType:Edit') | abpLocalization }}
             </h5>
             <button type="button" class="btn-close" (click)="closeModal()"></button>
           </div>
           <div class="modal-body">
             <div class="mb-3">
-              <label class="form-label">{{ '::DocumentType:DisplayName' | abpLocalization }}</label>
+              <label class="form-label">{{ 'VaultExtract::DocumentType:DisplayName' | abpLocalization }}</label>
               <input
                 type="text"
                 class="form-control"
@@ -179,11 +179,11 @@
             </div>
             <div class="mb-3">
               <label class="form-label d-flex align-items-center gap-2">
-                <span>{{ '::DocumentType:TypeCode' | abpLocalization }}</span>
+                <span>{{ 'VaultExtract::DocumentType:TypeCode' | abpLocalization }}</span>
                 @if (isSuggesting()) {
                   <span class="text-muted small fw-normal">
                     <span class="spinner-border spinner-border-sm me-1" style="width:.75rem;height:.75rem;"></span>
-                    {{ '::DocumentType:TypeCodeSuggesting' | abpLocalization }}
+                    {{ 'VaultExtract::DocumentType:TypeCodeSuggesting' | abpLocalization }}
                   </span>
                 }
               </label>
@@ -194,24 +194,24 @@
                 [class.is-invalid]="form.controls.typeCode.touched && form.controls.typeCode.invalid"
                 placeholder="host.contract"
               />
-              <div class="form-text">{{ '::DocumentType:TypeCodeHint' | abpLocalization }}</div>
+              <div class="form-text">{{ 'VaultExtract::DocumentType:TypeCodeHint' | abpLocalization }}</div>
               @if (form.controls.typeCode.touched && form.controls.typeCode.invalid) {
-                <div class="invalid-feedback d-block">{{ '::DocumentType:TypeCodeInvalid' | abpLocalization }}</div>
+                <div class="invalid-feedback d-block">{{ 'VaultExtract::DocumentType:TypeCodeInvalid' | abpLocalization }}</div>
               }
             </div>
             <div class="mb-3">
-              <label class="form-label">{{ '::DocumentType:Description' | abpLocalization }}</label>
+              <label class="form-label">{{ 'VaultExtract::DocumentType:Description' | abpLocalization }}</label>
               <textarea
                 class="form-control"
                 formControlName="description"
                 rows="3"
                 [class.is-invalid]="form.controls.description.touched && form.controls.description.invalid"
               ></textarea>
-              <div class="form-text">{{ '::DocumentType:DescriptionHint' | abpLocalization }}</div>
+              <div class="form-text">{{ 'VaultExtract::DocumentType:DescriptionHint' | abpLocalization }}</div>
             </div>
             <div class="row g-3">
               <div class="col-6">
-                <label class="form-label">{{ '::DocumentType:ConfidenceThreshold' | abpLocalization }}</label>
+                <label class="form-label">{{ 'VaultExtract::DocumentType:ConfidenceThreshold' | abpLocalization }}</label>
                 <input
                   type="number"
                   class="form-control"
@@ -221,35 +221,35 @@
                   step="0.05"
                   [class.is-invalid]="form.controls.confidenceThreshold.touched && form.controls.confidenceThreshold.invalid"
                 />
-                <div class="form-text">{{ '::DocumentType:ConfidenceThresholdHint' | abpLocalization }}</div>
+                <div class="form-text">{{ 'VaultExtract::DocumentType:ConfidenceThresholdHint' | abpLocalization }}</div>
               </div>
               <div class="col-6">
-                <label class="form-label">{{ '::DocumentType:Priority' | abpLocalization }}</label>
+                <label class="form-label">{{ 'VaultExtract::DocumentType:Priority' | abpLocalization }}</label>
                 <input type="number" class="form-control" formControlName="priority" step="1" />
               </div>
             </div>
             <div class="mb-3">
-              <label class="form-label">{{ '::DocumentType:DuplicateScope' | abpLocalization }}</label>
+              <label class="form-label">{{ 'VaultExtract::DocumentType:DuplicateScope' | abpLocalization }}</label>
               <select class="form-select" formControlName="duplicateScope">
                 <option [ngValue]="DuplicateDetectionScope.Layer">
-                  {{ '::DocumentType:DuplicateScope:Layer' | abpLocalization }}
+                  {{ 'VaultExtract::DocumentType:DuplicateScope:Layer' | abpLocalization }}
                 </option>
                 <option [ngValue]="DuplicateDetectionScope.Uploader">
-                  {{ '::DocumentType:DuplicateScope:Uploader' | abpLocalization }}
+                  {{ 'VaultExtract::DocumentType:DuplicateScope:Uploader' | abpLocalization }}
                 </option>
               </select>
-              <div class="form-text">{{ '::DocumentType:DuplicateScope:Hint' | abpLocalization }}</div>
+              <div class="form-text">{{ 'VaultExtract::DocumentType:DuplicateScope:Hint' | abpLocalization }}</div>
             </div>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" (click)="closeModal()">
-              {{ '::Cancel' | abpLocalization }}
+              {{ 'VaultExtract::Cancel' | abpLocalization }}
             </button>
             <button type="submit" class="btn btn-primary" [disabled]="form.invalid || isSubmitting()">
               @if (isSubmitting()) {
                 <span class="spinner-border spinner-border-sm me-1"></span>
               }
-              {{ '::Save' | abpLocalization }}
+              {{ 'VaultExtract::Save' | abpLocalization }}
             </button>
           </div>
         </form>

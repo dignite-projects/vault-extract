@@ -27,7 +27,7 @@ export const appConfig: ApplicationConfig = {
 
 // app.routes.ts
 {
-  path: 'documents',
+  path: 'vault-extract',
   loadChildren: () => import('@dignite/ng.vault-extract/documents').then(m => m.DOCUMENTS_ROUTES),
 }
 ```

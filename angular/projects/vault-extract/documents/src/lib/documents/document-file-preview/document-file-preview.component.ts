@@ -16,7 +16,7 @@ import { DocumentFileBlobService } from '../../shared/document-file-blob.service
 import { isImageContentType, isPdfContentType } from '../../shared/content-type';
 
 // File preview page (route documents/:id/file). Replaces the old detail-page openFile() blob new-tab
-// shortcut with a readable /documents/{id}/file URL that includes the document ID. The file content is
+// shortcut with a readable /vault-extract/documents/{id}/file URL that includes the document ID. The file content is
 // still fetched through DocumentService.getBlob with a Bearer token and embedded as a blob, so the token
 // never enters the URL. Blob lifecycle is centralized in DocumentFileBlobService (#277).
 @Component({
@@ -80,6 +80,6 @@ export class DocumentFilePreviewComponent implements OnInit {
   }
 
   back(): void {
-    this.router.navigate(['/documents', this.documentId]);
+    this.router.navigate(['/vault-extract/documents', this.documentId]);
   }
 }

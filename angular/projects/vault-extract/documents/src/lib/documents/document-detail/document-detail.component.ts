@@ -242,7 +242,7 @@ export class DocumentDetailComponent implements OnInit {
     const allRuns = this.pipelineRuns();
     const known: PipelineRow[] = KNOWN_PIPELINE_CODES.map(code => this.toPipelineRow(
       code,
-      `::Document:Pipeline:${code}`,
+      `VaultExtract::Document:Pipeline:${code}`,
       true,
       this.pickLatestRun(allRuns, code),
     ));
@@ -640,7 +640,7 @@ export class DocumentDetailComponent implements OnInit {
         this.fileBlob.download(this.downloadFileName());
       } else if (failed) {
         this.pendingDownload = false;
-        this.toaster.error('::Document:DownloadFailed', '::Error');
+        this.toaster.error('VaultExtract::Document:DownloadFailed', 'VaultExtract::Error');
       }
     });
 
@@ -676,7 +676,7 @@ export class DocumentDetailComponent implements OnInit {
 
   ngOnInit(): void {
     // React to the :id route param rather than reading a one-time snapshot. Navigating between documents
-    // that share this route — a sub-document's "view parent"/"view siblings" actions, or any /documents/:id
+    // that share this route — a sub-document's "view parent"/"view siblings" actions, or any /vault-extract/documents/:id
     // link — reuses this component instance, so ngOnInit does not fire again. Without reacting to the param
     // the URL would change but the loaded document would not. Reload whenever the id actually changes,
     // dropping the previous document's cached file blob and resetting the tab so a stale preview never
@@ -791,7 +791,7 @@ export class DocumentDetailComponent implements OnInit {
           // an answer. Same exit as a mutation whose result is unreadable, with a message that does not
           // claim an operation just completed (on a poll, none did).
           if (err instanceof HttpErrorResponse && err.status === 403) {
-            this.leaveDocument('::Document:NoLongerVisible');
+            this.leaveDocument('VaultExtract::Document:NoLongerVisible');
             return;
           }
           if (!quiet) {
@@ -959,11 +959,11 @@ export class DocumentDetailComponent implements OnInit {
           this.isEditingCabinet.set(false);
           if (this.leaveIfNoLongerReadable(updated)) return;
           this.document.set(updated);
-          this.toaster.success('::Document:CabinetUpdated', '::Success');
+          this.toaster.success('VaultExtract::Document:CabinetUpdated', 'VaultExtract::Success');
         },
         error: () => {
           this.isSavingCabinet.set(false);
-          this.toaster.error('::Document:UpdateFailed', '::Error');
+          this.toaster.error('VaultExtract::Document:UpdateFailed', 'VaultExtract::Error');
         },
       });
   }
@@ -1001,7 +1001,7 @@ export class DocumentDetailComponent implements OnInit {
     const reprocess = requestedReprocess && this.canReprocessMarkdown();
     if (reprocess) {
       this.confirmation
-        .warn('::Document:Markdown:Correct:ReprocessConfirm', '::AreYouSure')
+        .warn('VaultExtract::Document:Markdown:Correct:ReprocessConfirm', 'VaultExtract::AreYouSure')
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe(status => {
           if (status === Confirmation.Status.confirm) this.submitMarkdown(doc.id!, markdown, reprocess, false);
@@ -1024,9 +1024,9 @@ export class DocumentDetailComponent implements OnInit {
             // #555 review: the operator checked "also re-extract fields" and confirmed the warning
             // dialog, but the document went unclassified before Save actually ran -- surface that
             // instead of a plain success toast, so the request vanishing is visible, not silent.
-            this.toaster.warn('::Document:Markdown:Correct:ReprocessSkipped', '::Warning');
+            this.toaster.warn('VaultExtract::Document:Markdown:Correct:ReprocessSkipped', 'VaultExtract::Warning');
           } else {
-            this.toaster.success('::Document:Markdown:Corrected', '::Success');
+            this.toaster.success('VaultExtract::Document:Markdown:Corrected', 'VaultExtract::Success');
           }
           // #555 review: apply the corrected DTO immediately so the preview/source tabs never flash
           // back to the pre-correction text while a reprocess reload is in flight.
@@ -1041,7 +1041,7 @@ export class DocumentDetailComponent implements OnInit {
         },
         error: () => {
           this.isSavingMarkdown.set(false);
-          this.toaster.error('::Document:UpdateFailed', '::Error');
+          this.toaster.error('VaultExtract::Document:UpdateFailed', 'VaultExtract::Error');
         },
       });
   }
@@ -1132,7 +1132,7 @@ export class DocumentDetailComponent implements OnInit {
     if (result?.rights?.canRead !== false) {
       return false;
     }
-    this.leaveDocument('::Document:SavedOutOfView', '::Success');
+    this.leaveDocument('VaultExtract::Document:SavedOutOfView', 'VaultExtract::Success');
     return true;
   }
 
@@ -1148,7 +1148,7 @@ export class DocumentDetailComponent implements OnInit {
   private leaveDocument(messageKey: string, titleKey?: string): void {
     this.stopPolling();
     this.toaster.info(messageKey, titleKey);
-    this.router.navigate(['/documents/list']);
+    this.router.navigate(['/vault-extract/documents']);
   }
 
   goBack(): void {
@@ -1160,7 +1160,7 @@ export class DocumentDetailComponent implements OnInit {
     if (navId && navId > 1) {
       this.location.back();
     } else {
-      this.router.navigate(['/documents/list']);
+      this.router.navigate(['/vault-extract/documents']);
     }
   }
 
@@ -1168,12 +1168,12 @@ export class DocumentDetailComponent implements OnInit {
   openParentDocument(): void {
     const originDocumentId = this.document()?.originDocumentId;
     if (!originDocumentId) return;
-    this.router.navigate(['/documents', originDocumentId]);
+    this.router.navigate(['/vault-extract/documents', originDocumentId]);
   }
 
   // #411: open a suspected-duplicate candidate so the operator can compare it before allowing / discarding.
   openDocument(documentId: string): void {
-    this.router.navigate(['/documents', documentId]);
+    this.router.navigate(['/vault-extract/documents', documentId]);
   }
 
   // #354: list the sibling sub-documents (all those derived from the same source, including this one),
@@ -1181,14 +1181,14 @@ export class DocumentDetailComponent implements OnInit {
   viewSiblingDocuments(): void {
     const originDocumentId = this.document()?.originDocumentId;
     if (!originDocumentId) return;
-    this.router.navigate(['/documents/list'], { queryParams: { originDocumentId } });
+    this.router.navigate(['/vault-extract/documents'], { queryParams: { originDocumentId } });
   }
 
   delete(): void {
     const doc = this.document();
     if (!doc) return;
     this.confirmation
-      .warn('::Document:AreYouSureToDelete', '::AreYouSure')
+      .warn('VaultExtract::Document:AreYouSureToDelete', 'VaultExtract::AreYouSure')
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(status => {
         if (status !== Confirmation.Status.confirm) return;
@@ -1196,8 +1196,8 @@ export class DocumentDetailComponent implements OnInit {
           .pipe(takeUntilDestroyed(this.destroyRef))
           .subscribe({
           next: () => {
-            this.toaster.success('::Document:DeletedSuccessfully', '::Success');
-            this.router.navigate(['/documents/list']);
+            this.toaster.success('VaultExtract::Document:DeletedSuccessfully', 'VaultExtract::Success');
+            this.router.navigate(['/vault-extract/documents']);
           },
         });
       });
@@ -1221,10 +1221,10 @@ export class DocumentDetailComponent implements OnInit {
           // "re-parsing" behind the dialog.
           this.isReparsing.set(false);
           return subDocumentCount > 0
-            ? this.confirmation.warn('::Document:Reparse:ConfirmWithSubDocuments', '::AreYouSure', {
+            ? this.confirmation.warn('VaultExtract::Document:Reparse:ConfirmWithSubDocuments', 'VaultExtract::AreYouSure', {
                 messageLocalizationParams: [String(subDocumentCount)],
               })
-            : this.confirmation.warn('::Document:Reparse:Confirm', '::AreYouSure');
+            : this.confirmation.warn('VaultExtract::Document:Reparse:Confirm', 'VaultExtract::AreYouSure');
         }),
         takeUntilDestroyed(this.destroyRef),
       )
@@ -1236,12 +1236,12 @@ export class DocumentDetailComponent implements OnInit {
           .subscribe({
             next: () => {
               this.isReparsing.set(false);
-              this.toaster.success('::Document:ReparseQueued', '::Success');
+              this.toaster.success('VaultExtract::Document:ReparseQueued', 'VaultExtract::Success');
               this.loadDocument();
             },
             error: () => {
               this.isReparsing.set(false);
-              this.toaster.error('::Document:ReparseFailed', '::Error');
+              this.toaster.error('VaultExtract::Document:ReparseFailed', 'VaultExtract::Error');
             },
           });
       });
@@ -1255,7 +1255,7 @@ export class DocumentDetailComponent implements OnInit {
     const doc = this.document();
     if (!doc || this.isReextracting()) return;
     this.confirmation
-      .warn('::Document:ReextractFields:Confirm', '::AreYouSure')
+      .warn('VaultExtract::Document:ReextractFields:Confirm', 'VaultExtract::AreYouSure')
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(status => {
         if (status !== Confirmation.Status.confirm) return;
@@ -1265,12 +1265,12 @@ export class DocumentDetailComponent implements OnInit {
           .subscribe({
             next: () => {
               this.isReextracting.set(false);
-              this.toaster.success('::Document:ReextractFieldsQueued', '::Success');
+              this.toaster.success('VaultExtract::Document:ReextractFieldsQueued', 'VaultExtract::Success');
               this.loadDocument();
             },
             error: () => {
               this.isReextracting.set(false);
-              this.toaster.error('::Document:ReextractFieldsFailed', '::Error');
+              this.toaster.error('VaultExtract::Document:ReextractFieldsFailed', 'VaultExtract::Error');
             },
           });
       });
@@ -1313,14 +1313,14 @@ export class DocumentDetailComponent implements OnInit {
           // TARGET type is judged by DeclareType (an Upload grant suffices), not by Read.
           if (this.leaveIfNoLongerReadable(updated)) return;
           this.toaster.success(
-            wasConfirmingClassification ? '::Document:ClassificationConfirmed' : '::Document:TypeChanged',
-            '::Success',
+            wasConfirmingClassification ? 'VaultExtract::Document:ClassificationConfirmed' : 'VaultExtract::Document:TypeChanged',
+            'VaultExtract::Success',
           );
           this.loadDocument();
         },
         error: () => {
           this.isConfirmingClassification.set(false);
-          this.toaster.error('::Document:ConfirmFailed', '::Error');
+          this.toaster.error('VaultExtract::Document:ConfirmFailed', 'VaultExtract::Error');
         },
       });
   }
@@ -1343,7 +1343,7 @@ export class DocumentDetailComponent implements OnInit {
     if (!doc || this.isRejecting()) return;
     const reason = this.rejectReason().trim();
     if (!reason) {
-      this.toaster.warn('::Document:Review:RejectReasonRequired');
+      this.toaster.warn('VaultExtract::Document:Review:RejectReasonRequired');
       return;
     }
     this.isRejecting.set(true);
@@ -1354,12 +1354,12 @@ export class DocumentDetailComponent implements OnInit {
           this.isRejecting.set(false);
           this.closeRejectDialog();
           if (this.leaveIfNoLongerReadable(updated)) return;
-          this.toaster.success('::Document:Review:RejectedSuccessfully', '::Success');
+          this.toaster.success('VaultExtract::Document:Review:RejectedSuccessfully', 'VaultExtract::Success');
           this.loadDocument();
         },
         error: () => {
           this.isRejecting.set(false);
-          this.toaster.error('::Document:Review:ActionFailed', '::Error');
+          this.toaster.error('VaultExtract::Document:Review:ActionFailed', 'VaultExtract::Error');
         },
       });
   }
@@ -1377,12 +1377,12 @@ export class DocumentDetailComponent implements OnInit {
         next: updated => {
           this.isAllowingDuplicate.set(false);
           if (this.leaveIfNoLongerReadable(updated)) return;
-          this.toaster.success('::Document:Review:DuplicateAllowed', '::Success');
+          this.toaster.success('VaultExtract::Document:Review:DuplicateAllowed', 'VaultExtract::Success');
           this.loadDocument();
         },
         error: () => {
           this.isAllowingDuplicate.set(false);
-          this.toaster.error('::Document:Review:ActionFailed', '::Error');
+          this.toaster.error('VaultExtract::Document:Review:ActionFailed', 'VaultExtract::Error');
         },
       });
   }
@@ -1400,7 +1400,7 @@ export class DocumentDetailComponent implements OnInit {
       .filter((id): id is string => !!id);
     if (fieldDefinitionIds.length === 0) return;
     this.confirmation
-      .warn('::Document:Review:ResolveFieldValidationWarnings:Confirm', '::AreYouSure')
+      .warn('VaultExtract::Document:Review:ResolveFieldValidationWarnings:Confirm', 'VaultExtract::AreYouSure')
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(status => {
         if (status !== Confirmation.Status.confirm) return;
@@ -1411,12 +1411,12 @@ export class DocumentDetailComponent implements OnInit {
             next: updated => {
               this.isResolvingWarnings.set(false);
               if (this.leaveIfNoLongerReadable(updated)) return;
-              this.toaster.success('::Document:Review:FieldValidationWarningsResolved', '::Success');
+              this.toaster.success('VaultExtract::Document:Review:FieldValidationWarningsResolved', 'VaultExtract::Success');
               this.loadDocument();
             },
             error: () => {
               this.isResolvingWarnings.set(false);
-              this.toaster.error('::Document:Review:ActionFailed', '::Error');
+              this.toaster.error('VaultExtract::Document:Review:ActionFailed', 'VaultExtract::Error');
             },
           });
       });
@@ -1431,7 +1431,7 @@ export class DocumentDetailComponent implements OnInit {
     const doc = this.document();
     if (!doc || this.isConfirmingFieldEntry()) return;
     this.confirmation
-      .warn('::Document:Review:ConfirmFieldEntry:Confirm', '::AreYouSure')
+      .warn('VaultExtract::Document:Review:ConfirmFieldEntry:Confirm', 'VaultExtract::AreYouSure')
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(status => {
         if (status !== Confirmation.Status.confirm) return;
@@ -1442,12 +1442,12 @@ export class DocumentDetailComponent implements OnInit {
             next: updated => {
               this.isConfirmingFieldEntry.set(false);
               if (this.leaveIfNoLongerReadable(updated)) return;
-              this.toaster.success('::Document:Review:FieldEntryConfirmed', '::Success');
+              this.toaster.success('VaultExtract::Document:Review:FieldEntryConfirmed', 'VaultExtract::Success');
               this.loadDocument();
             },
             error: () => {
               this.isConfirmingFieldEntry.set(false);
-              this.toaster.error('::Document:Review:ActionFailed', '::Error');
+              this.toaster.error('VaultExtract::Document:Review:ActionFailed', 'VaultExtract::Error');
             },
           });
       });
@@ -1472,12 +1472,12 @@ export class DocumentDetailComponent implements OnInit {
 
   getStatusLabel(status: DocumentLifecycleStatus | undefined): string {
     switch (status) {
-      case DocumentLifecycleStatus.Uploaded:   return '::Document:Status:Uploaded';
-      case DocumentLifecycleStatus.Processing: return '::Document:Status:Processing';
-      case DocumentLifecycleStatus.PendingReview: return '::Document:Status:PendingReview';
-      case DocumentLifecycleStatus.Ready:      return '::Document:Status:Ready';
-      case DocumentLifecycleStatus.Failed:     return '::Document:Status:Failed';
-      default:                                 return '::Document:Status:Unknown';
+      case DocumentLifecycleStatus.Uploaded:   return 'VaultExtract::Document:Status:Uploaded';
+      case DocumentLifecycleStatus.Processing: return 'VaultExtract::Document:Status:Processing';
+      case DocumentLifecycleStatus.PendingReview: return 'VaultExtract::Document:Status:PendingReview';
+      case DocumentLifecycleStatus.Ready:      return 'VaultExtract::Document:Status:Ready';
+      case DocumentLifecycleStatus.Failed:     return 'VaultExtract::Document:Status:Failed';
+      default:                                 return 'VaultExtract::Document:Status:Unknown';
     }
   }
 
@@ -1489,19 +1489,19 @@ export class DocumentDetailComponent implements OnInit {
   reviewReasonLabel(reason: DocumentReviewReasons | undefined): string {
     switch (reason) {
       case DocumentReviewReasons.UnresolvedClassification:
-        return '::Document:ReviewReason:UnresolvedClassification';
+        return 'VaultExtract::Document:ReviewReason:UnresolvedClassification';
       case DocumentReviewReasons.MissingRequiredFields:
-        return '::Document:ReviewReason:MissingRequiredFields';
+        return 'VaultExtract::Document:ReviewReason:MissingRequiredFields';
       case DocumentReviewReasons.SegmentationIncomplete:
-        return '::Document:ReviewReason:SegmentationIncomplete';
+        return 'VaultExtract::Document:ReviewReason:SegmentationIncomplete';
       case DocumentReviewReasons.DuplicateSuspected:
-        return '::Document:ReviewReason:DuplicateSuspected';
+        return 'VaultExtract::Document:ReviewReason:DuplicateSuspected';
       case DocumentReviewReasons.FieldExtractionIncomplete:
-        return '::Document:ReviewReason:FieldExtractionIncomplete';
+        return 'VaultExtract::Document:ReviewReason:FieldExtractionIncomplete';
       case DocumentReviewReasons.FieldValidationWarning:
-        return '::Document:ReviewReason:FieldValidationWarning';
+        return 'VaultExtract::Document:ReviewReason:FieldValidationWarning';
       default:
-        return '::Document:NeedsReview';
+        return 'VaultExtract::Document:NeedsReview';
     }
   }
 
@@ -1511,19 +1511,19 @@ export class DocumentDetailComponent implements OnInit {
   reviewReasonHint(reason: DocumentReviewReasons | undefined): string {
     switch (reason) {
       case DocumentReviewReasons.UnresolvedClassification:
-        return '::Document:Review:Hint:UnresolvedClassification';
+        return 'VaultExtract::Document:Review:Hint:UnresolvedClassification';
       case DocumentReviewReasons.MissingRequiredFields:
-        return '::Document:Review:Hint:MissingRequiredFields';
+        return 'VaultExtract::Document:Review:Hint:MissingRequiredFields';
       case DocumentReviewReasons.SegmentationIncomplete:
-        return '::Document:Review:Hint:SegmentationIncomplete';
+        return 'VaultExtract::Document:Review:Hint:SegmentationIncomplete';
       case DocumentReviewReasons.DuplicateSuspected:
-        return '::Document:Review:Hint:DuplicateSuspected';
+        return 'VaultExtract::Document:Review:Hint:DuplicateSuspected';
       case DocumentReviewReasons.FieldExtractionIncomplete:
-        return '::Document:Review:Hint:FieldExtractionIncomplete';
+        return 'VaultExtract::Document:Review:Hint:FieldExtractionIncomplete';
       case DocumentReviewReasons.FieldValidationWarning:
-        return '::Document:Review:Hint:FieldValidationWarning';
+        return 'VaultExtract::Document:Review:Hint:FieldValidationWarning';
       default:
-        return '::Document:NeedsReview';
+        return 'VaultExtract::Document:NeedsReview';
     }
   }
 
@@ -1550,12 +1550,12 @@ export class DocumentDetailComponent implements OnInit {
 
   getRunStatusLabel(status: PipelineRunStatus | undefined): string {
     switch (status) {
-      case PipelineRunStatus.Pending:   return '::Document:Pipeline:Status:Pending';
-      case PipelineRunStatus.Running:   return '::Document:Pipeline:Status:Running';
-      case PipelineRunStatus.Succeeded: return '::Document:Pipeline:Status:Succeeded';
-      case PipelineRunStatus.Failed:    return '::Document:Pipeline:Status:Failed';
-      case PipelineRunStatus.Skipped:   return '::Document:Pipeline:Status:Skipped';
-      default:                          return '::Document:Pipeline:Status:NotStarted';
+      case PipelineRunStatus.Pending:   return 'VaultExtract::Document:Pipeline:Status:Pending';
+      case PipelineRunStatus.Running:   return 'VaultExtract::Document:Pipeline:Status:Running';
+      case PipelineRunStatus.Succeeded: return 'VaultExtract::Document:Pipeline:Status:Succeeded';
+      case PipelineRunStatus.Failed:    return 'VaultExtract::Document:Pipeline:Status:Failed';
+      case PipelineRunStatus.Skipped:   return 'VaultExtract::Document:Pipeline:Status:Skipped';
+      default:                          return 'VaultExtract::Document:Pipeline:Status:NotStarted';
     }
   }
 
@@ -1576,12 +1576,12 @@ export class DocumentDetailComponent implements OnInit {
       .subscribe({
       next: () => {
         this.retryingPipeline.set(null);
-        this.toaster.success('::Document:Pipeline:RetryQueued', '::Success');
+        this.toaster.success('VaultExtract::Document:Pipeline:RetryQueued', 'VaultExtract::Success');
         this.loadDocument();
       },
       error: () => {
         this.retryingPipeline.set(null);
-        this.toaster.error('::Document:Pipeline:RetryFailed', '::Error');
+        this.toaster.error('VaultExtract::Document:Pipeline:RetryFailed', 'VaultExtract::Error');
       },
     });
   }
@@ -1632,11 +1632,11 @@ export class DocumentDetailComponent implements OnInit {
           this.editingDocument.set(undefined);
           if (this.leaveIfNoLongerReadable(updated)) return;
           this.document.set(updated);
-          this.toaster.success('::Document:FieldsUpdated', '::Success');
+          this.toaster.success('VaultExtract::Document:FieldsUpdated', 'VaultExtract::Success');
         },
         error: () => {
           this.isSavingFields.set(false);
-          this.toaster.error('::Document:UpdateFailed', '::Error');
+          this.toaster.error('VaultExtract::Document:UpdateFailed', 'VaultExtract::Error');
         },
       });
   }

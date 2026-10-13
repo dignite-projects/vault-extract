@@ -248,7 +248,7 @@ describe('DocumentUploadComponent — loading / unavailable states and refused d
     expect(component.showTypesUnavailable()).toBe(true);
 
     const retry = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>)
-      .find(b => b.textContent?.includes('::Refresh'));
+      .find(b => b.textContent?.includes('VaultExtract::Refresh'));
     expect(retry).toBeDefined();
     retry!.click();
     fixture.detectChanges();
@@ -274,7 +274,7 @@ describe('DocumentUploadComponent — loading / unavailable states and refused d
 
     expect(uploadSpy).not.toHaveBeenCalled();
     expect(toasterSpy.warn).toHaveBeenCalledTimes(1);
-    expect(toasterSpy.warn).toHaveBeenCalledWith('::Document:SelectDocumentType:Required');
+    expect(toasterSpy.warn).toHaveBeenCalledWith('VaultExtract::Document:SelectDocumentType:Required');
   });
 
   it('invalidates a stale selection when the declarable set changes out from under it', async () => {

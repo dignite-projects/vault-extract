@@ -3,13 +3,13 @@
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h4 class="mb-0">
       <i class="fas fa-trash-can me-2"></i>
-      {{ '::Document:RecycleBin' | abpLocalization }}
+      {{ 'VaultExtract::Document:RecycleBin' | abpLocalization }}
     </h4>
     <button
       class="btn btn-outline-secondary"
       (click)="refresh()"
       [disabled]="isLoading() || isBulkDeleting()"
-      title="{{ '::Refresh' | abpLocalization }}"
+      title="{{ 'VaultExtract::Refresh' | abpLocalization }}"
     >
       <i class="fas fa-sync-alt" [class.fa-spin]="isLoading()"></i>
     </button>
@@ -19,7 +19,7 @@
     <div class="alert alert-light border d-flex flex-wrap justify-content-between align-items-center gap-2 py-2 mb-3" role="status">
       <span class="fw-semibold">
         <i class="fas fa-check-square me-2" aria-hidden="true"></i>
-        {{ '::Document:Bulk:Selected' | abpLocalization: ((selectedCount() | number) ?? '') }}
+        {{ 'VaultExtract::Document:Bulk:Selected' | abpLocalization: ((selectedCount() | number) ?? '') }}
       </span>
       <div class="d-flex gap-2">
         <button
@@ -28,7 +28,7 @@
           (click)="clearSelection()"
           [disabled]="isBulkDeleting()"
         >
-          {{ '::Document:Bulk:ClearSelection' | abpLocalization }}
+          {{ 'VaultExtract::Document:Bulk:ClearSelection' | abpLocalization }}
         </button>
         <button
           type="button"
@@ -45,8 +45,8 @@
           ></i>
           {{
             (isBulkDeleting()
-              ? '::Document:Bulk:PermanentDeleting'
-              : '::Document:Bulk:PermanentDelete') | abpLocalization
+              ? 'VaultExtract::Document:Bulk:PermanentDeleting'
+              : 'VaultExtract::Document:Bulk:PermanentDelete') | abpLocalization
           }}
         </button>
       </div>
@@ -71,7 +71,7 @@
     <div class="card shadow-sm">
       <div class="card-body text-center py-5">
         <i class="fas fa-trash-can fa-3x text-muted mb-3 d-block"></i>
-        <p class="text-muted mb-0">{{ '::Document:RecycleBinEmpty' | abpLocalization }}</p>
+        <p class="text-muted mb-0">{{ 'VaultExtract::Document:RecycleBinEmpty' | abpLocalization }}</p>
       </div>
     </div>
   }
@@ -92,13 +92,13 @@
                 @if (rights.canRestore) {
                   <button type="button" ngbDropdownItem (click)="restore(doc)" [disabled]="isBulkDeleting()">
                     <i class="fas fa-rotate-left me-2"></i>
-                    {{ '::Document:Restore' | abpLocalization }}
+                    {{ 'VaultExtract::Document:Restore' | abpLocalization }}
                   </button>
                 }
                 @if (canPermanentDelete) {
                   <button type="button" ngbDropdownItem (click)="permanentDelete(doc)" [disabled]="isBulkDeleting()">
                     <i class="fas fa-times me-2"></i>
-                    {{ '::Document:PermanentDelete' | abpLocalization }}
+                    {{ 'VaultExtract::Document:PermanentDelete' | abpLocalization }}
                   </button>
                 }
               </div>

@@ -3,7 +3,7 @@
   <div class="d-flex align-items-center mb-3 gap-2">
     <button class="btn btn-outline-secondary btn-sm" (click)="back()">
       <i class="fas fa-arrow-left me-1"></i>
-      {{ '::Back' | abpLocalization }}
+      {{ 'VaultExtract::Back' | abpLocalization }}
     </button>
     <h6 class="mb-0 ms-2 text-truncate" style="max-width: 60vw;" [title]="fileName()">
       <i class="fas fa-file me-1"></i>{{ fileName() }}
@@ -16,7 +16,7 @@
         target="_blank"
         rel="noopener"
       >
-        <i class="fas fa-download me-1"></i>{{ '::Document:Download' | abpLocalization }}
+        <i class="fas fa-download me-1"></i>{{ 'VaultExtract::Document:Download' | abpLocalization }}
       </a>
     }
   </div>
@@ -28,14 +28,14 @@
   } @else if (hasError() || fileBlob.hasError()) {
     <div class="alert alert-danger" role="alert">
       <i class="fas fa-exclamation-triangle me-2"></i>
-      {{ '::Document:PreviewUnavailable' | abpLocalization }}
+      {{ 'VaultExtract::Document:PreviewUnavailable' | abpLocalization }}
     </div>
   } @else if (!hasSourceFile()) {
     <!-- Null-safety branch (#481: FileOrigin required; only pre-migration legacy rows lack one). Neutral notice, not an error. -->
     <div class="card shadow-sm">
       <div class="card-body text-center py-5 text-muted">
         <i class="fas fa-file-circle-xmark fa-3x mb-3 d-block"></i>
-        <p class="mb-0">{{ '::Document:NoSourceFile' | abpLocalization }}</p>
+        <p class="mb-0">{{ 'VaultExtract::Document:NoSourceFile' | abpLocalization }}</p>
       </div>
     </div>
   } @else if (isImage()) {
@@ -58,7 +58,7 @@
     <div class="card shadow-sm">
       <div class="card-body text-center py-5 text-muted">
         <i class="fas fa-file-arrow-down fa-3x mb-3 d-block"></i>
-        <p class="mb-3">{{ '::Document:PreviewNotSupported' | abpLocalization }}</p>
+        <p class="mb-3">{{ 'VaultExtract::Document:PreviewNotSupported' | abpLocalization }}</p>
         @if (fileBlob.blobUrl()) {
           <a
             class="btn btn-primary"
@@ -67,7 +67,7 @@
             target="_blank"
             rel="noopener"
           >
-            <i class="fas fa-download me-1"></i>{{ '::Document:Download' | abpLocalization }}
+            <i class="fas fa-download me-1"></i>{{ 'VaultExtract::Document:Download' | abpLocalization }}
           </a>
         }
       </div>

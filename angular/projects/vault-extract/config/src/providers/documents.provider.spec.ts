@@ -11,7 +11,7 @@ import { TestBed } from '@angular/core/testing';
 import { EXTRACT_FEATURES, EXTRACT_PERMISSIONS, isExtractFeatureDisabled } from '@dignite/ng.vault-extract';
 import { provideExtract } from './documents.provider';
 
-const DOCUMENTS_MENU = '::Menu:Documents';
+const DOCUMENTS_MENU = 'VaultExtract::Menu:VaultExtract';
 
 // The permissions a signed-in operator needs to see every entry of the menu, so that a missing entry can only
 // be the feature, not a policy.
@@ -59,11 +59,11 @@ describe('provideExtract menu', () => {
     configure('true');
 
     expect(visibleMenu()?.children).toEqual([
-      '::Menu:DocumentOverview',
-      '::Menu:DocumentList',
-      '::Menu:DocumentTypes',
-      '::Menu:Cabinets',
-      '::Menu:DocumentRecycleBin',
+      'VaultExtract::Menu:DocumentOverview',
+      'VaultExtract::Menu:DocumentList',
+      'VaultExtract::Menu:DocumentTypes',
+      'VaultExtract::Menu:Cabinets',
+      'VaultExtract::Menu:DocumentRecycleBin',
     ]);
   });
 
@@ -96,10 +96,10 @@ describe('provideExtract menu', () => {
   });
 
   it('leaves the other entries of the host alone', () => {
-    routes.add([{ path: '/', name: '::Menu:Home', order: 1 }]);
+    routes.add([{ path: '/', name: 'VaultExtract::Menu:Home', order: 1 }]);
     configure('false');
 
-    expect(routes.visible.map(node => node.name)).toEqual(['::Menu:Home']);
+    expect(routes.visible.map(node => node.name)).toEqual(['VaultExtract::Menu:Home']);
   });
 });
 
