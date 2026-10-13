@@ -43,7 +43,7 @@ export class HomeComponent {
     {
       title: 'Dignite Vault Extract',
       description: 'Open the module for document intake, review, schema management, and exports.',
-      route: '/documents',
+      route: '/vault-extract',
       iconClass: 'fas fa-file-lines',
       toneClass: 'text-bg-primary',
       policies: [EXTRACT_PERMISSIONS.Documents.Default],

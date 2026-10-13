@@ -36,7 +36,7 @@ export const DOCUMENTS_ROUTES: Routes = [
           import('./documents/document-overview/document-overview.component').then(c => c.DocumentOverviewComponent),
       },
       {
-        path: 'list',
+        path: 'documents',
         canActivate: [authGuard, permissionGuard],
         data: { requiredPolicy: EXTRACT_PERMISSIONS.Documents.Default },
         loadComponent: () =>
@@ -48,7 +48,7 @@ export const DOCUMENTS_ROUTES: Routes = [
         // neither can be expressed as a route policy at all; guarding on the role-level `Documents.Delete` (which
         // covers restore since #645) would keep both personas out of the page entirely. The server is the authority: admission to the recycle-bin query is
         // entry alone, and it answers with exactly the deleted documents this caller may read.
-        path: 'recycle',
+        path: 'documents-recycle-bin',
         canActivate: [authGuard, permissionGuard],
         data: { requiredPolicy: EXTRACT_PERMISSIONS.Documents.Default },
         loadComponent: () =>
@@ -57,7 +57,7 @@ export const DOCUMENTS_ROUTES: Routes = [
           ),
       },
       {
-        path: 'types',
+        path: 'document-types',
         canActivate: [authGuard, permissionGuard],
         data: { requiredPolicy: EXTRACT_PERMISSIONS.DocumentTypes.Default },
         loadComponent: () =>
@@ -66,7 +66,7 @@ export const DOCUMENTS_ROUTES: Routes = [
           ),
       },
       {
-        path: 'types/:typeId/fields',
+        path: 'document-types/:typeId/fields',
         canActivate: [authGuard, permissionGuard],
         data: { requiredPolicy: EXTRACT_PERMISSIONS.FieldDefinitions.Default },
         loadComponent: () =>
@@ -82,7 +82,7 @@ export const DOCUMENTS_ROUTES: Routes = [
           import('./cabinets/cabinet-list/cabinet-list.component').then(c => c.CabinetListComponent),
       },
       {
-        path: ':id/file',
+        path: 'documents/:id/file',
         canActivate: [authGuard, permissionGuard],
         data: { requiredPolicy: EXTRACT_PERMISSIONS.Documents.Default },
         loadComponent: () =>
@@ -91,7 +91,7 @@ export const DOCUMENTS_ROUTES: Routes = [
           ),
       },
       {
-        path: ':id',
+        path: 'documents/:id',
         canActivate: [authGuard, permissionGuard],
         data: { requiredPolicy: EXTRACT_PERMISSIONS.Documents.Default },
         loadComponent: () =>

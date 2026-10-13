@@ -80,12 +80,12 @@ export class FieldReextractionModalComponent implements OnInit {
       .subscribe({
         next: () => {
           this.isSubmitting.set(false);
-          this.toaster.success('::Document:Reprocess:FieldExtraction:Queued', '::Success');
+          this.toaster.success('VaultExtract::Document:Reprocess:FieldExtraction:Queued', 'VaultExtract::Success');
           this.close();
         },
         error: () => {
           this.isSubmitting.set(false);
-          this.toaster.error('::Document:Reprocess:Failed', '::Error');
+          this.toaster.error('VaultExtract::Document:Reprocess:Failed', 'VaultExtract::Error');
         },
       });
   }

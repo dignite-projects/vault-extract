@@ -349,7 +349,7 @@ describe('DocumentDetailComponent — confirm field entry (#657)', () => {
 
     expect(confirmFieldEntry).toHaveBeenCalledWith('doc-1');
     expect(get).toHaveBeenCalledWith('doc-1', { skipHandleError: true });
-    expect(toaster.success).toHaveBeenCalledWith('::Document:Review:FieldEntryConfirmed', '::Success');
+    expect(toaster.success).toHaveBeenCalledWith('VaultExtract::Document:Review:FieldEntryConfirmed', 'VaultExtract::Success');
   });
 
   it('does not confirm field entry when the field editor is merely saved — the regression guard for the two acts staying separate', () => {
@@ -537,7 +537,7 @@ describe('DocumentDetailComponent — re-parse and the type editor (#660)', () =
     component.submitClassify();
 
     expect(confirmClassification).toHaveBeenCalledWith('doc-1', { documentTypeId: 'type-b' });
-    expect(toaster.success).toHaveBeenCalledWith('::Document:TypeChanged', '::Success');
+    expect(toaster.success).toHaveBeenCalledWith('VaultExtract::Document:TypeChanged', 'VaultExtract::Success');
   });
 
   it('names how many sub-documents a re-parse withdraws before queueing it', () => {
@@ -553,12 +553,12 @@ describe('DocumentDetailComponent — re-parse and the type editor (#660)', () =
 
     expect(getList).toHaveBeenCalledWith(expect.objectContaining({ originDocumentId: 'doc-1' }));
     expect(confirmation.warn).toHaveBeenCalledWith(
-      '::Document:Reparse:ConfirmWithSubDocuments',
-      '::AreYouSure',
+      'VaultExtract::Document:Reparse:ConfirmWithSubDocuments',
+      'VaultExtract::AreYouSure',
       { messageLocalizationParams: ['2'] },
     );
     expect(reparse).toHaveBeenCalledWith('doc-1');
-    expect(toaster.success).toHaveBeenCalledWith('::Document:ReparseQueued', '::Success');
+    expect(toaster.success).toHaveBeenCalledWith('VaultExtract::Document:ReparseQueued', 'VaultExtract::Success');
   });
 
   it('does not show the button as re-parsing while the operator is still deciding', () => {
@@ -589,7 +589,7 @@ describe('DocumentDetailComponent — re-parse and the type editor (#660)', () =
 
     component.reparse();
 
-    expect(confirmation.warn).toHaveBeenCalledWith('::Document:Reparse:Confirm', '::AreYouSure');
+    expect(confirmation.warn).toHaveBeenCalledWith('VaultExtract::Document:Reparse:Confirm', 'VaultExtract::AreYouSure');
     // The default stub resolves the dialog as dismissed: nothing is queued and the button is free again.
     expect(reparse).not.toHaveBeenCalled();
     expect(component.isReparsing()).toBe(false);
@@ -624,9 +624,9 @@ describe('DocumentDetailComponent — a mutation result the caller may not read 
     expect(confirmClassification).toHaveBeenCalled();
     expect(component.document()).toBe(before);
     expect(get).not.toHaveBeenCalled();
-    expect(toaster.info).toHaveBeenCalledWith('::Document:SavedOutOfView', '::Success');
+    expect(toaster.info).toHaveBeenCalledWith('VaultExtract::Document:SavedOutOfView', 'VaultExtract::Success');
     expect(toaster.success).not.toHaveBeenCalled();
-    expect(navigate).toHaveBeenCalledWith(['/documents/list']);
+    expect(navigate).toHaveBeenCalledWith(['/vault-extract/documents']);
   });
 
   it('does not put a redacted body into state on a call that renders its response', () => {
@@ -638,7 +638,7 @@ describe('DocumentDetailComponent — a mutation result the caller may not read 
     component.saveCabinet();
 
     expect(component.document()).toBe(before);
-    expect(navigate).toHaveBeenCalledWith(['/documents/list']);
+    expect(navigate).toHaveBeenCalledWith(['/vault-extract/documents']);
   });
 
   it('keeps the page, and the new body, when the caller can still read the result', () => {
@@ -652,7 +652,7 @@ describe('DocumentDetailComponent — a mutation result the caller may not read 
 
     expect(component.document()).toBe(after);
     expect(navigate).not.toHaveBeenCalled();
-    expect(toaster.success).toHaveBeenCalledWith('::Document:CabinetUpdated', '::Success');
+    expect(toaster.success).toHaveBeenCalledWith('VaultExtract::Document:CabinetUpdated', 'VaultExtract::Success');
   });
 });
 
@@ -820,9 +820,9 @@ describe('DocumentDetailComponent — the document fetch is refused or fails (#6
     expect(get).toHaveBeenCalledWith('doc-1', { skipHandleError: true });
     expect(component.document()).toBe(before);
     // Not the mutation message: on a poll, no operation just completed.
-    expect(toaster.info).toHaveBeenCalledWith('::Document:NoLongerVisible', undefined);
-    expect(toaster.info).not.toHaveBeenCalledWith('::Document:SavedOutOfView', expect.anything());
-    expect(navigate).toHaveBeenCalledWith(['/documents/list']);
+    expect(toaster.info).toHaveBeenCalledWith('VaultExtract::Document:NoLongerVisible', undefined);
+    expect(toaster.info).not.toHaveBeenCalledWith('VaultExtract::Document:SavedOutOfView', expect.anything());
+    expect(navigate).toHaveBeenCalledWith(['/vault-extract/documents']);
     // ABP's global modal is exactly what this path exists to avoid.
     expect(reporter.reportError).not.toHaveBeenCalled();
   });

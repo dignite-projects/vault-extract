@@ -91,7 +91,7 @@ export class CabinetListComponent implements OnInit {
       EntityProp.create<CabinetDto>({
         type: ePropType.String,
         name: 'name',
-        displayName: '::Cabinet:Name',
+        displayName: 'VaultExtract::Cabinet:Name',
         sortable: true,
         valueResolver: data => {
           const name = escapeHtmlChars(data.record.name);
@@ -177,14 +177,14 @@ export class CabinetListComponent implements OnInit {
       this.service.create(input)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
-          next: () => this.onSaved('::Cabinet:CreatedSuccessfully'),
+          next: () => this.onSaved('VaultExtract::Cabinet:CreatedSuccessfully'),
           error: () => this.isSubmitting.set(false),
         });
     } else {
       this.service.update(mode.id!, { name: raw.name, description })
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
-          next: () => this.onSaved('::Cabinet:UpdatedSuccessfully'),
+          next: () => this.onSaved('VaultExtract::Cabinet:UpdatedSuccessfully'),
           error: () => this.isSubmitting.set(false),
         });
     }
@@ -193,13 +193,13 @@ export class CabinetListComponent implements OnInit {
   private onSaved(messageKey: string): void {
     this.isSubmitting.set(false);
     this.closeModal();
-    this.toaster.success(messageKey, '::Success');
+    this.toaster.success(messageKey, 'VaultExtract::Success');
     this.load();
   }
 
   delete(cabinet: CabinetDto): void {
     this.confirmation
-      .warn('::Cabinet:AreYouSureToDelete', '::AreYouSure')
+      .warn('VaultExtract::Cabinet:AreYouSureToDelete', 'VaultExtract::AreYouSure')
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(status => {
         if (status !== Confirmation.Status.confirm) return;
@@ -207,10 +207,10 @@ export class CabinetListComponent implements OnInit {
           .pipe(takeUntilDestroyed(this.destroyRef))
           .subscribe({
             next: () => {
-              this.toaster.success('::Cabinet:DeletedSuccessfully', '::Success');
+              this.toaster.success('VaultExtract::Cabinet:DeletedSuccessfully', 'VaultExtract::Success');
               this.load();
             },
-            error: () => this.toaster.error('::Cabinet:DeleteFailed', '::Error'),
+            error: () => this.toaster.error('VaultExtract::Cabinet:DeleteFailed', 'VaultExtract::Error'),
           });
       });
   }

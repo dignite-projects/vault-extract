@@ -26,7 +26,7 @@ export function provideExtractNotifications(): EnvironmentProviders {
     NOTIFICATION_CENTER_NAV_ITEM_PROVIDERS,
     provideAppInitializer(() => {
       inject(NotificationEntityLinksService).register(DOCUMENT_NOTIFICATION_ENTITY_TYPE, notification =>
-        notification.entityId ? ['/documents', notification.entityId] : null,
+        notification.entityId ? ['/vault-extract/documents', notification.entityId] : null,
       );
     }),
   ]);

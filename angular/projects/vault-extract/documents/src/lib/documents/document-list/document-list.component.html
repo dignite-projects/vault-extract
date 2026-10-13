@@ -3,14 +3,14 @@
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h4 class="mb-0">
       <i class="fas fa-file-alt me-2"></i>
-      {{ '::Document:Documents' | abpLocalization }}
+      {{ 'VaultExtract::Document:Documents' | abpLocalization }}
     </h4>
     <div class="d-flex gap-2">
       <button
         class="btn btn-outline-secondary"
         (click)="refresh()"
         [disabled]="isLoading() || isBulkDeleting()"
-        title="{{ '::Refresh' | abpLocalization }}"
+        title="{{ 'VaultExtract::Refresh' | abpLocalization }}"
       >
         <i class="fas fa-sync-alt" [class.fa-spin]="isLoading()"></i>
       </button>
@@ -21,10 +21,10 @@
           [class.btn-outline-warning]="!reviewFilter()"
           [attr.aria-pressed]="reviewFilter()"
           (click)="toggleReviewFilter()"
-          title="{{ '::Document:NeedsReview' | abpLocalization }}"
+          title="{{ 'VaultExtract::Document:NeedsReview' | abpLocalization }}"
         >
           <i class="fas fa-clipboard-check me-1"></i>
-          {{ '::Document:NeedsReview' | abpLocalization }}
+          {{ 'VaultExtract::Document:NeedsReview' | abpLocalization }}
           @if (reviewQueueCount() > 0) {
             <span class="badge bg-danger ms-1">{{ reviewQueueCount() }}</span>
           }
@@ -43,20 +43,20 @@
             ngbDropdownToggle
             [disabled]="!typeFilter() || isExporting()"
             title="{{
-              (typeFilter() ? '::Document:Export:CurrentView' : '::Document:Export:SelectTypeHint')
+              (typeFilter() ? 'VaultExtract::Document:Export:CurrentView' : 'VaultExtract::Document:Export:SelectTypeHint')
                 | abpLocalization
             }}"
           >
             <i class="fas me-1" [class.fa-download]="!isExporting()" [class.fa-spinner]="isExporting()" [class.fa-spin]="isExporting()"></i>
-            {{ '::Document:Export' | abpLocalization }}
+            {{ 'VaultExtract::Document:Export' | abpLocalization }}
           </button>
           <div ngbDropdownMenu class="dropdown-menu-end">
-            <h6 class="dropdown-header">{{ '::Document:Export:CurrentView' | abpLocalization }}</h6>
+            <h6 class="dropdown-header">{{ 'VaultExtract::Document:Export:CurrentView' | abpLocalization }}</h6>
             <button type="button" ngbDropdownItem (click)="exportCurrentView(ExportFormat.Csv)">
-              {{ '::ExportFormat:Csv' | abpLocalization }}
+              {{ 'VaultExtract::ExportFormat:Csv' | abpLocalization }}
             </button>
             <button type="button" ngbDropdownItem (click)="exportCurrentView(ExportFormat.Xlsx)">
-              {{ '::ExportFormat:Xlsx' | abpLocalization }}
+              {{ 'VaultExtract::ExportFormat:Xlsx' | abpLocalization }}
             </button>
           </div>
         </div>
@@ -64,7 +64,7 @@
       @if (canUploadAnywhere()) {
         <button class="btn btn-primary" (click)="uploadNew()">
           <i class="fas fa-upload me-1"></i>
-          {{ '::Document:Upload' | abpLocalization }}
+          {{ 'VaultExtract::Document:Upload' | abpLocalization }}
         </button>
       }
     </div>
@@ -77,12 +77,12 @@
       [ngModel]="lifecycleFilter()"
       (ngModelChange)="onLifecycleFilterChange($event)"
     >
-      <option [ngValue]="undefined">{{ '::Document:Filter:AllStatuses' | abpLocalization }}</option>
-      <option [ngValue]="DocumentLifecycleStatus.Uploaded">{{ '::Document:Status:Uploaded' | abpLocalization }}</option>
-      <option [ngValue]="DocumentLifecycleStatus.Processing">{{ '::Document:Status:Processing' | abpLocalization }}</option>
-      <option [ngValue]="DocumentLifecycleStatus.PendingReview">{{ '::Document:Status:PendingReview' | abpLocalization }}</option>
-      <option [ngValue]="DocumentLifecycleStatus.Ready">{{ '::Document:Status:Ready' | abpLocalization }}</option>
-      <option [ngValue]="DocumentLifecycleStatus.Failed">{{ '::Document:Status:Failed' | abpLocalization }}</option>
+      <option [ngValue]="undefined">{{ 'VaultExtract::Document:Filter:AllStatuses' | abpLocalization }}</option>
+      <option [ngValue]="DocumentLifecycleStatus.Uploaded">{{ 'VaultExtract::Document:Status:Uploaded' | abpLocalization }}</option>
+      <option [ngValue]="DocumentLifecycleStatus.Processing">{{ 'VaultExtract::Document:Status:Processing' | abpLocalization }}</option>
+      <option [ngValue]="DocumentLifecycleStatus.PendingReview">{{ 'VaultExtract::Document:Status:PendingReview' | abpLocalization }}</option>
+      <option [ngValue]="DocumentLifecycleStatus.Ready">{{ 'VaultExtract::Document:Status:Ready' | abpLocalization }}</option>
+      <option [ngValue]="DocumentLifecycleStatus.Failed">{{ 'VaultExtract::Document:Status:Failed' | abpLocalization }}</option>
     </select>
     @if (documentTypes.value().length > 0) {
       <select
@@ -90,7 +90,7 @@
         [ngModel]="typeFilter()"
         (ngModelChange)="onTypeFilterChange($event)"
       >
-        <option value="">{{ '::Document:Filter:AllTypes' | abpLocalization }}</option>
+        <option value="">{{ 'VaultExtract::Document:Filter:AllTypes' | abpLocalization }}</option>
         @for (t of documentTypes.value(); track t.id) {
           <option [value]="t.typeCode">{{ t.displayName }}</option>
         }
@@ -102,7 +102,7 @@
         [ngModel]="cabinetFilter()"
         (ngModelChange)="onCabinetFilterChange($event)"
       >
-        <option value="">{{ '::Document:Filter:AllCabinets' | abpLocalization }}</option>
+        <option value="">{{ 'VaultExtract::Document:Filter:AllCabinets' | abpLocalization }}</option>
         @for (c of cabinets(); track c.id) {
           <option [value]="c.id">{{ c.name }}</option>
         }
@@ -122,7 +122,7 @@
   } @else if (documentTypes.value().length > 0) {
     <p class="text-muted small mb-3">
       <i class="fas fa-filter me-1"></i>
-      {{ '::Document:Filter:SelectTypeHint' | abpLocalization }}
+      {{ 'VaultExtract::Document:Filter:SelectTypeHint' | abpLocalization }}
     </p>
   }
 
@@ -131,7 +131,7 @@
     <div class="alert alert-info d-flex justify-content-between align-items-center py-2 mb-3">
       <span>
         <i class="fas fa-sitemap me-2"></i>
-        {{ '::Document:ViewingSubDocumentsOf' | abpLocalization }}
+        {{ 'VaultExtract::Document:ViewingSubDocumentsOf' | abpLocalization }}
         <strong>{{
           subDocumentsParent()?.title ||
             subDocumentsParent()?.fileOrigin?.originalFileName ||
@@ -140,7 +140,7 @@
       </span>
       <button type="button" class="btn btn-sm btn-outline-secondary" (click)="clearSubDocumentsFilter()">
         <i class="fas fa-times me-1"></i>
-        {{ '::Document:ShowAllDocuments' | abpLocalization }}
+        {{ 'VaultExtract::Document:ShowAllDocuments' | abpLocalization }}
       </button>
     </div>
   }
@@ -149,7 +149,7 @@
     <div class="alert alert-light border d-flex flex-wrap justify-content-between align-items-center gap-2 py-2 mb-3" role="status">
       <span class="fw-semibold">
         <i class="fas fa-check-square me-2" aria-hidden="true"></i>
-        {{ '::Document:Bulk:Selected' | abpLocalization: ((selectedCount() | number) ?? '') }}
+        {{ 'VaultExtract::Document:Bulk:Selected' | abpLocalization: ((selectedCount() | number) ?? '') }}
       </span>
       <div class="d-flex gap-2">
         <button
@@ -158,7 +158,7 @@
           (click)="clearSelection()"
           [disabled]="isBulkDeleting()"
         >
-          {{ '::Document:Bulk:ClearSelection' | abpLocalization }}
+          {{ 'VaultExtract::Document:Bulk:ClearSelection' | abpLocalization }}
         </button>
         <button
           type="button"
@@ -174,7 +174,7 @@
             aria-hidden="true"
           ></i>
           {{
-            (isBulkDeleting() ? '::Document:Bulk:Deleting' : '::Document:Bulk:Delete')
+            (isBulkDeleting() ? 'VaultExtract::Document:Bulk:Deleting' : 'VaultExtract::Document:Bulk:Delete')
               | abpLocalization
           }}
         </button>
@@ -195,7 +195,7 @@
     <div class="card shadow-sm">
       <div class="card-body text-center py-5">
         <i class="fas fa-inbox fa-3x text-muted mb-3 d-block"></i>
-        <p class="text-muted mb-0">{{ '::Document:NoDocuments' | abpLocalization }}</p>
+        <p class="text-muted mb-0">{{ 'VaultExtract::Document:NoDocuments' | abpLocalization }}</p>
       </div>
     </div>
   }
@@ -219,29 +219,29 @@
                 @if (doc.isContainer) {
                   <button type="button" ngbDropdownItem (click)="viewSubDocuments(doc, $event)">
                     <i class="fas fa-sitemap me-2"></i>
-                    {{ '::Document:ViewSubDocuments' | abpLocalization }}
+                    {{ 'VaultExtract::Document:ViewSubDocuments' | abpLocalization }}
                   </button>
                 }
                 @if (doc.originDocumentId) {
                   <button type="button" ngbDropdownItem (click)="openParentDocument(doc, $event)">
                     <i class="fas fa-arrow-up me-2"></i>
-                    {{ '::Document:ViewParentDocument' | abpLocalization }}
+                    {{ 'VaultExtract::Document:ViewParentDocument' | abpLocalization }}
                   </button>
                   <button type="button" ngbDropdownItem (click)="viewSiblingDocuments(doc, $event)">
                     <i class="fas fa-sitemap me-2"></i>
-                    {{ '::Document:ViewSiblingDocuments' | abpLocalization }}
+                    {{ 'VaultExtract::Document:ViewSiblingDocuments' | abpLocalization }}
                   </button>
                 }
                 @if (needsConfirmation(doc) && rights.canEdit) {
                   <button type="button" ngbDropdownItem (click)="openConfirmDialog(doc, $event)">
                     <i class="fas fa-check me-2"></i>
-                    {{ '::Document:ConfirmClassification' | abpLocalization }}
+                    {{ 'VaultExtract::Document:ConfirmClassification' | abpLocalization }}
                   </button>
                 }
                 @if (rights.canDelete) {
                   <button type="button" ngbDropdownItem (click)="delete(doc, $event)" [disabled]="isBulkDeleting()">
                     <i class="fas fa-trash me-2"></i>
-                    {{ '::Delete' | abpLocalization }}
+                    {{ 'VaultExtract::Delete' | abpLocalization }}
                   </button>
                 }
               </div>
@@ -290,7 +290,7 @@
         <div class="modal-header">
           <h5 class="modal-title">
             <i class="fas fa-user-edit me-2"></i>
-            {{ '::Document:ConfirmClassification' | abpLocalization }}
+            {{ 'VaultExtract::Document:ConfirmClassification' | abpLocalization }}
           </h5>
           <button type="button" class="btn-close" (click)="closeConfirmDialog()"></button>
         </div>
@@ -298,13 +298,13 @@
           <p class="text-muted small mb-3">
             {{ doc.title || doc.fileOrigin?.originalFileName }}
           </p>
-          <label class="form-label fw-semibold">{{ '::Document:ConfirmClassification:SelectType' | abpLocalization }}</label>
+          <label class="form-label fw-semibold">{{ 'VaultExtract::Document:ConfirmClassification:SelectType' | abpLocalization }}</label>
           <select
             class="form-select"
             [ngModel]="selectedTypeId()"
             (ngModelChange)="selectedTypeId.set($event)"
           >
-            <option value="" disabled>{{ '::Document:ConfirmClassification:SelectType' | abpLocalization }}</option>
+            <option value="" disabled>{{ 'VaultExtract::Document:ConfirmClassification:SelectType' | abpLocalization }}</option>
             <!-- #632: only the types this caller may ASSIGN (ConfirmClassification module-wide, or an Upload
                  grant on that type). The backend judges the target type of confirm / reclassify by the same
                  rule, so anything else here would be an offer the server refuses. -->
@@ -315,7 +315,7 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" (click)="closeConfirmDialog()">
-            {{ '::Cancel' | abpLocalization }}
+            {{ 'VaultExtract::Cancel' | abpLocalization }}
           </button>
           <button
             type="button"
@@ -326,7 +326,7 @@
             @if (isConfirming()) {
               <span class="spinner-border spinner-border-sm me-1"></span>
             }
-            {{ '::Document:Confirm' | abpLocalization }}
+            {{ 'VaultExtract::Document:Confirm' | abpLocalization }}
           </button>
         </div>
       </div>

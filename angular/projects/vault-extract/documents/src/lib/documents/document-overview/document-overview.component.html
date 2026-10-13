@@ -1,8 +1,8 @@
 <div class="document-overview container-fluid py-4">
   <div class="document-overview-shell">
     <div class="mb-4">
-      <h1 class="h3 mb-2">{{ '::Menu:Documents' | abpLocalization }}</h1>
-      <p class="text-muted mb-0">{{ '::Document:Home:Subtitle' | abpLocalization }}</p>
+      <h1 class="h3 mb-2">{{ 'VaultExtract::Menu:VaultExtract' | abpLocalization }}</h1>
+      <p class="text-muted mb-0">{{ 'VaultExtract::Document:Home:Subtitle' | abpLocalization }}</p>
     </div>
 
     <!-- Overview statistics (#333): loading / error / empty / data states.
@@ -11,7 +11,7 @@
          leaving an empty shell; the quick-links column below is unaffected. -->
     @if (canReadAll) {
     <section class="mb-4">
-      <h2 class="h5 mb-3">{{ '::Document:Home:Statistics:Title' | abpLocalization }}</h2>
+      <h2 class="h5 mb-3">{{ 'VaultExtract::Document:Home:Statistics:Title' | abpLocalization }}</h2>
 
       @if (statsLoading()) {
         <div class="row g-3">
@@ -33,17 +33,17 @@
         >
           <span>
             <i class="fas fa-exclamation-triangle me-2"></i>
-            {{ '::Document:Home:Statistics:LoadFailed' | abpLocalization }}
+            {{ 'VaultExtract::Document:Home:Statistics:LoadFailed' | abpLocalization }}
           </span>
           <button type="button" class="btn btn-sm btn-outline-secondary" (click)="loadStatistics()">
-            {{ '::Refresh' | abpLocalization }}
+            {{ 'VaultExtract::Refresh' | abpLocalization }}
           </button>
         </div>
       } @else if (isEmpty()) {
         <div class="card shadow-sm">
           <div class="card-body text-center text-muted py-4">
             <i class="fas fa-chart-bar d-block mb-2 fs-4"></i>
-            {{ '::Document:Home:Statistics:Empty' | abpLocalization }}
+            {{ 'VaultExtract::Document:Home:Statistics:Empty' | abpLocalization }}
           </div>
         </div>
       } @else {
@@ -52,7 +52,7 @@
             <div class="card shadow-sm h-100 stat-card">
               <div class="card-body">
                 <div class="stat-value">{{ stats()?.totalCount ?? 0 }}</div>
-                <div class="stat-label">{{ '::Document:Home:Statistics:Total' | abpLocalization }}</div>
+                <div class="stat-label">{{ 'VaultExtract::Document:Home:Statistics:Total' | abpLocalization }}</div>
               </div>
             </div>
           </div>
@@ -61,7 +61,7 @@
             <div class="card shadow-sm h-100 stat-card">
               <div class="card-body">
                 <div class="stat-value text-info">{{ processingCount() }}</div>
-                <div class="stat-label">{{ '::Document:Home:Statistics:Processing' | abpLocalization }}</div>
+                <div class="stat-label">{{ 'VaultExtract::Document:Home:Statistics:Processing' | abpLocalization }}</div>
               </div>
             </div>
           </div>
@@ -70,7 +70,7 @@
             <div class="card shadow-sm h-100 stat-card">
               <div class="card-body">
                 <div class="stat-value text-success">{{ stats()?.readyCount ?? 0 }}</div>
-                <div class="stat-label">{{ '::Document:Home:Statistics:Ready' | abpLocalization }}</div>
+                <div class="stat-label">{{ 'VaultExtract::Document:Home:Statistics:Ready' | abpLocalization }}</div>
               </div>
             </div>
           </div>
@@ -79,12 +79,12 @@
             <div class="col-6 col-md-4 col-xl-2">
               <a
                 class="card shadow-sm h-100 stat-card text-decoration-none text-reset"
-                routerLink="/documents/list"
+                routerLink="/vault-extract/documents"
                 [queryParams]="{ review: 1 }"
               >
                 <div class="card-body">
                   <div class="stat-value text-warning">{{ stats()?.needsReviewCount ?? 0 }}</div>
-                  <div class="stat-label">{{ '::Document:Home:Statistics:NeedsReview' | abpLocalization }}</div>
+                  <div class="stat-label">{{ 'VaultExtract::Document:Home:Statistics:NeedsReview' | abpLocalization }}</div>
                 </div>
               </a>
             </div>
@@ -96,7 +96,7 @@
                 <div class="stat-value" [class.text-danger]="(stats()?.failedCount ?? 0) > 0">
                   {{ stats()?.failedCount ?? 0 }}
                 </div>
-                <div class="stat-label">{{ '::Document:Home:Statistics:Failed' | abpLocalization }}</div>
+                <div class="stat-label">{{ 'VaultExtract::Document:Home:Statistics:Failed' | abpLocalization }}</div>
               </div>
             </div>
           </div>
@@ -105,7 +105,7 @@
             <div class="card shadow-sm h-100 stat-card">
               <div class="card-body">
                 <div class="stat-value">{{ formatBytes(stats()?.totalStorageBytes) }}</div>
-                <div class="stat-label">{{ '::Document:Home:Statistics:Storage' | abpLocalization }}</div>
+                <div class="stat-label">{{ 'VaultExtract::Document:Home:Statistics:Storage' | abpLocalization }}</div>
               </div>
             </div>
           </div>
@@ -131,12 +131,12 @@
               <span class="readonly-icon mx-auto mb-3">
                 <i class="fas fa-lock"></i>
               </span>
-              <h2 class="h4 mb-2">{{ '::Document:Home:ReadOnlyTitle' | abpLocalization }}</h2>
-              <p class="text-muted mb-4">{{ '::Document:Home:ReadOnlyMessage' | abpLocalization }}</p>
+              <h2 class="h4 mb-2">{{ 'VaultExtract::Document:Home:ReadOnlyTitle' | abpLocalization }}</h2>
+              <p class="text-muted mb-4">{{ 'VaultExtract::Document:Home:ReadOnlyMessage' | abpLocalization }}</p>
               <div>
-                <a class="btn btn-primary" routerLink="/documents/list">
+                <a class="btn btn-primary" routerLink="/vault-extract/documents">
                   <i class="fas fa-list me-1"></i>
-                  {{ '::Menu:DocumentList' | abpLocalization }}
+                  {{ 'VaultExtract::Menu:DocumentList' | abpLocalization }}
                 </a>
               </div>
             </div>
@@ -148,33 +148,33 @@
         <div class="d-flex flex-column gap-3 h-100">
           <div class="card shadow-sm">
             <div class="card-body p-4">
-              <h2 class="h5 mb-3">{{ '::Document:Home:NextActions' | abpLocalization }}</h2>
+              <h2 class="h5 mb-3">{{ 'VaultExtract::Document:Home:NextActions' | abpLocalization }}</h2>
 
               <div class="d-grid gap-2">
-                <a class="home-action" routerLink="/documents/list">
+                <a class="home-action" routerLink="/vault-extract/documents">
                   <span class="home-action-icon text-bg-primary"><i class="fas fa-list"></i></span>
                   <span>
-                    <span class="fw-semibold d-block">{{ '::Menu:DocumentList' | abpLocalization }}</span>
-                    <small class="text-muted">{{ '::Document:Home:DocumentListHint' | abpLocalization }}</small>
+                    <span class="fw-semibold d-block">{{ 'VaultExtract::Menu:DocumentList' | abpLocalization }}</span>
+                    <small class="text-muted">{{ 'VaultExtract::Document:Home:DocumentListHint' | abpLocalization }}</small>
                   </span>
                 </a>
 
                 @if (canReviewAnyType()) {
-                  <a class="home-action" routerLink="/documents/list" [queryParams]="{ review: 1 }">
+                  <a class="home-action" routerLink="/vault-extract/documents" [queryParams]="{ review: 1 }">
                     <span class="home-action-icon text-bg-warning"><i class="fas fa-clipboard-check"></i></span>
                     <span>
-                      <span class="fw-semibold d-block">{{ '::Document:NeedsReview' | abpLocalization }}</span>
-                      <small class="text-muted">{{ '::Document:Home:ReviewQueueHint' | abpLocalization }}</small>
+                      <span class="fw-semibold d-block">{{ 'VaultExtract::Document:NeedsReview' | abpLocalization }}</span>
+                      <small class="text-muted">{{ 'VaultExtract::Document:Home:ReviewQueueHint' | abpLocalization }}</small>
                     </span>
                   </a>
                 }
 
                 @if (canViewCabinets) {
-                  <a class="home-action" routerLink="/documents/cabinets">
+                  <a class="home-action" routerLink="/vault-extract/cabinets">
                     <span class="home-action-icon text-bg-secondary"><i class="fas fa-folder"></i></span>
                     <span>
-                      <span class="fw-semibold d-block">{{ '::Menu:Cabinets' | abpLocalization }}</span>
-                      <small class="text-muted">{{ '::Document:Home:CabinetsHint' | abpLocalization }}</small>
+                      <span class="fw-semibold d-block">{{ 'VaultExtract::Menu:Cabinets' | abpLocalization }}</span>
+                      <small class="text-muted">{{ 'VaultExtract::Document:Home:CabinetsHint' | abpLocalization }}</small>
                     </span>
                   </a>
                 }
@@ -184,11 +184,11 @@
 
           <div class="card shadow-sm flex-grow-1">
             <div class="card-body p-4">
-              <h2 class="h5 mb-3">{{ '::Document:Home:ProcessingTitle' | abpLocalization }}</h2>
+              <h2 class="h5 mb-3">{{ 'VaultExtract::Document:Home:ProcessingTitle' | abpLocalization }}</h2>
               <ol class="processing-list mb-0">
-                <li>{{ '::Document:Home:ProcessingStep:Upload' | abpLocalization }}</li>
-                <li>{{ '::Document:Home:ProcessingStep:Extract' | abpLocalization }}</li>
-                <li>{{ '::Document:Home:ProcessingStep:Review' | abpLocalization }}</li>
+                <li>{{ 'VaultExtract::Document:Home:ProcessingStep:Upload' | abpLocalization }}</li>
+                <li>{{ 'VaultExtract::Document:Home:ProcessingStep:Extract' | abpLocalization }}</li>
+                <li>{{ 'VaultExtract::Document:Home:ProcessingStep:Review' | abpLocalization }}</li>
               </ol>
             </div>
           </div>
@@ -201,10 +201,10 @@
     @if (showCabinetSection()) {
       <section class="mt-4">
         <div class="d-flex align-items-center justify-content-between mb-3">
-          <h2 class="h5 mb-0">{{ '::Document:Home:CabinetsSection' | abpLocalization }}</h2>
+          <h2 class="h5 mb-0">{{ 'VaultExtract::Document:Home:CabinetsSection' | abpLocalization }}</h2>
           @if (cabinets().length > 0) {
-            <a class="small" routerLink="/documents/cabinets">
-              {{ '::Document:Home:ManageCabinets' | abpLocalization }}
+            <a class="small" routerLink="/vault-extract/cabinets">
+              {{ 'VaultExtract::Document:Home:ManageCabinets' | abpLocalization }}
             </a>
           }
         </div>
@@ -214,7 +214,7 @@
             @for (cabinet of cabinets(); track cabinet.id) {
               <a
                 class="home-chip"
-                routerLink="/documents/list"
+                routerLink="/vault-extract/documents"
                 [queryParams]="{ cabinetId: cabinet.id }"
               >
                 <i class="fas fa-folder text-warning"></i>
@@ -226,10 +226,10 @@
           <div class="card shadow-sm">
             <div class="card-body text-center text-muted py-4">
               <i class="fas fa-folder-open d-block mb-2 fs-4"></i>
-              <div class="mb-2">{{ '::Document:Home:CabinetsEmpty' | abpLocalization }}</div>
+              <div class="mb-2">{{ 'VaultExtract::Document:Home:CabinetsEmpty' | abpLocalization }}</div>
               @if (canCreateCabinet) {
-                <a class="btn btn-sm btn-outline-primary" routerLink="/documents/cabinets">
-                  {{ '::Document:Home:CreateCabinet' | abpLocalization }}
+                <a class="btn btn-sm btn-outline-primary" routerLink="/vault-extract/cabinets">
+                  {{ 'VaultExtract::Document:Home:CreateCabinet' | abpLocalization }}
                 </a>
               }
             </div>
@@ -241,10 +241,10 @@
     @if (showTypeSection()) {
       <section class="mt-4">
         <div class="d-flex align-items-center justify-content-between mb-3">
-          <h2 class="h5 mb-0">{{ '::Document:Home:TypesSection' | abpLocalization }}</h2>
+          <h2 class="h5 mb-0">{{ 'VaultExtract::Document:Home:TypesSection' | abpLocalization }}</h2>
           @if (canManageTypes && documentTypes.value().length > 0) {
-            <a class="small" routerLink="/documents/types">
-              {{ '::Document:Home:ManageTypes' | abpLocalization }}
+            <a class="small" routerLink="/vault-extract/document-types">
+              {{ 'VaultExtract::Document:Home:ManageTypes' | abpLocalization }}
             </a>
           }
         </div>
@@ -254,7 +254,7 @@
             @for (type of documentTypes.value(); track type.id) {
               <a
                 class="home-chip"
-                routerLink="/documents/list"
+                routerLink="/vault-extract/documents"
                 [queryParams]="{ documentTypeCode: type.typeCode }"
               >
                 <i class="fas fa-tags text-info"></i>
@@ -267,10 +267,10 @@
           <div class="card shadow-sm">
             <div class="card-body text-center text-muted py-4">
               <i class="fas fa-tags d-block mb-2 fs-4"></i>
-              <div class="mb-2">{{ '::Document:Home:TypesEmpty' | abpLocalization }}</div>
+              <div class="mb-2">{{ 'VaultExtract::Document:Home:TypesEmpty' | abpLocalization }}</div>
               @if (canCreateType) {
-                <a class="btn btn-sm btn-outline-primary" routerLink="/documents/types">
-                  {{ '::Document:Home:CreateType' | abpLocalization }}
+                <a class="btn btn-sm btn-outline-primary" routerLink="/vault-extract/document-types">
+                  {{ 'VaultExtract::Document:Home:CreateType' | abpLocalization }}
                 </a>
               }
             </div>

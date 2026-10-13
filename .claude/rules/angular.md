@@ -129,14 +129,14 @@ import { EXTRACT_PERMISSIONS } from '@dignite/ng.vault-extract';
 
 export const DOCUMENTS_ROUTES: Routes = [
   {
-    path: 'list',
+    path: 'documents',
     canActivate: [authGuard, permissionGuard],
     data: { requiredPolicy: EXTRACT_PERMISSIONS.Documents.Default },
     loadComponent: () =>
       import('./documents/document-list/document-list.component').then(c => c.DocumentListComponent),
   },
   {
-    path: 'types',
+    path: 'document-types',
     canActivate: [authGuard, permissionGuard],
     data: { requiredPolicy: EXTRACT_PERMISSIONS.DocumentTypes.Default },
     loadComponent: () =>
@@ -151,7 +151,7 @@ The host app wires route arrays via `loadChildren`:
 // src/app/app.routes.ts
 export const APP_ROUTES: Routes = [
   {
-    path: 'documents',
+    path: 'vault-extract',
     loadChildren: () => import('@dignite/ng.vault-extract/documents').then(m => m.DOCUMENTS_ROUTES),
   },
 ];

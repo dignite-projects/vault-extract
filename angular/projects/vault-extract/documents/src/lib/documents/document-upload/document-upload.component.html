@@ -2,19 +2,19 @@
   <div class="card-body p-4 p-lg-5">
     <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4">
       <div>
-        <h2 class="h4 mb-2">{{ '::Document:Home:UploadTitle' | abpLocalization }}</h2>
-        <p class="text-muted mb-0">{{ '::Document:Home:UploadSubtitle' | abpLocalization }}</p>
+        <h2 class="h4 mb-2">{{ 'VaultExtract::Document:Home:UploadTitle' | abpLocalization }}</h2>
+        <p class="text-muted mb-0">{{ 'VaultExtract::Document:Home:UploadSubtitle' | abpLocalization }}</p>
       </div>
 
       @if (canViewCabinets && cabinets().length > 0 && canAcceptFiles()) {
         <div class="cabinet-select">
-          <label class="form-label fw-semibold">{{ '::Document:SelectCabinet' | abpLocalization }}</label>
+          <label class="form-label fw-semibold">{{ 'VaultExtract::Document:SelectCabinet' | abpLocalization }}</label>
           <select
             class="form-select"
             [ngModel]="selectedCabinetId()"
             (ngModelChange)="selectedCabinetId.set($event)"
           >
-            <option value="">{{ '::Document:Unfiled' | abpLocalization }}</option>
+            <option value="">{{ 'VaultExtract::Document:Unfiled' | abpLocalization }}</option>
             @for (c of cabinets(); track c.id) {
               <option [value]="c.id">{{ c.name }}</option>
             }
@@ -27,8 +27,8 @@
           <label class="form-label fw-semibold">
             {{
               (requiresTypeSelection
-                ? '::Document:SelectDocumentType:RequiredLabel'
-                : '::Document:SelectDocumentType'
+                ? 'VaultExtract::Document:SelectDocumentType:RequiredLabel'
+                : 'VaultExtract::Document:SelectDocumentType'
               ) | abpLocalization
             }}
           </label>
@@ -40,9 +40,9 @@
             @if (requiresTypeSelection) {
               <!-- Only reachable while nothing is chosen yet — with a single declarable type the
                    constructor effect pre-selects it, so this is never the visible choice there. -->
-              <option value="" disabled>{{ '::Document:SelectDocumentType:Placeholder' | abpLocalization }}</option>
+              <option value="" disabled>{{ 'VaultExtract::Document:SelectDocumentType:Placeholder' | abpLocalization }}</option>
             } @else {
-              <option value="">{{ '::Document:LetAiClassify' | abpLocalization }}</option>
+              <option value="">{{ 'VaultExtract::Document:LetAiClassify' | abpLocalization }}</option>
             }
             @for (t of assignableTypes(); track t.id) {
               <option [value]="t.id">{{ t.displayName }}</option>
@@ -51,8 +51,8 @@
           <small class="text-muted d-block mt-1">
             {{
               (requiresTypeSelection
-                ? '::Document:SelectDocumentType:Required'
-                : '::Document:SelectDocumentType:Hint'
+                ? 'VaultExtract::Document:SelectDocumentType:Required'
+                : 'VaultExtract::Document:SelectDocumentType:Hint'
               ) | abpLocalization
             }}
           </small>
@@ -70,7 +70,7 @@
         <span class="upload-icon mb-3">
           <i class="fas fa-exclamation-triangle"></i>
         </span>
-        <h3 class="h5 mb-2">{{ '::Document:Upload:TypesUnavailable' | abpLocalization }}</h3>
+        <h3 class="h5 mb-2">{{ 'VaultExtract::Document:Upload:TypesUnavailable' | abpLocalization }}</h3>
         <!-- #635: the store owns the fetch now, so the retry is a reload of the store rather than of this
              page — recovering it here recovers it for every other page of the session too. -->
         <button
@@ -79,7 +79,7 @@
           (click)="documentTypes.reload()"
           [disabled]="documentTypes.isLoading()"
         >
-          {{ '::Refresh' | abpLocalization }}
+          {{ 'VaultExtract::Refresh' | abpLocalization }}
         </button>
       </div>
     } @else {
@@ -116,16 +116,16 @@
               <div>
                 <p class="fw-semibold mb-1">
                   @if (isUploading()) {
-                    {{ '::Document:Uploading' | abpLocalization }}
+                    {{ 'VaultExtract::Document:Uploading' | abpLocalization }}
                   } @else if (hasUploadErrors()) {
-                    {{ '::Document:Upload:CompletedWithErrors' | abpLocalization }}
+                    {{ 'VaultExtract::Document:Upload:CompletedWithErrors' | abpLocalization }}
                   } @else {
-                    {{ '::Document:Upload:Complete' | abpLocalization }}
+                    {{ 'VaultExtract::Document:Upload:Complete' | abpLocalization }}
                   }
                 </p>
                 <small class="text-muted">
                   {{ successfulUploadCount() }} / {{ uploadingFiles().length }}
-                  {{ '::Document:Upload:Succeeded' | abpLocalization }}
+                  {{ 'VaultExtract::Document:Upload:Succeeded' | abpLocalization }}
                 </small>
               </div>
             </div>
@@ -147,21 +147,21 @@
                       @if (f.errorMessage) {
                         <small class="text-danger d-block mt-1">{{ f.errorMessage }}</small>
                       } @else if (f.error) {
-                        <small class="text-danger">{{ '::Document:UploadFailed' | abpLocalization }}</small>
+                        <small class="text-danger">{{ 'VaultExtract::Document:UploadFailed' | abpLocalization }}</small>
                       } @else if (f.done) {
-                        <small class="text-muted">{{ '::Document:UploadedSuccessfully' | abpLocalization }}</small>
+                        <small class="text-muted">{{ 'VaultExtract::Document:UploadedSuccessfully' | abpLocalization }}</small>
                       } @else {
-                        <small class="text-muted">{{ '::Document:Uploading' | abpLocalization }}</small>
+                        <small class="text-muted">{{ 'VaultExtract::Document:Uploading' | abpLocalization }}</small>
                       }
                     </div>
 
                     @if (hasUploadResults() && f.done && f.documentId) {
                       <a
                         class="btn btn-sm btn-outline-primary flex-shrink-0"
-                        [routerLink]="['/documents', f.documentId]"
+                        [routerLink]="['/vault-extract/documents', f.documentId]"
                       >
                         <i class="fas fa-external-link-alt me-1"></i>
-                        {{ '::Document:OpenDocument' | abpLocalization }}
+                        {{ 'VaultExtract::Document:OpenDocument' | abpLocalization }}
                       </a>
                     }
                   </div>
@@ -173,11 +173,11 @@
               <div class="d-flex flex-wrap justify-content-end gap-2 mt-3">
                 <button type="button" class="btn btn-outline-secondary" (click)="resetQueue()">
                   <i class="fas fa-plus me-1"></i>
-                  {{ '::Document:ContinueUploading' | abpLocalization }}
+                  {{ 'VaultExtract::Document:ContinueUploading' | abpLocalization }}
                 </button>
-                <a class="btn btn-primary" routerLink="/documents/list">
+                <a class="btn btn-primary" routerLink="/vault-extract/documents">
                   <i class="fas fa-list me-1"></i>
-                  {{ '::Document:ContinueToDocuments' | abpLocalization }}
+                  {{ 'VaultExtract::Document:ContinueToDocuments' | abpLocalization }}
                 </a>
               </div>
             }
@@ -187,8 +187,8 @@
             <span class="upload-icon mb-3">
               <i class="fas fa-cloud-upload-alt"></i>
             </span>
-            <h3 class="h5 mb-2">{{ '::Document:DropOrClick' | abpLocalization }}</h3>
-            <p class="text-muted mb-4">{{ '::Document:SupportedFormats' | abpLocalization }}</p>
+            <h3 class="h5 mb-2">{{ 'VaultExtract::Document:DropOrClick' | abpLocalization }}</h3>
+            <p class="text-muted mb-4">{{ 'VaultExtract::Document:SupportedFormats' | abpLocalization }}</p>
 
             <div class="d-flex flex-wrap justify-content-center gap-2">
               <button
@@ -199,7 +199,7 @@
                 (click)="openFilePicker(filePicker)"
               >
                 <i class="fas fa-folder-open me-1"></i>
-                {{ '::Document:BrowseFiles' | abpLocalization }}
+                {{ 'VaultExtract::Document:BrowseFiles' | abpLocalization }}
               </button>
               <button
                 type="button"
@@ -208,7 +208,7 @@
                 (click)="openFilePicker(cameraPicker)"
               >
                 <i class="fas fa-camera me-1"></i>
-                {{ '::Document:TakePhoto' | abpLocalization }}
+                {{ 'VaultExtract::Document:TakePhoto' | abpLocalization }}
               </button>
             </div>
           </div>
@@ -218,7 +218,7 @@
       <div class="mt-3 text-center">
         <small class="text-muted">
           <i class="fas fa-info-circle me-1"></i>
-          {{ '::Document:MaxFileSize' | abpLocalization }}
+          {{ 'VaultExtract::Document:MaxFileSize' | abpLocalization }}
         </small>
       </div>
     }

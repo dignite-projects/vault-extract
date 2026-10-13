@@ -241,7 +241,7 @@ describe('DocumentOverviewComponent — who sees the upload card (#645)', () => 
 
     serverUp = true;
     const retry = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>)
-      .find(b => b.textContent?.includes('::Refresh'));
+      .find(b => b.textContent?.includes('VaultExtract::Refresh'));
     expect(retry).toBeDefined();
     retry!.click();
     fixture.detectChanges();

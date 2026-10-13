@@ -27,7 +27,7 @@ export const APP_ROUTES: Routes = [
     loadChildren: () => import('@dignite/ng.notification-center').then(c => c.createRoutes()),
   },
   {
-    path: 'documents',
+    path: 'vault-extract',
     loadChildren: () => import('@dignite/ng.vault-extract/documents').then(m => m.DOCUMENTS_ROUTES),
   },
 ];

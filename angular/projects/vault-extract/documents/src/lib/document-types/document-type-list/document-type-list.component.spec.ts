@@ -366,8 +366,8 @@ describe('DocumentTypeListComponent — duplicate-detection scope pre-save previ
     expect(service.getDuplicateScopePreview).toHaveBeenCalledWith('type-a', DuplicateDetectionScope.Uploader);
     const confirmation = TestBed.inject(ConfirmationService) as unknown as { warn: ReturnType<typeof vi.fn> };
     expect(confirmation.warn).toHaveBeenCalledWith(
-      '::DocumentType:DuplicateScope:Preview:Message',
-      '::DocumentType:DuplicateScope:Preview:Title',
+      'VaultExtract::DocumentType:DuplicateScope:Preview:Message',
+      'VaultExtract::DocumentType:DuplicateScope:Preview:Title',
       expect.objectContaining({ messageLocalizationParams: ['3', '2'] }),
     );
     expect(service.update).toHaveBeenCalled();

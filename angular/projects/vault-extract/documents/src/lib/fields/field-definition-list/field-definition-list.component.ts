@@ -204,14 +204,14 @@ export class FieldDefinitionListComponent implements OnInit {
       EntityProp.create<FieldDefinitionDto>({
         type: ePropType.Number,
         name: 'displayOrder',
-        displayName: '::FieldDefinition:DisplayOrder',
+        displayName: 'VaultExtract::FieldDefinition:DisplayOrder',
         sortable: true,
         columnWidth: 120,
       }),
       EntityProp.create<FieldDefinitionDto>({
         type: ePropType.String,
         name: 'name',
-        displayName: '::FieldDefinition:Name',
+        displayName: 'VaultExtract::FieldDefinition:Name',
         sortable: true,
         columnWidth: 180,
         valueResolver: data => of(`<code>${escapeHtmlChars(data.record.name)}</code>`),
@@ -219,13 +219,13 @@ export class FieldDefinitionListComponent implements OnInit {
       EntityProp.create<FieldDefinitionDto>({
         type: ePropType.String,
         name: 'displayName',
-        displayName: '::FieldDefinition:DisplayName',
+        displayName: 'VaultExtract::FieldDefinition:DisplayName',
         sortable: true,
       }),
       EntityProp.create<FieldDefinitionDto>({
         type: ePropType.String,
         name: 'fieldTypeName',
-        displayName: '::FieldDefinition:FieldType',
+        displayName: 'VaultExtract::FieldDefinition:FieldType',
         sortable: true,
         columnWidth: 170,
         valueResolver: data => {
@@ -242,33 +242,33 @@ export class FieldDefinitionListComponent implements OnInit {
       EntityProp.create<FieldDefinitionDto>({
         type: ePropType.String,
         name: 'isRequired',
-        displayName: '::FieldDefinition:Required',
+        displayName: 'VaultExtract::FieldDefinition:Required',
         sortable: true,
         columnWidth: 150,
         valueResolver: data => {
           const localization = data.getInjected(LocalizationService);
           return of(data.record.isRequired
-            ? `<span class="badge bg-warning text-dark">${escapeHtmlChars(localization.instant('::FieldDefinition:Required'))}</span>`
+            ? `<span class="badge bg-warning text-dark">${escapeHtmlChars(localization.instant('VaultExtract::FieldDefinition:Required'))}</span>`
             : '<span class="text-muted">-</span>');
         },
       }),
       EntityProp.create<FieldDefinitionDto>({
         type: ePropType.String,
         name: 'isUniqueKey',
-        displayName: '::FieldDefinition:IsUniqueKey',
+        displayName: 'VaultExtract::FieldDefinition:IsUniqueKey',
         sortable: true,
         columnWidth: 150,
         valueResolver: data => {
           const localization = data.getInjected(LocalizationService);
           return of(data.record.isUniqueKey
-            ? `<span class="badge bg-primary">${escapeHtmlChars(localization.instant('::FieldDefinition:IsUniqueKey'))}</span>`
+            ? `<span class="badge bg-primary">${escapeHtmlChars(localization.instant('VaultExtract::FieldDefinition:IsUniqueKey'))}</span>`
             : '<span class="text-muted">-</span>');
         },
       }),
       EntityProp.create<FieldDefinitionDto>({
         type: ePropType.String,
         name: 'description',
-        displayName: '::FieldDefinition:Prompt',
+        displayName: 'VaultExtract::FieldDefinition:Prompt',
         sortable: true,
         columnWidth: 320,
         valueResolver: data => {
@@ -425,7 +425,7 @@ export class FieldDefinitionListComponent implements OnInit {
   }
 
   goBack(): void {
-    this.router.navigate(['/documents/types']);
+    this.router.navigate(['/vault-extract/document-types']);
   }
 
   openReextractFields(): void {
@@ -571,7 +571,7 @@ export class FieldDefinitionListComponent implements OnInit {
           // "draft unavailable" hint on the same screen (#264 review2 #1, aligned with the empty-draft
           // branch).
           this.justDrafted.set(false);
-          this.toaster.warn('::FieldDefinition:DraftUnavailable', '::Warning');
+          this.toaster.warn('VaultExtract::FieldDefinition:DraftUnavailable', 'VaultExtract::Warning');
         },
       });
   }
@@ -585,7 +585,7 @@ export class FieldDefinitionListComponent implements OnInit {
       // Reset the "review draft" banner: this run produced no draft, avoiding a contradiction between a
       // previous success banner and the "draft unavailable" hint (#264 review #6).
       this.justDrafted.set(false);
-      this.toaster.info('::FieldDefinition:DraftUnavailable', '::Info');
+      this.toaster.info('VaultExtract::FieldDefinition:DraftUnavailable', 'VaultExtract::Info');
       return;
     }
     const fieldTypeName = draft.fieldTypeName ?? this.fieldTypes()[0]?.name ?? '';
@@ -641,14 +641,14 @@ export class FieldDefinitionListComponent implements OnInit {
             this.form.controls.description.setValue(result.prompt, { emitEvent: false });
             this.form.controls.description.markAsDirty();
             this.showPromptPreview.set(true);
-            this.toaster.success('::FieldDefinition:PolishDone', '::Success');
+            this.toaster.success('VaultExtract::FieldDefinition:PolishDone', 'VaultExtract::Success');
           } else {
-            this.toaster.info('::FieldDefinition:PolishNoChange', '::Info');
+            this.toaster.info('VaultExtract::FieldDefinition:PolishNoChange', 'VaultExtract::Info');
           }
         },
         error: () => {
           this.isPolishing.set(false);
-          this.toaster.warn('::FieldDefinition:PolishUnavailable', '::Warning');
+          this.toaster.warn('VaultExtract::FieldDefinition:PolishUnavailable', 'VaultExtract::Warning');
         },
       });
   }
@@ -735,7 +735,7 @@ export class FieldDefinitionListComponent implements OnInit {
       this.service.create(input)
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
-          next: () => this.onSaved('::FieldDefinition:CreatedSuccessfully'),
+          next: () => this.onSaved('VaultExtract::FieldDefinition:CreatedSuccessfully'),
           error: () => this.isSubmitting.set(false),
         });
     } else {
@@ -752,7 +752,7 @@ export class FieldDefinitionListComponent implements OnInit {
       })
         .pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({
-          next: () => this.onSaved('::FieldDefinition:UpdatedSuccessfully'),
+          next: () => this.onSaved('VaultExtract::FieldDefinition:UpdatedSuccessfully'),
           error: () => this.isSubmitting.set(false),
         });
     }
@@ -761,13 +761,13 @@ export class FieldDefinitionListComponent implements OnInit {
   private onSaved(messageKey: string): void {
     this.isSubmitting.set(false);
     this.closeModal();
-    this.toaster.success(messageKey, '::Success');
+    this.toaster.success(messageKey, 'VaultExtract::Success');
     this.load();
   }
 
   delete(field: FieldDefinitionDto): void {
     this.confirmation
-      .warn('::FieldDefinition:AreYouSureToDelete', '::AreYouSure')
+      .warn('VaultExtract::FieldDefinition:AreYouSureToDelete', 'VaultExtract::AreYouSure')
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(status => {
         if (status !== Confirmation.Status.confirm) return;
@@ -775,10 +775,10 @@ export class FieldDefinitionListComponent implements OnInit {
           .pipe(takeUntilDestroyed(this.destroyRef))
           .subscribe({
             next: () => {
-              this.toaster.success('::FieldDefinition:DeletedSuccessfully', '::Success');
+              this.toaster.success('VaultExtract::FieldDefinition:DeletedSuccessfully', 'VaultExtract::Success');
               this.load();
             },
-            error: () => this.toaster.error('::FieldDefinition:DeleteFailed', '::Error'),
+            error: () => this.toaster.error('VaultExtract::FieldDefinition:DeleteFailed', 'VaultExtract::Error'),
           });
       });
   }
@@ -788,7 +788,7 @@ export class FieldDefinitionListComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: () => {
-          this.toaster.success('::FieldDefinition:RestoredSuccessfully', '::Success');
+          this.toaster.success('VaultExtract::FieldDefinition:RestoredSuccessfully', 'VaultExtract::Success');
           this.load();
         },
       });

@@ -181,7 +181,7 @@ export class DocumentUploadComponent implements OnInit {
       // case warrants a toast — the other guard branch (uploading / showing results) is a timing
       // window, not a mistake the operator needs to be told about.
       if (this.canAcceptFiles() && !this.typeSelectionSatisfied()) {
-        this.toaster.warn('::Document:SelectDocumentType:Required');
+        this.toaster.warn('VaultExtract::Document:SelectDocumentType:Required');
       }
       return;
     }
@@ -225,11 +225,11 @@ export class DocumentUploadComponent implements OnInit {
     // Mirror the backend fail-closed gate (#221): MIME + extension whitelist, then size.
     const valid = files.filter(f => {
       if (!isAllowedUpload(f)) {
-        this.toaster.error('::Document:UnsupportedFileType', '::Error');
+        this.toaster.error('VaultExtract::Document:UnsupportedFileType', 'VaultExtract::Error');
         return false;
       }
       if (f.size > MAX_UPLOAD_FILE_BYTES) {
-        this.toaster.error('::Document:FileTooLarge', '::Error');
+        this.toaster.error('VaultExtract::Document:FileTooLarge', 'VaultExtract::Error');
         return false;
       }
       return true;
@@ -294,7 +294,7 @@ export class DocumentUploadComponent implements OnInit {
           this.isUploading.set(false);
           const hasError = this.uploadingFiles().some(f => f.error);
           if (!hasError) {
-            this.toaster.success('::Document:UploadedSuccessfully', '::Success');
+            this.toaster.success('VaultExtract::Document:UploadedSuccessfully', 'VaultExtract::Success');
           }
         },
       });

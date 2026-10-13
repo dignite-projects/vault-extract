@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING (Angular): the operator UI mounts at `vault-extract`, not `documents`, and its localization keys name their resource.**
+  `documents` collides too easily with other systems, in both the menu label and the URL, so the module takes the
+  product's own name. Hosts must mount `DOCUMENTS_ROUTES` at `path: 'vault-extract'` (`provideExtract()` registers its
+  menu entries under that prefix). Routes: `documents/overview` → `vault-extract/overview`, `documents/list` →
+  `vault-extract/documents`, `documents/types` → `vault-extract/document-types`, `documents/cabinets` →
+  `vault-extract/cabinets`, `documents/recycle` → `vault-extract/documents-recycle-bin`; a document's detail and file
+  preview move to `vault-extract/documents/:id` and `vault-extract/documents/:id/file`, and a type's fields page to
+  `vault-extract/document-types/:typeId/fields`. Old `/documents/...` bookmarks stop resolving.
+- **BREAKING (Angular + localization): `Menu:Documents` is now `Menu:VaultExtract`, and reads "Vault Extract" in every
+  language** (it was Documents / 文档库 / ドキュメント / 文件庫). A host that overrode `Menu:Documents` to rebrand the menu
+  must override the new key. The library's templates and services now write `VaultExtract::Key` instead of `::Key`,
+  so they no longer depend on the host's default localization resource inheriting `VaultExtract`; a host that
+  re-labelled a `VaultExtract` key through its own default resource must add the override to the `VaultExtract`
+  resource itself.
+
 ## [0.5.0-preview.16] - 2026-10-12
 
 Both sides move to ABP Framework 10.7.0 and abp-modules `10.0.0-rc.29`, with Angular 22 on the frontend. One EF migration, `Abp107_BackgroundJobsCompletionTime`: ABP 10.6's
