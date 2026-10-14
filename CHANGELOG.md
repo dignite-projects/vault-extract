@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0-preview.17] - 2026-10-14
+
+The operator UI takes the product's own name: its URL prefix and navigation menu change from `documents` / Documents to `vault-extract` / Vault Extract. Angular and localization only; no EF migration and no change to the REST, MCP or EventBus contracts.
+
 ### Changed
 
 - **BREAKING (Angular): the operator UI mounts at `vault-extract`, not `documents`, and its localization keys name their resource.**
