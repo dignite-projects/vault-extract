@@ -34,6 +34,9 @@ retained in the `0.5.0-preview.*` sections below; this section lists only what c
   along with `@dignite/ng.flex-fields`, `@dignite/ng.flex-fields-ckeditor` and `@dignite/ng.notification-center` and
   the published Angular library's dependency pins. This lifts the last gate on a stable NuGet release: a stable
   `Dignite.Vault.Extract.*` no longer depends on a pre-release package (`NU5104`). No source change, no EF migration.
+- **Restore no longer needs `GITHUB_PACKAGES_TOKEN`.** abp-modules `10.7.0` is published to nuget.org only (its
+  GitHub Packages feed carries pre-releases), so `NuGet.Config` drops the `github` source and its mapping, and the
+  duplicate `host/NuGet.Config` is removed; every package resolves from nuget.org.
 - The stable npm publish step in `release.yml` treats "already published" as a soft skip, like the pre-release step, so
   a first publish bootstrapped by hand (npm Trusted Publishing cannot create a package) does not fail the release run.
 

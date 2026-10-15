@@ -31,7 +31,9 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      # NuGet.Config routes Dignite.Abp.FlexFields.* to GitHub Packages, which requires auth even for
+      # Since abp-modules 10.7.0 NuGet.Config is nuget.org-only and the token below is unused; it is
+      # kept for when a pin moves back to a pre-release that only the GitHub feed has. Background:
+      # NuGet.Config used to route Dignite.Abp.FlexFields.* to GitHub Packages, which requires auth even for
       # public packages, and reads the credential from GITHUB_PACKAGES_TOKEN. The built-in GITHUB_TOKEN
       # cannot be used here: it only grants packages:read for packages published by THIS repository,
       # never for packages published by a sibling repo in the same org (abp-modules/flex-fields is where

@@ -36,7 +36,8 @@ COPY common.props Directory.Packages.props Dignite.Vault.Extract.slnx NuGet.Conf
 COPY core/ core/
 COPY host/ host/
 
-# GITHUB_PACKAGES_TOKEN authenticates NuGet.Config's `github` source (Dignite.Abp.FlexFields.*).
+# GITHUB_PACKAGES_TOKEN is unused since abp-modules 10.7.0 (NuGet.Config is nuget.org-only); the
+# optional secret mount stays so a pre-release pin that needs the GitHub feed can come back.
 # BuildKit secret mount keeps it out of the image layers/history - never bake it in via ENV/ARG.
 RUN --mount=type=secret,id=github_packages_token \
     GITHUB_PACKAGES_TOKEN="$(cat /run/secrets/github_packages_token)" dotnet restore "host/src/Dignite.Vault.Extract.Host.csproj"
