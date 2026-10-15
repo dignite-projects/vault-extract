@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-15
+
+Third stable release of the channel, and the first since `0.3.2` on NuGet.org / npmjs. The 0.5.0 line moves field
+storage onto the **`Dignite.Abp.FlexFields` kernel** (field architecture v3), rebuilds the **document permission core**
+on ABP's resource-based authorization (per-type grants, uploader ownership, `Documents.ReadAll`), tidies the
+**multi-stage event contract** (`DocumentTextExtractedEto`, `FieldsExtractedEto` retired), replaces re-classify with a
+**re-parse from the original file**, adds **operator notifications** and a per-tenant on/off feature, moves the MCP
+server onto the shared **`Dignite.Abp.AspNetCore.Mcp`** endpoint (`vault_extract_*` tool names), and lands on
+**ABP Framework 10.7 / Angular 22**. The granular per-preview history, with the migration for every breaking entry, is
+retained in the `0.5.0-preview.*` sections below; this section lists only what changed after `0.5.0-preview.17`.
+
+> As a `0.y.z` release the exit contracts may still change — see [CONTRIBUTING → Versioning and releases](CONTRIBUTING.md#versioning-and-releases).
+> **Upgrading from 0.3.x is breaking** on the REST, EventBus, MCP, permission and Angular contracts (each entry marked
+> BREAKING below carries its migration) and needs the EF migrations of this line applied (`--migrate-database`).
+> **A 0.3.x deployment that holds field values must run the field architecture v2 → v3 data migration first**: it
+> ships only in `0.5.0-preview.1` / `0.5.0-preview.2`, which were published to GitHub Packages, not to NuGet.org —
+> follow [the runbook](docs/en/deployment/field-architecture-v3-migration.md) on one of those builds, verify it, and
+> only then move to 0.5.0. Skipping it loses every field value while the upgrade reports success (see `0.5.0-preview.4`).
+> The Angular library is published as **`@dignite/ng.vault-extract`**; `@dignite/vault-extract` stops at `0.3.2`.
+
+### Changed
+
+- **abp-modules `10.7.0`, the first stable release, on both sides** (was `10.0.0-rc.29`). `Dignite.Abp.FlexFields.*`,
+  `Dignite.Abp.AspNetCore.Mcp`, `Dignite.Abp.Notifications.*` and `Dignite.NotificationCenter.*` move to `10.7.0`,
+  along with `@dignite/ng.flex-fields`, `@dignite/ng.flex-fields-ckeditor` and `@dignite/ng.notification-center` and
+  the published Angular library's dependency pins. This lifts the last gate on a stable NuGet release: a stable
+  `Dignite.Vault.Extract.*` no longer depends on a pre-release package (`NU5104`). No source change, no EF migration.
+- The stable npm publish step in `release.yml` treats "already published" as a soft skip, like the pre-release step, so
+  a first publish bootstrapped by hand (npm Trusted Publishing cannot create a package) does not fail the release run.
+
 ## [0.5.0-preview.17] - 2026-10-14
 
 The operator UI takes the product's own name: its URL prefix and navigation menu change from `documents` / Documents to `vault-extract` / Vault Extract. Angular and localization only; no EF migration and no change to the REST, MCP or EventBus contracts.
@@ -823,7 +853,11 @@ Preview of the 0.2.0 line. This release rebrands the project to **Dignite Vault 
 - Legacy Angular document-upload route.
 - Dead fields from the segmentation subsystem (#390).
 
-[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.15...HEAD
+[Unreleased]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.17...v0.5.0
+[0.5.0-preview.17]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.16...v0.5.0-preview.17
+[0.5.0-preview.16]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.15...v0.5.0-preview.16
+[0.5.0-preview.15]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.14...v0.5.0-preview.15
 [0.5.0-preview.14]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.13...v0.5.0-preview.14
 [0.5.0-preview.13]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.12...v0.5.0-preview.13
 [0.5.0-preview.12]: https://github.com/dignite-projects/vault-extract/compare/v0.5.0-preview.11...v0.5.0-preview.12
