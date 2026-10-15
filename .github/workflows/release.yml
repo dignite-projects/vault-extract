@@ -3,8 +3,8 @@
 #
 # Routing by channel, derived from the SemVer pre-release suffix in <Version>:
 #   - Pre-release (e.g. 0.2.0-preview.3) -> NuGet + npm packages pushed to GitHub Packages only.
-#   - Stable      (e.g. 0.2.0)           -> NuGet to NuGet.org, npm (@dignite/ng.vault-extract) to npmjs
-#                                            via npm Trusted Publishing (OIDC), no NPM_TOKEN.
+#   - Stable      (e.g. 0.2.0)           -> NuGet to NuGet.org, npm (@dignite/ng.vault-extract) to npmjs,
+#                                            both via Trusted Publishing (OIDC): no NUGET_API_KEY, no NPM_TOKEN.
 #
 # Triggers: push a v* tag (e.g. v0.2.0 or v0.2.0-preview.3) or use workflow_dispatch. For churny
 # pre-release builds prefer workflow_dispatch: no tag, no draft Release, no lockstep check - just
@@ -29,7 +29,7 @@ jobs:
     permissions:
       contents: write # Required by softprops/action-gh-release to create a draft Release
       packages: write # Required to push pre-release NuGet/npm packages to GitHub Packages
-      id-token: write # npm Trusted Publishing (OIDC) + provenance for the stable npmjs publish
+      id-token: write # NuGet + npm Trusted Publishing (OIDC) and npm provenance for stable releases
 
     steps:
       - name: Checkout
@@ -129,19 +129,23 @@ jobs:
             --source https://nuget.pkg.github.com/dignite-projects/index.json \
             --skip-duplicate
 
-      # Stable builds go to the public NuGet.org. Secrets cannot be referenced directly in if:
-      # expressions, so inject through env and check in the shell; skip the push when not configured.
+      # Stable builds go to the public NuGet.org through NuGet Trusted Publishing: NuGet/login exchanges
+      # this job's GitHub id-token for a short-lived (1 h) API key, so no long-lived NUGET_API_KEY secret
+      # exists to expire (the one set in 2026-06 had, and 403'd the first v0.5.0 run). The policy lives
+      # on nuget.org under the vars.NUGET_USER account (repo dignite-projects/vault-extract, workflow
+      # release.yml) and is per owner, not per package, so a package ID new to nuget.org pushes too.
+      - name: Sign in to NuGet.org with Trusted Publishing
+        if: steps.channel.outputs.channel == 'stable'
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+
       - name: Push to NuGet.org (stable)
         if: steps.channel.outputs.channel == 'stable'
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
-          if [ -z "$NUGET_API_KEY" ]; then
-            echo "::notice::NUGET_API_KEY secret is not configured; skipping NuGet.org push (packages were uploaded as workflow artifacts)."
-            exit 0
-          fi
           dotnet nuget push ./artifacts/*.nupkg \
-            --api-key "$NUGET_API_KEY" \
+            --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" \
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
 
