@@ -65,21 +65,21 @@
     </ItemGroup>
 
     <!-- Dignite.Abp.FlexFields: the runtime-defined-field constraint kernel field architecture v3 is
-         built on (#558). PRE-RELEASE, resolved from GitHub Packages - see NuGet.Config for the release
-         gate this puts on shipping v3 to nuget.org. Only the four packages actually consumed are pinned:
+         built on (#558). Stable since abp-modules 10.7.0, which lifted the NU5104 gate on a stable
+         nuget.org release. Only the four packages actually consumed are pinned:
          .Web (SSR TagHelpers), .FileExplorer, .CKEditor.Web and .MongoDB are not used here.
          Keep this version equal to angular/package.json's @dignite/ng.flex-fields(-ckeditor) pins - the
          two exist to keep the same wire shape on both ends, and nothing but this comment enforces it.
          They drifted 6 rc's apart (rc.5 here against rc.11 there) with no build ever catching it before
          this note was added. -->
     <ItemGroup Label="FlexFields">
-        <PackageVersion Include="Dignite.Abp.FlexFields.Abstractions" Version="10.0.0-rc.29" />
-        <PackageVersion Include="Dignite.Abp.FlexFields.Domain" Version="10.0.0-rc.29" />
-        <PackageVersion Include="Dignite.Abp.FlexFields.EntityFrameworkCore" Version="10.0.0-rc.29" />
+        <PackageVersion Include="Dignite.Abp.FlexFields.Abstractions" Version="10.7.0" />
+        <PackageVersion Include="Dignite.Abp.FlexFields.Domain" Version="10.7.0" />
+        <PackageVersion Include="Dignite.Abp.FlexFields.EntityFrameworkCore" Version="10.7.0" />
         <!-- Serves FieldDataType.LongText in v3: CKEditorFieldType.IndexValueType is null, so
              "never indexed, never queryable" stays a structural guarantee, and ContentFormat=Markdown
              persists the value as a plain GFM string (#559 resolution 1). -->
-        <PackageVersion Include="Dignite.Abp.FlexFields.CKEditor" Version="10.0.0-rc.29" />
+        <PackageVersion Include="Dignite.Abp.FlexFields.CKEditor" Version="10.7.0" />
     </ItemGroup>
 
     <ItemGroup Label="LeptonX">
@@ -104,7 +104,7 @@
         <!-- The shared MCP server (transport, /mcp, permission filtering, error envelope, namespaces) that
              Dignite.Vault.Extract.Mcp contributes its tools to. Released with abp-modules in lockstep, so
              it moves with the Dignite.Abp.FlexFields.* pins above. -->
-        <PackageVersion Include="Dignite.Abp.AspNetCore.Mcp" Version="10.0.0-rc.29" />
+        <PackageVersion Include="Dignite.Abp.AspNetCore.Mcp" Version="10.7.0" />
     </ItemGroup>
 
     <ItemGroup Label="Notifications">
@@ -112,11 +112,11 @@
              abp-modules (no GitHub Packages source needed). The NuGet packages and the npm package
              @dignite/ng.notification-center always share one version - keep this equal to
              angular/package.json's pin. -->
-        <PackageVersion Include="Dignite.Abp.Notifications.Abstractions" Version="10.0.0-rc.29" />
-        <PackageVersion Include="Dignite.Abp.Notifications.SignalR" Version="10.0.0-rc.29" />
-        <PackageVersion Include="Dignite.NotificationCenter.Application" Version="10.0.0-rc.29" />
-        <PackageVersion Include="Dignite.NotificationCenter.HttpApi" Version="10.0.0-rc.29" />
-        <PackageVersion Include="Dignite.NotificationCenter.EntityFrameworkCore" Version="10.0.0-rc.29" />
+        <PackageVersion Include="Dignite.Abp.Notifications.Abstractions" Version="10.7.0" />
+        <PackageVersion Include="Dignite.Abp.Notifications.SignalR" Version="10.7.0" />
+        <PackageVersion Include="Dignite.NotificationCenter.Application" Version="10.7.0" />
+        <PackageVersion Include="Dignite.NotificationCenter.HttpApi" Version="10.7.0" />
+        <PackageVersion Include="Dignite.NotificationCenter.EntityFrameworkCore" Version="10.7.0" />
     </ItemGroup>
 
     <ItemGroup Label="OpenTelemetry">

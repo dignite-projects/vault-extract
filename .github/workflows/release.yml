@@ -246,8 +246,23 @@ jobs:
         # preview step above); npmjs auth uses OIDC instead, so the value itself is unused here.
         env:
           GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Trusted Publishing cannot create a package (npm/cli#8544), so a package's first stable
+        # version is published by hand before the tag is pushed; "already published" is then a soft
+        # skip, as in the pre-release step. npmjs words it "cannot publish over the previously
+        # published versions". Redirect, not `| tee`, for the exit-status reason given above.
         run: |
-          npm publish ./dist/vault-extract --access public --provenance
+          set +e
+          npm publish ./dist/vault-extract --access public --provenance > /tmp/npm-publish.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/npm-publish.log
+          if [ $status -ne 0 ]; then
+            if grep -qiE 'cannot publish over (the previously published versions|existing version)' /tmp/npm-publish.log; then
+              echo "::notice::@dignite/ng.vault-extract@${{ steps.channel.outputs.version }} is already on npmjs; skipping."
+            else
+              exit $status
+            fi
+          fi
         working-directory: angular
 
       # Extract this version's section from CHANGELOG.md as the draft release body. The heading
