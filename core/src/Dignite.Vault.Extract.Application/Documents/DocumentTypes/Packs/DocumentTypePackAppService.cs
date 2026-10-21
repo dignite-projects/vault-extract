@@ -299,6 +299,7 @@ public class DocumentTypePackAppService : VaultExtractAppService, IDocumentTypeP
                 EnsureFieldTypeRegistered(f.FieldTypeName!, f.Configuration);
                 await _fieldDefinitionManager.CheckNameAvailableAsync(documentTypeId, f.Name);
                 CheckSearchable(f.FieldTypeName!, f.IsSearchable);
+                CheckUniqueKey(f.FieldTypeName!, f.IsUniqueKey);
                 var field = new Field(
                     GuidGenerator.Create(),
                     CurrentTenant.Id,
@@ -326,6 +327,7 @@ public class DocumentTypePackAppService : VaultExtractAppService, IDocumentTypeP
                 EnsureFieldTypeRegistered(f.FieldTypeName!, f.Configuration);
                 await GuardFieldMutationAsync(existing, f);
                 CheckSearchable(f.FieldTypeName!, f.IsSearchable);
+                CheckUniqueKey(f.FieldTypeName!, f.IsUniqueKey);
                 var wasSearchable = existing.IsSearchable;
                 existing.SetDisplayName(f.DisplayName);
                 existing.SetDescription(f.Description);
@@ -483,6 +485,16 @@ public class DocumentTypePackAppService : VaultExtractAppService, IDocumentTypeP
         if (isSearchable && !IsIndexable(fieldTypeName))
         {
             throw new BusinessException(VaultExtractErrorCodes.FieldDefinition.FieldTypeNotSearchable)
+                .WithData("FieldTypeName", fieldTypeName);
+        }
+    }
+
+    /// <summary>Same guard as <see cref="FieldDefinitionAppService.CheckUniqueKey"/> (#626) — a pack must not mark a Table or CKEditor field as a duplicate-detection key the field designer refuses.</summary>
+    protected virtual void CheckUniqueKey(string fieldTypeName, bool isUniqueKey)
+    {
+        if (isUniqueKey && !IsIndexable(fieldTypeName))
+        {
+            throw new BusinessException(VaultExtractErrorCodes.FieldDefinition.FieldTypeNotUniqueKeyable)
                 .WithData("FieldTypeName", fieldTypeName);
         }
     }

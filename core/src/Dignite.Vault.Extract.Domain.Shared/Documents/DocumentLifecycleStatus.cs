@@ -20,9 +20,10 @@ public enum DocumentLifecycleStatus
     PendingReview = 25,
 
     /// <summary>
-    /// All critical pipelines, Parse and Classification, completed successfully.
-    /// The document is available to business workflows; non-critical pipelines such as embedding may
-    /// still be running.
+    /// All critical pipelines (<c>VaultExtractPipelines.KeyPipelines</c>: Parse, Classification and FieldExtraction;
+    /// a container runs no field extraction and is exempt from it) completed successfully, and no blocking review
+    /// reason remains. The document is available to business workflows; pipelines outside the key set (a business
+    /// module's custom pipeline) may still be running.
     /// </summary>
     Ready = 30,
 

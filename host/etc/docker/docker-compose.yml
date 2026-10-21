@@ -38,6 +38,8 @@ services:
     restart: on-failure
     volumes:
       - ./certs:/app/certs
+      # Original files (FileSystem blob provider, App_Data/blobs). Without a volume they are lost with the container.
+      - appdata:/app/App_Data
     networks:
       - abp-network
 
@@ -77,6 +79,8 @@ services:
 volumes:
   sqldata:
     name: vault-extract_sqldata
+  appdata:
+    name: vault-extract_appdata
 networks:
   abp-network:
     name: vault-extract-network

@@ -2,11 +2,11 @@ namespace Dignite.Vault.Extract.Ai;
 
 /// <summary>
 /// Application-layer behavior knobs for AI workflows (Classification / structured field extraction).
-/// Bound to the <c>ExtractBehavior</c> configuration section in
+/// Bound to the <c>Vault:ExtractBehavior</c> configuration section in
 /// <see cref="VaultExtractApplicationModule"/>.
 /// <para>
 /// Provider wiring (endpoint / API key / model ids / prompt-cache middleware) lives in the
-/// separate <c>Extract</c> section consumed by the host's <c>ConfigureAI</c> — keep these
+/// separate <c>Vault:Extract</c> section consumed by the host's <c>ConfigureAI</c> — keep these
 /// two concerns disjoint: this class must not grow connection or credential fields.
 /// </para>
 /// </summary>

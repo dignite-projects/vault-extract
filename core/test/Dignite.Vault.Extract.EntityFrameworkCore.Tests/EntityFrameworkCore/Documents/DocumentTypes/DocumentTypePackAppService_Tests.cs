@@ -451,6 +451,68 @@ public class DocumentTypePackAppService_Tests : VaultExtractEntityFrameworkCoreT
         reExported.Fields.Single().Description.ShouldBe(prompt);
     }
 
+    /// <summary>
+    /// #626's unique-key guard holds on the pack write path too: a new field of a type with no index slot
+    /// (CKEditor) cannot arrive as a duplicate-detection key through an import when the field designer
+    /// refuses it.
+    /// </summary>
+    [Fact]
+    public async Task Import_rejects_a_new_non_indexable_field_marked_as_unique_key()
+    {
+        var pack = SamplePack("host.unique-ckeditor");
+        pack.Fields.Add(new DocumentTypePackFieldDto
+        {
+            Name = "body",
+            DisplayName = "Body",
+            FieldTypeName = CKEditorFieldType.ControlName,
+            IsSearchable = false,
+            IsUniqueKey = true,
+            DisplayOrder = 3
+        });
+
+        var ex = await Should.ThrowAsync<BusinessException>(() => _packAppService.ImportAsync(
+            new ImportDocumentTypePacksInput { Packs = new List<DocumentTypePackDto> { pack } }));
+
+        ex.Code.ShouldBe(VaultExtractErrorCodes.FieldDefinition.FieldTypeNotUniqueKeyable);
+        ex.Data["FieldTypeName"].ShouldBe(CKEditorFieldType.ControlName);
+    }
+
+    /// <summary>The CreateOrUpdate half: an existing non-indexable field cannot be turned into a unique key by re-import.</summary>
+    [Fact]
+    public async Task Import_rejects_turning_an_existing_non_indexable_field_into_a_unique_key()
+    {
+        var pack = SamplePack("host.unique-ckeditor-update");
+        pack.Fields.Add(new DocumentTypePackFieldDto
+        {
+            Name = "body",
+            DisplayName = "Body",
+            FieldTypeName = CKEditorFieldType.ControlName,
+            IsSearchable = false,
+            DisplayOrder = 3
+        });
+        await _packAppService.ImportAsync(new ImportDocumentTypePacksInput
+        {
+            Packs = new List<DocumentTypePackDto> { pack }
+        });
+
+        pack.Fields.Single(f => f.Name == "body").IsUniqueKey = true;
+
+        var ex = await Should.ThrowAsync<BusinessException>(() => _packAppService.ImportAsync(
+            new ImportDocumentTypePacksInput
+            {
+                Packs = new List<DocumentTypePackDto> { pack },
+                Mode = PackImportMode.CreateOrUpdate
+            }));
+
+        ex.Code.ShouldBe(VaultExtractErrorCodes.FieldDefinition.FieldTypeNotUniqueKeyable);
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var type = await _documentTypeRepository.FindByTypeCodeAsync(pack.TypeCode);
+            var fields = await _fieldDefinitionRepository.GetListAsync(type!.Id);
+            fields.Single(f => f.Name == "body").IsUniqueKey.ShouldBeFalse();
+        });
+    }
+
     [Fact]
     public async Task Import_rejects_a_whole_pack_whose_total_prompt_budget_is_exceeded_before_writing()
     {

@@ -3,14 +3,14 @@ namespace Dignite.Vault.Extract.Ai;
 /// <summary>
 /// DI keys for the keyed <c>IChatClient</c> instances Extract's core LLM call sites resolve.
 /// Registered by the host wiring (<c>VaultExtractHostModule.ConfigureAI</c>) and consumed by the
-/// classification / field-extraction / slug-suggestion / title-generation paths.
+/// title-generation / slug-suggestion and structured-output (classification, field extraction, segmentation, ...) paths.
 /// See <c>docs/en/configuration/ai-provider.md</c> for the keyed-clients table and what each is for.
 /// </summary>
 public static class VaultExtractConsts
 {
     /// <summary>
     /// DI key for the document-title-generator <c>IChatClient</c>
-    /// used by <c>DocumentParseBackgroundJob.TryGenerateTitleAsync</c>. This is a
+    /// used by <c>DocumentParseBackgroundJob.TryGenerateTitleAsync</c> and <c>SlugSuggestionAppService</c>. This is a
     /// single-shot text-completion path: no tools, no distributed cache (each prompt is
     /// unique), no FunctionInvocation wrapper. Splitting it off from the main chat client
     /// keeps trace structure honest (no phantom <c>orchestrate_tools</c> spans around a
@@ -21,7 +21,8 @@ public static class VaultExtractConsts
     /// <summary>
     /// DI key for the structured-output <c>IChatClient</c>
     /// shared by all single-shot, tool-free, prompt-unique structured-output call sites:
-    /// <c>DocumentClassificationWorkflow</c>, the field-extraction pipeline, and slug suggestions.
+    /// <c>DocumentClassificationWorkflow</c>, the field-extraction pipeline, sub-document segmentation,
+    /// cabinet suggestions, and the field-definition draft / prompt-polish suggestions.
     ///
     /// <para>
     /// Same shape as the title-generator client (no FunctionInvocation, no DistributedCache) —

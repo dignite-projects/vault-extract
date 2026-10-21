@@ -620,8 +620,8 @@ public class VaultExtractHostModule : AbpModule
             throw new AbpException(
                 "Extract requires an LLM provider before it can start: document classification and " +
                 "field extraction have no non-LLM fallback. Set Vault:Extract:Endpoint, Vault:Extract:ApiKey, " +
-                "and Vault:Extract:ChatModelId in host/src/appsettings.Development.json (git-ignored), " +
-                "user-secrets, or environment variables. For a zero-cost local option, point Endpoint at a " +
+                "and Vault:Extract:ChatModelId in host/src/appsettings.secrets.json (git-ignored) " +
+                "or environment variables. For a zero-cost local option, point Endpoint at a " +
                 "local Ollama /v1 endpoint and use any non-empty token as the key. See docs/en/configuration/ai-provider.md.");
         }
 
@@ -707,7 +707,7 @@ public class VaultExtractHostModule : AbpModule
             throw new AbpException(
                 "VisionLlm is the configured OCR provider but Vault:Extract:VisionOcrModelId is not set. " +
                 "Point it at a vision-capable model (e.g. Qwen/Qwen3-VL-8B-Instruct on SiliconFlow) in " +
-                "host/src/appsettings.Development.json (git-ignored), user-secrets, or environment variables. " +
+                "host/src/appsettings.secrets.json (git-ignored) or environment variables. " +
                 "See docs/en/text-extraction/ocr-vision-llm.md.");
         }
         context.Services.AddKeyedChatClient(
