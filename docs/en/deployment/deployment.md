@@ -60,7 +60,7 @@ Configure<AbpBlobStoringOptions>(options =>
 
 For production, either put that directory on durable, backed-up storage (a persistent volume in a container deployment), or replace the provider with one of ABP's other providers (Azure, AWS, MinIO, database, and so on) in `VaultExtractHostModule.ConfigureEfCore`. Several host instances must share the same storage.
 
-> The Docker Compose layout below mounts no volume for `App_Data`. Original files written inside the API container are lost when the container is recreated. Mount one before using that layout for anything you keep.
+> The Docker Compose layout below mounts the named volume `vault-extract_appdata` at `/app/App_Data`, so original files survive a recreated container. Any other container deployment needs the same: without a volume, the files are lost with the container.
 
 ## Authentication and Signing Certificate
 
@@ -121,7 +121,7 @@ The host configures ABP's transactional outbox and inbox on its `DbContext`, but
 The Compose layout in `host/etc/docker/docker-compose.yml` defines:
 
 - `vault-extract-web`: the Angular SPA
-- `vault-extract-api`: the ASP.NET Core host
+- `vault-extract-api`: the ASP.NET Core host, with the `vault-extract_appdata` volume for original files
 - `db-migrator`: the host image run once with `--migrate-database`
 - `sql-server`: SQL Server (Azure SQL Edge image)
 

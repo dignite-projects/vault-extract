@@ -22,7 +22,7 @@ This guide runs the Vault Extract repository on a developer machine: the .NET ho
 
 ## Backend Configuration
 
-Create `host/src/appsettings.secrets.json`. The host loads it last (ABP's `AddAppSettingsSecretsJson()`), the file is git-ignored, and `dotnet publish` leaves it out. Keep real credentials there, in user secrets or in environment variables, never in the committed `appsettings.json` or `appsettings.Development.json`.
+Create `host/src/appsettings.secrets.json`. The host loads it last (ABP's `AddAppSettingsSecretsJson()`), the file is git-ignored, and `dotnet publish` leaves it out. Keep real credentials there or in environment variables, never in the committed `appsettings.json` or `appsettings.Development.json`.
 
 An LLM provider is **required**. The host fails at startup while `Vault:Extract` is unconfigured, because classification and field extraction have no non-LLM fallback (the committed `appsettings.json` ships a `"YOUR_API_KEY"` placeholder, which the startup check rejects). A minimal configuration:
 

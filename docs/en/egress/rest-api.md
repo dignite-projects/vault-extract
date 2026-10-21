@@ -15,7 +15,7 @@ The API is provided by the `Dignite.Vault.Extract.HttpApi` package. Every route 
 
 The API uses the host's OpenIddict Bearer tokens (scope and audience `VaultExtract`), like every ABP HTTP API. An unattended system that only reads obtains a token with the OAuth **client-credentials** grant from a client registered in the host's OpenIddict application store; interactive tools use the authorization code flow. A tenant's caller includes the tenant through ABP's usual tenant resolution (for example the `__tenant` header) or the token's tenant claim.
 
-> **Known limitation:** uploading currently needs a token that carries a **user**. Each document records its uploader's name, and a client-credentials token has none, so the upload fails after the file has been stored. Until this is fixed, upload with a dedicated service user (for example through the password or authorization code flow).
+> **Known limitation:** uploading currently needs a token that carries a **user**. Each document records its uploader's name, and a client-credentials token has none, so such an upload is refused; nothing is stored. Upload with a dedicated service user instead (for example through the password or authorization code flow). Support for machine uploads is tracked in [#713](https://github.com/dignite-projects/vault-extract/issues/713).
 
 Every call also needs the `VaultExtract.Enable` feature for the caller's tenant and the permissions of the operation. Document permissions are per type and per owner; see [Per-Document-Type Permissions](../configuration/document-type-permissions.md). Errors use ABP's standard error response with a namespaced code (`Extract:...`).
 
