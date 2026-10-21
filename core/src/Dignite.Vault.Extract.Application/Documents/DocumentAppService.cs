@@ -418,12 +418,9 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
                 .WithData("ExistingDocumentId", existing.Id);
         }
 
+        // The aggregate is built (and its invariants checked) before the blob write: anything FileOrigin / Document
+        // refuses must be refused while nothing has been written, or the bytes stay behind as a blob no row points at.
         var blobName = GuidGenerator.Create().ToString("N") + extension;
-        using (var saveStream = new MemoryStream(bytes, writable: false))
-        {
-            await _blobContainer.SaveAsync(blobName, saveStream);
-        }
-
         var fileOrigin = new FileOrigin(
             blobName,
             CurrentUser.UserName ?? string.Empty,
@@ -446,6 +443,11 @@ public class DocumentAppService : VaultExtractAppService, IDocumentAppService
         if (declaredType != null)
         {
             _pipelineRunManager.DeclareDocumentType(document, declaredType.Id);
+        }
+
+        using (var saveStream = new MemoryStream(bytes, writable: false))
+        {
+            await _blobContainer.SaveAsync(blobName, saveStream);
         }
 
         await _documentRepository.InsertAsync(document, autoSave: true);

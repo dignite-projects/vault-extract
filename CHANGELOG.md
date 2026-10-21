@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A refused upload no longer leaves an orphaned file in the `extract-documents` blob container. `UploadAsync` saved
+  the bytes before it built the `Document`, so a caller the `FileOrigin` invariants rejected (for example a
+  client-credentials token, which has no user name) got a 500 *after* the blob was written. The document is now
+  built and validated first, and the blob is written only when it is valid. Such a caller is still refused.
+
 ## [0.5.0] - 2026-10-15
 
 Third stable release of the channel, and the first since `0.3.2` on NuGet.org / npmjs. The 0.5.0 line moves field
