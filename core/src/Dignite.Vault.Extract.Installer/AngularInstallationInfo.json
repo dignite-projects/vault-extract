@@ -1,17 +1,10 @@
-﻿﻿﻿﻿﻿﻿{
+﻿{
   "packages":[
     {
       "appRoutingModuleConfiguration":{
-        "imports":[
-          {
-            "names":[
-              "EXTRACT_ROUTES"
-            ],
-            "namespace": "@dignite/ng.vault-extract"
-          } 
-        ],
+        "imports":[],
         "routes":[
-          "{ path: 'extract', children: EXTRACT_ROUTES, canActivate: [authGuard] }"
+          "{ path: 'vault-extract', loadChildren: () => import('@dignite/ng.vault-extract/documents').then(m => m.DOCUMENTS_ROUTES) }"
         ]
       },
       "appModuleConfiguration":{
@@ -32,6 +25,12 @@
           "name": "@dignite/ng.vault-extract",
           "paths": [
             "angular/projects/vault-extract/src/public-api.ts"
+          ]
+        },
+        {
+          "name": "@dignite/ng.vault-extract/documents",
+          "paths": [
+            "angular/projects/vault-extract/documents/src/public-api.ts"
           ]
         },
         {

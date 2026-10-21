@@ -67,9 +67,9 @@ public enum DocumentReviewReasons
     /// document's content, and downstream cannot distinguish "this type declares no fields" from "we declined to look", so
     /// Ready is withheld until a human resolves it. Consumers that only want the text can still subscribe to the earlier
     /// <c>DocumentTextExtractedEto</c>. Cleared by a later successful extraction (e.g. after the host raises the ceiling), by
-    /// reclassification to a type without fields, or by an operator entering the values by hand
-    /// (<c>DocumentAppService.UpdateExtractedFieldsAsync</c> — the human has taken over the work the LLM declined).
-    /// Maintained by the field extraction stage.
+    /// reclassification to a type without fields, or by an operator declaring field entry complete
+    /// (<c>DocumentAppService.ConfirmFieldEntryAsync</c> — the human has taken over the work the LLM declined). Editing
+    /// the values (<c>UpdateExtractedFieldsAsync</c>) does not clear it (#657). Maintained by the field extraction stage.
     /// </summary>
     FieldExtractionIncomplete = 1 << 4,
 

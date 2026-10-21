@@ -143,7 +143,7 @@ public class OpenIddictDataSeedContributor : OpenIddictDataSeedContributorBase, 
             //   • Production baseline = the seeded default below: ONLY the claude.ai hosted callback,
             //     the one redirect_uri a deployed host actually serves.
             //   • Dev-only loopback callbacks are NOT seeded (dead attack surface on a production client).
-            //     Each developer lists them in appsettings.Development.json (gitignored) under
+            //     They are listed in appsettings.Development.json (tracked; read only in Development) under
             //     OpenIddict:Applications:VaultExtract_Mcp:RedirectUris.
             // That override REPLACES the default, and ASP.NET Core merges config arrays by index (not as a
             // union), so the dev list must be COMPLETE — every loopback below PLUS the claude.ai entry.

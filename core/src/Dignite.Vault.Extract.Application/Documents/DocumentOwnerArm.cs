@@ -28,9 +28,10 @@ public enum DocumentOwnerArm
     /// The uploader may perform it <b>unless</b> the document carries a blocking review reason other than
     /// classification (<see cref="ReviewReasonPolicy.OwnerLocking"/> — see there for why): Edit and Retry.
     /// <para>
-    /// Both families clear those bits as a side effect rather than by asking to — an empty field set clears
-    /// <c>FieldExtractionIncomplete</c>, re-extraction and a retried field-extraction run replace the whole
-    /// validation-warning set and recompute the duplicate fingerprint — so closing only the three explicit
+    /// Both families clear those bits as a side effect rather than by asking to — a field edit recomputes the
+    /// duplicate fingerprint, and re-extraction and a retried field-extraction run replace the whole
+    /// validation-warning set, recompute the fingerprint and, once they succeed, clear
+    /// <c>FieldExtractionIncomplete</c> — so closing only the three explicit
     /// review methods to an owner would leave the same escape open one door along. A document blocked only on
     /// classification stays owner-editable: confirming one's own upload is intended.
     /// </para>

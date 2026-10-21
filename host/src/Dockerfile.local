@@ -1,8 +1,12 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0
-USER $APP_UID
 EXPOSE 8080
 EXPOSE 8081
 
 COPY bin/Release/net10.0/publish/ app/
+# The app runs as $APP_UID but COPY leaves /app root-owned, so the directories it writes to (blobs under
+# App_Data, Serilog's Logs) must exist and belong to that user. Pre-creating App_Data also gives the
+# compose file's named volume an app-owned mount point; Docker would otherwise create it as root.
+RUN mkdir -p /app/App_Data /app/Logs && chown $APP_UID:$APP_UID /app/App_Data /app/Logs
+USER $APP_UID
 WORKDIR /app
 ENTRYPOINT ["dotnet", "Dignite.Vault.Extract.Host.dll"]

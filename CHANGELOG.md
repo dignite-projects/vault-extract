@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Document type pack import now rejects a field marked as a unique key whose field type has no query index
+  (Table, CKEditor), with `Extract:FieldTypeNotUniqueKeyable`, the same as the field designer (#626). Before,
+  a pack could set the flag the designer refuses.
+- The local Docker setup (`host/etc/docker`) keeps uploaded original files: the API container mounts a named
+  volume (`vault-extract_appdata`) at `App_Data`. `host/src/Dockerfile.local` now creates `App_Data` and `Logs`
+  owned by the non-root app user; before, the container could not write either directory, so uploads failed.
+- The ABP Studio installer's `AngularInstallationInfo.json` registers the real route: `DOCUMENTS_ROUTES` from
+  `@dignite/ng.vault-extract/documents`, mounted at `vault-extract`.
+- The host's startup errors for a missing LLM / VisionLlm model now point at `appsettings.secrets.json`
+  (git-ignored) or environment variables, not at the tracked `appsettings.Development.json` or user-secrets.
+
 ## [0.5.0] - 2026-10-15
 
 Third stable release of the channel, and the first since `0.3.2` on NuGet.org / npmjs. The 0.5.0 line moves field
