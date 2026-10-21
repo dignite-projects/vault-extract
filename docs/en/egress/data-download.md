@@ -1,3 +1,10 @@
+```json
+//[doc-seo]
+{
+    "Description": "Download the document list as CSV or XLSX from Dignite Vault Extract: fixed system columns plus one column per field of the type, with no business transformation."
+}
+```
+
 # Data Download
 
 Data Download is Dignite Vault Extract's **file-based egress** — the last mile to downstream systems that have no API and can only ingest files (Yayoi, freee, mid-market Yonyou, and similar accounting packages that import CSV). It sits alongside the programmatic egresses (REST / MCP / EventBus, with Webhook planned) but serves a different audience: **a human who downloads a file and imports it somewhere else.**
@@ -6,7 +13,7 @@ That audience is the whole reason it exists. REST, MCP, and EventBus each need a
 
 **Industry-format conversion (弥生 仕訳 layout, account-code mapping, tax split) is not done here.** It lives downstream, in a consumer-side skill or business system. This surface only serializes the channel's own structured data. That boundary is the point: `CLAUDE.md` forbids pre-baked vertical templates, and a dumb serializer is what makes that rule livable.
 
-## How it works
+## How It Works
 
 ```
 POST /api/vault-extract/documents/export
@@ -16,7 +23,7 @@ POST /api/vault-extract/documents/export
         │  type's live fields > MaxColumnCount ?    → fail (Extract:ExportColumnLimitExceeded)
         │  matched rows > MaxExportDocumentCount ?  → fail (Extract:ExportDocumentLimitExceeded)
         ▼
-  4 fixed system columns + one column per live FieldDefinition of that type (DisplayOrder, Name)
+  4 fixed system columns + one column per live field of that type (DisplayOrder, Name)
         │
         ▼
   ExportFileBuilder ──► CSV / XLSX stream, named {typeCode}-{yyyyMMdd-HHmmss}.{ext}
@@ -25,17 +32,17 @@ POST /api/vault-extract/documents/export
 ### Columns
 
 - **Fixed system columns** — always emitted, never configurable: `LifecycleStatus`, `ReviewStatus`, `ReviewReasons`, `Title`. These are the channel's stable metadata contract.
-- **Field columns** — one per **live** `FieldDefinition` of the requested type, in `DisplayOrder` (ties broken by `Name`, so the order is total). Headers are the field's `DisplayName`, so renaming a field follows through automatically. Values come from the document's `DocumentExtractedField` rows, rendered from the typed column per the field's `DataType`; a multi-value field joins its values by `Order` with `"; "` — **the same separator the operator screen shows**, so a cell reads identically in both places.
+- **Field columns** — one per **live** field of the requested type, in `DisplayOrder` (ties broken by `Name`, so the order is total). Headers are the field's `DisplayName`, so renaming a field follows through automatically. Values come from the document's stored field values, rendered per field type (a `Month` date as year and month only); a multi-value field (`Tags`, or a `Select` that allows several options) joins its values with `"; "` — **the same separator the operator screen shows**, so a cell reads identically in both places.
 
 > **Why a semicolon, not a comma.** A comma is the CSV delimiter. The writer would have to quote the cell, and a consumer re-splitting a quoted cell on commas would shred one field across several columns. The screen was changed to match the file rather than the other way round (#501 item 6).
 
-There is **no saved column projection.** #499 deleted the export-template layer: a template persisted only "which of this type's fields, in what order", and ordering was already owned by `DisplayOrder` — the same axis the operator list renders its columns by. Two axes over the same fields could disagree, so there is now one. If you want a different column order, change `FieldDefinition.DisplayOrder`; the list and the file move together.
+There is **no saved column projection.** #499 deleted the export-template layer: a template persisted only "which of this type's fields, in what order", and ordering was already owned by `DisplayOrder` — the same axis the operator list renders its columns by. Two axes over the same fields could disagree, so there is now one. If you want a different column order, change the fields' display order on the type's **Fields** page; the list and the file move together.
 
-> **Archived fields.** Columns come from *live* field definitions. If a field definition is soft-deleted, its column disappears from the file even for documents that still hold a value for it. Restore the definition to get the column back.
+> **Archived fields.** Columns come from *live* fields. If a field is deleted (soft-deleted), its column disappears from the file even for documents that still hold a value for it. Restore the field to get the column back.
 
 ### Scope
 
-The export takes the filters the operator document list can express — lifecycle status, cabinet, needs-review, sub-documents of a source, and extracted-field-value filters — so the file is the view. It also accepts a creation-time range, which the list contract does not yet expose. `documentTypeCode` is **required**: extracted fields are type-scoped, and the columns *are* that type's field definitions, so a mixed-type view has nothing to emit. An unknown type code fails loudly rather than returning a header-only file.
+The export takes the filters the operator document list can express — lifecycle status, cabinet, needs-review, sub-documents of a source, and extracted-field-value filters — so the file is the view. It also accepts a creation-time range, which the list contract does not yet expose. `documentTypeCode` is **required**: extracted fields are type-scoped, and the columns *are* that type's fields, so a mixed-type view has nothing to emit. An unknown type code fails loudly rather than returning a header-only file.
 
 "The file is the view" is enforced on the server, not by convention: both services narrow through the one shared `DocumentQueries.ApplyMetadataFilter` chain and order through the one shared `DocumentQueries.OrderByCreationTime` (`CreationTime` descending, `Id` as tiebreaker, so a batch upload's ties do not reshuffle between the screen and the file). Neither service hand-writes a predicate of its own. The soft-delete recycle bin is the one deliberate asymmetry: the list can open it, the export never does, so a deleted document cannot leave through a file.
 
@@ -46,26 +53,32 @@ The export takes the filters the operator document list can express — lifecycl
 
 JSON file export is intentionally **not** offered — programmatic consumers should pull JSON over the REST API rather than download a file.
 
-## Triggering a download
+## Triggering a Download
 
 - **Operator UI** — filter the document list to what you want, pick a single document type, then **Download → CSV / XLSX** in the toolbar. The download carries the list's current filters.
 - **API** — `POST /api/vault-extract/documents/export` with `ExportDocumentsInput`.
 
 > EventBus-triggered export is **not** offered: a subscriber that already consumes the EventBus has the structured data — having the channel generate a file and hand it back closes no loop.
 
-## Limits & safety
+## Limits and Safety
 
 - **Tenant isolation** is enforced by ABP's ambient `IMultiTenant` global filter on the `Documents` query, per the `CLAUDE.md` security conventions.
-- **Per-export document cap** (`DocumentExportConsts.MaxExportDocumentCount`, default 10000): if the filters match more rows than the cap, the export **fails** (`Extract:ExportDocumentLimitExceeded`) rather than silently truncating — for accounting data, dropping vouchers is more dangerous than an error. Narrow the filter.
-- **Per-export column cap** (`DocumentExportConsts.MaxColumnCount`, default 100): if the requested type declares more live field definitions than the cap, the export **fails** (`Extract:ExportColumnLimitExceeded`). The file is built synchronously and held in memory as one cell per (row, column), so the columns are bounded like the rows. The four fixed system columns do not count against it. Archive the fields the type no longer needs.
+- **Per-export document cap** (`DocumentExportConsts.MaxExportDocumentCount`, default 10000): if the filters match more rows than the cap, the export **fails** (`Extract:ExportDocumentLimitExceeded`) rather than silently truncating — for accounting data, dropping vouchers is more dangerous than an error. Narrow the filter. The cap is a static property a host may set at startup.
+- **Per-export column cap** (`DocumentExportConsts.MaxColumnCount`, default 100, also host-settable): if the requested type declares more live fields than the cap, the export **fails** (`Extract:ExportColumnLimitExceeded`). The file is built synchronously and held in memory as one cell per (row, column), so the columns are bounded like the rows. The four fixed system columns do not count against it. Archive the fields the type no longer needs.
 - **Permission**: `VaultExtract.Documents.Export`, plus read access to the exported type — `VaultExtract.Documents.ReadAll`, or a per-type `Read` grant on that one type. An `Export` holder who may not read the requested type is refused with an authorization error rather than handed a header-only file. See [per-document-type permissions](../configuration/document-type-permissions.md). (The old `VaultExtract.Documents.Templates.*` keys were removed with the template layer; grants naming them are inert.)
 
-## Example: composing a freee-style import CSV
+## Example: Composing a freee-Style Import CSV
 
 Dignite Vault Extract ships nothing freee-specific. You compose the format from your own type-bound fields.
 
-Suppose a tenant has an `invoice` document type with tenant fields `issue_date`, `amount`, `partner_name` (defined via `IFieldDefinitionAppService`, extracted automatically after classification). Set their `DisplayOrder` to 0 / 1 / 2 and their `DisplayName` to the headers you want. At month-end, filter the document list to the invoices you want and download.
+Suppose a tenant has an `invoice` document type with tenant fields `issue_date`, `amount`, `partner_name` (defined on the type's **Fields** page, extracted automatically after classification). Set their `DisplayOrder` to 0 / 1 / 2 and their `DisplayName` to the headers you want. At month-end, filter the document list to the invoices you want and download.
 
 The CSV's header row is the four fixed system columns followed by your fields in `DisplayOrder`; a downstream importer that wants only the business columns ignores or strips the leading system columns.
 
-The same mechanism produces a Yayoi journal layout, a Yonyou voucher CSV, or any other ingest format: define the fields, name them, order them. If a target format needs a value the channel doesn't capture, add a `FieldDefinition` for it. The channel still doesn't *know* what freee is — it just lets you describe the shape.
+The same mechanism produces a Yayoi journal layout, a Yonyou voucher CSV, or any other ingest format: define the fields, name them, order them. If a target format needs a value the channel doesn't capture, add a field for it. The channel still doesn't *know* what freee is — it just lets you describe the shape.
+
+## See Also
+
+- [Document Types and Fields](../documents/document-types.md)
+- [REST API](rest-api.md)
+- [Per-Document-Type Permissions](../configuration/document-type-permissions.md)

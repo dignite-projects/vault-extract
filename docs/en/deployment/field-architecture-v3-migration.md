@@ -1,22 +1,37 @@
-# Field architecture v2 → v3 migration
+```json
+//[doc-seo]
+{
+    "Description": "Runbook for moving a Dignite Vault Extract 0.3.x deployment's field values to field architecture v3 before upgrading to 0.5.0: which build, steps, verification and rollback."
+}
+```
 
-Runbook for upgrading a deployment across the field-storage change that ships in `0.5.0`
+# Field Architecture v2 → v3 Migration
+
+Runbook for upgrading a deployment across the field-storage change of the `0.5.0` line
 ([#558](https://github.com/dignite-projects/vault-extract/issues/558),
 [#561](https://github.com/dignite-projects/vault-extract/issues/561)). Read it before upgrading a
 deployment that already holds extracted field values — a package upgrade alone does **not** migrate
 them, and nothing in the tooling reminds you.
 
-## Does this apply to you?
+> **Which build to run this on.** The data migrator exists only in **`0.5.0-preview.1` and
+> `0.5.0-preview.2`**, the two releases in which the v2 and v3 storage coexist. They were published
+> to GitHub Packages, not to NuGet.org. From `0.5.0-preview.4` on — `0.5.0` included — the v2 tables
+> are dropped ([#593](https://github.com/dignite-projects/vault-extract/issues/593)) and the migrator
+> is gone. So: upgrade the 0.3.x deployment to one of those two previews, complete this runbook and
+> its verification, and only then move to `0.5.0` or later. Skipping it loses every field value while
+> the upgrade reports success.
+
+## Does This Apply to You?
 
 | Situation | Applies |
 |---|---|
-| Upgrading a deployment from `0.4.x` or earlier that has extracted field values | **Yes** — run every step |
-| Fresh install of `0.5.0`+ | No — there is no v2 data; the migrator finds nothing and does nothing |
+| Upgrading a deployment from `0.3.x` or earlier that has extracted field values | **Yes** — run every step, on `0.5.0-preview.1` or `0.5.0-preview.2` |
+| Fresh install of `0.5.0`+ | No — there is no v2 data |
 | Upgrading a deployment with document types but no extracted values yet | Yes, but only field definitions move |
 
-## What changes
+## What Changes
 
-| | v2 (≤ `0.4.x`) | v3 (`0.5.0`+) |
+| | v2 (≤ `0.3.x`) | v3 (`0.5.0` line) |
 |---|---|---|
 | Field definitions | `VaultFieldDefinitions` | `VaultFields` |
 | Field values | `VaultDocumentExtractedFields` (typed child rows) | `VaultDocuments.FlexFields` (JSON bag, authoritative) |
@@ -26,10 +41,10 @@ them, and nothing in the tooling reminds you.
 **This is expand-then-contract.** The migration is additive: `VaultFieldDefinitions` and
 `VaultDocumentExtractedFields` keep every row and are **not** dropped. That is deliberate — while
 they hold their rows they are the rollback path, and a stronger one than any tag, because the data is
-still there. Dropping them is a separate, later change
-([#593](https://github.com/dignite-projects/vault-extract/issues/593)).
+still there. Dropping them was a separate, later change
+([#593](https://github.com/dignite-projects/vault-extract/issues/593), shipped in `0.5.0-preview.4`).
 
-## What runs the migration
+## What Runs the Migration
 
 `FieldArchitectureV3Migrator` — an `ITransientDependency` in the **Application layer**, not in a
 host's data folder. It lives in the module because a downstream can host the same EF model in its own
@@ -60,7 +75,7 @@ Three properties worth knowing before you run it:
 
 ### 1. Back up the database
 
-Not optional. Once the v2 tables are dropped in a later release this is the only rollback, and the
+Not optional. Once the v2 tables are dropped (`0.5.0-preview.4` and later) this is the only rollback, and the
 verification in step 5 is what tells you whether you still need it.
 
 ### 2. Measure
@@ -248,9 +263,9 @@ result set.
 
 ### 6. Stop
 
-Do **not** drop `VaultFieldDefinitions` or `VaultDocumentExtractedFields`. They are the rollback path
-until [#593](https://github.com/dignite-projects/vault-extract/issues/593) retires them in a later
-release, after every known deployment has completed this runbook.
+Do **not** drop `VaultFieldDefinitions` or `VaultDocumentExtractedFields` by hand. They are the
+rollback path until you upgrade past `0.5.0-preview.2`; the migration of
+[#593](https://github.com/dignite-projects/vault-extract/issues/593) (`0.5.0-preview.4`) drops them.
 
 ## Rollback
 
@@ -259,9 +274,9 @@ release, after every known deployment has completed this runbook.
 | Schema migration failed | Restore the backup; nothing has been written |
 | Data migration failed partway | Re-run it — additive and resumable, so it picks up where it stopped |
 | Verification failed | Revert the application to the previous version. The v2 tables are intact and authoritative; no data was destroyed |
-| After the v2 tables are dropped (a later release) | Restore from backup. This is why the drop is a separate release |
+| After the v2 tables are dropped (`0.5.0-preview.4` and later) | Restore from backup. This is why the drop is a separate release |
 
-## Note for downstream consumers
+## Note for Downstream Consumers
 
 If you host the Vault Extract EF model in your own `DbContext` and generate your own migrations,
 there is a sequence that loses data silently and nothing prevents it:
@@ -273,6 +288,12 @@ there is a sequence that loses data silently and nothing prevents it:
 4. `FieldArchitectureV3Migrator` reads those tables. It now has no window to run — the source rows
    are gone, the upgrade reports success, and every field value is lost.
 
-So: upgrade to a release where v2 and v3 **coexist** (`0.5.0`), generate an additive-only migration,
+So: upgrade to a release where v2 and v3 **coexist** (`0.5.0-preview.1` or `0.5.0-preview.2`), generate an additive-only migration,
 apply it, invoke the migrator from your own migration path, and complete the verification above
 *before* moving to any release that drops the v2 tables.
+
+## See Also
+
+- [Deployment](deployment.md)
+- [Document Types and Fields](../documents/document-types.md)
+- [CHANGELOG](https://github.com/dignite-projects/vault-extract/blob/main/CHANGELOG.md) — `0.5.0-preview.1` to `0.5.0-preview.4`

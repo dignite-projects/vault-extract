@@ -1,20 +1,27 @@
+```json
+//[doc-seo]
+{
+    "Description": "Collect Dignite Vault Extract's OpenTelemetry traces and metrics: what is emitted, the host's export settings, a local Aspire Dashboard and production OTLP backends."
+}
+```
+
 # Observability
 
 Dignite Vault Extract emits OpenTelemetry traces and metrics from the MAF + `Microsoft.Extensions.AI` stack it consumes, and ships them through a single host-configured export pipeline. This page covers what's emitted, how to wire it up locally, and how to point it at a production backend.
 
-## What's emitted
+## What's Emitted
 
 | Source | Type | Highlights |
 |---|---|---|
 | **`Microsoft.Agents.AI`** | Traces, Metrics | MAF agent-invocation spans + token-usage / tool-call metrics for the `ChatClientAgent` runs (today: document classification via `RunAsync<T>`). MAF also defines `CompactionTelemetry` (`compaction.*` spans) but those only fire when chat-history compaction is configured — Dignite Vault Extract's agent runs are single-shot and tool-free, so no `compaction.*` spans are emitted. |
-| **`Microsoft.Extensions.AI`** | Traces, Metrics | `chat-client.GetResponseAsync` spans with GenAI semantic-convention tags (model id, prompt / completion tokens, finish reason). Emitted automatically by the `.UseOpenTelemetry()` decorators wired on every chat client in `ExtractHostModule.ConfigureAI`. |
+| **`Microsoft.Extensions.AI`** | Traces, Metrics | `chat-client.GetResponseAsync` spans with GenAI semantic-convention tags (model id, prompt / completion tokens, finish reason). Emitted automatically by the `.UseOpenTelemetry()` decorators wired on every chat client in `VaultExtractHostModule.ConfigureAI`. |
 | **`Dignite.Vault.Extract.*`** | Traces, Metrics (reserved) | Wildcard reservation only — **nothing emits under it today**. Dignite Vault Extract Core registers no custom `ActivitySource` / `Meter` (every LLM stage — classification / field extraction / title generation / slug suggestion — is observable through the `Microsoft.Extensions.AI` + `Microsoft.Agents.AI` instrumentation above). The wildcard is a forward hook for **Dignite Vault Extract Core's own future pipeline metrics** (e.g. classification-confidence histograms, OCR-duration counters) to land in the pipeline without host-side changes. It is **not** an integration point for downstream business modules — those are out of scope and run in their own host with their own OTel pipeline. |
 
 If Dignite Vault Extract Core later adds a Meter or ActivitySource named `Dignite.Vault.Extract.<name>`, it lands in the pipeline automatically — the host registers wildcard `AddSource("Dignite.Vault.Extract.*")` / `AddMeter("Dignite.Vault.Extract.*")`.
 
-## Host pipeline configuration
+## Host Pipeline Configuration
 
-The pipeline is set up in `host/src/ExtractHostModule.cs → ConfigureOpenTelemetry`. It's **opt-in** so an unconfigured host doesn't spawn a background exporter or hit a non-existent OTLP endpoint.
+The pipeline is set up in `host/src/VaultExtractHostModule.cs → ConfigureOpenTelemetry`. It's **opt-in** so an unconfigured host doesn't spawn a background exporter or hit a non-existent OTLP endpoint. The committed `appsettings.Development.json` turns it on for local development.
 
 Default in `host/src/appsettings.json`:
 
@@ -43,13 +50,13 @@ OpenTelemetry__Enabled=true
 OpenTelemetry__Otlp__Endpoint=http://otel-collector.internal:4317
 ```
 
-## Local development with Aspire Dashboard
+## Local Development with Aspire Dashboard
 
 For local dev we ship a profile-gated `aspire-dashboard` service in `host/docker-compose.yml`. It receives OTLP over gRPC and renders traces + metrics + logs at `http://localhost:18888`.
 
 **Why aspire-dashboard for dev**: single container, zero-config, runs on the developer's laptop. Use Jaeger / Datadog / Grafana Tempo / Azure Monitor in shared environments; OTLP is vendor-neutral so the same instrumentation hits any backend.
 
-### Bring it up
+### Bring It Up
 
 ```powershell
 cd host
@@ -105,7 +112,7 @@ MAF and `Microsoft.Extensions.AI` currently publish their ActivitySources and Me
 | `Microsoft.Agents.AI` | `Experimental.Microsoft.Agents.AI` | Follows the OpenTelemetry GenAI semantic-convention draft (https://opentelemetry.io/docs/specs/semconv/gen-ai/) — the spec is still pre-stable so Microsoft scopes the telemetry under "Experimental" until conventions freeze. |
 | `Microsoft.Extensions.AI` | `Experimental.Microsoft.Extensions.AI` | Same reason. |
 
-The prefix will be dropped once the spec stabilizes. `ExtractHostModule.ConfigureOpenTelemetry` registers both the prefixed and unprefixed names so the pipeline keeps working through that rename.
+The prefix will be dropped once the spec stabilizes. `VaultExtractHostModule.ConfigureOpenTelemetry` registers both the prefixed and unprefixed names so the pipeline keeps working through that rename.
 
 **Symptom of forgetting the prefix**: Aspire Dashboard shows the bare `HTTP POST api.siliconflow.cn:443` (or other provider) spans from `System.Net.Http` instrumentation, but no wrapping `chat-client.GetResponseAsync` parent and no `execute_tool {tool_name}` children. The OpenTelemetry SDK silently drops spans from unregistered sources — no exception, no warning. If you see only HTTP leaf spans for an LLM call, this is the first thing to check.
 
@@ -124,7 +131,7 @@ OpenTelemetry__Otlp__Endpoint=http://tempo:4317
 OpenTelemetry__Otlp__Endpoint=http://otel-collector:4317
 
 # Azure Monitor: use OpenTelemetry.Exporter.AzureMonitor instead of OTLP
-# (requires a code change in ExtractHostModule.ConfigureOpenTelemetry)
+# (requires a code change in VaultExtractHostModule.ConfigureOpenTelemetry)
 ```
 
 Production deployments should set the endpoint via env var or Kubernetes ConfigMap — never commit a production OTLP URL to `appsettings.json`.
@@ -146,7 +153,7 @@ When adding a new tag to an existing metric, audit the cardinality first. A tag 
 
 ## Tests
 
-A test must not register the production OTel pipeline. The `ExtractHostModule.ConfigureOpenTelemetry` short-circuits when `Enabled = false` (the default), so test hosts that don't set `OpenTelemetry:Enabled = true` skip the export entirely. Tests that need to *capture* metric emissions instead use `System.Diagnostics.Metrics.MeterListener` directly — subscribe to the specific Meter name in test setup, drain measurements in assertions.
+A test must not register the production OTel pipeline. `VaultExtractHostModule.ConfigureOpenTelemetry` short-circuits when `Enabled = false` (the default), so test hosts that don't set `OpenTelemetry:Enabled = true` skip the export entirely. Tests that need to *capture* metric emissions instead use `System.Diagnostics.Metrics.MeterListener` directly — subscribe to the specific Meter name in test setup, drain measurements in assertions.
 
 ## Adding a Meter in Dignite Vault Extract Core
 
@@ -174,3 +181,9 @@ public class PipelineTelemetryRecorder : ISingletonDependency
 No host-side change required: the `AddMeter("Dignite.Vault.Extract.*")` / `AddSource("Dignite.Vault.Extract.*")` wildcards in `ConfigureOpenTelemetry` pick up any Core-defined Meter or ActivitySource under that prefix on the next host rebuild.
 
 Downstream business modules are out of scope (they run in their own host with their own OTel pipeline), so this wildcard is **not** an integration seam for them.
+
+## See Also
+
+- [AI Provider](../configuration/ai-provider.md#opentelemetry-signals)
+- [Local Development](../get-started/local-development.md)
+- [Deployment](deployment.md)
