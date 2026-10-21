@@ -1,21 +1,30 @@
+```json
+//[doc-seo]
+{
+    "Description": "Configure the LLM provider behind Dignite Vault Extract: the keyed IChatClient registrations, model choice, non-OpenAI providers and the Vault:ExtractBehavior knobs."
+}
+```
+
 # AI Provider
 
-Dignite Vault Extract delegates all chat-completion calls to `Microsoft.Extensions.AI`. AI configuration is split into two disjoint sections:
+Dignite Vault Extract delegates every chat-completion call to `Microsoft.Extensions.AI`. AI configuration is split into two disjoint configuration sections:
 
 | Section | Owns | Consumed by |
 | --- | --- | --- |
-| `Extract` | Provider wiring (endpoint, credentials, model ids) | Host only — `ExtractHostModule.ConfigureAI` reads it once at startup to register two keyed `IChatClient` instances |
-| `ExtractBehavior` | Workflow behavior knobs (prompt language, truncation) | Application layer via `IOptions<ExtractBehaviorOptions>` — `ExtractApplicationModule.ConfigureServices` binds the section to the type |
+| `Vault:Extract` | Provider wiring: endpoint, credentials, model ids | The host only. `VaultExtractHostModule.ConfigureAI` reads it once at startup and registers the keyed `IChatClient` instances |
+| `Vault:ExtractBehavior` | Workflow behavior: prompt language, truncation and size ceilings | The Application layer, through `IOptions<VaultExtractBehaviorOptions>`. `VaultExtractApplicationModule.ConfigureServices` binds the section |
 
-The split keeps credentials (`ApiKey`) out of any `IOptions<>` flowing into business code and lets operators tune behavior independently of provider switches. Every downstream feature — [classification](../pipeline/classification.md), Host field extraction, tenant field extraction (mechanism B), document title generation — shares the same provider registration regardless of behavior tuning.
+The split keeps credentials (`ApiKey`) out of any `IOptions<>` that reaches application code, and lets operators tune behavior without touching the provider. Every LLM feature (classification, field extraction, sub-document segmentation, title generation, cabinet suggestion and the admin-side drafting helpers) shares the same provider registration.
 
-> **Dignite Vault Extract is a channel layer.** It does not host chat / RAG / agentic tool-calling paths (those were removed in #166 — see CLAUDE.md "OUT of scope"). The LLM call sites in this repo are backend pipeline workflows plus the admin-facing slug suggestion helper. Downstream RAG / Chat consumers register their own `IChatClient` against their own provider on their side.
+> Dignite Vault Extract is a channel layer. It has no chat, RAG or agentic tool-calling path (removed in [#166](https://github.com/dignite-projects/vault-extract/issues/166)). Its LLM call sites are background pipeline workflows plus a few admin-facing drafting helpers. A downstream RAG or chat consumer registers its own `IChatClient` against its own provider.
 
 ## Required before first run
 
-An LLM provider is **mandatory**. `DocumentClassificationWorkflow` and `FieldExtractionWorkflow` have no non-LLM fallback, so a host with no provider cannot classify documents or extract fields. To make this unmissable, `ExtractHostModule.ConfigureAI` **fails fast at startup**: if `Vault:Extract:Endpoint`, `Vault:Extract:ApiKey`, or `Vault:Extract:ChatModelId` is missing — or `ApiKey` is still the committed `"YOUR_API_KEY"` placeholder — the host throws before serving any request, with a message pointing here.
+An LLM provider is **mandatory**. Classification and field extraction have no non-LLM fallback, so a host without a provider cannot classify documents or extract fields. To make this unmissable, `VaultExtractHostModule.ConfigureAI` **fails at startup** when `Vault:Extract:Endpoint`, `Vault:Extract:ApiKey` or `Vault:Extract:ChatModelId` is missing, or when `ApiKey` is still the committed `"YOUR_API_KEY"` placeholder. The exception message points to this page.
 
-Supply credentials in `host/src/appsettings.Development.json` (git-ignored), [user-secrets](https://learn.microsoft.com/aspnet/core/security/app-secrets), or environment variables. **Do not** edit the committed `appsettings.json` — its placeholder is exactly what the startup guard checks against, and a real key there would leak into source control. The cheapest first-run path is a local [Ollama](#trying-alternative-providers) endpoint; otherwise any OpenAI-compatible provider works (see [Picking a chat model](#picking-a-chat-model)).
+Supply credentials in `host/src/appsettings.secrets.json` (git-ignored, loaded last by ABP's `AddAppSettingsSecretsJson()` and never published), [user secrets](https://learn.microsoft.com/aspnet/core/security/app-secrets) or environment variables. Do not edit the committed `appsettings.json` or `appsettings.Development.json`: the placeholder is exactly what the startup guard checks for, and a real key there would leak into source control. The cheapest first-run path is a local [Ollama](#trying-alternative-providers) endpoint; any OpenAI-compatible provider works.
+
+> The guard lives in the shipped host. A host that embeds the Vault Extract modules and writes its own `ConfigureAI` owns its own validation.
 
 ## Provider wiring (`Extract`)
 
@@ -24,93 +33,97 @@ Supply credentials in `host/src/appsettings.Development.json` (git-ignored), [us
   "Extract": {
     "Endpoint": "https://api.openai.com/v1",
     "ApiKey": "YOUR_API_KEY",
-    "ChatModelId": "gpt-4o-mini"
+    "ChatModelId": "gpt-4o-mini",
+    "VisionOcrModelId": "gpt-4o-mini"
   }
 }
 ```
 
 | Key | Required | Description |
 | --- | --- | --- |
-| `Endpoint` | yes | API base URL. Any OpenAI-compatible `/v1` endpoint works (Azure OpenAI, Ollama, OpenRouter, vLLM, etc.) |
-| `ApiKey` | yes | API key for the provider |
-| `ChatModelId` | yes | Fallback model for both keyed chat clients when `TitleGeneratorModelId` / `StructuredModelId` are not overridden |
-| `TitleGeneratorModelId` | optional | Model for the title-generation keyed client. Defaults to `ChatModelId`. Point at a smaller / faster model if cost matters |
-| `StructuredModelId` | optional | Model for the structured-output keyed client. Defaults to `ChatModelId`. Point at a stronger model if classification / field-extraction quality matters |
+| `Endpoint` | Yes | API base URL. Any OpenAI-compatible `/v1` endpoint works (Azure OpenAI, Ollama, OpenRouter, vLLM, and so on) |
+| `ApiKey` | Yes | API key for the provider |
+| `ChatModelId` | Yes | Fallback model for the title-generator and structured clients when their own model ids are not set |
+| `TitleGeneratorModelId` | No | Model for the title-generator client. Defaults to `ChatModelId` |
+| `StructuredModelId` | No | Model for the structured-output client. Defaults to `ChatModelId`. This is the accuracy-sensitive client; keep it on a strong model |
+| `VisionOcrModelId` | With Vision-LLM OCR | Model for the vision client. It must be vision-capable and **does not** fall back to `ChatModelId`. Required only while the [Vision-LLM OCR provider](../text-extraction/ocr-vision-llm.md) is enabled, which is the shipped host's default |
 
-## Picking a chat model
+The shipped host builds a single `OpenAIClient` for all keyed clients. Its HTTP connections are recycled every five minutes (`PooledConnectionLifetime`) and its network timeout is raised to 300 seconds, because field extraction sends the complete document and can legitimately run long.
 
-The only capability Dignite Vault Extract's backend LLM calls need is **structured JSON output**:
+## Picking a Chat Model
 
-| Capability | Where it's used | Failure mode if weak |
-|---|---|---|
-| Structured JSON output (`response_format: json_schema`) | `DocumentClassificationWorkflow` (via MAF `RunAsync<T>` + schema-bound `T`), `FieldExtractionWorkflow` (via `ChatResponseFormat.ForJsonSchema` + per-field prompt, covering both Host fields and tenant fields under mechanism B), `SlugSuggestionAppService` (schema-bound `{ slug }`) | Returns malformed JSON or violates schema → classification falls back to `(unclassified)`, fields write as `null`, slug suggestion returns empty and the UI falls back |
+The only capability the backend calls need is **structured JSON output** (`response_format: json_schema`). Function calling, tool use, long-context retrieval and multi-turn coherence play no part.
 
-That's it. Function calling, tool-call willingness, large-context RAG, multi-turn coherence — none of those matter here because Dignite Vault Extract has no Chat / RAG path. Even small open-source models (Qwen3-8B class) usually comply when the prompt explicitly demands a JSON object.
+| Capability | Used by | Failure mode when weak |
+| --- | --- | --- |
+| Structured JSON output | Classification, field extraction, segmentation, cabinet suggestion, field drafting and prompt polishing, slug suggestion | Malformed JSON or a schema violation: classification goes to the review queue, the affected field values are dropped, a helper returns nothing and the UI falls back |
 
-### Practical guidance
-
-For **production**, prefer a model that's strict about schema compliance. Models that "almost get JSON right" cost you silent nulls — malformed output is coerced to `null` fields and the document routes to manual review. The choice is between cost and quality, not between "supports the protocol" vs "doesn't":
+For production, prefer a model that is strict about schema compliance. A model that "almost gets JSON right" costs you silent gaps: rejected values are discarded and the document goes to manual review.
 
 | Tier | Examples (OpenAI-compatible providers) | Trade-off |
-|---|---|---|
-| **Recommended** | `gpt-4o-mini` / `gpt-4o`, `claude-sonnet-4-6` (via shim), `Qwen/Qwen3-32B`, `deepseek-ai/DeepSeek-V3` | Schema-bound output reliable; field extraction returns useful values most of the time |
-| **Budget** (development only) | `Qwen/Qwen3-8B`, small Llama variants | JSON shape usually correct; field values less reliable (numeric coercion failures, missed fields). Useful for smoke-testing the wiring without paying production tokens |
+| --- | --- | --- |
+| **Recommended** | `gpt-4o-mini` / `gpt-4o`, `Qwen/Qwen3-32B`, `deepseek-ai/DeepSeek-V3` | Schema-bound output is reliable and field extraction returns useful values most of the time |
+| **Budget** (development only) | `Qwen/Qwen3-8B`, small Llama variants | The JSON shape is usually right, field values less so (numeric coercion failures, missed fields). Good enough to smoke-test the wiring |
 
-`TitleGeneratorModelId` can run on a cheaper / smaller model than `StructuredModelId` because title generation is plain text completion (no schema, no field-value reliability requirements).
+The title-generator client can run on a smaller, cheaper model than the structured client. It must still honor `ChatResponseFormat.ForJsonSchema`, because slug suggestion also uses it.
 
-## Keyed clients
+## Keyed Clients
 
-`ExtractHostModule.ConfigureAI` registers exactly two keyed `IChatClient` instances. **There is no default (non-keyed) `IChatClient` registration** — Dignite Vault Extract has no main "chat" path, so every consumer pulls the keyed client appropriate to its workload:
+`VaultExtractHostModule.ConfigureAI` registers keyed `IChatClient` instances only. **There is no default (non-keyed) `IChatClient` registration**, so every consumer injects the client for its workload with `[FromKeyedServices(...)]`:
 
-| DI key | Consumed by | Why this exists separately |
-|---|---|---|
-| `ExtractConsts.TitleGeneratorChatClientKey` | `DocumentParseBackgroundJob.TryGenerateTitleAsync` (auto-generates a short document title from extracted Markdown) | Single-shot text completion, no schema. Different model id lets hosts run a cheaper / faster model here without affecting classification / extraction quality |
-| `ExtractConsts.StructuredChatClientKey` | `DocumentClassificationWorkflow`, `FieldExtractionWorkflow` (unified Host + tenant field entry under mechanism B, called by `FieldExtractionEventHandler`), `SlugSuggestionAppService` | All schema-bound `RunAsync<T>` / `ChatResponseFormat.ForJsonSchema` calls share this client. Splitting structured from title lets production teams tune quality vs cost per workload |
+| DI key (value) | Defined in | Required |
+| --- | --- | --- |
+| `VaultExtractConsts.TitleGeneratorChatClientKey` (`"extract-title-generator"`) | `Dignite.Vault.Extract.Application` | Always |
+| `VaultExtractConsts.StructuredChatClientKey` (`"extract-structured"`) | `Dignite.Vault.Extract.Application` | Always |
+| `VisionLlmOcrConsts.VisionChatClientKey` (`"extract-vision-ocr"`) | `Dignite.Vault.Extract.Ocr.VisionLlm` | Only with the Vision-LLM OCR provider |
 
-Both clients are registered with `UseOpenTelemetry()` + `UseLogging()`. Neither has `UseFunctionInvocation` (no tool calling anywhere in Dignite Vault Extract) or `UseDistributedCache` (every prompt is document-content-derived and therefore unique per call — cache lookups would always miss).
+The vision key lives in the OCR provider project, not in `VaultExtractConsts`: an OCR provider sits below the Application layer and must not depend on it.
 
-> **Optional third client — vision OCR.** Enabling the [vision-LLM OCR provider](../text-extraction/ocr-vision-llm.md) (#259) adds a third keyed client for a multimodal (vision) model. Its key (`VisionLlmOcrConsts.VisionChatClientKey`) lives in the `Dignite.Vault.Extract.Ocr.VisionLlm` project, **not** `ExtractConsts` — an OCR provider sits below the Application layer and must not depend on it. Register it in your `ConfigureAI` override only when you enable that provider; the vision model id **cannot** fall back to `ChatModelId` (the main chat model may not be vision-capable), so it requires its own `Vault:Extract:VisionOcrModelId`.
+Every client is registered with `UseOpenTelemetry()` and `UseLogging()`. None uses `UseFunctionInvocation` (Vault Extract calls no tools) or `UseDistributedCache` (every prompt is derived from document or admin input and is unique per call, so a cache would always miss).
 
-> **Provider-switch gotcha**: When switching `Endpoint` to a non-OpenAI provider (SiliconFlow, Ollama via `/v1` shim, OpenRouter, etc.), override **all three** model id keys together in your environment-specific config — `ChatModelId` alone is not enough if the provider doesn't recognize the default `gpt-4o-mini` placeholder that may be inherited from base `appsettings.json`. The simplest fix: copy all three overrides into your `appsettings.Development.json` / `appsettings.Production.json` / env vars whenever you change `Endpoint`.
+> **Provider-switch gotcha.** When you point `Endpoint` at a non-OpenAI provider, override every model id key together in the environment-specific configuration. `ChatModelId` alone is not enough when the provider does not recognize a model id inherited from the base `appsettings.json`.
 
-To split further (e.g. a different model per workflow), add more per-purpose `AddKeyedChatClient` registrations in your own `ConfigureAI` override. The current consolidation puts classification + field extraction (unified Host + tenant path) + slug suggestion on the same key because their call shape is identical (schema-bound JSON); split them only when production telemetry shows a real per-task cost or quality reason.
+## Where It Is Used
 
-## Where it is used
+| Caller | Keyed client | Notes |
+| --- | --- | --- |
+| `DocumentClassificationWorkflow` | Structured | [Classification](../pipeline/classification.md) |
+| `FieldExtractionWorkflow` | Structured | Host and tenant fields alike ([document types and fields](../documents/document-types.md)) |
+| `DocumentSegmentationWorkflow` | Structured | [Sub-documents](../documents/sub-documents.md) |
+| `CabinetSuggestionWorkflow` | Structured | Background cabinet suggestion for a document uploaded without one ([cabinets](../documents/cabinets.md)) |
+| `FieldDraftSuggestionAppService` | Structured | Admin helper: drafts a field definition |
+| `FieldPromptPolishAppService` | Structured | Admin helper: rewrites a field's extraction prompt |
+| `DocumentParseBackgroundJob` (title generation) | Title generator | Generates a short title from the extracted Markdown |
+| `SlugSuggestionAppService` | Title generator | Admin helper: suggests an English URL slug (schema-bound) |
+| `VisionLlmOcrProvider` | Vision | [Vision-LLM OCR](../text-extraction/ocr-vision-llm.md) |
 
-| Caller | Keyed client |
-|---|---|
-| `Documents/Pipelines/Classification/DocumentClassificationWorkflow` | `StructuredChatClientKey` |
-| `Documents/Pipelines/FieldExtraction/FieldExtractionWorkflow` (unified Host + tenant fields under mechanism B) | `StructuredChatClientKey` |
-| `Documents/Pipelines/Parse/DocumentParseBackgroundJob.TryGenerateTitleAsync` | `TitleGeneratorChatClientKey` |
-| `Slugging/SlugSuggestionAppService` | `StructuredChatClientKey` |
+One `Vault:Extract` block serves all of them. To use a different model per workflow, add more keyed registrations in your own `ConfigureAI`; split a key only when production telemetry shows a real cost or quality reason.
 
-A single `Extract` block serves all of them. Picking different models per workflow is a host-level customization that replaces the registrations in `ExtractHostModule.ConfigureAI`.
+## Trying Alternative Providers
 
-## Trying alternative providers
+- **Azure OpenAI**: set `Endpoint` to `https://<resource>.openai.azure.com/openai/deployments/<deployment>/` and use the deployment name as the model id. This is API-key authentication; for Microsoft Entra ID see [Going off-protocol](#going-off-protocol-non-openai-providers).
+- **Ollama (local)**: run `ollama serve`, set `Endpoint` to `http://localhost:11434/v1`, set `ApiKey` to any non-empty token (the `/v1` shim ignores it, but the OpenAI client rejects an empty key), and use a locally pulled model id.
+- **Any OpenAI-compatible gateway** (OpenRouter, vLLM, LM Studio, and so on) works the same way; only the `Vault:Extract` keys change.
 
-- **Azure OpenAI**: set `Endpoint` to `https://<resource>.openai.azure.com/openai/deployments/<deployment>/` and use the deployment name as `ChatModelId`. (API-key auth only — for Microsoft Entra ID see [Going off-protocol](#going-off-protocol-non-openai-providers).)
-- **Ollama (local)**: run `ollama serve`, set `Endpoint` to `http://localhost:11434/v1`, set `ApiKey` to any non-empty token (the `/v1` shim ignores it, but the OpenAI client rejects an empty key), and pick a locally pulled model id.
-- **Any OpenAI-compatible gateway** (OpenRouter, vLLM, LM Studio, etc.) works the same way — only the keys in `Extract` need to change.
+## Going Off-Protocol (Non-OpenAI Providers)
 
-## Going off-protocol (non-OpenAI providers)
+The `Vault:Extract` keys describe **OpenAI-protocol** providers only, because `ConfigureAI` builds the clients from `OpenAIClient`. To target a provider with a different wire protocol (native Anthropic, native Google Gemini, AWS Bedrock, Azure OpenAI with Microsoft Entra ID, native Ollama without the `/v1` shim), **replace `ConfigureAI` in your host project**. Application code consumes the keyed `IChatClient` instances and does not change.
 
-The `Extract` keys above only describe **OpenAI-protocol** providers because `ExtractHostModule.ConfigureAI` builds them against `OpenAIClient`. Targeting a provider that speaks a different wire protocol — native Anthropic Claude, native Google Gemini, AWS Bedrock, Microsoft Entra ID-authenticated Azure OpenAI, native Ollama without the `/v1` shim — means **replacing `ConfigureAI` in your host project**. Application code (the four workflows above) consumes the registered keyed `IChatClient` and is unchanged.
+`Vault:Extract` is irrelevant in that case; read your provider's settings from a configuration shape that matches its credential model. `Vault:ExtractBehavior` still applies.
 
-The `Extract` section becomes irrelevant in that case — drop it from `appsettings.json` and read your provider's keys from a configuration shape that matches its credential model (token, region, deployment id, etc.). `ExtractBehavior` still applies and is provider-agnostic.
-
-### Invariants the new wiring must preserve
+### Invariants the New Wiring Must Preserve
 
 | Required | Why |
 | --- | --- |
-| Two `services.AddKeyedChatClient(key, factory)` registrations, keyed `ExtractConsts.TitleGeneratorChatClientKey` and `ExtractConsts.StructuredChatClientKey` | The workflow / background-job / AppService call sites inject by `[FromKeyedServices(...)]`. Missing either key crashes service resolution at first use |
-| `.UseOpenTelemetry()` on both keyed clients | `gen_ai.*` semantic-convention spans + token counters depend on this decorator. Without it the OTel pipeline still emits MAF spans (from `Microsoft.Agents.AI`) but no per-LLM-call duration / token metrics |
-| `.UseLogging()` on both keyed clients (recommended) | Per-call request / response logging at `Debug` is useful for diagnosing prompt issues. Drop only if your logs are token-budget constrained |
+| `AddKeyedChatClient` registrations for `VaultExtractConsts.TitleGeneratorChatClientKey` and `VaultExtractConsts.StructuredChatClientKey` (plus `VisionLlmOcrConsts.VisionChatClientKey` with Vision-LLM OCR) | Call sites inject by key. A missing key fails service resolution on first use |
+| `.UseOpenTelemetry()` on every client | The `gen_ai.*` spans and token metrics depend on this decorator |
+| `.UseLogging()` on every client (recommended) | Per-call request and response logging at `Debug` helps diagnose prompt problems |
 
-Things that are **NOT** required: `UseFunctionInvocation` (Dignite Vault Extract calls no tools), `UseDistributedCache` (every prompt is unique per call), `IEmbeddingGenerator` registration (no embedding pipeline in Dignite Vault Extract Core — vectorization is downstream RAG's responsibility).
+Not required: `UseFunctionInvocation`, `UseDistributedCache`, or an `IEmbeddingGenerator` registration (the channel does no vectorization; that is the downstream RAG platform's job).
 
-### Sketch: Azure OpenAI with Microsoft Entra ID (no API key)
+### Sketch: Azure OpenAI with Microsoft Entra ID
 
-Replaces API-key auth with `DefaultAzureCredential`, recommended for Azure deployments with managed identity / workload identity. Requires `Azure.AI.OpenAI` and `Azure.Identity` package references in the host project:
+Replaces API-key authentication with `DefaultAzureCredential`, recommended for Azure deployments with a managed identity or workload identity. Add the `Azure.AI.OpenAI` and `Azure.Identity` packages to the host project:
 
 ```csharp
 using Azure.AI.OpenAI;
@@ -125,7 +138,7 @@ private void ConfigureAI(ServiceConfigurationContext context, IConfiguration con
     var titleDeployment = configuration["AzureOpenAI:TitleDeployment"]
         ?? configuration["AzureOpenAI:ChatDeployment"]!;
     context.Services.AddKeyedChatClient(
-        ExtractConsts.TitleGeneratorChatClientKey,
+        VaultExtractConsts.TitleGeneratorChatClientKey,
         _ => azureClient.GetChatClient(titleDeployment).AsIChatClient())
         .UseOpenTelemetry()
         .UseLogging();
@@ -133,16 +146,16 @@ private void ConfigureAI(ServiceConfigurationContext context, IConfiguration con
     var structuredDeployment = configuration["AzureOpenAI:StructuredDeployment"]
         ?? configuration["AzureOpenAI:ChatDeployment"]!;
     context.Services.AddKeyedChatClient(
-        ExtractConsts.StructuredChatClientKey,
+        VaultExtractConsts.StructuredChatClientKey,
         _ => azureClient.GetChatClient(structuredDeployment).AsIChatClient())
         .UseOpenTelemetry()
         .UseLogging();
 }
 ```
 
-### Sketch: native Ollama (without the OpenAI `/v1` shim)
+### Sketch: Native Ollama
 
-Uses `OllamaSharp` directly, which exposes Ollama-only features (native tool format, model warm-up control) the OpenAI `/v1` shim doesn't expose. Requires the `OllamaSharp` package in the host project:
+Uses `OllamaSharp` directly instead of the OpenAI `/v1` shim. Add the `OllamaSharp` package to the host project:
 
 ```csharp
 using OllamaSharp;
@@ -150,47 +163,52 @@ using OllamaSharp;
 var endpoint = new Uri(configuration["Ollama:Endpoint"]!);
 
 context.Services.AddKeyedChatClient(
-    ExtractConsts.TitleGeneratorChatClientKey,
+    VaultExtractConsts.TitleGeneratorChatClientKey,
     _ => new OllamaApiClient(endpoint, configuration["Ollama:TitleModelId"]!))
     .UseOpenTelemetry()
     .UseLogging();
 
 context.Services.AddKeyedChatClient(
-    ExtractConsts.StructuredChatClientKey,
+    VaultExtractConsts.StructuredChatClientKey,
     _ => new OllamaApiClient(endpoint, configuration["Ollama:StructuredModelId"]!))
     .UseOpenTelemetry()
     .UseLogging();
 ```
 
-For the full set of `IChatClient`-compatible providers (Anthropic, Microsoft Foundry, GitHub Copilot, A2A, custom, …) and the exact factory calls each one ships, see the [Microsoft.Extensions.AI provider list](https://learn.microsoft.com/agent-framework/agents/providers/).
+For the full list of `IChatClient` providers and their factory calls, see the [Microsoft.Extensions.AI provider list](https://learn.microsoft.com/agent-framework/agents/providers/).
 
 ## Cross-cutting LLM behavior (`ExtractBehavior`)
 
-These knobs describe *how Dignite Vault Extract calls the model* (language hint, text truncation). They are bound to `ExtractBehaviorOptions` and reach every pipeline through `IOptions<>`.
+These options describe *how* Vault Extract calls the model. They are bound from `Vault:ExtractBehavior` to `VaultExtractBehaviorOptions` and are host configuration: a host may raise a ceiling to process bigger documents or lower it to cap spend.
 
 ```json
 "Vault": {
   "ExtractBehavior": {
     "DefaultLanguage": "ja",
     "MaxTextLengthPerExtraction": 8000,
-    "MaxFieldExtractionMarkdownLength": 200000,
-    "MaxFieldSchemaPromptLength": 32000
+    "MaxFieldExtractionMarkdownLength": 200000
   }
 }
 ```
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `DefaultLanguage` | `"ja"` | Language hint appended to every system prompt. Match this to your primary user base — Dignite Vault Extract prompts are written language-agnostic and switch via this hint |
-| `MaxTextLengthPerExtraction` | `8000` | Per-call character cap on Markdown fed to **classification** and **cabinet suggestion** (both only need the document's opening for a verdict). CJK-safe (one character ≈ one CJK glyph). Raise for long contracts / policies if your model's context window allows |
-| `MaxFieldExtractionMarkdownLength` | `200000` | Maximum complete document body accepted by field extraction. Field extraction cannot safely truncate because a field may appear anywhere; an oversized document is declined with a blocking review reason instead of calling the model |
-| `MaxFieldSchemaPromptLength` | `32000` | Maximum total prompt characters across all active field definitions on one document type. Individual prompts remain uncapped; schema create/update/restore/import rejects only when the per-type total exceeds this host-funded LLM budget |
+| `DefaultLanguage` | `"ja"` | Output language of the **classification** prompt only. The other paths keep their own language strategy: a generated title follows the document's language, field values keep the document's wording, and a slug is always English |
+| `MaxDocumentTypesInClassificationPrompt` | `50` | Maximum candidate types in the classification prompt. Extra types are dropped after sorting by descending `Priority` |
+| `MaxTextLengthPerExtraction` | `8000` | Maximum Markdown characters sent to **classification** and **cabinet suggestion**, which only need the opening of a document. Longer text is cut at a character boundary |
+| `MaxTitleGenerationMarkdownLength` | `4000` | Maximum Markdown characters sent to title generation |
+| `MaxCabinetsInSuggestionPrompt` | `50` | Maximum candidate cabinets in the cabinet-suggestion prompt |
+| `MinCabinetSuggestionConfidence` | `0.6` | Cabinet suggestion abstains below this confidence and leaves the document without a cabinet |
+| `MaxSegmentsPerDocument` | `50` | Maximum slices one document may be split into. A proposal above it is not split; the document gets a review signal instead |
+| `MaxSegmentationMarkdownLength` | `200000` | Maximum Markdown characters for sub-document detection. Segmentation reads the whole document, so a longer one is not segmented and gets a review signal |
+| `MaxFieldExtractionMarkdownLength` | `200000` | Maximum Markdown characters for field extraction. Field extraction cannot truncate (a field may sit anywhere), so a longer document is declined with the blocking `FieldExtractionIncomplete` review reason instead of calling the model |
+| `MaxFieldSchemaPromptLength` | `32000` | Maximum total prompt characters across the active fields of one document type. Creating, updating, restoring or importing a field is rejected when it would push the type over this budget |
 
-Per-pipeline tuning lives in `ExtractBehavior` — see [classification.md](../pipeline/classification.md) for the keys the classification workflow reads.
+The ceilings follow one rule: where cutting the tail would silently corrupt the result (field extraction, segmentation), the ceiling **gates** the call and raises a review signal; where it would not (classification, title, cabinet suggestion), the text is truncated.
 
-## OpenTelemetry signals
+## OpenTelemetry Signals
 
-`ExtractHostModule.ConfigureAI` wires `Microsoft.Extensions.AI`'s `UseOpenTelemetry()` decorator onto both keyed chat clients. To collect these signals, register an OTel exporter in your host and add the source / meter names:
+`ConfigureAI` adds `Microsoft.Extensions.AI`'s `UseOpenTelemetry()` decorator to every keyed client. To collect the signals, register an exporter and add the source and meter names:
 
 ```csharp
 context.Services.AddOpenTelemetry()
@@ -199,21 +217,26 @@ context.Services.AddOpenTelemetry()
         .AddSource("Microsoft.Extensions.AI")
         .AddSource("Experimental.Microsoft.Agents.AI")
         .AddSource("Microsoft.Agents.AI")
-        .AddSource("Dignite.Vault.Extract.*"))            // reserved for project-specific spans
+        .AddSource("Dignite.Vault.Extract.*"))
     .WithMetrics(b => b
         .AddMeter("Experimental.Microsoft.Extensions.AI")
         .AddMeter("Microsoft.Extensions.AI")
         .AddMeter("Experimental.Microsoft.Agents.AI")
         .AddMeter("Microsoft.Agents.AI")
-        .AddMeter("Dignite.Vault.Extract.*"));            // reserved for project-specific meters
+        .AddMeter("Dignite.Vault.Extract.*"));
 ```
 
-This matches what `ExtractHostModule.ConfigureOpenTelemetry` already adds when `OpenTelemetry:Enabled = true` in your host's `appsettings.json`.
+The shipped host's `VaultExtractHostModule.ConfigureOpenTelemetry` adds the same names when `OpenTelemetry:Enabled` is `true`; see [Observability](../deployment/observability.md).
 
-| Source / Meter | Emitted by | What it covers |
+| Source / Meter | Emitted by | Covers |
 | --- | --- | --- |
-| `Experimental.Microsoft.Extensions.AI` (Activity + Meter) | `OpenTelemetryChatClient` (the `UseOpenTelemetry` decorator on each keyed client) | OTel GenAI semantic conventions: `chat {model}` / `execute_tool {name}` spans, `gen_ai.client.operation.duration` (s), `gen_ai.client.token.usage` |
-| `Experimental.Microsoft.Agents.AI` (Activity + Meter) | MAF agent runtime (`ChatClientAgent.RunAsync<T>` etc.) | Agent-level spans wrapping each `RunAsync` call — useful for tying classification workflow steps together |
-| `Dignite.Vault.Extract.*` (reserved) | None in Dignite Vault Extract Core today | Reserved wildcard for downstream consumers' module-specific telemetry (e.g. a `Dignite.Vault.Extract.Contracts` meter emitted by a downstream Contracts consumer in its own repo) |
+| `Experimental.Microsoft.Extensions.AI` (Activity and Meter) | The `UseOpenTelemetry` decorator on each keyed client | GenAI semantic conventions: `chat {model}` spans, `gen_ai.client.operation.duration`, `gen_ai.client.token.usage` |
+| `Experimental.Microsoft.Agents.AI` (Activity and Meter) | The agent runtime (`ChatClientAgent.RunAsync<T>`) used by classification | Agent-level spans around each `RunAsync` call |
+| `Dignite.Vault.Extract.*` (reserved) | Nothing in Vault Extract today | Reserved for module-specific telemetry, including a downstream consumer's own meters |
 
-Dignite Vault Extract Core currently emits **no project-specific telemetry meters of its own**. The `Dignite.Vault.Extract.*` wildcard exists for future use and for downstream consumer modules to plug in their extraction telemetry without each one needing a host-side config change.
+## See Also
+
+- [Options and Features](options.md)
+- [Classification](../pipeline/classification.md)
+- [Vision-LLM OCR](../text-extraction/ocr-vision-llm.md)
+- [Observability](../deployment/observability.md)

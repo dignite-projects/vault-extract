@@ -1,0 +1,148 @@
+{
+  "items": [
+    {
+      "text": "Overview",
+      "path": "index.md",
+      "isIndex": true
+    },
+    {
+      "text": "Get Started",
+      "items": [
+        {
+          "text": "Installation",
+          "path": "get-started/installation.md"
+        },
+        {
+          "text": "Local Development",
+          "path": "get-started/local-development.md"
+        }
+      ]
+    },
+    {
+      "text": "Documents",
+      "items": [
+        {
+          "text": "Documents and Review",
+          "path": "documents/documents.md"
+        },
+        {
+          "text": "Document Types and Fields",
+          "path": "documents/document-types.md"
+        },
+        {
+          "text": "Sub-Documents",
+          "path": "documents/sub-documents.md"
+        },
+        {
+          "text": "Cabinets",
+          "path": "documents/cabinets.md"
+        }
+      ]
+    },
+    {
+      "text": "Text Extraction",
+      "items": [
+        {
+          "text": "Overview",
+          "path": "text-extraction/text-extraction.md"
+        },
+        {
+          "text": "Vision-LLM OCR",
+          "path": "text-extraction/ocr-vision-llm.md"
+        },
+        {
+          "text": "PaddleOCR",
+          "path": "text-extraction/ocr-paddleocr.md"
+        },
+        {
+          "text": "Azure Document Intelligence",
+          "path": "text-extraction/ocr-azure-document-intelligence.md"
+        }
+      ]
+    },
+    {
+      "text": "Pipeline",
+      "items": [
+        {
+          "text": "Classification",
+          "path": "pipeline/classification.md"
+        },
+        {
+          "text": "Reprocessing",
+          "path": "pipeline/reprocessing.md"
+        },
+        {
+          "text": "Pipeline Runs",
+          "path": "pipeline/pipeline-runs.md"
+        }
+      ]
+    },
+    {
+      "text": "Egress",
+      "items": [
+        {
+          "text": "REST API",
+          "path": "egress/rest-api.md"
+        },
+        {
+          "text": "MCP Server",
+          "path": "egress/mcp-server.md"
+        },
+        {
+          "text": "Integration Events",
+          "path": "egress/integration-events.md"
+        },
+        {
+          "text": "Data Download",
+          "path": "egress/data-download.md"
+        },
+        {
+          "text": "Operator Notifications",
+          "path": "egress/operator-notifications.md"
+        }
+      ]
+    },
+    {
+      "text": "Configuration",
+      "items": [
+        {
+          "text": "AI Provider",
+          "path": "configuration/ai-provider.md"
+        },
+        {
+          "text": "Per-Document-Type Permissions",
+          "path": "configuration/document-type-permissions.md"
+        },
+        {
+          "text": "Options and Features",
+          "path": "configuration/options.md"
+        }
+      ]
+    },
+    {
+      "text": "Deployment and Operations",
+      "items": [
+        {
+          "text": "Deployment",
+          "path": "deployment/deployment.md"
+        },
+        {
+          "text": "Deployment Checklist",
+          "path": "deployment/deployment-checklist.md"
+        },
+        {
+          "text": "Observability",
+          "path": "deployment/observability.md"
+        },
+        {
+          "text": "GDPR User-Data Erasure",
+          "path": "deployment/gdpr-user-data-erasure.md"
+        },
+        {
+          "text": "Field Architecture v2 → v3 Migration",
+          "path": "deployment/field-architecture-v3-migration.md"
+        }
+      ]
+    }
+  ]
+}

@@ -1,25 +1,34 @@
+```json
+//[doc-seo]
+{
+    "Description": "Deploy the Dignite Vault Extract host: database, original-file storage, signing certificate, string encryption, OCR and AI providers, Docker, reverse proxy and migrations."
+}
+```
+
 # Deployment
 
-This page covers what a host operator needs to configure to run Extract: the relational database, the authentication signing certificate, the OCR sidecar, the Docker layout, and, if you run one, the reverse proxy. For per-feature configuration (OCR, AI provider) see the matching feature doc.
+This page covers what a host operator configures to run the Vault Extract host: the database, the storage for original files, the signing certificate, the OCR and AI providers, the Docker layout and, if there is one, the reverse proxy. Per-feature settings are on each feature's page.
 
-> **Channel positioning**: Dignite Vault Extract outputs Markdown + structured metadata to downstream consumers (RAG platforms, business systems, MCP clients). It does **not** ship a vector database, embedding pipeline, or chat platform — those belong on the downstream side. See `CLAUDE.md` → "OUT of scope".
+> Vault Extract outputs Markdown and structured metadata to downstream consumers (RAG platforms, business systems, MCP clients). It does **not** ship a vector database, an embedding pipeline or a chat platform; those belong to the downstream side.
 
 ## Topology
 
 ```text
-Dignite Vault Extract Host (ASP.NET Core)
-  ├─► SQL Server — relational application database (entities, audit, identity, OpenIddict, OutboxEvent)
-  └─► OCR provider — Vision LLM (default, via IChatClient) / PaddleOCR sidecar / Azure Document Intelligence — text extraction
-                                                                                                    
-                  ↓ exports                                                                         
-   REST API / MCP server / DistributedEventBus / Webhook (planned) — downstream consumers (RAG / business systems)
+Vault Extract host (ASP.NET Core)
+  ├─► SQL Server ─── application data: documents, types and fields, identity, OpenIddict,
+  │                  background jobs, event outbox and inbox, notifications
+  ├─► BLOB storage ─ original uploaded files (container "extract-documents")
+  ├─► LLM provider ─ classification, field extraction, segmentation, titles (IChatClient)
+  └─► OCR provider ─ Vision-LLM (default) / PaddleOCR sidecar / Azure Document Intelligence
+
+  egress: REST API · MCP server · distributed events · CSV / XLSX download
 ```
 
-All Dignite Vault Extract state lives in the single SQL Server database. Markdown + event payloads flow out to downstream consumers; downstream consumers are responsible for their own storage (vector DB / business aggregates / search index).
+Vault Extract's state lives in two places: the relational database and the BLOB storage that holds each document's original file. Back them up together. Downstream consumers keep their own storage (vector database, business aggregates, search index).
 
-## Connection strings
+## Connection Strings
 
-Dignite Vault Extract uses SQL Server as the only persistence backend.
+The shipped host uses SQL Server through EF Core, with one connection string:
 
 ```json
 "ConnectionStrings": {
@@ -27,19 +36,41 @@ Dignite Vault Extract uses SQL Server as the only persistence backend.
 }
 ```
 
-Production deployments should source the password from the platform's secret store (Azure Key Vault, AWS Secrets Manager, env vars injected by the orchestrator, etc.), not from `appsettings.Production.json`.
+Source the password from the platform's secret store (Azure Key Vault, AWS Secrets Manager, environment variables injected by the orchestrator), not from `appsettings.Production.json`. The schema itself is provider-agnostic; see [Database Portability](#database-portability).
 
-## Authentication and signing certificate
+## Original File Storage
 
-Dignite Vault Extract uses OpenIddict. Development mode auto-generates ephemeral certificates; production needs a real signing certificate.
+Every upload's original file is written to the `extract-documents` BLOB container through [ABP BLOB Storing](https://abp.io/docs/latest/framework/infrastructure/blob-storing). Text extraction reads it, re-parse reads it again, and the document detail page downloads it, so losing it breaks those features for every stored document. Permanently deleting a document deletes its file.
 
-Generate one with:
+The shipped host configures the **file system provider** as the default for every container, under `<content root>/App_Data/blobs`:
+
+```csharp
+Configure<AbpBlobStoringOptions>(options =>
+{
+    options.Containers.ConfigureDefault(container =>
+    {
+        container.UseFileSystem(fileSystem =>
+        {
+            fileSystem.BasePath = Path.Combine(
+                hostingEnvironment.ContentRootPath, "App_Data", "blobs");
+        });
+    });
+});
+```
+
+For production, either put that directory on durable, backed-up storage (a persistent volume in a container deployment), or replace the provider with one of ABP's other providers (Azure, AWS, MinIO, database, and so on) in `VaultExtractHostModule.ConfigureEfCore`. Several host instances must share the same storage.
+
+> The Docker Compose layout below mounts no volume for `App_Data`. Original files written inside the API container are lost when the container is recreated. Mount one before using that layout for anything you keep.
+
+## Authentication and Signing Certificate
+
+The host is its own OpenIddict authorization server. Development mode generates temporary certificates; production needs a real signing certificate:
 
 ```bash
 dotnet dev-certs https -v -ep openiddict.pfx -p <your-certificate-passphrase>
 ```
 
-Place `openiddict.pfx` in the host working directory and configure:
+Place `openiddict.pfx` in the host's working directory and configure:
 
 ```json
 "AuthServer": {
@@ -49,13 +80,11 @@ Place `openiddict.pfx` in the host working directory and configure:
 }
 ```
 
-`CertificatePassPhrase` should also come from the platform's secret store, not from a checked-in file.
+`CertificatePassPhrase` should also come from the secret store. For token lifetimes, encryption credentials and rotation, see ABP's [Configuring OpenIddict for Production](https://abp.io/docs/latest/Deployment/Configuring-OpenIddict#production-environment).
 
-For deeper OpenIddict configuration (token lifetimes, encryption-credential rotation, etc.) see the upstream guide: [Configuring OpenIddict for Production](https://abp.io/docs/latest/Deployment/Configuring-OpenIddict#production-environment).
+## String Encryption Key
 
-## String encryption key
-
-ABP stores some configuration values (e.g. tenant connection strings) encrypted at rest using `StringEncryption:DefaultPassPhrase`. **Never change this key once data has been written** — encrypted values become unreadable.
+ABP encrypts some stored values (for example tenant connection strings) with `StringEncryption:DefaultPassPhrase`. **Never change it after data has been written**: encrypted values become unreadable.
 
 ```json
 "StringEncryption": {
@@ -63,32 +92,38 @@ ABP stores some configuration values (e.g. tenant connection strings) encrypted 
 }
 ```
 
-`appsettings.Development.json` is git-ignored; `appsettings.Production.json` should be created at deploy time and never committed.
+`appsettings.secrets.json`, `appsettings.Production.json` and `appsettings.Staging.json` are git-ignored; create them at deploy time and never commit them. `appsettings.Development.json` is committed and holds no secrets. The host excludes `appsettings.secrets.json` from `dotnet publish`, so a developer's local overrides never reach a deployed server.
 
-## OCR provider
+## Multi-Tenancy
 
-Dignite Vault Extract ships three OCR options ([comparison](../text-extraction/text-extraction.md#ocr--choosing-a-provider)):
+The shipped host runs with multi-tenancy enabled (`VaultExtractHostModule.IsMultiTenant = true`). The Host and each tenant are separate layers: each defines its own document types and fields and sees only its own documents (see [Document Types and Fields](../documents/document-types.md)). `--migrate-database` migrates and seeds the Host database, then seeds every tenant (migrating a tenant's own database first when it has a separate connection string).
 
-- **Vision-LLM** (current default, #259) — `IChatClient`-based, no sidecar; reuses the host's keyed vision chat client. Strongest for phone photos / thermal receipts / image-only PDFs. See [ocr-vision-llm.md](../text-extraction/ocr-vision-llm.md).
-- **PaddleOCR** — local Docker sidecar, CPU, never leaves the network. See [ocr-paddleocr.md](../text-extraction/ocr-paddleocr.md).
-- **Azure Document Intelligence** — cloud option for production workloads that can leave the network. See [ocr-azure-document-intelligence.md](../text-extraction/ocr-azure-document-intelligence.md).
+## OCR Provider
 
-Host module wires exactly one via `[DependsOn(...)]` + matching `<ProjectReference>` in `host/src/Dignite.Vault.Extract.Host.csproj` (switching to/from Vision-LLM also means adding/removing its keyed vision `IChatClient` registration in `ConfigureAI`).
+The host enables exactly **one** OCR provider ([comparison](../text-extraction/text-extraction.md#ocr--choosing-a-provider)):
 
-## AI provider
+- **Vision-LLM** (the shipped default): uses a vision-capable chat model through a keyed `IChatClient`; no sidecar. Strongest for phone photos, thermal receipts and image-only PDFs. See [Vision-LLM OCR](../text-extraction/ocr-vision-llm.md).
+- **PaddleOCR**: a local Docker sidecar on CPU; data never leaves the network. See [PaddleOCR](../text-extraction/ocr-paddleocr.md).
+- **Azure Document Intelligence**: a cloud service for workloads whose data may leave the network. See [Azure Document Intelligence](../text-extraction/ocr-azure-document-intelligence.md).
 
-The keyed `IChatClient` registrations (title generator + structured, plus a vision client when the default Vision-LLM OCR provider is enabled) and their model id selection are covered in [ai-provider.md](../configuration/ai-provider.md). Provider wiring is host-only — credentials never reach the Application or Domain layer. The host does **not** register an `IEmbeddingGenerator` — vectorization is downstream RAG's responsibility, not the channel's.
+Switching means changing the provider module in `VaultExtractHostModule`'s `[DependsOn]` together with the matching `<ProjectReference>` in `host/src/Dignite.Vault.Extract.Host.csproj`. Switching to or from Vision-LLM also adds or removes the keyed vision `IChatClient` registration in `ConfigureAI`.
 
-> **CLAUDE.md constraint**: LLM provider + API key are configured at the host deployment layer, **not** exposed for end-user configuration. Letting business users fill API keys is a product-philosophy mistake (they are not technical users).
+## AI Provider
+
+The keyed `IChatClient` registrations and model selection are described in [AI Provider](../configuration/ai-provider.md). Provider credentials are host configuration only: they never reach the Application or Domain layer, and end customers never configure them. The host registers no `IEmbeddingGenerator`; vectorization is the downstream RAG platform's job.
+
+## Distributed Event Bus
+
+The host configures ABP's transactional outbox and inbox on its `DbContext`, but references no message broker. Without one, distributed events are handled in process. To deliver [integration events](../egress/integration-events.md) to a separate consumer, add an ABP event bus provider (RabbitMQ, Kafka, Azure Service Bus, and so on) to the host.
 
 ## Docker
 
-The deployment Docker Compose layout in `host/etc/docker/docker-compose.yml` wires:
+The Compose layout in `host/etc/docker/docker-compose.yml` defines:
 
-- `vault-extract-web` — Angular SPA
-- `vault-extract-api` — ASP.NET Core API
-- `db-migrator` — runs `dotnet run --migrate-database` once at startup
-- `sql-server` — SQL Server (Azure SQL Edge image for local-equivalent dev)
+- `vault-extract-web`: the Angular SPA
+- `vault-extract-api`: the ASP.NET Core host
+- `db-migrator`: the host image run once with `--migrate-database`
+- `sql-server`: SQL Server (Azure SQL Edge image)
 
 ```bash
 # Build images locally
@@ -104,17 +139,17 @@ cd host/etc/docker
 ./stop-docker.ps1
 ```
 
-For local development without the full image build, see [local-development.md](../get-started/local-development.md) — it runs the API via `dotnet run` against a local SQL Server (LocalDB or container) and only spins up the PaddleOCR / observability sidecars via `host/docker-compose.yml`.
+For day-to-day development without image builds, see [Local Development](../get-started/local-development.md): it runs the host with `dotnet run` and starts only the sidecars from `host/docker-compose.yml`.
 
-## Reverse proxy
+## Reverse Proxy
 
 Skip this section if clients reach the host directly (Kestrel itself, or a load balancer that already forwards WebSockets).
 
-The operator UI's notification bell opens a **WebSocket** to the host at `/signalr-hubs/notifications` ([Operator notifications](../egress/operator-notifications.md)). A WebSocket starts as an ordinary HTTP request that carries `Upgrade: websocket` and `Connection: Upgrade` headers, and many reverse proxies do not forward those two by default, so the handshake fails.
+The operator UI's notification bell opens a **WebSocket** to `/signalr-hubs/notifications` ([Operator Notifications](../egress/operator-notifications.md)). A WebSocket starts as an ordinary HTTP request with `Upgrade: websocket` and `Connection: Upgrade` headers, and many reverse proxies do not forward those two by default, so the handshake fails.
 
-Nothing breaks when that happens. SignalR falls back to Server-Sent Events and then to long polling, and notifications still arrive, because the inbox (`/api/notification-center/notifications`) is the source of truth. The cost is higher latency and more open requests per signed-in user. Treat the proxy setting as part of a correct deployment, not as an outage fix.
+Nothing breaks when that happens: SignalR falls back to Server-Sent Events and then to long polling, and notifications still arrive, because the inbox (`/api/notification-center/notifications`) is the source of truth. The cost is higher latency and more open requests per signed-in user. Treat the proxy setting as part of a correct deployment, not as an outage fix.
 
-This is the default install, where the host itself runs the Notification Center and serves the hub (the monolith). A host in a split deployment installs `Dignite.Abp.Notifications.Client` and `Dignite.Abp.Notifications.EntityFrameworkCore` (or `.MongoDB`) instead, maps the `NotificationCenter` connection string to the notification service's database, and does not serve the hub: the notification service does, so everything in this section applies to the proxy in front of that service. See [Two ways to install the host](../egress/operator-notifications.md#two-ways-to-install-the-host).
+This applies to the default install, where the host runs the Notification Center and serves the hub. In a split deployment the notification service serves the hub, so the proxy in front of that service needs the setting instead. See [Two ways to install the host](../egress/operator-notifications.md#two-ways-to-install-the-host).
 
 nginx (the `map` goes in the `http` block):
 
@@ -139,39 +174,41 @@ server {
 }
 ```
 
-For any other proxy or gateway, make sure the path `/signalr-hubs/` passes the `Upgrade` and `Connection` headers (IIS needs the WebSocket Protocol feature installed), and check that product's WebSocket documentation.
+For any other proxy or gateway, make sure `/signalr-hubs/` passes the `Upgrade` and `Connection` headers (IIS needs the WebSocket Protocol feature) and check that product's WebSocket documentation.
 
-The browser connects to the host directly from the SPA's origin, so `App:CorsOrigins` must list that origin. It is already needed for the REST API.
+The browser connects to the host directly from the SPA's origin, so `App:CorsOrigins` must list that origin; the REST API needs it already. After deploying, check it with the "Operator notifications" section of the [deployment checklist](deployment-checklist.md): the WebSocket request to `/signalr-hubs/notifications` must return `101 Switching Protocols`.
 
-To check it after deploying, use the "Operator notifications" section of the [deployment checklist](deployment-checklist.md): the WebSocket request to `/signalr-hubs/notifications` must come back as `101 Switching Protocols`. In a split deployment that request goes to the notification service.
+The MCP endpoint's rate limiter also needs to know about the proxy; see [Reverse Proxy Client IPs](../egress/mcp-server.md#reverse-proxy-client-ips).
 
 ## Migrations
 
-EF Core migrations live under `host/src/Migrations/`. Apply them with:
+EF Core migrations live under `host/src/Migrations/`. Apply them, and seed the initial data (the `admin` user, the `DocumentManager` and `Viewer` operator roles in the Host and in each tenant, and the OpenIddict clients), by running the host once with `--migrate-database`:
 
 ```bash
 cd host/src
-dotnet run -- --migrate-database
+dotnet run --migrate-database
 ```
 
-Or use ABP's `Dignite.Vault.Extract.DbMigrator` console runner if your deployment topology calls for a separate migration step (it also seeds initial admin / OpenIddict client data).
+The process migrates, prints `Migration completed.` and exits; start the host normally afterwards. `host/migrate-database.ps1` runs the same command, and the Compose layout's `db-migrator` service does the same in a container. There is no separate DbMigrator project.
 
-## Verifying a release
+Releases that need more than a schema migration say so in `CHANGELOG.md`. The 0.3.x → 0.5.x field-storage change has its own runbook: [Field Architecture v2 → v3 Migration](field-architecture-v3-migration.md).
 
-When deploying to a new environment, upgrading critical dependencies, or shipping changes that touch the core pipeline, run through [deployment-checklist.md](deployment-checklist.md). Treat it as a per-release ticket template — copy the relevant sections and tick boxes as you verify.
+## Verifying a Release
 
-## See also
+When deploying to a new environment, upgrading a critical dependency, or shipping a change to the core pipeline, work through the [deployment checklist](deployment-checklist.md). Treat it as a per-release ticket template: copy the relevant sections and tick the boxes as you verify.
 
-- [Local development setup](../get-started/local-development.md) — running on a developer laptop
-- [Text extraction](../text-extraction/text-extraction.md) — choosing and configuring an OCR provider
-- [AI provider](../configuration/ai-provider.md) — wiring the keyed `IChatClient` registrations
-- [Deployment checklist](deployment-checklist.md) — release smoke tests
-- [Observability](observability.md) — OpenTelemetry export targets
+## Database Portability
 
-## Database portability
+SQL Server is the host baseline, but the schema is **provider-agnostic**: it uses ordinary relational columns (typed columns and `nvarchar(max)`), no native JSON column type and no provider-specific index DDL, so it applies on SQL Server, PostgreSQL and other relational providers.
 
-SQL Server is the host baseline, but the schema is **provider-agnostic**: it emits no provider-specific index DDL, so it applies cleanly on SQL Server, PostgreSQL, and other relational providers with no per-provider re-evaluation.
+Layer-scoped uniqueness — document types `(TenantId, TypeCode)`, fields `(TenantId, DocumentTypeId, Name)` and cabinets `(TenantId, Name)` — is enforced in the domain layer by `DocumentTypeManager`, `FieldDefinitionManager` and `CabinetManager`, **not** by a soft-delete-filtered unique index ([#304](https://github.com/dignite-projects/vault-extract/issues/304)). That removes two portability blockers: a provider-specific `HasFilter("IsDeleted = 0")` literal, and reliance on SQL Server treating `NULL`s as equal in a unique index for Host rows (`TenantId IS NULL`), which PostgreSQL does not do by default. Layer scoping comes from ABP's `IMultiTenant` filter, so the same key is allowed in the Host and in a tenant while a duplicate within one layer is rejected.
 
-Layer-scoped uniqueness — `DocumentTypes (TenantId, TypeCode)`, `FieldDefinitions (TenantId, DocumentTypeId, Name)`, and `Cabinets (TenantId, Name)` — is enforced in the application/domain layer by dedicated domain services (`DocumentTypeManager` / `FieldDefinitionManager` / `CabinetManager`), **not** by a soft-delete-filtered DB unique index (#304). This is the ABP-idiomatic approach and removes the previous portability blockers: the non-portable `HasFilter("IsDeleted = 0")` literal, and the reliance on SQL Server's "a unique index treats NULLs as equal" semantics for Host-layer rows (`TenantId IS NULL`) — semantics PostgreSQL does not share by default (`NULLS DISTINCT`). Layer scoping is delegated to ABP's `IMultiTenant` global filter, so the same key is allowed across the Host and tenant layers while a duplicate within one layer is rejected.
+The accepted trade-off is a race between the check and the insert: two concurrent creates of the same key could both pass the check. That is acceptable for these low-frequency, admin-managed entities.
 
-The accepted tradeoff is a TOCTOU race window in the SELECT-then-INSERT check: two concurrent creates of the same key could both pass the check and both insert. This is acceptable for these three low-frequency, admin-managed configuration entities. If a high-concurrency write path is ever added for them, revisit (serializable unit of work / advisory lock / a portable normalized-column unique index).
+## See Also
+
+- [Installation](../get-started/installation.md) — adding the modules to your own ABP host
+- [Local Development](../get-started/local-development.md) — running on a developer machine
+- [Deployment Checklist](deployment-checklist.md) — release smoke tests
+- [Observability](observability.md) — OpenTelemetry export
+- [Options and Features](../configuration/options.md) — every configuration section in one place

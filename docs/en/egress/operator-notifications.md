@@ -1,10 +1,17 @@
-# Operator notifications
+```json
+//[doc-seo]
+{
+    "Description": "The in-app notifications Dignite Vault Extract sends a document's uploader (needs review, failed, rejected, ready), and how to install them as a monolith or a split deployment."
+}
+```
+
+# Operator Notifications
 
 The operator UI tells the person who uploaded a document when something happens to it, through a notification bell in the toolbar and an inbox page. This is the in-app counterpart of the [integration events](integration-events.md): the events are for downstream systems, the notifications are for the person at the keyboard. It is built on [Dignite.NotificationCenter](https://github.com/dignite-projects/abp-modules/tree/main/notifications).
 
 Nothing here is part of the egress contract. No ETO was added and no event payload changed.
 
-## What is sent, and to whom
+## What Is Sent, and to Whom
 
 Each notification goes to **the uploader only** (`Document.CreatorId`). A document with no owner, and any sub-document derived from a container, produces none: a container of 30 pages would otherwise notify 30 times for one upload.
 
@@ -35,7 +42,7 @@ Delivery is the persisted inbox row plus a live push over SignalR (`/signalr-hub
 - **Subscriptions.** The notification module's "Subscriptions" settings tab is not enabled: every notification goes to an explicit recipient, which bypasses subscriptions, so its toggles would do nothing.
 - **Upgrading from `abp-modules` 10.0.0-rc.22 or earlier.** The distribution job is now named `Dignite.Abp.Notifications.Distribute`, and jobs still queued under the old name (`Dignite.Abp.Notifications.NotificationDistributionJobArgs`) are not picked up after the upgrade. Vault Extract sends each notification to one explicit recipient, which is distributed inline (up to five recipients by default), so its own queue is normally empty. Check that `AbpBackgroundJobs` holds no row with the old `JobName` before you deploy; if it does, let the old version drain them first. No EF migration.
 
-## Two ways to install the host
+## Two Ways to Install the Host
 
 The Application module, the four definitions and the publishing code are the same in both. `Dignite.Vault.Extract.Application` references `Dignite.Abp.Notifications.Abstractions` only (the definitions, the routing options and `INotificationPublisher`) and depends on `AbpNotificationsAbstractionsModule`; it never references the in-process implementation, which would put the distributor into every process that embeds Application. What differs is which packages the host installs, and so where the inbox, the channels and the SignalR hub live. Everything above describes the first.
 
@@ -56,7 +63,7 @@ In a split deployment:
 
 The notification service has settings of its own (dynamic permission, feature and definition stores, the event inbox failure policy). They are described in the "Split deployment" section of the [Dignite.Abp.Notifications README](https://github.com/dignite-projects/abp-modules/tree/main/notifications), not repeated here.
 
-## For a host that embeds Application
+## For a Host That Embeds Application
 
 The handler and the four notification definitions are part of `Dignite.Vault.Extract.Application`, so any host that includes it already publishes. What happens to the notifications is the host's choice:
 
@@ -66,3 +73,9 @@ The handler and the four notification definitions are part of `Dignite.Vault.Ext
 - **Inbox in a notification service:** depend on `AbpNotificationsClientModule` (`Dignite.Abp.Notifications.Client`) and the definition store (`AbpNotificationsEntityFrameworkCoreModule` or `AbpNotificationsMongoDbModule`) instead of the Notification Center, as described under [Two ways to install the host](#two-ways-to-install-the-host).
 
 The notification names (`VaultExtract.Document.NeedsReview`, `.Failed`, `.Rejected`, `.Ready`) and the entity type `VaultExtract.Document` are stored with each notification and are frozen.
+
+## See Also
+
+- [Integration Events](integration-events.md) — the egress contract for downstream systems
+- [Deployment: Reverse Proxy](../deployment/deployment.md#reverse-proxy)
+- [Dignite.Abp.Notifications](https://github.com/dignite-projects/abp-modules/tree/main/notifications)

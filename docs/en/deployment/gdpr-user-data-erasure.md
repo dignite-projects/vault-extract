@@ -1,8 +1,15 @@
-# GDPR user-data erasure
+```json
+//[doc-seo]
+{
+    "Description": "What Dignite Vault Extract erases when ABP's GDPR module reports a user-data deletion request: the uploader name on every document, across the Host and every tenant."
+}
+```
+
+# GDPR User-Data Erasure
 
 When ABP's GDPR module reports that a user asked for their data to be deleted, Vault Extract erases that user's name from every document they uploaded. Documents themselves are kept. Decision record: [#698](https://github.com/dignite-projects/vault-extract/issues/698).
 
-## What is erased, and what is not
+## What Is Erased, and What Is Not
 
 Every uploaded document stores a snapshot of the uploader's display name, so the document can still say who uploaded it after the account is gone. On an erasure request that snapshot (`FileOrigin.UploadedByUserName`, shown as the uploader on the document detail page) is replaced by the fixed text `[deleted user]`.
 
@@ -15,7 +22,7 @@ One consequence to know about: once the account is gone, nobody holds the owner 
 
 Not handled here, because it belongs to other modules: the notification inbox (Dignite.NotificationCenter), ABP's audit log, permission grants and tokens, and any copy a downstream consumer already received. Operator notifications are still addressed to `CreatorId`, so a later state change on one of the user's documents can create a new inbox row for the erased user's id; it carries no name and nobody can read it. Personal data inside a document's own content is also out of scope.
 
-## When it runs
+## When It Runs
 
 The handler subscribes to `GdprUserDataDeletionRequestedEto` from the `Volo.Abp.Gdpr.Abstractions` package. **That event is published by ABP's GDPR module, which is a commercial module (ABP Team license or higher).** Vault Extract does not ship it, so on a host without that module nothing ever publishes the event and the handler stays idle. Hosts that run the module need no configuration.
 
@@ -23,7 +30,7 @@ The event names the user and, from ABP 10.7 on, the tenant the deletion was requ
 
 The cost of the sweep is one `UPDATE` per tenant, matching no rows in the layers where the user uploaded nothing. The ABP 10.7 behaviour was checked against the released packages: `GdprUserDataDeletionRequestedEto` carries a `TenantId`, the GDPR module's publisher sets it to the tenant of the request, and the event bus runs the handler inside that tenant when it is set. The handler does not read it.
 
-## Delivery and failure
+## Delivery and Failure
 
 Delivery is at-least-once, and the erasure is idempotent: a redelivered event matches no rows and changes nothing. An unknown user id is a no-op.
 
@@ -45,3 +52,8 @@ A successful erasure logs, per layer, `erased the uploader name on N document(s)
 ## Database
 
 No migration. The erasure is one `UPDATE` per layer on the existing `Documents` table. It changes `UploadedByUserName` and the concurrency stamp, and nothing else: `LastModificationTime` and `LastModifierId` stay as they were, so the trace of anyone else who edited a document survives.
+
+## See Also
+
+- [Per-Document-Type Permissions](../configuration/document-type-permissions.md)
+- [ABP GDPR Module](https://abp.io/docs/latest/modules/gdpr)

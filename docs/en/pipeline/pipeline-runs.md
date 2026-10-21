@@ -1,6 +1,25 @@
+```json
+//[doc-seo]
+{
+    "Description": "Dignite Vault Extract's pipeline run history: run records, statuses, retries, the classification-candidates payload for the review UI and runs ended by a deletion."
+}
+```
+
 # Pipeline Runs
 
-`DocumentPipelineRun` records the execution history of document processing pipelines. Common state such as `PipelineCode`, `Status`, `AttemptNumber`, `StartedAt`, `CompletedAt`, and `StatusMessage` is stored as first-class properties.
+`DocumentPipelineRun` records the execution history of document processing pipelines. Common state such as `PipelineCode`, `Status`, `AttemptNumber`, `StartedAt`, `CompletedAt`, and `StatusMessage` is stored as first-class properties. The detail page shows a document's runs (`GET /api/vault-extract/document-pipeline-runs?documentId=`, readable by anyone who may read the document).
+
+## Pipelines
+
+| Pipeline code | Background job | Key pipeline | Starts |
+| --- | --- | --- | --- |
+| `text-extraction` | `VaultExtract.DocumentParse` | Yes | After upload, on a re-parse, or on a retry |
+| `classification` | `VaultExtract.DocumentClassification` | Yes | After text extraction; on an operator type assignment (completed without an LLM call) |
+| `field-extraction` | `VaultExtract.DocumentFieldExtraction` | Yes (not for containers) | After classification, or on a re-extraction |
+
+The latest run of each **key pipeline**, with the document's review reasons, decides its lifecycle status; see [Documents and Review](../documents/documents.md#lifecycle-statuses). Sub-document segmentation (`VaultExtract.DocumentSegmentation`) and cabinet suggestion (`VaultExtract.DocumentCabinetSuggestion`) run as background jobs too but record no pipeline run.
+
+A transient failure (a network error or timeout of the LLM or OCR provider) is rethrown so that ABP's background job manager retries the job. A run that fails is marked `Failed`, and so is the document, until a later attempt succeeds. An operator can also retry the stage (`POST /api/vault-extract/documents/{id}/retry-pipeline`, with the `Documents.Pipelines.Retry` permission, a per-type `Edit` grant, or ownership). The jobs run on whatever background job manager the host configures; the shipped host uses ABP's default manager with the EF Core job store.
 
 Pipeline-specific outputs are stored in `DocumentPipelineRun.ExtraProperties`. Keys are defined in `PipelineRunExtraPropertyNames`; each pipeline owns the shape of its own payload.
 
@@ -16,7 +35,7 @@ This payload is written when classification finishes with low confidence. It exi
 
 The server does not currently consume this payload for business decisions after writing it. Treat it as a UI-facing payload, not a domain rule source.
 
-### Two-channel exposure
+### Two-Channel Exposure
 
 The payload is exposed to clients through **two** channels — both backed by the same `ExtraProperties["Candidates"]` storage:
 
@@ -55,10 +74,16 @@ Reading on the server normally goes through `DocumentPipelineRunToDocumentPipeli
 
 Use `run.candidates` directly. Treat `null` as "no low-confidence candidate list" — do not coalesce to an empty array if you need to distinguish "no review needed" from "reviewed and resolved without candidates".
 
-## Runs ended by a deletion
+## Runs Ended by a Deletion
 
 A document can be deleted while one of its pipeline jobs (text extraction, classification, field extraction) is still queued: an operator deletes it, or it is a sub-document withdrawn because its parent was re-parsed or reclassified from a bundle to a single type. When the job's turn comes, it ends at once and marks its run **Failed** with the message *"The document was deleted before this run could complete."* ([#662](https://github.com/dignite-projects/vault-extract/issues/662)). Nothing is published.
 
 If the document is restored from the recycle bin, it comes back with that failed run. Retry the pipeline from the detail page to continue; it is not resumed automatically. (A withdrawn sub-document cannot be restored — its parent's split no longer produces it.)
 
 A document deleted *while* a job is working on it fails that attempt, and the job's automatic retry then ends it the same way.
+
+## See Also
+
+- [Documents and Review](../documents/documents.md)
+- [Classification](classification.md)
+- [Reprocessing](reprocessing.md)
