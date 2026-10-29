@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-29
+
 ### Changed
 
 - **abp-modules `10.7.1`** (was `10.7.0`), on both sides: `Dignite.Abp.FlexFields.*`, `Dignite.Abp.AspNetCore.Mcp`, `Dignite.Abp.Notifications.*`, `Dignite.NotificationCenter.*` and `@dignite/ng.flex-fields(-ckeditor)` / `@dignite/ng.notification-center` (and the lockfile). `Dignite.Abp.AspNetCore.Mcp` 10.7.1 adds the scope to the MCP endpoint's `401` challenge (`WWW-Authenticate: Bearer resource_metadata="…", scope="…"`, from `ScopesSupported`, which the host already sets), so a client that found no scope in the challenge no longer falls back to every scope the authorization server lists and gets refused. Nothing to configure.
