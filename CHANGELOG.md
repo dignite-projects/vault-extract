@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **abp-modules `10.7.1`** (was `10.7.0`), on both sides: `Dignite.Abp.FlexFields.*`, `Dignite.Abp.AspNetCore.Mcp`, `Dignite.Abp.Notifications.*`, `Dignite.NotificationCenter.*` and `@dignite/ng.flex-fields(-ckeditor)` / `@dignite/ng.notification-center` (and the lockfile). `Dignite.Abp.AspNetCore.Mcp` 10.7.1 adds the scope to the MCP endpoint's `401` challenge (`WWW-Authenticate: Bearer resource_metadata="…", scope="…"`, from `ScopesSupported`, which the host already sets), so a client that found no scope in the challenge no longer falls back to every scope the authorization server lists and gets refused. Nothing to configure.
+- **`ModelContextProtocol.AspNetCore` 2.3.0** (was 2.1.0), which Dignite.Abp.AspNetCore.Mcp 10.7.1 requires, and with it **`Microsoft.Extensions.AI`, `.Abstractions` and `.OpenAI` 10.11.0** (were 10.9.0): the SDK needs `Microsoft.Extensions.AI.Abstractions` 10.11.0 or later, and the vision and extraction code share one version of the family. `Dignite.Vault.Extract.Mcp` no longer overrides the abstractions' version on its own. The test suites pass; the extraction against real vendors was not re-run for this bump.
+
 ### Fixed
 
 - A refused upload no longer leaves an orphaned file in the `extract-documents` blob container. `UploadAsync` saved

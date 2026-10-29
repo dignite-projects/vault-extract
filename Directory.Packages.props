@@ -73,13 +73,13 @@
          They drifted 6 rc's apart (rc.5 here against rc.11 there) with no build ever catching it before
          this note was added. -->
     <ItemGroup Label="FlexFields">
-        <PackageVersion Include="Dignite.Abp.FlexFields.Abstractions" Version="10.7.0" />
-        <PackageVersion Include="Dignite.Abp.FlexFields.Domain" Version="10.7.0" />
-        <PackageVersion Include="Dignite.Abp.FlexFields.EntityFrameworkCore" Version="10.7.0" />
+        <PackageVersion Include="Dignite.Abp.FlexFields.Abstractions" Version="10.7.1" />
+        <PackageVersion Include="Dignite.Abp.FlexFields.Domain" Version="10.7.1" />
+        <PackageVersion Include="Dignite.Abp.FlexFields.EntityFrameworkCore" Version="10.7.1" />
         <!-- Serves FieldDataType.LongText in v3: CKEditorFieldType.IndexValueType is null, so
              "never indexed, never queryable" stays a structural guarantee, and ContentFormat=Markdown
              persists the value as a plain GFM string (#559 resolution 1). -->
-        <PackageVersion Include="Dignite.Abp.FlexFields.CKEditor" Version="10.7.0" />
+        <PackageVersion Include="Dignite.Abp.FlexFields.CKEditor" Version="10.7.1" />
     </ItemGroup>
 
     <ItemGroup Label="LeptonX">
@@ -91,20 +91,20 @@
     </ItemGroup>
 
     <ItemGroup Label="AI">
-        <PackageVersion Include="Microsoft.Extensions.AI" Version="10.9.0" />
-        <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.9.0" />
-        <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.9.0" />
+        <PackageVersion Include="Microsoft.Extensions.AI" Version="10.11.0" />
+        <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.11.0" />
+        <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.11.0" />
         <PackageVersion Include="Microsoft.Agents.AI" Version="1.20.0" />
     </ItemGroup>
 
     <ItemGroup Label="MCP">
         <!-- At least the version Dignite.Abp.AspNetCore.Mcp is built against: every module on one MCP
              server shares this SDK, so it moves with abp-modules rather than on its own. -->
-        <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="2.1.0" />
+        <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="2.3.0" />
         <!-- The shared MCP server (transport, /mcp, permission filtering, error envelope, namespaces) that
              Dignite.Vault.Extract.Mcp contributes its tools to. Released with abp-modules in lockstep, so
              it moves with the Dignite.Abp.FlexFields.* pins above. -->
-        <PackageVersion Include="Dignite.Abp.AspNetCore.Mcp" Version="10.7.0" />
+        <PackageVersion Include="Dignite.Abp.AspNetCore.Mcp" Version="10.7.1" />
     </ItemGroup>
 
     <ItemGroup Label="Notifications">
@@ -112,11 +112,11 @@
              abp-modules (no GitHub Packages source needed). The NuGet packages and the npm package
              @dignite/ng.notification-center always share one version - keep this equal to
              angular/package.json's pin. -->
-        <PackageVersion Include="Dignite.Abp.Notifications.Abstractions" Version="10.7.0" />
-        <PackageVersion Include="Dignite.Abp.Notifications.SignalR" Version="10.7.0" />
-        <PackageVersion Include="Dignite.NotificationCenter.Application" Version="10.7.0" />
-        <PackageVersion Include="Dignite.NotificationCenter.HttpApi" Version="10.7.0" />
-        <PackageVersion Include="Dignite.NotificationCenter.EntityFrameworkCore" Version="10.7.0" />
+        <PackageVersion Include="Dignite.Abp.Notifications.Abstractions" Version="10.7.1" />
+        <PackageVersion Include="Dignite.Abp.Notifications.SignalR" Version="10.7.1" />
+        <PackageVersion Include="Dignite.NotificationCenter.Application" Version="10.7.1" />
+        <PackageVersion Include="Dignite.NotificationCenter.HttpApi" Version="10.7.1" />
+        <PackageVersion Include="Dignite.NotificationCenter.EntityFrameworkCore" Version="10.7.1" />
     </ItemGroup>
 
     <ItemGroup Label="OpenTelemetry">
